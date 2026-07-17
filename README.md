@@ -1,4 +1,5 @@
 # MetaKavita
+<img width="1920" height="1080" alt="{6E249195-1237-4C12-A779-14CDBF1C981B}" src="https://github.com/user-attachments/assets/1db72309-5136-41b0-9e08-5a79f7760b8a" />
 
 Outil d'automatisation conçu pour enrichir les métadonnées de ta bibliothèque [Kavita](https://kavitareader.com/). Il récupère automatiquement les informations (résumés, années, genres, tags, personnel) depuis [AniList](https://anilist.co/) et traduit les résumés via [DeepL](https://www.deepl.com/).
 
