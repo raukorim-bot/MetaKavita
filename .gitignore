@@ -1,0 +1,13 @@
+# Secrets
+config.json
+docker-compose.yml
+
+# Bases de données & Logs
+cache.db
+metakavita.log
+
+# Python / Divers
+__pycache__/
+*.pyc
+venv/
+.env

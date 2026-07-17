@@ -1,0 +1,7 @@
+{
+    "KAVITA_URL": "http://ton-url-ou-ip:port",
+    "KAVITA_API_KEY": "TA_CLE_API_KAVITA",
+    "DEEPL_API_KEY": "TA_CLE_API_DEEPL",
+    "TARGET_LANG": "FR",
+    "UI_LANG": "fr"
+}
