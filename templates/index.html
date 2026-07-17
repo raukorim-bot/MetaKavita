@@ -5,20 +5,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MetaKavita Dashboard</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
-    <!-- Police Premium (Inter) -->
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-    <!-- Chargement du CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
-    
-    <!-- Prévention du flash blanc au chargement -->
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
-    </script>
-    
-    <!-- Injection des traductions pour le fichier Javascript externe -->
-    <script>
         window.AppTranslations = {
             save: "{{ t.save }}",
             update: "{{ t['update'] }}",
@@ -28,8 +20,6 @@
 </head>
 <body>
     <div class="dashboard-wrapper">
-        
-        <!-- En-tête -->
         <header class="topbar">
             <div class="logo">
                 <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="logo-img">
@@ -42,11 +32,34 @@
         </header>
 
         <div class="dashboard-body">
-            
-            <!-- Colonne Latérale (Sidebar) -->
             <aside class="sidebar">
                 
-                <!-- Section Configuration -->
+                <div class="card">
+                    <h3 class="section-title">📊 Statistiques</h3>
+                    <div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px;">
+                        <div>
+                            <h4 style="margin:0; color: var(--success); font-size: 1.2rem;">{{ stats.completed }}</h4>
+                            <small class="text-muted">Enrichis</small>
+                        </div>
+                        <div>
+                            <h4 style="margin:0; color: var(--danger); font-size: 1.2rem;">{{ stats.not_found }}</h4>
+                            <small class="text-muted">Erreurs</small>
+                        </div>
+                        <div>
+                            <h4 style="margin:0; color: var(--warning); font-size: 1.2rem;">{{ stats.pending }}</h4>
+                            <small class="text-muted">Attente</small>
+                        </div>
+                    </div>
+                    <div style="width: 100%; background: var(--bg-input); height: 8px; border-radius: 4px; overflow: hidden; display: flex;">
+                        {% if stats.total > 0 %}
+                        <div style="width: {{ (stats.completed / stats.total) * 100 }}%; background: var(--success);"></div>
+                        <div style="width: {{ (stats.not_found / stats.total) * 100 }}%; background: var(--danger);"></div>
+                        <div style="width: {{ (stats.pending / stats.total) * 100 }}%; background: var(--warning);"></div>
+                        {% endif %}
+                    </div>
+                    <a href="/stats" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">Ouvrir la page détaillée</a>
+                </div>
+
                 <div id="configSection" class="card">
                     <h3 class="section-title">Configuration</h3>
                     {% if msg %}<div class="alert success">{{ msg }}</div>{% endif %}
@@ -60,22 +73,18 @@
                                 <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
                             </select>
                         </div>
-
                         <div class="form-group">
                             <label>{{ t.kavita_url }}</label>
                             <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
                         </div>
-                        
                         <div class="form-group">
                             <label>{{ t.kavita_api }}</label>
                             <input type="text" name="KAVITA_API_KEY" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
                         </div>
-                        
                         <div class="form-group">
                             <label>{{ t.deepl_api }}</label>
                             <input type="text" name="DEEPL_API_KEY" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
                         </div>
-                        
                         <div class="form-group">
                             <label>{{ t.target_lang }}</label>
                             <select name="TARGET_LANG" onchange="this.form.submit()">
@@ -91,13 +100,19 @@
                                 <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
                             </select>
                         </div>
+                        <div class="form-group">
+                            <label>{{ t.provider_source | default("Source de métadonnées :") }}</label>
+                            <select name="PROVIDER" onchange="this.form.submit()">
+                                <option value="ANILIST" {% if config.get("PROVIDER") == "ANILIST" %}selected{% endif %}>AniList (International)</option>
+                                <option value="NAUTILJON" {% if config.get("PROVIDER") == "NAUTILJON" %}selected{% endif %}>Nautiljon (Francophone)</option>
+                            </select>
+                        </div>
                         <button type="submit" class="btn-primary w-100">{{ t.save_settings }}</button>
                     </form>
                 </div>
 
-                <!-- Gestion de la Bibliothèque -->
                 <div class="card">
-                    <h3 class="section-title">Bibliothèque</h3>
+                    <h3 class="section-title">Outils Base de données</h3>
                     {% if libraries %}
                     <form method="GET" action="/" class="mb-3">
                         <select name="library_id" id="lib_selector" onchange="this.form.submit()">
@@ -121,7 +136,6 @@
                     {% endif %}
                 </div>
                 
-                <!-- Section Logs -->
                 <div class="logs-container card" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
                     <h3 class="section-title m-0 mb-2">{{ t.live_logs }}</h3>
                     <div id="log-console" class="log-console" style="flex: 1;">
@@ -129,7 +143,6 @@
                     </div>
                 </div>
 
-                <!-- Footer Sidebar (Crédits & Liens) -->
                 <div class="sidebar-footer">
                     <p>Développé par <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
                     <p>
@@ -137,19 +150,16 @@
                         <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">Signaler un bug</a>
                     </p>
                 </div>
-
             </aside>
 
-            <!-- Zone Principale (Séries & Logs) -->
             <main class="content">
-                
                 {% if libraries %}
                 <form id="batchForm" onsubmit="launchBatch(event)" class="main-form">
                     <input type="hidden" name="library_id" value="{{ selected_lib or '' }}">
                     
                     <div class="toolbar card">
                         <div class="toolbar-left">
-                            <h2 class="m-0">{{ t.series_avail }}</h2>
+                            <h2 class="m-0">{{ t.series_avail }} <span id="visibleCount" class="badge badge-pending">0 élément</span></h2>
                             <select id="statusFilter" onchange="filterSeries()">
                                 <option value="ALL">{{ t.filter_all }}</option>
                                 <option value="PENDING">{{ t.filter_pending }}</option>
@@ -215,19 +225,15 @@
                     </div>
                     {% endif %}
 
-                    <!-- Boutons de Batch redésignés -->
                     <div class="batch-actions">
                         <button type="submit" class="btn-batch" id="mainBatchBtn">🚀 {{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">🛑 {{ t.stop_batch }}</button>
                     </div>
                 </form>
                 {% endif %}
-
             </main>
         </div>
     </div>
-
-    <!-- Chargement du Javascript externe -->
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

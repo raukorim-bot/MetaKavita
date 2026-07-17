@@ -311,19 +311,63 @@ button, .block-link {
 ::-webkit-scrollbar-thumb { background: var(--secondary); border-radius: 4px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--primary); }
 
-/* --- RESPONSIVE DESIGN --- */
+/* --- RESPONSIVE DESIGN (Mobiles & Fenêtres étroites) --- */
 @media (max-width: 850px) {
-    body { height: auto; overflow: auto; }
-    .dashboard-body { flex-direction: column; overflow: visible; height: auto; }
-    .sidebar { width: 100%; border-right: none; border-bottom: 1px solid var(--border-color); padding: 15px; }
-    .content { overflow: visible; height: auto; }
-    .main-form { overflow: visible; height: auto; }
-    .toolbar { flex-direction: column; align-items: stretch; gap: 15px; }
-    .toolbar-left, .toolbar-right { flex-wrap: wrap; justify-content: space-between; }
-    .series-container { overflow: visible; }
-    .series-list { overflow-y: visible; max-height: none; }
-    .series-row { flex-direction: column; align-items: flex-start; gap: 12px; }
-    .series-actions { width: 100%; justify-content: flex-end; }
-    .override-grid { grid-template-columns: 1fr; }
-    .batch-actions { flex-direction: column; }
+    /* On laisse le document défiler normalement */
+    body {
+        height: auto !important;
+        overflow-y: auto !important;
+    }
+    
+    .dashboard-wrapper {
+        height: auto !important;
+        overflow: visible !important;
+    }
+    
+    .dashboard-body {
+        flex-direction: column;
+        overflow: visible;
+        height: auto !important;
+    }
+    
+    .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 15px;
+        overflow-y: visible; /* On laisse la sidebar scroller avec la page */
+    }
+    
+    .content {
+        overflow: visible;
+        height: auto !important;
+        padding: 15px;
+    }
+    
+    .main-form {
+        overflow: visible;
+        height: auto !important;
+    }
+
+    .toolbar {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 15px;
+    }
+
+    .series-container {
+        height: auto !important;
+        overflow: visible;
+    }
+    
+    .series-list {
+        overflow-y: visible;
+        max-height: none;
+        height: auto !important;
+    }
+    
+    /* On force les logs à prendre leur place sans casser le layout */
+    .logs-container {
+        min-height: 200px !important;
+    }
 }

@@ -19,11 +19,13 @@ function toggleConfig() {
     localStorage.setItem('configHidden', !isHidden);
 }
 
-window.addEventListener('load', () => {
+document.addEventListener('DOMContentLoaded', () => {
     if (localStorage.getItem('configHidden') === 'true') {
         const configSection = document.getElementById('configSection');
         if(configSection) configSection.style.display = 'none';
     }
+    // Appel forcé pour mettre à jour le compteur dès le chargement !
+    filterSeries();
 });
 
 // --- ACTIONS SUR LES SÉRIES ---
@@ -48,7 +50,7 @@ async function saveAllOverrides() {
     const panels = document.querySelectorAll('.override-panel');
     for (let panel of panels) {
         if (panel.style.display === 'block') {
-            panel.querySelector('button').click();
+            panel.querySelector('button.btn-success').click();
             await new Promise(r => setTimeout(r, 200));
         }
     }
@@ -56,9 +58,11 @@ async function saveAllOverrides() {
 
 function filterSeries() {
     const filter = document.getElementById('statusFilter').value;
+    let count = 0;
     document.querySelectorAll('.series-item').forEach(item => {
         if (filter === 'ALL' || item.dataset.status === filter) {
             item.style.display = 'flex';
+            count++;
         } else {
             item.style.display = 'none';
             const cb = item.querySelector('.series-cb');
@@ -66,6 +70,11 @@ function filterSeries() {
         }
     });
     document.getElementById('selectAll').checked = false;
+    
+    const countElem = document.getElementById('visibleCount');
+    if(countElem) {
+        countElem.innerText = count + " élément" + (count > 1 ? "s" : "");
+    }
 }
 
 function toggleSelectAll() {
@@ -80,10 +89,36 @@ function toggleSelectAll() {
 
 // --- SYNCHRONISATION ---
 function syncSingle(id, name, btn) {
-    btn.style.display = 'none';
-    btn.previousElementSibling.style.display = 'none'; 
-    let loading = btn.nextElementSibling;
-    loading.style.display = 'inline-block';
+    const forcedIdInput = document.getElementById('id-' + id);
+    const altTitleInput = document.getElementById('title-' + id);
+    
+    if(forcedIdInput && altTitleInput) {
+        const forcedId = forcedIdInput.value;
+        const altTitle = altTitleInput.value;
+        
+        btn.style.display = 'none';
+        btn.previousElementSibling.style.display = 'none'; 
+        let loading = btn.nextElementSibling;
+        loading.style.display = 'inline-block';
+        
+        fetch('/save-override', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: `series_id=${id}&forced_id=${forcedId}&alternative_title=${encodeURIComponent(altTitle)}`
+        }).then(() => proceedSyncSingle(id, name, btn, loading));
+    } else {
+        proceedSyncSingle(id, name, btn, null);
+    }
+}
+
+function proceedSyncSingle(id, name, btn, loadingElem) {
+    let loading = loadingElem;
+    if(!loading) {
+        btn.style.display = 'none';
+        btn.previousElementSibling.style.display = 'none'; 
+        loading = btn.nextElementSibling;
+        loading.style.display = 'inline-block';
+    }
 
     fetch('/force-sync', {
         method: 'POST',
@@ -158,9 +193,9 @@ socket.on('log_update', function(msg) {
     var newLog = document.createElement('div');
     newLog.className = 'log-line';
     newLog.textContent = msg.data;
-    if (msg.data.includes('ERROR') || msg.data.includes('Échec') || msg.data.includes('🛑')) {
+    if (msg.data.includes('ERROR') || msg.data.includes('❌') || msg.data.includes('💥')) {
         newLog.className += ' log-error';
-    } else if (msg.data.includes('WARNING') || msg.data.includes('Introuvable')) {
+    } else if (msg.data.includes('WARNING') || msg.data.includes('⚠️')) {
         newLog.className += ' log-warning';
     }
     logConsole.appendChild(newLog);

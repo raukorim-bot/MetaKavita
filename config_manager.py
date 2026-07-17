@@ -4,7 +4,7 @@ import os
 CONFIG_FILE = "config.json"
 
 def load_config():
-    config = {"KAVITA_URL": "", "KAVITA_API_KEY": "", "DEEPL_API_KEY": "", "TARGET_LANG": "FR", "UI_LANG": "fr"}
+    config = {"KAVITA_URL": "", "KAVITA_API_KEY": "", "DEEPL_API_KEY": "", "TARGET_LANG": "FR", "UI_LANG": "fr", "PROVIDER": "ANILIST"}
     
     if os.path.exists(CONFIG_FILE):
         try:
@@ -18,6 +18,7 @@ def load_config():
     config["DEEPL_API_KEY"] = os.getenv("DEEPL_API_KEY", config.get("DEEPL_API_KEY", ""))
     config["TARGET_LANG"] = os.getenv("TARGET_LANG", config.get("TARGET_LANG", "FR"))
     config["UI_LANG"] = os.getenv("UI_LANG", config.get("UI_LANG", "fr"))
+    config["PROVIDER"] = os.getenv("PROVIDER", config.get("PROVIDER", "ANILIST"))
     
     return config
 

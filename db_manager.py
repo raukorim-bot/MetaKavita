@@ -6,10 +6,11 @@ DB_FILE = "cache.db"
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
+    # Remplacement de INTEGER par TEXT pour forced_id afin de supporter les slugs Nautiljon
     c.execute('''CREATE TABLE IF NOT EXISTS series_cache
                  (series_id INTEGER PRIMARY KEY, 
                   status TEXT, 
-                  forced_id INTEGER, 
+                  forced_id TEXT, 
                   alternative_title TEXT)''')
     conn.commit()
     conn.close()
@@ -25,10 +26,10 @@ def update_status(series_id, status):
 def save_forced_overrides(series_id, forced_id, alt_title):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    f_id = int(forced_id) if forced_id and str(forced_id).isdigit() else None
+    # Suppression de .isdigit() pour autoriser l'enregistrement de texte (slugs)
+    f_id = forced_id.strip() if forced_id else None
     a_title = alt_title.strip() if alt_title else None
     
-    # Correction de la syntaxe SQL ici
     c.execute('''INSERT INTO series_cache (series_id, status, forced_id, alternative_title) 
                  VALUES (?, 'PENDING', ?, ?)
                  ON CONFLICT(series_id) DO UPDATE SET 

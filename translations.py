@@ -6,6 +6,7 @@ translations = {
         "deepl_api": "Clé API DeepL :",
         "target_lang": "Langue de traduction (DeepL) :",
         "ui_lang": "Langue de l'interface :",
+        "provider_source": "Source de métadonnées :",
         "save_settings": "Sauvegarder les paramètres",
         "series_avail": "📚 Séries Disponibles",
         "all_libs": "Toutes les bibliothèques",
@@ -28,7 +29,8 @@ translations = {
         "save": "💾 Sauver",
         "alt_title": "Titre Alternatif :",
         "anilist_id": "ID AniList :",
-        "processing": "Calcul..."
+        "processing": "Calcul...",
+        "stats_title": "📊 Statistiques"
     },
     "en": {
         "title": "⚙️ MetaKavita Configuration",
@@ -37,6 +39,7 @@ translations = {
         "deepl_api": "DeepL API Key:",
         "target_lang": "Translation Language (DeepL):",
         "ui_lang": "Interface Language:",
+        "provider_source": "Metadata Source:",
         "save_settings": "Save Settings",
         "series_avail": "📚 Available Series",
         "all_libs": "All libraries",
@@ -59,6 +62,7 @@ translations = {
         "save": "💾 Save",
         "alt_title": "Alternative Title:",
         "anilist_id": "AniList ID:",
-        "processing": "Processing..."
+        "processing": "Processing...",
+        "stats_title": "📊 Statistics"
     }
-}
+} 
