@@ -1,11 +1,21 @@
 <!DOCTYPE html>
-<html lang="{{ config.get('UI_LANG', 'fr') }}">
+<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark">
 <head>
     <meta charset="UTF-8">
-    <title>MetaKavita</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MetaKavita Dashboard</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <!-- Police Premium (Inter) -->
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Chargement du CSS -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    
+    <!-- Prévention du flash blanc au chargement -->
+    <script>
+        const savedTheme = localStorage.getItem('theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+    </script>
     
     <!-- Injection des traductions pour le fichier Javascript externe -->
     <script>
@@ -17,158 +27,203 @@
     </script>
 </head>
 <body>
-    <div class="container">
+    <div class="dashboard-wrapper">
         
-        <!-- En-tête avec bouton de masquage -->
-        <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 2px solid #45475a; padding-bottom: 10px; margin-bottom: 15px;">
-            <h2 style="border: none; padding: 0; margin: 0;">{{ t.title }}</h2>
-            <button type="button" onclick="toggleConfig()" style="background-color: #45475a; color: #cdd6f4; font-size: 12px; padding: 5px 10px;">👁️ Masquer/Afficher</button>
-        </div>
-        
-        <!-- Section Configuration -->
-        <div id="configSection">
-            {% if msg %}<div class="success">{{ msg }}</div>{% endif %}
-            {% if error_msg %}<div class="error">{{ error_msg }}</div>{% endif %}
-            
-            <form method="POST" action="/">
-                <label>{{ t.ui_lang }}</label>
-                <select name="UI_LANG" onchange="this.form.submit()" style="cursor: pointer; background-color: #45475a;">
-                    <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
-                    <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
-                </select>
-
-                <label>{{ t.kavita_url }}</label>
-                <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
-                <label>{{ t.kavita_api }}</label>
-                <input type="text" name="KAVITA_API_KEY" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
-                <label>{{ t.deepl_api }}</label>
-                <input type="text" name="DEEPL_API_KEY" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
-                
-                <label>{{ t.target_lang }}</label>
-                <select name="TARGET_LANG" onchange="this.form.submit()" style="cursor: pointer;">
-                    <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
-                    <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
-                    <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
-                    <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
-                    <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
-                    <option value="PT-BR" {% if config.get('TARGET_LANG') == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
-                    <option value="NL" {% if config.get('TARGET_LANG') == 'NL' %}selected{% endif %}>Nederlands</option>
-                    <option value="PL" {% if config.get('TARGET_LANG') == 'PL' %}selected{% endif %}>Polski</option>
-                    <option value="RU" {% if config.get('TARGET_LANG') == 'RU' %}selected{% endif %}>Русский</option>
-                    <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
-                </select>
-                <button type="submit">{{ t.save_settings }}</button>
-            </form>
-        </div>
-
-        <hr style="border-color: #45475a; margin: 35px 0;">
-
-        <h2>{{ t.series_avail }}</h2>
-        
-        <div style="display: flex; gap: 10px; margin-bottom: 15px;">
-            {% if libraries %}
-            <form method="GET" action="/" style="flex-grow: 1; margin: 0;">
-                <select name="library_id" id="lib_selector" onchange="this.form.submit()" style="margin: 0; cursor: pointer;">
-                    <option value="">{{ t.all_libs }}</option>
-                    {% for lib in libraries %}
-                    <option value="{{ lib.id }}" {% if selected_lib == lib.id|string %}selected{% endif %}>{{ lib.name }}</option>
-                    {% endfor %}
-                </select>
-            </form>
-            {% endif %}
-            
-            <form method="POST" action="/reset-errors" style="margin: 0;">
-                <input type="hidden" name="library_id" value="{{ selected_lib or '' }}">
-                <button type="submit" style="background-color: #f9e2af; color: #11111b; height: 100%; padding: 0 15px;">{{ t.reset_errors }}</button>
-            </form>
-        </div>
-
-        {% if libraries %}
-        <form id="batchForm" onsubmit="launchBatch(event)">
-            <input type="hidden" name="library_id" value="{{ selected_lib or '' }}">
-            
-            <button type="button" onclick="saveAllOverrides()" style="background-color:#fab387; color:#11111b; margin-bottom: 10px; font-size: 13px;">{{ t.save_all }}</button>
-
-            <div style="display: flex; gap: 15px; margin-bottom: 10px; align-items: center;">
-                <select id="statusFilter" onchange="filterSeries()" style="margin: 0; width: auto; cursor: pointer;">
-                    <option value="ALL">{{ t.filter_all }}</option>
-                    <option value="PENDING">{{ t.filter_pending }}</option>
-                    <option value="COMPLETED">{{ t.filter_completed }}</option>
-                    <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
-                </select>
-                <label style="margin: 0; cursor: pointer; color: #f9e2af; display: flex; align-items: center;">
-                    <input type="checkbox" id="selectAll" onclick="toggleSelectAll()" style="margin-right: 8px; transform: scale(1.2);"> 
-                    {{ t.select_all }}
-                </label>
+        <!-- En-tête -->
+        <header class="topbar">
+            <div class="logo">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="logo-img">
+                MetaKavita
             </div>
+            <div class="topbar-actions">
+                <button type="button" class="btn-icon" onclick="toggleConfig()" title="Masquer/Afficher la configuration">⚙️ Config</button>
+                <button type="button" class="btn-icon" onclick="toggleTheme()" title="Changer le thème">🌓 Thème</button>
+            </div>
+        </header>
+
+        <div class="dashboard-body">
             
-            {% if series_list %}
-            <div class="series-list" id="seriesContainer">
-                {% for series in series_list %}
-                <div class="series-item" data-status="{{ series.status }}">
-                    <div class="series-row">
-                        <div style="display: flex; align-items: center;">
-                            <input type="checkbox" name="selected_series" value="{{ series.id }}" class="series-cb" style="margin-right: 15px; transform: scale(1.3); cursor: pointer;">
-								<a href="{{ config.get('KAVITA_URL') }}/library/{{ series.libraryId }}/series/{{ series.id }}" target="_blank" style="text-decoration: none; color: inherit;">
-									<span class="series-name">{{ series.name }}</span>
-								</a>
-                            {% if series.status == 'COMPLETED' %}
-                                <span class="badge badge-completed">{{ t.filter_completed }}</span>
-                            {% elif series.status == 'NOT_FOUND' %}
-                                <span class="badge badge-notfound">{{ t.filter_notfound }}</span>
-                            {% else %}
-                                <span class="badge badge-pending">{{ t.filter_pending }}</span>
-                            {% endif %}
-                        </div>
-                        <div>
-                            <button type="button" class="btn-opt" onclick="togglePanel('panel-{{ series.id }}')">{{ t.options }}</button>
-                            <button type="button" class="btn-sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>
-                            <span class="loading" style="display: none; font-size:12px; color:#f9e2af;">{{ t.processing }}</span>
-                        </div>
-                    </div>
+            <!-- Colonne Latérale (Sidebar) -->
+            <aside class="sidebar">
+                
+                <!-- Section Configuration -->
+                <div id="configSection" class="card">
+                    <h3 class="section-title">Configuration</h3>
+                    {% if msg %}<div class="alert success">{{ msg }}</div>{% endif %}
+                    {% if error_msg %}<div class="alert error">{{ error_msg }}</div>{% endif %}
                     
-                    <div id="panel-{{ series.id }}" class="override-panel">
-                        <div class="override-grid">
-                            <div>
-                                <span style="font-size:12px; color:#bac2de;">{{ t.anilist_id }}</span>
-                                <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="Ex: 119161">
-                            </div>
-                            <div>
-                                <span style="font-size:12px; color:#bac2de;">{{ t.alt_title }}</span>
-                                <input type="text" id="title-{{ series.id }}" value="{{ series.alternative_title }}" placeholder="Ex: Nom simplifié">
-                            </div>
-                            <button type="button" style="background-color:#a6e3a1; padding:5px 10px; font-size:12px;" onclick="saveOverride('{{ series.id }}', this)">{{ t.save }}</button>
+                    <form method="POST" action="/">
+                        <div class="form-group">
+                            <label>{{ t.ui_lang }}</label>
+                            <select name="UI_LANG" onchange="this.form.submit()">
+                                <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
+                                <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
+                            </select>
                         </div>
+
+                        <div class="form-group">
+                            <label>{{ t.kavita_url }}</label>
+                            <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>{{ t.kavita_api }}</label>
+                            <input type="text" name="KAVITA_API_KEY" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>{{ t.deepl_api }}</label>
+                            <input type="text" name="DEEPL_API_KEY" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label>{{ t.target_lang }}</label>
+                            <select name="TARGET_LANG" onchange="this.form.submit()">
+                                <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
+                                <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
+                                <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
+                                <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
+                                <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
+                                <option value="PT-BR" {% if config.get('TARGET_LANG') == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
+                                <option value="NL" {% if config.get('TARGET_LANG') == 'NL' %}selected{% endif %}>Nederlands</option>
+                                <option value="PL" {% if config.get('TARGET_LANG') == 'PL' %}selected{% endif %}>Polski</option>
+                                <option value="RU" {% if config.get('TARGET_LANG') == 'RU' %}selected{% endif %}>Русский</option>
+                                <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn-primary w-100">{{ t.save_settings }}</button>
+                    </form>
+                </div>
+
+                <!-- Gestion de la Bibliothèque -->
+                <div class="card">
+                    <h3 class="section-title">Bibliothèque</h3>
+                    {% if libraries %}
+                    <form method="GET" action="/" class="mb-3">
+                        <select name="library_id" id="lib_selector" onchange="this.form.submit()">
+                            <option value="">{{ t.all_libs }}</option>
+                            {% for lib in libraries %}
+                            <option value="{{ lib.id }}" {% if selected_lib == lib.id|string %}selected{% endif %}>{{ lib.name }}</option>
+                            {% endfor %}
+                        </select>
+                    </form>
+                    {% endif %}
+                    
+                    <form method="POST" action="/reset-errors">
+                        <input type="hidden" name="library_id" value="{{ selected_lib or '' }}">
+                        <button type="submit" class="btn-warning w-100">{{ t.reset_errors }}</button>
+                    </form>
+                    
+                    {% if libraries %}
+                    <div class="mt-3 text-center">
+                        <a href="/export-errors" class="btn-danger block-link w-100">{{ t.export_errors }}</a>
+                    </div>
+                    {% endif %}
+                </div>
+                
+                <!-- Section Logs -->
+                <div class="logs-container card" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
+                    <h3 class="section-title m-0 mb-2">{{ t.live_logs }}</h3>
+                    <div id="log-console" class="log-console" style="flex: 1;">
+                        <div class="log-line text-muted">{{ t.waiting }}</div>
                     </div>
                 </div>
-                {% endfor %}
-            </div>
-            {% endif %}
 
-            <div style="margin: 15px 0; background-color: #181825; padding: 15px; border-radius: 6px; border: 1px dashed #f9e2af;">
-                <input type="checkbox" id="force_update" name="force_update" value="true" style="margin-right: 10px; transform: scale(1.3); cursor: pointer; width: auto;">
-                <label for="force_update" style="display: inline; cursor: pointer; color: #f9e2af; font-weight: normal; margin-top: 0;">
-                    <strong>{{ t.force_update }}</strong>
-                </label>
-            </div>
+                <!-- Footer Sidebar (Crédits & Liens) -->
+                <div class="sidebar-footer">
+                    <p>Développé par <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
+                    <p>
+                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.0.0</a> | 
+                        <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">Signaler un bug</a>
+                    </p>
+                </div>
 
-            <div style="display: flex; gap: 10px; margin-top: 20px;">
-                <button type="submit" class="btn-batch" id="mainBatchBtn" style="flex: 2; padding: 15px;">{{ t.launch_batch }}</button>
-                <button type="button" class="btn-stop" style="flex: 1; background-color: #f38ba8; color: #11111b; border: none; padding: 10px; border-radius: 6px; font-weight: bold; cursor: pointer;" onclick="stopBatch()">{{ t.stop_batch }}</button>
-            </div>
-            
-        </form>
+            </aside>
 
-        <div style="margin-top: 15px; text-align: center;">
-            <a href="/export-errors" style="background-color: #f38ba8; color: #11111b; text-decoration: none; padding: 10px 20px; border-radius: 6px; font-weight: bold; display: inline-block; font-size: 14px;">
-                {{ t.export_errors }}
-            </a>
-        </div>
-        {% endif %}
+            <!-- Zone Principale (Séries & Logs) -->
+            <main class="content">
+                
+                {% if libraries %}
+                <form id="batchForm" onsubmit="launchBatch(event)" class="main-form">
+                    <input type="hidden" name="library_id" value="{{ selected_lib or '' }}">
+                    
+                    <div class="toolbar card">
+                        <div class="toolbar-left">
+                            <h2 class="m-0">{{ t.series_avail }}</h2>
+                            <select id="statusFilter" onchange="filterSeries()">
+                                <option value="ALL">{{ t.filter_all }}</option>
+                                <option value="PENDING">{{ t.filter_pending }}</option>
+                                <option value="COMPLETED">{{ t.filter_completed }}</option>
+                                <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
+                            </select>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="selectAll" onclick="toggleSelectAll()"> 
+                                {{ t.select_all }}
+                            </label>
+                        </div>
+                        <div class="toolbar-right">
+                            <label class="checkbox-label highlight-checkbox">
+                                <input type="checkbox" id="force_update" name="force_update" value="true">
+                                <strong>{{ t.force_update }}</strong>
+                            </label>
+                            <button type="button" onclick="saveAllOverrides()" class="btn-secondary">{{ t.save_all }}</button>
+                        </div>
+                    </div>
 
-        <h2>{{ t.live_logs }}</h2>
-        <div id="log-console" class="log-console">
-            <div class="log-line" style="color: #bac2de;">{{ t.waiting }}</div>
+                    {% if series_list %}
+                    <div class="series-container card">
+                        <div class="series-list" id="seriesContainer">
+                            {% for series in series_list %}
+                            <div class="series-item" data-status="{{ series.status }}">
+                                <div class="series-row">
+                                    <div class="series-info">
+                                        <input type="checkbox" name="selected_series" value="{{ series.id }}" class="series-cb">
+                                        <a href="{{ config.get('KAVITA_URL') }}/library/{{ series.libraryId }}/series/{{ series.id }}" target="_blank" class="series-link">
+                                            <span class="series-name">{{ series.name }}</span>
+                                        </a>
+                                        {% if series.status == 'COMPLETED' %}
+                                            <span class="badge badge-completed">{{ t.filter_completed }}</span>
+                                        {% elif series.status == 'NOT_FOUND' %}
+                                            <span class="badge badge-notfound">{{ t.filter_notfound }}</span>
+                                        {% else %}
+                                            <span class="badge badge-pending">{{ t.filter_pending }}</span>
+                                        {% endif %}
+                                    </div>
+                                    <div class="series-actions">
+                                        <button type="button" class="btn-opt" onclick="togglePanel('panel-{{ series.id }}')">{{ t.options }}</button>
+                                        <button type="button" class="btn-sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>
+                                        <span class="loading" style="display: none;">{{ t.processing }}</span>
+                                    </div>
+                                </div>
+                                
+                                <div id="panel-{{ series.id }}" class="override-panel">
+                                    <div class="override-grid">
+                                        <div>
+                                            <span class="input-hint">{{ t.anilist_id }}</span>
+                                            <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="Ex: 119161">
+                                        </div>
+                                        <div>
+                                            <span class="input-hint">{{ t.alt_title }}</span>
+                                            <input type="text" id="title-{{ series.id }}" value="{{ series.alternative_title }}" placeholder="Ex: Nom simplifié">
+                                        </div>
+                                        <button type="button" class="btn-success" onclick="saveOverride('{{ series.id }}', this)">{{ t.save }}</button>
+                                    </div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Boutons de Batch redésignés -->
+                    <div class="batch-actions">
+                        <button type="submit" class="btn-batch" id="mainBatchBtn">🚀 {{ t.launch_batch }}</button>
+                        <button type="button" class="btn-stop" onclick="stopBatch()">🛑 {{ t.stop_batch }}</button>
+                    </div>
+                </form>
+                {% endif %}
+
+            </main>
         </div>
     </div>
 

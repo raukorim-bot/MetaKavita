@@ -1,13 +1,37 @@
+// --- GESTION DU THÈME ---
+function toggleTheme() {
+    const currentTheme = document.documentElement.getAttribute('data-theme');
+    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+}
+
+// --- GESTION DE L'INTERFACE ---
 function togglePanel(id) {
     var panel = document.getElementById(id);
     panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
 }
 
+function toggleConfig() {
+    const configSection = document.getElementById('configSection');
+    const isHidden = configSection.style.display === 'none';
+    configSection.style.display = isHidden ? 'block' : 'none';
+    localStorage.setItem('configHidden', !isHidden);
+}
+
+window.addEventListener('load', () => {
+    if (localStorage.getItem('configHidden') === 'true') {
+        const configSection = document.getElementById('configSection');
+        if(configSection) configSection.style.display = 'none';
+    }
+});
+
+// --- ACTIONS SUR LES SÉRIES ---
 function saveOverride(seriesId, btn) {
     const forcedId = document.getElementById('id-' + seriesId).value;
     const altTitle = document.getElementById('title-' + seriesId).value;
     btn.innerText = "⏳...";
-    btn.style.backgroundColor = "#cba6f7";
+    
     fetch('/save-override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -15,7 +39,7 @@ function saveOverride(seriesId, btn) {
     }).then(r => {
         if(r.ok) {
             btn.innerText = "✅"; 
-            setTimeout(() => { btn.innerText = window.AppTranslations.save; btn.style.backgroundColor = "#a6e3a1"; }, 1500);
+            setTimeout(() => { btn.innerText = window.AppTranslations.save; }, 1500);
         }
     });
 }
@@ -54,6 +78,7 @@ function toggleSelectAll() {
     });
 }
 
+// --- SYNCHRONISATION ---
 function syncSingle(id, name, btn) {
     btn.style.display = 'none';
     btn.previousElementSibling.style.display = 'none'; 
@@ -72,12 +97,10 @@ function syncSingle(id, name, btn) {
         btn.previousElementSibling.style.display = 'inline-block';
         if(data.success) {
             btn.innerText = "✅ OK";
-            btn.style.backgroundColor = "#a6e3a1";
         } else {
             btn.innerText = "❌ Fail";
-            btn.style.backgroundColor = "#f38ba8";
         }
-        setTimeout(() => { btn.innerText = window.AppTranslations.update; btn.style.backgroundColor = "#a6e3a1"; }, 3000);
+        setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
     });
 }
 
@@ -89,14 +112,12 @@ async function launchBatch(event) {
     const ids = Array.from(checkboxes).map(cb => cb.value);
     
     if (ids.length === 0) {
-        btn.innerText = "❌";
-        btn.style.backgroundColor = "#f38ba8";
-        setTimeout(() => { btn.innerText = window.AppTranslations.launchBatch; btn.style.backgroundColor = "#cba6f7"; }, 2000);
+        btn.innerText = "❌ Aucun élément";
+        setTimeout(() => { btn.innerText = window.AppTranslations.launchBatch; }, 2000);
         return;
     }
 
     btn.innerText = "⏳ Envoi par paquets...";
-    btn.style.backgroundColor = "#cba6f7";
     
     for (let i = 0; i < ids.length; i += 50) {
         const batch = ids.slice(i, i + 50);
@@ -115,8 +136,7 @@ async function launchBatch(event) {
     }
 
     btn.innerText = "✅ Batch de " + ids.length + " séries lancé !";
-    btn.style.backgroundColor = "#a6e3a1";
-    setTimeout(() => { btn.innerText = window.AppTranslations.launchBatch; btn.style.backgroundColor = "#cba6f7"; }, 4000);
+    setTimeout(() => { btn.innerText = window.AppTranslations.launchBatch; }, 4000);
 }
 
 function stopBatch() {
@@ -124,38 +144,25 @@ function stopBatch() {
     .then(res => res.json())
     .then(data => {
         const btn = document.getElementById('mainBatchBtn');
-        if (btn) {
-            btn.innerText = window.AppTranslations.launchBatch;
-            btn.style.backgroundColor = "#cba6f7";
-        }
+        if (btn) btn.innerText = window.AppTranslations.launchBatch;
     });
 }
 
-// Fonction pour masquer/afficher la configuration et sauvegarder le choix
-function toggleConfig() {
-    const configSection = document.getElementById('configSection');
-    const isHidden = configSection.style.display === 'none';
-    configSection.style.display = isHidden ? 'block' : 'none';
-    localStorage.setItem('configHidden', !isHidden);
-}
-
-// Appliquer le choix masqué/affiché au chargement de la page
-window.addEventListener('load', () => {
-    if (localStorage.getItem('configHidden') === 'true') {
-        document.getElementById('configSection').style.display = 'none';
-    }
-});
-
+// --- WEBSOCKETS LOGS ---
 var socket = io();
 var logConsole = document.getElementById('log-console');
-socket.on('connect', function() { logConsole.innerHTML += '<div class="log-line" style="color: #89b4fa;">Terminal prêt.</div>'; });
+socket.on('connect', function() { 
+    logConsole.innerHTML += '<div class="log-line" style="color: var(--primary);">Terminal prêt.</div>'; 
+});
 socket.on('log_update', function(msg) {
     var newLog = document.createElement('div');
     newLog.className = 'log-line';
     newLog.textContent = msg.data;
-    if (msg.data.includes('ERROR') || msg.data.includes('Échec')) newLog.className += ' log-error';
-    else if (msg.data.includes('WARNING') || msg.data.includes('Introuvable')) newLog.className += ' log-warning';
-    else if (msg.data.includes('🛑')) newLog.className += ' log-error';
+    if (msg.data.includes('ERROR') || msg.data.includes('Échec') || msg.data.includes('🛑')) {
+        newLog.className += ' log-error';
+    } else if (msg.data.includes('WARNING') || msg.data.includes('Introuvable')) {
+        newLog.className += ' log-warning';
+    }
     logConsole.appendChild(newLog);
     logConsole.scrollTop = logConsole.scrollHeight;
 });
