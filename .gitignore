@@ -1,13 +1,19 @@
-# Secrets
+# Configuration et secrets (TRÈS IMPORTANT)
 config.json
-docker-compose.yml
 
-# Bases de données & Logs
+# Base de données locale
 cache.db
-metakavita.log
 
-# Python / Divers
+# Logs et fichiers de debug
+*.log
+metakavita.log
+nautiljon_dump.html
+
+# Fichiers systèmes ou générés par Python
 __pycache__/
 *.pyc
-venv/
-.env
+*.pyo
+
+# Fichiers macOS / Windows (toujours utile)
+.DS_Store
+Thumbs.db
