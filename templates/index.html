@@ -92,19 +92,19 @@
                             </select>
                         </div>
 						<div class="form-group">
-							<label>{{ t.kavita_api }}</label>
-							<div class="password-wrapper">
-								<input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
-								<button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="Afficher/Masquer">👁️</button>
-							</div>
-						</div>
+                            <label>{{ t.kavita_api }}</label>
+                            <div class="password-wrapper" style="position: relative; width: 100%;">
+                                <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
+                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="Afficher/Masquer">👁️</button>
+                            </div>
+                        </div>
 						<div class="form-group">
-							<label>{{ t.deepl_api }}</label>
-							<div class="password-wrapper">
-								<input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
-								<button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="Afficher/Masquer">👁️</button>
-							</div>
-						</div>
+                            <label>{{ t.deepl_api }}</label>
+                            <div class="password-wrapper" style="position: relative; width: 100%;">
+                                <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
+                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="Afficher/Masquer">👁️</button>
+                            </div>
+                        </div>
                         <div class="form-group">
                             <label>{{ t.target_lang }}</label>
                             <select name="TARGET_LANG" onchange="saveConfig()">
