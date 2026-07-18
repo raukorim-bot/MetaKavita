@@ -107,7 +107,10 @@ translations = {
         "provider_2": "Source 2 (Secours) :",
         "provider_3": "Source 3 (Secours) :",
         "provider_none": "Aucune",
-        "smart_completion": "🧩 Activer la complétion intelligente"
+        "smart_completion": "🧩 Activer la complétion intelligente",
+        # --- FR ---
+        "err_kavita": "❌ Connexion à Kavita échouée. Vérifiez l'URL et la clé API.",
+        "err_missing": "⚠️ URL ou Clé API Kavita manquante."
     },
     "en": {
         "title": "⚙️ MetaKavita Configuration",
@@ -218,5 +221,7 @@ translations = {
         "provider_3": "Source 3 (Backup):",
         "provider_none": "None",
         "smart_completion": "🧩 Enable Smart Completion",
+        "err_kavita": "❌ Failed to connect to Kavita. Check URL and API Key.",
+        "err_missing": "⚠️ Missing Kavita URL or API Key."
     }
 }
