@@ -22,7 +22,9 @@ class WebSocketLogHandler(logging.Handler):
         socketio.emit('log_update', {'data': log_entry})
 
 ws_handler = WebSocketLogHandler()
-ws_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+# On crée un format ultra-court juste pour l'UI : "HH:MM:SS | Message"
+ws_formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S')
+ws_handler.setFormatter(ws_formatter)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,9 +46,9 @@ def worker():
         if item is None: break
         series_id, series_name, force_update = item
         
-        # On réintègre le log qui indique combien il reste d'éléments dans la file
+        t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
         remaining = sync_queue.qsize()
-        logging.info(f"⏳ [{series_name}] Traitement lancé. Encore {remaining} série(s) dans la file d'attente.")
+        logging.info(t.get('log_worker_start').format(series_name, remaining))
         
         success, msg, api_called = process_series_logic(series_id, series_name, force_update)
         if api_called:
@@ -58,22 +60,22 @@ def worker():
 threading.Thread(target=worker, daemon=True).start()
 
 def process_series_logic(series_id, series_name, force_update=False):
-    logging.info(f"▶️ [{series_name}] Démarrage de l'analyse...")
+    config = load_config()
+    t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
     try:
-        config = load_config()
         kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
         
         if not kavita.authenticate():
-            logging.error(f"[{series_name}] ❌ Échec d'authentification à Kavita.")
+            logging.error(t.get('log_auth_fail').format(series_name))
             return False, "Erreur Kavita.", False
 
         metadata = kavita.get_series_metadata(series_id)
         if not metadata:
-            logging.error(f"[{series_name}] ❌ Impossible de lire les métadonnées Kavita de cette série.")
+            logging.error(t.get('log_meta_fail').format(series_name))
             return False, "Erreur de métadonnées.", False
 
         if metadata.get('summary') and not force_update:
-            logging.info(f"[{series_name}] ⏭️ Série déjà à jour, elle est ignorée.")
+            logging.info(t.get('log_skip').format(series_name))
             update_status(series_id, 'COMPLETED')
             return True, "Déjà à jour.", False
 
@@ -81,17 +83,17 @@ def process_series_logic(series_id, series_name, force_update=False):
         search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
 
         provider = config.get("PROVIDER", "ANILIST")
-        logging.info(f"[{series_name}] 🔍 Scraping sur {provider} avec la requête : '{search_query}'")
+        logging.info(t.get('log_scraping').format(series_name, provider, search_query))
         
         provider_data = fetch_metadata(search_query, provider)
         api_called = True 
 
         if not provider_data:
-            logging.warning(f"[{series_name}] ⚠️ Aucun résultat trouvé sur {provider}.")
+            logging.warning(t.get('log_not_found').format(series_name, provider))
             update_status(series_id, 'NOT_FOUND')
             return False, "Introuvable.", api_called
 
-        logging.info(f"[{series_name}] 📝 Données trouvées ! Formatage en cours...")
+        logging.info(t.get('log_found').format(series_name))
 
         if provider_data.get('summary') and (not metadata.get('summary') or force_update):
             target_lang = config.get('TARGET_LANG', 'FR')
@@ -125,24 +127,27 @@ def process_series_logic(series_id, series_name, force_update=False):
         metadata['seriesId'] = int(series_id)
         metadata.pop('created', None); metadata.pop('lastModified', None)
 
-        logging.info(f"[{series_name}] ⬆️ Envoi des données formatées à Kavita...")
+        logging.info(t.get('log_sending').format(series_name))
         success, msg = kavita.update_series_metadata(metadata)
         if success:
-            logging.info(f"[{series_name}] ✅ Enrichissement réussi avec succès !")
+            logging.info(t.get('log_success').format(series_name))
             update_status(series_id, 'COMPLETED')
             return True, "Succès", api_called
         else:
-            logging.error(f"[{series_name}] ❌ Kavita a refusé la mise à jour : {msg}")
+            logging.error(t.get('log_kavita_refused').format(series_name, msg))
             return False, f"Erreur: {msg}", api_called
 
     except Exception as e:
-        logging.error(f"[{series_name}] 💥 Crash inattendu durant le processus : {e}")
+        logging.error(t.get('log_crash').format(series_name, e))
         return False, "Erreur interne.", False
 
 def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     series_list = []
     libraries = []
     cached_info = get_all_cached_data()
+    
+    ui_lang = config.get('UI_LANG', 'fr')
+    t = translations.get(ui_lang, translations['fr'])
     
     stats = {
         'total': len(cached_info),
@@ -162,30 +167,28 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                 s['forced_id'] = item_cache.get('forced_id') or ''
                 s['alternative_title'] = item_cache.get('alternative_title') or ''
         else:
-            error_msg = "Connexion à Kavita échouée."
+            error_msg = t.get('err_kavita', "Connexion à Kavita échouée.")
             
-    ui_lang = config.get('UI_LANG', 'fr')
-    t = translations.get(ui_lang, translations['fr'])
-    
     return render_template('index.html', config=config, msg=msg, error_msg=error_msg, 
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib, t=t, stats=stats)
 
-@app.route('/', methods=['GET', 'POST'])
+@app.route('/', methods=['GET'])
 def index():
     config = load_config()
-    msg = ""
-    if request.method == 'POST':
-        config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
-        config['KAVITA_API_KEY'] = request.form.get('KAVITA_API_KEY', '').strip()
-        config['DEEPL_API_KEY'] = request.form.get('DEEPL_API_KEY', '').strip()
-        config['TARGET_LANG'] = request.form.get('TARGET_LANG', 'FR').strip()
-        config['UI_LANG'] = request.form.get('UI_LANG', 'fr').strip()
-        config['PROVIDER'] = request.form.get('PROVIDER', 'ANILIST').strip()
-        save_config(config)
-        t = translations.get(config['UI_LANG'], translations['fr'])
-        msg = t.get('save_settings', 'Sauvegardé')
     selected_lib = request.args.get('library_id') 
-    return prepare_index_data(config, msg=msg, selected_lib=selected_lib)
+    return prepare_index_data(config, msg="", error_msg="", selected_lib=selected_lib)
+
+@app.route('/save-config', methods=['POST'])
+def save_config_ajax():
+    config = load_config()
+    config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
+    config['KAVITA_API_KEY'] = request.form.get('KAVITA_API_KEY', '').strip()
+    config['DEEPL_API_KEY'] = request.form.get('DEEPL_API_KEY', '').strip()
+    config['TARGET_LANG'] = request.form.get('TARGET_LANG', 'FR').strip()
+    config['UI_LANG'] = request.form.get('UI_LANG', 'fr').strip()
+    config['PROVIDER'] = request.form.get('PROVIDER', 'ANILIST').strip()
+    save_config(config)
+    return jsonify(success=True)
 
 @app.route('/save-override', methods=['POST'])
 def save_override():
@@ -197,53 +200,63 @@ def save_override():
 
 @app.route('/reset-errors', methods=['POST'])
 def amnistie():
-    library_id = request.form.get('library_id')
     reset_errors()
-    return prepare_index_data(load_config(), msg="Erreurs réinitialisées", selected_lib=library_id)
+    return jsonify(success=True)
 
 @app.route('/force-sync', methods=['POST'])
 def force_sync():
+    t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
     series_id = request.form.get('series_id')
     series_name = request.form.get('series_name')
-    if not series_id or not series_name: return jsonify(success=False, msg="Données manquantes")
+    if not series_id or not series_name: return jsonify(success=False, msg=t.get('err_missing'))
     
     success, result_msg, _ = process_series_logic(series_id, series_name, force_update=True)
     return jsonify(success=success, msg=result_msg)
 
 @app.route('/batch-sync', methods=['POST'])
 def batch_sync():
+    t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
     library_id = request.form.get('library_id')
     force_update = request.form.get('force_update') == 'true'
     selected_ids = request.form.getlist('selected_series')
     
     if not selected_ids:
-        return jsonify(success=False, msg="Aucune série sélectionnée.")
+        return jsonify(success=False, msg=t.get('err_no_sel'))
         
     config = load_config()
     all_series = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY')).get_all_series(library_id=library_id)
     series_to_process = [s for s in all_series if str(s['id']) in selected_ids]
     
+    current_size = sync_queue.qsize()
+    total_after_add = current_size + len(series_to_process)
+    logging.info(t.get('log_batch_added').format(len(series_to_process), total_after_add))
+    
     for s in series_to_process:
         sync_queue.put((s['id'], s['name'], force_update))
         
-    return jsonify(success=True, msg=f"{len(series_to_process)} ajoutées !")
+    msg_added = t.get('batch_added').replace('{}', str(len(series_to_process)))
+    return jsonify(success=True, msg=msg_added)
 
 @app.route('/stop-batch', methods=['POST'])
 def stop_batch():
     with sync_queue.mutex:
         sync_queue.queue.clear()
-    logging.info("🛑 Le traitement par lots a été interrompu par l'utilisateur.")
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
+    logging.info(t.get('log_batch_stopped'))
     return jsonify(success=True, msg=t.get('batch_stopped'))
 
 @app.route('/export-errors', methods=['GET'])
 def export_errors():
-    all_series = KavitaAPI(load_config().get('KAVITA_URL'), load_config().get('KAVITA_API_KEY')).get_all_series()
+    config = load_config()
+    t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
+    all_series = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY')).get_all_series()
     cached = get_all_cached_data()
-    error_lines = ["Rapport des erreurs\n", "="*50, "\n\n"]
+    
+    error_lines = [f"{t.get('report_title')}\n", "="*50, "\n\n"]
     for s in all_series:
         if cached.get(s['id'], {}).get('status') == 'NOT_FOUND':
-            error_lines.append(f"- {s['name']} (ID Kavita: {s['id']})\n")
+            error_lines.append(f"- {s['name']} ({t.get('report_item')} {s['id']})\n")
+            
     return Response("".join(error_lines), mimetype="text/plain", headers={"Content-disposition": "attachment; filename=metakavita_erreurs.txt"})
 
 @app.route('/webhook', methods=['POST'])

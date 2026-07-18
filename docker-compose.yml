@@ -1,0 +1,17 @@
+services:
+  metakavita:
+    build: .
+    container_name: metakavita
+    restart: unless-stopped
+    ports:
+      - "5010:5010"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - KAVITA_URL=https://kavita.raukorim.fr
+      - KAVITA_API_KEY=gKAZekSaRofnJA7namZA2V9vlIun1EXF
+      - DEEPL_API_KEY=147a1086-cb02-42ec-bbfe-26704de5b8a1:fx
+    volumes:
+      - ./config.json:/app/config.json
+      - ./metakavita.log:/app/metakavita.log
+      - ./cache.db:/app/cache.db
