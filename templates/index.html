@@ -84,6 +84,10 @@
                     {% if error_msg %}<div class="alert error">{{ error_msg }}</div>{% endif %}
                     
                     <form id="configForm">
+					                        <div class="form-group">
+                            <label>{{ t.kavita_url }}</label>
+                            <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
+                        </div>
                         <div class="form-group">
                             <label>{{ t.ui_lang }}</label>
                             <select name="UI_LANG" onchange="saveConfig()">
