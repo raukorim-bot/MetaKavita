@@ -20,33 +20,33 @@
                 MetaKavita - Statistiques
             </div>
             <div class="topbar-actions">
-                <a href="/" class="btn-primary block-link">🔙 Retour au Dashboard</a>
+                <a href="/" class="btn-primary block-link">{{ t.stats_back }}</a>
             </div>
         </header>
 
         <main class="content" style="align-items: center; justify-content: center;">
             <div class="card" style="width: 100%; max-width: 600px; text-align: center; padding: 40px;">
-                <h2 class="section-title" style="font-size: 24px;">État global de la base de données</h2>
+                <h2 class="section-title" style="font-size: 24px;">{{ t.stats_global }}</h2>
                 
                 <div style="display: flex; justify-content: space-around; margin-top: 30px;">
                     <div>
                         <h1 style="color: var(--primary); font-size: 3.5rem; margin: 0;">{{ total }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">Séries en Cache</p>
+                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_cache }}</p>
                     </div>
                     <div>
                         <h1 style="color: var(--success); font-size: 3.5rem; margin: 0;">{{ completed }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">Enrichies (OK)</p>
+                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_ok }}</p>
                     </div>
                 </div>
                 
                 <div style="display: flex; justify-content: space-around; margin-top: 30px;">
                     <div>
                         <h1 style="color: var(--warning); font-size: 3.5rem; margin: 0;">{{ pending }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">En Attente</p>
+                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_wait }}</p>
                     </div>
                     <div>
                         <h1 style="color: var(--danger); font-size: 3.5rem; margin: 0;">{{ not_found }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">Introuvables</p>
+                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_err }}</p>
                     </div>
                 </div>
                 
