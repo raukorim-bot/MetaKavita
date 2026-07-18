@@ -1,4 +1,6 @@
+from curl_cffi import requests as cffi_requests
 import requests
+import base64
 
 class KavitaAPI:
     def __init__(self, url, api_key):
@@ -132,4 +134,46 @@ class KavitaAPI:
             return True, "Succès"
         except Exception as e:
             print(f"[Erreur Update Summary] {e}")
+            return False, str(e)
+
+    # --- NOUVELLE FONCTION POUR UPLOADER L'IMAGE ---
+    def upload_series_cover(self, series_id, cover_url):
+        if not self.token and not self.authenticate(): 
+            return False, "Non authentifié"
+            
+        if not cover_url:
+            return False, "URL de couverture invalide"
+            
+        try:
+            # 1. On télécharge l'image depuis le web (AVEC BYPASS CLOUDFLARE/HOTLINK)
+            print(f"[DEBUG] Téléchargement de la couverture depuis : {cover_url}")
+            headers = {
+                "Referer": "https://www.nautiljon.com/",
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            }
+            img_res = cffi_requests.get(cover_url, headers=headers, impersonate="safari15_5", timeout=15)
+            
+            if img_res.status_code != 200:
+                return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
+            
+            # 2. On convertit l'image en base64 pur
+            img_base64 = base64.b64encode(img_res.content).decode('utf-8')
+            
+            # 3. On envoie à Kavita via l'API Upload (en HTTP standard)
+            upload_url = f"{self.url}/api/Upload/series"
+            payload = {
+                "id": int(series_id),
+                "url": img_base64
+            }
+            
+            res = requests.post(upload_url, json=payload, headers=self.headers, timeout=15)
+            
+            if res.status_code != 200:
+                print(f"[DEBUG] Erreur Upload Cover Kavita : {res.text}")
+                return False, f"Code {res.status_code} : {res.text}"
+                
+            return True, "Couverture mise à jour avec succès"
+            
+        except Exception as e:
+            print(f"[Erreur Upload Cover] {e}")
             return False, str(e)

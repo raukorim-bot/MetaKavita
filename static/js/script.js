@@ -58,17 +58,38 @@ async function saveAllOverrides() {
 
 function filterSeries() {
     const filter = document.getElementById('statusFilter').value;
+    
+    // On vérifie si la case (si elle existe sur la page) est cochée
+    const hideIgnoredCb = document.getElementById('hideIgnoredCb');
+    const hideIgnored = hideIgnoredCb ? hideIgnoredCb.checked : false;
+    
     let count = 0;
+    
     document.querySelectorAll('.series-item').forEach(item => {
-        if (filter === 'ALL' || item.dataset.status === filter) {
+        const status = item.dataset.status;
+        let show = false;
+        
+        if (filter === 'ALL') {
+            show = true;
+            // Si la case est cochée et que c'est ignoré, on le cache quand même
+            if (hideIgnored && status === 'IGNORED') {
+                show = false;
+            }
+        } else if (status === filter) {
+            // Si l'utilisateur demande explicitement "IGNORED" dans le menu, ça passe ici !
+            show = true;
+        }
+        
+        if (show) {
             item.style.display = 'flex';
             count++;
         } else {
             item.style.display = 'none';
             const cb = item.querySelector('.series-cb');
-            if(cb) cb.checked = false; 
+            if(cb) cb.checked = false; // On décoche les cachés pour la sécurité du batch
         }
     });
+    
     document.getElementById('selectAll').checked = false;
     
     const countElem = document.getElementById('visibleCount');
@@ -317,3 +338,171 @@ function loadLibrary(libraryId) {
 window.addEventListener('popstate', () => {
     window.location.reload();
 });
+
+// --- BASCULER LE STATUT "À IGNORER" (AJAX) ---
+function toggleIgnore(seriesId, btn) {
+    const seriesItem = btn.closest('.series-item');
+    const currentStatus = seriesItem.dataset.status;
+    
+    // Désactiver le bouton temporairement pour éviter le double clic
+    const originalText = btn.innerText;
+    btn.innerText = "⏳";
+    btn.disabled = true;
+
+    fetch('/toggle-ignore', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: `series_id=${seriesId}&current_status=${currentStatus}`
+    })
+    .then(res => res.json())
+    .then(data => {
+        btn.disabled = false;
+        if(data.success) {
+            seriesItem.dataset.status = data.new_status;
+            
+            // Mettre à jour l'icône et le titre du bouton
+            if (data.new_status === 'IGNORED') {
+                btn.innerText = '🔄';
+                btn.title = window.AppTranslations.unignore_btn;
+            } else {
+                btn.innerText = '🚫';
+                btn.title = window.AppTranslations.ignore_btn;
+            }
+            
+            // Mettre à jour le badge visuel
+            const badge = seriesItem.querySelector('.badge');
+            if (badge) {
+                if (data.new_status === 'IGNORED') {
+                    badge.className = 'badge badge-ignored';
+                    badge.innerText = window.AppTranslations.filter_ignored;
+                } else {
+                    badge.className = 'badge badge-pending';
+                    badge.innerText = window.AppTranslations.filter_pending;
+                }
+            }
+            
+            filterSeries(); // Réappliquer le filtre en cours (le cache instantanément si on filtre par PENDING)
+        } else {
+            btn.innerText = originalText;
+        }
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    });
+}
+
+// --- IGNORER TOUTE LA SÉLECTION (AJAX) ---
+async function ignoreSelection() {
+    const checkboxes = document.querySelectorAll('.series-cb:checked');
+    if (checkboxes.length === 0) return;
+
+    const btn = document.getElementById('batchIgnoreBtn');
+    const originalText = btn.innerText;
+    btn.innerText = "⏳...";
+    btn.disabled = true;
+
+    for (let cb of checkboxes) {
+        const seriesItem = cb.closest('.series-item');
+        const seriesId = cb.value;
+        const currentStatus = seriesItem.dataset.status;
+
+        // On ignore uniquement si ce n'est pas déjà ignoré
+        if (currentStatus !== 'IGNORED') {
+            try {
+                const res = await fetch('/toggle-ignore', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `series_id=${seriesId}&current_status=${currentStatus}`
+                });
+                const data = await res.json();
+                
+                if (data.success) {
+                    // Mise à jour visuelle instantanée pour cet élément
+                    seriesItem.dataset.status = 'IGNORED';
+                    const badge = seriesItem.querySelector('.badge');
+                    if (badge) {
+                        badge.className = 'badge badge-ignored';
+                        badge.innerText = window.AppTranslations.filter_ignored;
+                    }
+                    // Mise à jour de l'icône du petit bouton individuel
+                    const ignoreBtn = seriesItem.querySelector('.series-actions .btn-icon');
+                    if (ignoreBtn) {
+                        ignoreBtn.innerText = '🔄';
+                        ignoreBtn.title = window.AppTranslations.unignore_btn;
+                    }
+                }
+            } catch(e) {
+                console.error("[MetaKavita] Erreur lors de l'ignorance en masse:", e);
+            }
+        }
+    }
+    
+    // Animation de fin et rafraîchissement
+    btn.innerText = "✅ OK";
+    setTimeout(() => { 
+        btn.innerText = originalText; 
+        btn.disabled = false;
+        filterSeries(); // Fait disparaître les séries ignorées de l'écran principal
+    }, 1000);
+}
+
+// --- MODAL COUVERTURES (OPTION 3) ---
+function openCoverModal(seriesId, seriesName) {
+    document.getElementById('modalSeriesName').innerText = seriesName;
+    document.getElementById('coverModal').style.display = 'flex';
+    document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_loading}</div>`;
+    
+    // On requête le backend qui va chercher sur tous les providers en même temps
+    fetch(`/api/series/${seriesId}/covers?series_name=${encodeURIComponent(seriesName)}`)
+    .then(r => r.json())
+    .then(data => {
+        if(data.success && data.covers.length > 0) {
+            let html = '';
+            data.covers.forEach(c => {
+                // Utilisation du proxy pour éviter le blocage anti-hotlink de Nautiljon
+                let displayUrl = c.provider === 'Nautiljon' ? `/api/proxy-image?url=${encodeURIComponent(c.url)}` : c.url;
+                
+                html += `
+                <div class="cover-item" onclick="applyCover('${seriesId}', '${c.url}')" title="${c.title}">
+                    <img src="${displayUrl}" alt="Cover" loading="lazy">
+                    <div class="cover-title" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 8px;" title="${c.title}">${c.title}</div>
+                    <div class="cover-provider" style="font-size: 11px; color: var(--primary); margin-top: 2px;">${c.provider}</div>
+                </div>`;
+            });
+            document.getElementById('coversGrid').innerHTML = html;
+        } else {
+            document.getElementById('coversGrid').innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">❌ Aucune image trouvée.</div>`;
+        }
+    })
+    .catch(err => {
+        document.getElementById('coversGrid').innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">❌ Erreur réseau.</div>`;
+    });
+}
+
+function closeCoverModal() {
+    document.getElementById('coverModal').style.display = 'none';
+    document.getElementById('coversGrid').innerHTML = ''; // Nettoyer pour la prochaine fois
+}
+
+function applyCover(seriesId, coverUrl) {
+    // Affiche le statut d'envoi
+    document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_sending}</div>`;
+    
+    fetch(`/api/series/${seriesId}/update-cover`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cover_url: coverUrl })
+    })
+    .then(r => r.json())
+    .then(data => {
+        if(data.success) {
+            closeCoverModal();
+            // On pourrait afficher un petit message de succès flottant ici (Toast), 
+            // mais l'image sera déjà changée dans Kavita !
+        } else {
+            alert("Erreur lors de l'envoi de la couverture : " + data.msg);
+            closeCoverModal();
+        }
+    });
+}

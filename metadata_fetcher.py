@@ -2,14 +2,18 @@ import requests
 import logging
 from scrapers.anilist import fetch_anilist_extended
 from scrapers.nautiljon import fetch_nautiljon
+from scrapers.mangabaka import fetch_mangabaka # <-- NOUVEAU
 from config_manager import load_config
 from translations import translations
 
 def fetch_metadata(query, provider="ANILIST"):
     if provider == "NAUTILJON":
         return fetch_nautiljon(query)
+    elif provider == "MANGABAKA": # <-- NOUVEAU
+        return fetch_mangabaka(query)
     else:
         return fetch_anilist_extended(query)
+
 
 def translate_text(text, api_key, target_lang="FR"):
     if not text or not api_key: 
