@@ -120,14 +120,39 @@
                                 <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
                             </select>
                         </div>
-                        <div class="form-group">
-                            <label>{{ t.provider_source | default("Source de métadonnées :") }}</label>
-                            <select name="PROVIDER" onchange="saveConfig()">
-                                <option value="ANILIST" {% if config.get("PROVIDER") == "ANILIST" %}selected{% endif %}>{{ t.provider_anilist }}</option>
-                                <option value="NAUTILJON" {% if config.get("PROVIDER") == "NAUTILJON" %}selected{% endif %}>{{ t.provider_nautiljon }}</option>
-                                <!-- NOUVEAU -->
-                                <option value="MANGABAKA" {% if config.get("PROVIDER") == "MANGABAKA" %}selected{% endif %}>{{ t.provider_mangabaka }}</option>
-                            </select>
+                        <div class="form-group" style="display: flex; gap: 10px;">
+                            <div style="flex: 1;">
+                                <label style="font-size: 11px;">{{ t.provider_1 }}</label>
+                                <select name="PROVIDER_1" onchange="handleProviderChange(this)" style="font-size: 12px; padding: 6px;">
+                                    {% for p in available_providers %}
+                                    <option value="{{ p }}" {% if config.get("PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="font-size: 11px;">{{ t.provider_2 }}</label>
+                                <select name="PROVIDER_2" onchange="handleProviderChange(this)" style="font-size: 12px; padding: 6px;">
+                                    <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                    {% for p in available_providers %}
+                                    <option value="{{ p }}" {% if config.get("PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div style="flex: 1;">
+                                <label style="font-size: 11px;">{{ t.provider_3 }}</label>
+                                <select name="PROVIDER_3" onchange="handleProviderChange(this)" style="font-size: 12px; padding: 6px;">
+                                    <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                    {% for p in available_providers %}
+                                    <option value="{{ p }}" {% if config.get("PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-group" style="margin-top: -5px; padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3);">
+                            <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
+                                <input type="checkbox" name="SMART_COMPLETION" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()"> 
+                                {{ t.smart_completion }}
+                            </label>
                         </div>
 						<div class="form-group">
                             <label>{{ t.auto_sync_interval }}</label>

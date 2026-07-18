@@ -8,22 +8,23 @@
 ## 🛠️ Partie A : Corrections et "Quality of Life" (UI/UX)
 *Le but : Rendre l'existant robuste, fluide et visuellement propre avant d'ajouter de la complexité.*
 
-- [x] **A1 à A6 :** Sécurisation API, Live Logs, 100% AJAX, Traductions globales.
+- [x] **A1 à A6 :** Sécurisation API, Live Logs, 100% AJAX, Traductions globales, UI Responsive.
+- [x] **A7. Nettoyage des séries fantômes :** Le cache SQLite se purge automatiquement des séries supprimées dans Kavita pour garder des statistiques justes.
 
 ---
 
 ## 🏗️ Partie B : Nouvelles fonctionnalités (V2)
 *Le but : Rendre l'outil autonome ("mains libres"), compatible BD, et ajouter une couche de fun.*
 
-- [x] **B7. Statut "À ignorer" :** Création d'un 4ème statut pour empêcher l'outil de boucler indéfiniment sur une série introuvable, avec case pour les masquer visuellement.
-- [x] **B8. Le Polling (Automatisation) :** Thread en tâche de fond qui interroge Kavita toutes les X minutes pour récupérer et traiter les nouveaux ajouts de façon totalement transparente (avec respect strict des Rate Limits : 1s/1.5s/2.5s).
-- [x] **B14. Images de couverture (Covers) :** Téléchargement et application des couvertures (Option auto globale ou Pop-up Modal manuel avec Proxy Anti-Hotlink).
-- [x] **B15. Provider "MangaBaka" :** Implémentation de l'API V2 de MangaBaka (Rapide, données enrichies : Éditeurs, Classification d'âge, Couvertures HD).
-- [ ] **B9. Hiérarchie des sites (Fallback) :** Implémenter une cascade de requêtes. Exemple : Chercher d'abord sur MangaBaka -> si échec, Nautiljon -> si échec, AniList.
-- [ ] **B10. Support des BD (Provider ISBN) :** Ajouter la recherche via ISBN (via Google Books API, OpenLibrary ou Babelio) pour cibler parfaitement les comics et BD européennes.
-- [ ] **B11. Authentification globale (Désactivable) :**
-  - Mettre en place un mot de passe pour l'accès web (variables Docker `AUTH_ENABLED`, `ADMIN_PASSWORD`).
-- [ ] **B12. Dashboard de Statistiques :**
-  - Stats sérieuses (succès/échecs par provider).
-  - Stats ludiques (Temps sauvé, Braquage DeepL, etc.).
+- [x] **B7. Statut "À ignorer" :** Création d'un 4ème statut pour empêcher l'outil de boucler indéfiniment.
+- [x] **B8. Le Polling (Automatisation) :** Thread en tâche de fond qui interroge Kavita avec respect strict des Rate Limits.
+- [x] **B14. Images de couverture (Covers) :** Téléchargement et application auto ou via modal manuel avec proxy.
+- [x] **B15. Provider "MangaBaka" :** Implémentation de l'API V2 de MangaBaka (Données enrichies, ultra-rapide).
+- [x] **B9. Hiérarchie des sites (Fallback) & Fusion :** Implémentation d'une cascade de requêtes (Source 1 > 2 > 3) avec une option de "Complétion intelligente" (Smart Fusion) pour boucher les trous de métadonnées de façon transparente.
+- [ ] **B10. Support des BD (Provider ISBN) :** Ajouter la recherche via ISBN (Google Books API, etc.) pour cibler parfaitement les comics/BD européennes.
+- [ ] **B11. Authentification globale (Désactivable) :** Mettre en place un mot de passe pour l'accès web (variables Docker `AUTH_ENABLED`, `ADMIN_PASSWORD`).
+- [ ] **B12. Dashboard de Statistiques :** Stats sérieuses et ludiques (Temps sauvé, Braquage DeepL).
 - [ ] **B13. Barre de progression globale :** Ajouter une barre de chargement au-dessus des Live Logs pour suivre visuellement l'avancée du batch.
+- [ ] **B16. Nettoyage avancé des titres :** Améliorer l'algorithme de nettoyage (Regex/Lexical) pour maximiser le taux de "match" avec les API (ex: nettoyage des `01`, `Tome 2`, `[Edition Deluxe]`).
+- [ ] **B17. Refonte de la Configuration (UX) :** Déplacer la configuration grandissante vers une fenêtre modale dédiée ou une page `/settings` pour épurer l'interface principale.
+- [ ] **B18. Interface Réactive (WebSockets DOM) :** Mettre à jour visuellement les badges (En Attente -> Complété/Erreur) en temps réel pendant qu'un batch tourne en fond, sans forcer l'utilisateur à rafraîchir la page.

@@ -1,5 +1,6 @@
 # Configuration et secrets (TRÈS IMPORTANT)
 config.json
+docker-compose.yml
 
 # Base de données locale
 cache.db
@@ -9,10 +10,19 @@ cache.db
 metakavita.log
 nautiljon_dump.html
 
+# Environnements virtuels (si dev local hors docker)
+venv/
+.venv/
+env/
+
 # Fichiers systèmes ou générés par Python
 __pycache__/
 *.pyc
 *.pyo
+
+# IDE et Éditeurs (VSCode, PyCharm, etc.)
+.vscode/
+.idea/
 
 # Fichiers macOS / Windows (toujours utile)
 .DS_Store

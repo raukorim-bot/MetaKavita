@@ -10,34 +10,23 @@
 
 ## 🇺🇸 English Documentation
 
-MetaKavita is an automation tool designed to enrich metadata for your [Kavita](https://kavitareader.com/) library. It automatically retrieves information (summaries, release years, genres, tags, staff, alternative titles) from [AniList](https://anilist.co/) or [Nautiljon](https://www.nautiljon.com/) and translates summaries via [DeepL](https://www.deepl.com/).
+MetaKavita is an automation tool designed to enrich metadata for your [Kavita](https://kavitareader.com/) library. It automatically retrieves information (summaries, release years, genres, tags, staff, publishers, age ratings, alternative titles) from multiple sources and translates summaries via [DeepL](https://www.deepl.com/).
 
 ### ⚙️ Interface and Configuration
-*   **Live UI**: 100% AJAX interface (zero page reloads) with real-time logs and visually masked API keys for better security and flow.
-*   **Bilingual**: Fully supported in both English and French.
+*   **Live UI**: 100% AJAX interface (zero page reloads) with real-time logs and visually masked API keys.
+*   **Smart Routing (Fallback)**: Define a main metadata source and up to two backups (e.g., MangaBaka > Nautiljon > AniList). If the first fails, MetaKavita seamlessly asks the next one.
+*   **Smart Completion (Data Fusion)**: If enabled, MetaKavita will patch incomplete metadata. If your main source finds the summary but is missing genres, the tool will fetch *only* the missing genres from the backup sources to create the ultimate metadata file!
 
-#### Initial Setup
-*   **Kavita URL**: The address of your Kavita instance (e.g., `http://host.docker.internal:5001`).
-*   **Kavita API Key**: Key generated in Kavita's settings (Dashboard > 3rd Party Clients).
-*   **DeepL API Key**: Authentication key for DeepL translation services.
-*   **Translation Language**: Select the target language for your summaries.
-*   **Metadata Source**: Choose between **AniList** (International) or **Nautiljon** (Francophone, with built-in Cloudflare bypass).
-*   **Auto-Sync Interval**: Automate background synchronization every X minutes (Set to 0 to disable).
+### 📚 Series & Cover Management
+*   **Mass Actions & Ignore Status**: Quickly ignore selections to prevent the tool from looping on unmatchable series or specific folders.
+*   **Cover Management**: Enable "Auto-Cover" in the settings to automatically fetch and upload HD covers to Kavita, or use the built-in manual Modal to browse and select the best cover across all providers.
 
-### 📊 Statistics Module
+### 📊 Statistics & Cache Module
 *   **Mini-Dashboard**: Real-time progress monitoring directly in the sidebar.
-*   **Dedicated Page (`/stats`)**: Global view of your database health and caching status.
-
-### 📚 Series Management
-*   **Sync**: Update series manually or in batches (up to 50 at a time).
-*   **Advanced Options**: Set specific AniList IDs or Nautiljon slugs to fix matching errors (e.g., `jujutsu-kaisen`).
-*   **Filters**: Sort your library by status (Pending, Completed, Not Found, **Ignored**).
-*   **Mass Actions**: Quickly ignore selections to prevent the tool from looping on unmatchable series or specific folders.
+*   **Auto-Cleaning Cache**: The internal SQLite cache automatically detects if you delete a series in Kavita and purges ghost entries to keep your statistics perfectly accurate.
 
 ### 🤖 Auto-Sync (Background Polling)
-MetaKavita can run entirely hands-free. By setting an interval in the configuration, a background task will poll Kavita for new series every X minutes. 
-*   **Safe Execution**: To prevent IP bans from AniList or Nautiljon, the Auto-Sync will **only** process *new* or *pending* series. It will **never** loop indefinitely on series marked as `NOT_FOUND` or `IGNORED`.
-*   **Retry Errors**: If you fixed your folder names in Kavita and want the Auto-Sync to try finding failed series again, simply click the **♻️ Reset Errors** button to revert them back to `PENDING`.
+MetaKavita can run entirely hands-free. By setting an interval in the configuration, a background task will poll Kavita for new series every X minutes while strictly respecting API rate limits (dynamic delays).
 
 ### 🛠️ Installation
 Before launching the container, you must prepare the environment and craft the necessary configuration files.
@@ -55,45 +44,51 @@ Before launching the container, you must prepare the environment and craft the n
    Edit the freshly generated `config.json` file to include your personal API keys. Without this, the container might fail to interact with Kavita or DeepL.
    `nano config.json`
 
-4. **Build and Launch**:
+4. **Docker Environment Variables**:
+   All configuration options can be modified directly in the Web UI. However, you can also inject them via your `docker-compose.yml` to initialize your `config.json`.
+   
+   | Variable | Description | Default Value |
+   | :--- | :--- | :--- |
+   | `KAVITA_URL` | Your Kavita instance URL (e.g., `http://192.168.1.50:5001`). | *(Empty)* |
+   | `KAVITA_API_KEY` | Your Kavita API Key. | *(Empty)* |
+   | `DEEPL_API_KEY` | Your DeepL Translation API Key. | *(Empty)* |
+   | `TARGET_LANG` | Output language for summaries (e.g., `FR`, `EN`, `ES`). | `FR` |
+   | `UI_LANG` | Dashboard interface language (`fr` or `en`). | `fr` |
+   | `PROVIDER_1` | Primary metadata source (`MANGABAKA`, `NAUTILJON`, `ANILIST`). | `MANGABAKA` |
+   | `PROVIDER_2` | Fallback source 1 (`NONE` to disable). | `NAUTILJON` |
+   | `PROVIDER_3` | Fallback source 2 (`NONE` to disable). | `ANILIST` |
+   | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
+   | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
+   | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
+
+5. **Build and Launch**:
    Start the Docker container.
    `docker compose up -d --build`
 
-5. **Access the Dashboard**:
+6. **Access the Dashboard**:
    Open your browser and navigate to `http://localhost:5010` (or your server's IP address).
 
 ---
 
 ## 🇫🇷 Documentation Française
 
-MetaKavita est un outil d'automatisation conçu pour enrichir les métadonnées de ta bibliothèque [Kavita](https://kavitareader.com/). Il récupère automatiquement les informations (résumés, années, genres, tags, personnel, titres alternatifs) depuis [AniList](https://anilist.co/) ou [Nautiljon](https://www.nautiljon.com/) et traduit les résumés via [DeepL](https://www.deepl.com/).
+MetaKavita est un outil d'automatisation conçu pour enrichir les métadonnées de ta bibliothèque [Kavita](https://kavitareader.com/). Il récupère automatiquement les informations (résumés, années, genres, tags, personnel, éditeurs, âge) depuis plusieurs sources et traduit les résumés via [DeepL](https://www.deepl.com/).
 
 ### ⚙️ Interface et Configuration
-*   **Interface Live** : Expérience 100% AJAX (zéro rechargement) avec streaming des logs console en temps réel et masquage sécurisé des mots de passe.
-*   **Bilingue** : Interface entièrement traduite en Français et Anglais.
+*   **Interface Live** : Expérience 100% AJAX (zéro rechargement) avec streaming des logs console en temps réel.
+*   **Routage Intelligent (Fallback)** : Définis une source principale et jusqu'à deux sources de secours. Si la première échoue, l'outil interroge automatiquement la suivante.
+*   **Complétion Intelligente (Fusion)** : Si activée, MetaKavita "bouchera les trous". Si ta source principale trouve le résumé mais pas les genres, l'outil ira chercher *uniquement* les genres manquants sur les autres sources pour créer la fiche parfaite !
 
-#### Configuration initiale
-*   **URL Kavita** : L'adresse de ton instance Kavita (ex: `http://host.docker.internal:5001`).
-*   **Clé API Kavita** : Clé générée dans les paramètres de ton instance Kavita (Dashboard > 3rd Party Clients).
-*   **Clé API DeepL** : Clé d'authentification pour le service de traduction DeepL.
-*   **Langue de traduction** : Sélectionne la langue cible pour les résumés.
-*   **Source de métadonnées** : Choix entre **AniList** (International) et **Nautiljon** (Francophone, avec contournement natif des protections Cloudflare).
-*   **Intervalle Auto-Sync** : Automatise la synchronisation en tâche de fond toutes les X minutes (0 pour désactiver).
+### 📚 Gestion des Séries & Couvertures
+*   **Statut "Ignoré" et Actions de Masse** : Possibilité d'ignorer rapidement toute une sélection pour empêcher l'outil de boucler indéfiniment sur des séries introuvables.
+*   **Couvertures (Covers)** : Active l'option "Auto-Cover" pour appliquer automatiquement les couvertures HD trouvées, ou utilise le gestionnaire visuel (Modal) pour choisir manuellement la meilleure couverture parmi tous les fournisseurs.
 
-### 📊 Module de Statistiques
-*   **Mini-Dashboard** : Suivi en temps réel de la progression dans la barre latérale.
-*   **Page dédiée (`/stats`)** : Vue globale de la santé de ta base de données et du cache.
-
-### 📚 Gestion des séries
-*   **Synchronisation** : Mise à jour manuelle ou par lots (batch par paquets de 50).
-*   **Options avancées** : Définition d'IDs AniList ou de slugs Nautiljon (ex: `jujutsu-kaisen`) pour corriger les erreurs de correspondance.
-*   **Filtres** : Tri de la bibliothèque par statut (À traiter, Complétées, Introuvables, **Ignorées**).
-*   **Actions de masse** : Possibilité d'ignorer rapidement toute une sélection pour empêcher l'outil de boucler indéfiniment sur des séries introuvables.
+### 📊 Module de Statistiques et Cache
+*   **Mini-Dashboard** : Suivi en temps réel de la progression.
+*   **Cache Auto-nettoyant** : Si tu supprimes une série directement dans Kavita, le cache SQLite de MetaKavita s'en rend compte et purge la "série fantôme" pour garder des statistiques justes.
 
 ### 🤖 Auto-Sync (Tâche de fond)
-MetaKavita peut fonctionner de manière totalement autonome. En définissant un intervalle dans la configuration, une tâche de fond interrogera Kavita pour récupérer les nouvelles séries toutes les X minutes.
-*   **Exécution sécurisée** : Pour éviter le bannissement de votre IP par AniList ou Nautiljon, l'Auto-Sync ciblera **uniquement** les séries *nouvelles* ou *en attente*. Il ne bouclera **jamais** indéfiniment sur les séries "Introuvables" (`NOT_FOUND`) ou "Ignorées".
-*   **Relancer les erreurs** : Si vous avez corrigé les noms de vos dossiers dans Kavita et souhaitez que l'Auto-Sync retente sa chance, cliquez simplement sur le bouton **♻️ Amnistie Erreurs** pour les repasser "En attente".
+MetaKavita peut fonctionner de manière totalement autonome. En définissant un intervalle, une tâche de fond traitera les nouvelles séries tout en respectant scrupuleusement les quotas des API (délais dynamiques).
 
 ### 🛠️ Installation
 Avant de lancer le conteneur, tu dois obligatoirement préparer l'environnement et crafter les fichiers de configuration.
@@ -111,11 +106,28 @@ Avant de lancer le conteneur, tu dois obligatoirement préparer l'environnement 
    Édite le fichier `config.json` fraîchement créé pour y ajouter tes propres clés. Sans cela, le conteneur ne pourra pas communiquer avec Kavita ou DeepL.
    `nano config.json`
 
-4. **Construire et Lancer** :
+4. **Variables d'environnement Docker** :
+   Tous ces paramètres peuvent être modifiés directement depuis l'interface web. Cependant, tu peux les déclarer dans ton `docker-compose.yml` pour initialiser la configuration de ton conteneur.
+   
+   | Variable | Description | Valeur par défaut |
+   | :--- | :--- | :--- |
+   | `KAVITA_URL` | L'URL de ton instance Kavita (ex: `http://192.168.1.50:5001`). | *(Vide)* |
+   | `KAVITA_API_KEY` | Ta clé API Kavita. | *(Vide)* |
+   | `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction. | *(Vide)* |
+   | `TARGET_LANG` | La langue des résumés générés (ex: `FR`, `EN`, `ES`). | `FR` |
+   | `UI_LANG` | La langue de l'interface web (`fr` ou `en`). | `fr` |
+   | `PROVIDER_1` | Source de métadonnées principale (`MANGABAKA`, `NAUTILJON`, `ANILIST`). | `MANGABAKA` |
+   | `PROVIDER_2` | Source de secours 1 (`NONE` pour désactiver). | `NAUTILJON` |
+   | `PROVIDER_3` | Source de secours 2 (`NONE` pour désactiver). | `ANILIST` |
+   | `SMART_COMPLETION`| Activer la Fusion des données (`true` ou `false`). | `false` |
+   | `AUTO_SYNC_INTERVAL`| Intervalle de l'Auto-Sync en minutes (`0` pour désactiver).| `0` |
+   | `AUTO_COVER` | Activer l'envoi automatique des couvertures à Kavita (`true` ou `false`). | `false` |
+
+5. **Construire et Lancer** :
    Démarre le conteneur Docker.
    `docker compose up -d --build`
 
-5. **Accéder au Dashboard** :
+6. **Accéder au Dashboard** :
    Ouvre ton navigateur et rends-toi sur `http://localhost:5010` (ou l'IP de ton serveur).
 
 ---
@@ -127,10 +139,10 @@ Avant de lancer le conteneur, tu dois obligatoirement préparer l'environnement 
 *   🇫🇷 **Ne partage jamais ton `config.json`.** Garde-le privé et vérifie qu'il est bien dans ton `.gitignore`.
 
 ### Scraping Limits / Limites de Scraping
-*   🇬🇧 The script enforces a **dynamic delay** between each API call to strictly respect provider quotas and maximize speed (AniList: 1.0s, Nautiljon: 1.5s, MangaBaka: 2.5s). Use the "Live Logs" to monitor operations.
-*   🇫🇷 Le script impose un **délai dynamique** entre chaque appel API pour maximiser la vitesse tout en respectant les quotas (AniList : 1.0s, Nautiljon : 1.5s, MangaBaka : 2.5s). Utilise les "Live Logs" pour surveiller les opérations.
+*   🇬🇧 The script enforces a **dynamic delay** between each API call to strictly respect provider quotas and maximize speed (AniList: 1.0s, Nautiljon: 1.5s, MangaBaka: 2.5s). 
+*   🇫🇷 Le script impose un **délai dynamique** entre chaque appel API pour maximiser la vitesse tout en respectant les quotas (AniList : 1.0s, Nautiljon : 1.5s, MangaBaka : 2.5s).
 
 ### Tech Stack
 - **Backend**: Python 3.11, Flask, Flask-SocketIO, Curl-Cffi, BeautifulSoup4.
-- **Database**: SQLite.
+- **Database**: SQLite (Self-cleaning algorithm).
 - **Deployment**: Docker (Alpine).
