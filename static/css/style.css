@@ -168,31 +168,37 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
 }
 /* --- Wrapper pour masquer/afficher les clés API --- */
 .password-wrapper {
-    position: relative;
+    position: relative !important; /* Le !important bloque la fuite des yeux */
     display: flex;
     align-items: center;
+    width: 100%;
 }
 
 .password-wrapper input {
-    padding-right: 40px; /* Empêche le texte de passer sous l'icône */
+    width: 100%;
+    padding-right: 35px; /* Laisse la place pour l'œil */
 }
 
 .toggle-password {
     position: absolute;
-    right: 10px;
+    right: 8px;
+    top: 50%;
+    transform: translateY(-50%); /* Centre l'œil verticalement à la perfection */
     background: none;
     border: none;
     padding: 0;
+    margin: 0;
     cursor: pointer;
     font-size: 16px;
     color: var(--text-muted);
     opacity: 0.7;
     transition: opacity 0.2s;
+    z-index: 5;
 }
 
 .toggle-password:hover {
     opacity: 1;
-    background: none; /* Évite d'hériter du background global des boutons au hover */
+    background: none;
 }
 
 /* Boutons */
