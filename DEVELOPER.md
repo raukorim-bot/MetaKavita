@@ -28,12 +28,20 @@ Kavita's backend is built in C# and expects very specific payload formatting whe
 * **The `id: 0` Rule:** When sending lists of objects (like Genres, Tags, Writers, Pencillers, Characters), Kavita expects each object to have `"id": 0`. If you omit the ID or send Kavita's internal ID, the update might be silently ignored. Example: `[{"id": 0, "title": "Action"}]`.
 * **Locks:** Every field updated must be accompanied by its corresponding `Locked` boolean set to `true` (e.g., `summaryLocked: true`), or Kavita will overwrite it during its own internal scan.
 
-### 4. How to Contribute (Add a Provider)
-Adding a new provider is extremely simple thanks to the modular architecture:
-1. Create a new file in the `scrapers/` folder (e.g., `mangadex.py`).
-2. Your function must return a dict with these exact keys: `summary`, `cover_url`, `genres`, `tags`, `year`, `status`, `staff`, `characters`, and `alternative_titles`.
-3. Import your function in `metadata_fetcher.py` and add it to the `PROVIDERS_MAP` dict.
-4. That's it. The Frontend UI (dropdowns) and the Backend routing logic will adapt automatically!
+### 4. Vibecoding: Add a Provider using an LLM (AI)
+Because MetaKavita's architecture is strictly standardized, you don't even need to code to add a new provider (like MangaDex, Babelio, Goodreads). You can use an AI (ChatGPT, Claude, etc.) to do it for you in one shot!
+
+Just copy and paste this prompt to your favorite LLM:
+
+> "I am working on a Python project. I need a web scraper function named `fetch_myprovider(query)` that takes a string (a manga or comic title) and searches for it on **[INSERT WEBSITE NAME HERE]**. 
+> You can use `requests` and `BeautifulSoup4` (or `curl_cffi` if there is a Cloudflare protection).
+> The function MUST return `None` if it fails, or return exactly this Python dictionary structure if it succeeds:
+> { 'summary': 'string', 'cover_url': 'string or None', 'genres': ['list', 'of', 'strings'], 'tags': ['list', 'of', 'strings'], 'year': integer or None, 'status': 'RELEASING' or 'FINISHED' or 'HIATUS' or 'CANCELLED' or None, 'staff': [{'role': 'Story or Art', 'node': {'name': {'full': 'Author Name'}}}], 'characters': [], 'alternative_titles': ['list'] }."
+
+Once the AI generates the code:
+1. Save it in the `scrapers/` folder (e.g., `myprovider.py`).
+2. Import it in `metadata_fetcher.py`.
+3. Add it to the `PROVIDERS_MAP` dict (`"MYPROVIDER": fetch_myprovider`). The UI will update automatically!
 
 ---
 
@@ -59,9 +67,17 @@ Le backend de Kavita (C#) exige un formatage de payload très strict lors de la 
 * **La règle du `id: 0` :** Lors de l'envoi de listes d'objets (Genres, Tags, Staff, Characters), Kavita exige que chaque objet possède `"id": 0`. Si vous l'omettez, la mise à jour sera silencieusement ignorée. Exemple : `[{"id": 0, "title": "Action"}]`.
 * **Les Verrous (Locks) :** Chaque champ mis à jour doit être accompagné de son booléen `Locked` défini sur `true` (ex: `summaryLocked: true`), sinon Kavita écrasera vos données lors de son prochain scan interne.
 
-### 4. Comment Contribuer (Ajouter un Provider)
-L'ajout d'une nouvelle source est trivial grâce à l'architecture modulaire :
-1. Créez un nouveau script dans le dossier `scrapers/` (ex: `mangadex.py`).
-2. Votre fonction doit retourner un dictionnaire avec ces clés strictes : `summary`, `cover_url`, `genres`, `tags`, `year`, `status`, `staff`, `characters`, et `alternative_titles`.
-3. Importez votre fonction dans `metadata_fetcher.py` et ajoutez-la au dictionnaire `PROVIDERS_MAP`.
-4. C'est terminé. L'interface HTML (menus déroulants) et la logique de Fallback du backend s'adapteront toutes seules en lisant la Map !
+### 4. Vibecoding : Créer un Provider avec une IA (LLM)
+Grâce à l'architecture ultra standardisée de MetaKavita, tu n'as même pas besoin de savoir coder pour ajouter une nouvelle source de métadonnées (Babelio, MangaDex, etc.). Tu peux demander à une IA (ChatGPT, Claude...) de le faire pour toi en un seul message !
+
+Copie-colle simplement ce "Prompt" à ton IA favorite :
+
+> "Je travaille sur un projet Python. J'ai besoin d'une fonction de web scraping nommée `fetch_mon_site(query)` qui prend une chaîne de caractères (un nom de manga/BD) et effectue une recherche sur **[INSÉRER LE NOM DU SITE ICI]**.
+> Tu peux utiliser `requests` et `BeautifulSoup4` (ou `curl_cffi` si le site est sous Cloudflare).
+> La fonction DOIT retourner `None` si elle échoue, ou retourner très exactement ce format de dictionnaire Python si elle réussit :
+> { 'summary': 'string', 'cover_url': 'string or None', 'genres': ['liste', 'de', 'strings'], 'tags': ['liste', 'de', 'strings'], 'year': entier (ex: 2024) ou None, 'status': 'RELEASING' ou 'FINISHED' ou 'HIATUS' ou 'CANCELLED' ou None, 'staff': [{'role': 'Story ou Art', 'node': {'name': {'full': 'Nom Auteur'}}}], 'characters': [], 'alternative_titles': ['liste'] }."
+
+Une fois que l'IA t'a généré le code :
+1. Sauvegarde-le dans le dossier `scrapers/` (ex: `monsite.py`).
+2. Importe-le dans `metadata_fetcher.py`.
+3. Ajoute-le dans le dictionnaire `PROVIDERS_MAP` (`"MONSITE": fetch_mon_site`). L'interface Web se mettra à jour toute seule !

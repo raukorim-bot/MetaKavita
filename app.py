@@ -271,23 +271,31 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     ui_lang = config.get('UI_LANG', 'fr')
     t = translations.get(ui_lang, translations['fr'])
     
+    # 1. Vérification des identifiants
     if config.get('KAVITA_API_KEY') and config.get('KAVITA_URL'):
         kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
-        libraries = kavita.get_libraries()
-        if libraries:
-            series_list = kavita.get_all_series(library_id=selected_lib)
-            
-            # --- NETTOYAGE AUTO DU CACHE ---
-            # Uniquement si on n'a pas filtré par bibliothèque (pour avoir la liste exhaustive)
-            if not selected_lib:
-                active_ids = {s['id'] for s in series_list}
-                cleaned = clean_orphaned_cache(active_ids)
-                if cleaned > 0:
-                    logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")
+        
+        # 2. On intercepte explicitement l'authentification
+        if kavita.authenticate():
+            libraries = kavita.get_libraries()
+            if libraries:
+                series_list = kavita.get_all_series(library_id=selected_lib)
+                
+                # Nettoyage auto du cache
+                if not selected_lib:
+                    active_ids = {s['id'] for s in series_list}
+                    cleaned = clean_orphaned_cache(active_ids)
+                    if cleaned > 0:
+                        logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")
+            else:
+                error_msg = "Aucune bibliothèque trouvée dans Kavita."
+        else:
+            # 3. L'authentification a échoué (ex: Clé API fausse ou révoquée)
+            error_msg = t.get('err_kavita', "Connexion à Kavita échouée.")
     else:
-        error_msg = t.get('err_kavita', "Connexion à Kavita échouée.")
+        # Les champs sont vides
+        error_msg = t.get('err_missing', "Données manquantes.")
 
-    # On charge le cache APRÈS le nettoyage éventuel pour que les stats soient justes
     cached_info = get_all_cached_data()
     
     stats = {
@@ -308,6 +316,7 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     return render_template('index.html', config=config, msg=msg, error_msg=error_msg, 
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib, 
                            t=t, stats=stats, available_providers=list(PROVIDERS_MAP.keys()))
+                           
 @app.route('/', methods=['GET'])
 def index():
     config = load_config()

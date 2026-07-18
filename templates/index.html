@@ -301,6 +301,16 @@
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
                 </form>
+				{% else %}
+                <div class="card" style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
+                    <div style="font-size: 50px; margin-bottom: 20px;">{% if error_msg %}🔌{% else %}👋{% endif %}</div>
+                    <h2 style="color: var(--text-muted); margin-bottom: 10px;">
+                        {% if error_msg %}Impossible de se connecter{% else %}Bienvenue sur MetaKavita{% endif %}
+                    </h2>
+                    <p style="color: var(--danger); font-weight: 600; font-size: 15px; max-width: 400px;">
+                        {{ error_msg if error_msg else "Veuillez configurer votre URL et votre Clé API Kavita dans le menu de gauche pour commencer." }}
+                    </p>
+                </div>
                 {% endif %}
             </main>
         </div>

@@ -13,7 +13,7 @@
 MetaKavita is an automation tool designed to enrich metadata for your [Kavita](https://kavitareader.com/) library. It automatically retrieves information (summaries, release years, genres, tags, staff, publishers, age ratings, alternative titles) from multiple sources and translates summaries via [DeepL](https://www.deepl.com/).
 
 ### ⚙️ Interface and Configuration
-*   **Live UI**: 100% AJAX interface (zero page reloads) with real-time logs and visually masked API keys.
+*   **Live UI**: 100% AJAX interface (zero page reloads) with real-time logs, visually masked API keys, and explicit connection error screens.
 *   **Smart Routing (Fallback)**: Define a main metadata source and up to two backups (e.g., MangaBaka > Nautiljon > AniList). If the first fails, MetaKavita seamlessly asks the next one.
 *   **Smart Completion (Data Fusion)**: If enabled, MetaKavita will patch incomplete metadata. If your main source finds the summary but is missing genres, the tool will fetch *only* the missing genres from the backup sources to create the ultimate metadata file!
 
@@ -75,7 +75,7 @@ Before launching the container, you must prepare the environment and craft the n
 MetaKavita est un outil d'automatisation conçu pour enrichir les métadonnées de ta bibliothèque [Kavita](https://kavitareader.com/). Il récupère automatiquement les informations (résumés, années, genres, tags, personnel, éditeurs, âge) depuis plusieurs sources et traduit les résumés via [DeepL](https://www.deepl.com/).
 
 ### ⚙️ Interface et Configuration
-*   **Interface Live** : Expérience 100% AJAX (zéro rechargement) avec streaming des logs console en temps réel.
+*   **Interface Live** : Expérience 100% AJAX (zéro rechargement) avec streaming des logs, masquage des clés et écrans explicites en cas d'erreur de connexion.
 *   **Routage Intelligent (Fallback)** : Définis une source principale et jusqu'à deux sources de secours. Si la première échoue, l'outil interroge automatiquement la suivante.
 *   **Complétion Intelligente (Fusion)** : Si activée, MetaKavita "bouchera les trous". Si ta source principale trouve le résumé mais pas les genres, l'outil ira chercher *uniquement* les genres manquants sur les autres sources pour créer la fiche parfaite !
 
