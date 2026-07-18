@@ -4,7 +4,8 @@ import os
 CONFIG_FILE = "config.json"
 
 def load_config():
-    config = {"KAVITA_URL": "", "KAVITA_API_KEY": "", "DEEPL_API_KEY": "", "TARGET_LANG": "FR", "UI_LANG": "fr", "PROVIDER": "ANILIST"}
+    # Ajout de AUTO_SYNC_INTERVAL (par défaut 0 = désactivé)
+    config = {"KAVITA_URL": "", "KAVITA_API_KEY": "", "DEEPL_API_KEY": "", "TARGET_LANG": "FR", "UI_LANG": "fr", "PROVIDER": "ANILIST", "AUTO_SYNC_INTERVAL": 0, "AUTO_COVER": False}
     
     if os.path.exists(CONFIG_FILE):
         try:
@@ -19,6 +20,13 @@ def load_config():
     config["TARGET_LANG"] = os.getenv("TARGET_LANG", config.get("TARGET_LANG", "FR"))
     config["UI_LANG"] = os.getenv("UI_LANG", config.get("UI_LANG", "fr"))
     config["PROVIDER"] = os.getenv("PROVIDER", config.get("PROVIDER", "ANILIST"))
+    
+    # On force la conversion en entier pour éviter les bugs
+    try:
+        config["AUTO_SYNC_INTERVAL"] = int(os.getenv("AUTO_SYNC_INTERVAL", config.get("AUTO_SYNC_INTERVAL", 0)))
+    except ValueError:
+        config["AUTO_SYNC_INTERVAL"] = 0
+        config["AUTO_COVER"] = str(os.getenv("AUTO_COVER", config.get("AUTO_COVER", "False"))).lower() == "true"
     
     return config
 

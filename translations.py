@@ -19,8 +19,9 @@ translations = {
         "select_all": "Tout sélectionner (affichés)",
         "force_update": "⚠️ Forcer la mise à jour (Écrasera les existantes)",
         "launch_batch": "🚀 Lancer le batch sur la sélection",
+        "launch_ignore": "🚫 Ignorer la sélection",
         "stop_batch": "🛑 Arrêter le batch",
-        "batch_stopped": "🛑 Batch annulé !",
+        "batch_stopped": "Batch annulé !",
         "export_errors": "📥 Télécharger le rapport des erreurs (.txt)",
         "live_logs": "📡 Live Logs",
         "waiting": "En attente du serveur...",
@@ -31,6 +32,9 @@ translations = {
         "anilist_id": "ID AniList :",
         "processing": "Calcul...",
         "stats_title": "📊 Statistiques",
+        "auto_sync_interval": "Auto-Sync (minutes, 0 = désactivé) :",
+        "log_auto_sync_start": "🔄 [Auto-Sync] Démarrage de la vérification automatique...",
+        "log_auto_sync_found": "🔄 [Auto-Sync] {0} série(s) en attente trouvée(s). Ajout à la file...",
         
         # --- NOUVEAUTÉS A6 ---
         "config_title": "Configuration",
@@ -48,7 +52,7 @@ translations = {
         "stats_ok": "Enrichies (OK)",
         "stats_wait": "En Attente",
         "stats_err": "Introuvables",
-        "stats_back": "🔙 Retour au Dashboard",  # <-- LA VIRGULE MANQUANTE ÉTAIT ICI
+        "stats_back": "🔙 Retour au Dashboard",
         "toggle_config": "Masquer/Afficher la configuration",
         "toggle_theme": "Changer le thème",
         "stats_enriched": "Enrichis",
@@ -83,7 +87,22 @@ translations = {
         "log_deepl_456": "❌ DeepL : Quota de traduction mensuel dépassé (Erreur 456) ! Le texte restera en VO.",
         "log_deepl_fail": "⚠️ DeepL : Échec de la traduction (Code {0}) : {1}",
         "log_deepl_timeout": "⚠️ DeepL : L'API a mis trop de temps à répondre (Timeout).",
-        "log_deepl_crash": "💥 DeepL : Crash inattendu lors de la requête : {0}"
+        "log_deepl_crash": "💥 DeepL : Crash inattendu lors de la requête : {0}",
+        "filter_ignored": "🚫 Ignorées",
+        "stats_ignored": "Ignorées",
+        "hide_ignored": "Masquer les ignorés (sauf si filtré)",
+        "ignore_btn": "Ignorer",
+        "unignore_btn": "Réactiver",
+        "auto_cover": "Remplacer automatiquement les couvertures :",
+        "log_cover_upload": "[{0}] 🖼️ Téléchargement et envoi de la couverture...",
+        "log_cover_fail": "[{0}] ⚠️ Échec de la couverture : {1}",
+        "log_cover_success": "[{0}] 🖼️✅ Couverture mise à jour avec succès !",
+        "log_batch_finished": "🎉 File d'attente vide, tous les traitements en cours sont terminés !",
+        "manage_covers": "Gérer les couvertures",
+        "modal_cover_title": "Choix de la couverture : ",
+        "modal_cover_loading": "⏳ Recherche d'images sur les serveurs...",
+        "modal_cover_sending": "⬆️ Envoi de l'image à Kavita...",
+        "provider_mangabaka": "MangaBaka (API / Rapide)"
     },
     "en": {
         "title": "⚙️ MetaKavita Configuration",
@@ -105,8 +124,9 @@ translations = {
         "select_all": "Select all (visible)",
         "force_update": "⚠️ Force Update (Overwrite existing)",
         "launch_batch": "🚀 Launch Batch on Selection",
-        "stop_batch": "🛑 Stop Batch",
-        "batch_stopped": "🛑 Batch stopped!",
+        "launch_ignore": "🚫 Ignore on selection",
+        "stop_batch": "🛑Stop Batch",
+        "batch_stopped": "🛑Batch stopped!",
         "export_errors": "📥 Download Errors Report (.txt)",
         "live_logs": "📡 Live Logs",
         "waiting": "Waiting for server...",
@@ -117,6 +137,9 @@ translations = {
         "anilist_id": "AniList ID:",
         "processing": "Processing...",
         "stats_title": "📊 Statistics",
+        "auto_sync_interval": "Auto-Sync (minutes, 0 = disabled):",
+        "log_auto_sync_start": "🔄 [Auto-Sync] Starting automatic check...",
+        "log_auto_sync_found": "🔄 [Auto-Sync] {0} pending series found. Adding to queue...",
         
         # --- NOUVEAUTÉS A6 ---
         "config_title": "Configuration",
@@ -134,7 +157,7 @@ translations = {
         "stats_ok": "Enriched (OK)",
         "stats_wait": "Pending",
         "stats_err": "Not Found",
-        "stats_back": "🔙 Back to Dashboard",  # <-- ET ICI
+        "stats_back": "🔙 Back to Dashboard",
         "toggle_config": "Toggle Configuration",
         "toggle_theme": "Toggle Theme",
         "stats_enriched": "Enriched",
@@ -169,6 +192,21 @@ translations = {
         "log_deepl_456": "❌ DeepL: Monthly translation quota exceeded (Error 456)! Text will remain in original language.",
         "log_deepl_fail": "⚠️ DeepL: Translation failed (Code {0}): {1}",
         "log_deepl_timeout": "⚠️ DeepL: API took too long to respond (Timeout).",
-        "log_deepl_crash": "💥 DeepL: Unexpected crash during request: {0}"
+        "log_deepl_crash": "💥 DeepL: Unexpected crash during request: {0}",
+        "filter_ignored": "🚫 Ignored",
+        "stats_ignored": "Ignored",
+        "hide_ignored": "Hide ignored (unless filtered)",
+        "ignore_btn": "Ignore",
+        "unignore_btn": "Unignore",
+        "auto_cover": "Automatically replace covers:",
+        "log_cover_upload": "[{0}] 🖼️ Downloading and sending cover...",
+        "log_cover_fail": "[{0}] ⚠️ Cover failed: {1}",
+        "log_cover_success": "[{0}] 🖼️✅ Cover successfully updated!",
+        "log_batch_finished": "🎉 Queue is empty, all processing is finished!",
+        "manage_covers": "Manage covers",
+        "modal_cover_title": "Choose cover for: ",
+        "modal_cover_loading": "⏳ Searching images on servers...",
+        "modal_cover_sending": "⬆️ Sending image to Kavita...",
+        "provider_mangabaka": "MangaBaka (API / Fast)"
     }
 }

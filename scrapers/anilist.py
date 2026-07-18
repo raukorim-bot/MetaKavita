@@ -16,6 +16,7 @@ def fetch_anilist_extended(title_or_id):
         query ($id: Int) {
           Media(id: $id, type: MANGA) {
             description(asHtml: false)
+            coverImage { extraLarge }
             genres
             tags { name }
             startDate { year }
@@ -33,6 +34,7 @@ def fetch_anilist_extended(title_or_id):
         query ($search: String) {
           Media(search: $search, type: MANGA) {
             description(asHtml: false)
+            coverImage { extraLarge }
             genres
             tags { name }
             startDate { year }
@@ -51,6 +53,7 @@ def fetch_anilist_extended(title_or_id):
             if data:
                 return {
                     'summary': data.get('description', ''),
+                    'cover_url': data.get('coverImage', {}).get('extraLarge'),
                     'genres': data.get('genres', []),
                     'tags': [t['name'] for t in data.get('tags', [])],
                     'year': data.get('startDate', {}).get('year'),

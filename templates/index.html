@@ -16,12 +16,18 @@
             update: "{{ t['update'] }}",
             launchBatch: "{{ t.launch_batch }}",
             filter_pending: "{{ t.filter_pending }}",
+			filter_ignored: "{{ t.filter_ignored }}",
+            ignore_btn: "{{ t.ignore_btn }}",
+            unignore_btn: "{{ t.unignore_btn }}",
             element: "{{ t.element }}",
             elements: "{{ t.elements }}",
             batch_empty: "{{ t.batch_empty }}",
             batch_sending: "{{ t.batch_sending }}",
             batch_ok: "{{ t.batch_ok }}",
-			terminal_ready: "{{ t.terminal_ready }}"
+			terminal_ready: "{{ t.terminal_ready }}",
+			manage_covers: "{{ t.manage_covers }}",
+            modal_cover_loading: "{{ t.modal_cover_loading }}",
+            modal_cover_sending: "{{ t.modal_cover_sending }}"
         };
     </script>
 </head>
@@ -43,18 +49,22 @@
                 
                 <div class="card">
                     <h3 class="section-title">{{ t.stats_title }}</h3>
-						<div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px;">
-							<div>
+						<div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px; flex-wrap: wrap;">
+							<div style="flex: 1;">
 								<h4 style="margin:0; color: var(--success); font-size: 1.2rem;">{{ stats.completed }}</h4>
 								<small class="text-muted">{{ t.stats_enriched }}</small>
 							</div>
-							<div>
+							<div style="flex: 1;">
 								<h4 style="margin:0; color: var(--danger); font-size: 1.2rem;">{{ stats.not_found }}</h4>
 								<small class="text-muted">{{ t.stats_errors }}</small>
 							</div>
-							<div>
+							<div style="flex: 1;">
 								<h4 style="margin:0; color: var(--warning); font-size: 1.2rem;">{{ stats.pending }}</h4>
 								<small class="text-muted">{{ t.stats_pending }}</small>
+							</div>
+							<div style="flex: 1;">
+								<h4 style="margin:0; color: var(--secondary); font-size: 1.2rem;">{{ stats.ignored }}</h4>
+								<small class="text-muted">{{ t.stats_ignored }}</small>
 							</div>
 						</div>
                     <div style="width: 100%; background: var(--bg-input); height: 8px; border-radius: 4px; overflow: hidden; display: flex;">
@@ -62,6 +72,7 @@
                         <div style="width: {{ (stats.completed / stats.total) * 100 }}%; background: var(--success);"></div>
                         <div style="width: {{ (stats.not_found / stats.total) * 100 }}%; background: var(--danger);"></div>
                         <div style="width: {{ (stats.pending / stats.total) * 100 }}%; background: var(--warning);"></div>
+                        <div style="width: {{ (stats.ignored / stats.total) * 100 }}%; background: var(--secondary);"></div>
                         {% endif %}
                     </div>
                     <a href="/stats" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">{{ t.open_stats }}</a>
@@ -113,8 +124,20 @@
                             <label>{{ t.provider_source | default("Source de métadonnées :") }}</label>
                             <select name="PROVIDER" onchange="saveConfig()">
                                 <option value="ANILIST" {% if config.get("PROVIDER") == "ANILIST" %}selected{% endif %}>{{ t.provider_anilist }}</option>
-								<option value="NAUTILJON" {% if config.get("PROVIDER") == "NAUTILJON" %}selected{% endif %}>{{ t.provider_nautiljon }}</option>
+                                <option value="NAUTILJON" {% if config.get("PROVIDER") == "NAUTILJON" %}selected{% endif %}>{{ t.provider_nautiljon }}</option>
+                                <!-- NOUVEAU -->
+                                <option value="MANGABAKA" {% if config.get("PROVIDER") == "MANGABAKA" %}selected{% endif %}>{{ t.provider_mangabaka }}</option>
                             </select>
+                        </div>
+						<div class="form-group">
+                            <label>{{ t.auto_sync_interval }}</label>
+                            <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0" onchange="saveConfig()">
+                        </div>
+						<div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="AUTO_COVER" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
+                                {{ t.auto_cover }}
+                            </label>
                         </div>
                         <button type="button" class="btn-primary w-100" onclick="saveConfig()">{{ t.save_settings }}</button>
                     </form>
@@ -165,16 +188,21 @@
                     <div class="toolbar card">
                         <div class="toolbar-left">
                             <h2 class="m-0">{{ t.series_avail }}</h2>
-<span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
+							<span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
                             <select id="statusFilter" onchange="filterSeries()">
                                 <option value="ALL">{{ t.filter_all }}</option>
                                 <option value="PENDING">{{ t.filter_pending }}</option>
                                 <option value="COMPLETED">{{ t.filter_completed }}</option>
                                 <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
+								<option value="IGNORED">{{ t.filter_ignored }}</option>
                             </select>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="selectAll" onclick="toggleSelectAll()"> 
                                 {{ t.select_all }}
+                            </label>
+							<label class="checkbox-label">
+                                <input type="checkbox" id="hideIgnoredCb" onclick="filterSeries()" checked> 
+                                {{ t.hide_ignored }}
                             </label>
                         </div>
                         <div class="toolbar-right">
@@ -201,11 +229,18 @@
                                             <span class="badge badge-completed">{{ t.filter_completed }}</span>
                                         {% elif series.status == 'NOT_FOUND' %}
                                             <span class="badge badge-notfound">{{ t.filter_notfound }}</span>
+                                        {% elif series.status == 'IGNORED' %}
+                                            <span class="badge badge-ignored">{{ t.filter_ignored }}</span>
                                         {% else %}
                                             <span class="badge badge-pending">{{ t.filter_pending }}</span>
                                         {% endif %}
                                     </div>
                                     <div class="series-actions">
+                                        <!-- LE NOUVEAU BOUTON EST ICI -->
+                                        <button type="button" class="btn-icon" onclick="toggleIgnore('{{ series.id }}', this)" title="{% if series.status == 'IGNORED' %}{{ t.unignore_btn }}{% else %}{{ t.ignore_btn }}{% endif %}">
+                                            {% if series.status == 'IGNORED' %}🔄{% else %}🚫{% endif %}
+                                        </button>
+                                        <button type="button" class="btn-icon" onclick="openCoverModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.manage_covers }}">🖼️</button>
                                         <button type="button" class="btn-opt" onclick="togglePanel('panel-{{ series.id }}')">{{ t.options }}</button>
                                         <button type="button" class="btn-sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>
                                         <span class="loading" style="display: none;">{{ t.processing }}</span>
@@ -232,7 +267,8 @@
                     {% endif %}
 
                     <div class="batch-actions">
-                        <button type="submit" class="btn-batch" id="mainBatchBtn">🚀 {{ t.launch_batch }}</button>
+						<button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()" style="flex: 1;">{{ t.launch_ignore }}</button>
+                        <button type="submit" class="btn-batch" id="mainBatchBtn">{{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
                 </form>
@@ -241,5 +277,17 @@
         </div>
     </div>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
+	<!-- MODAL DE SÉLECTION DE COUVERTURE -->
+    <div id="coverModal" class="modal-overlay" onclick="if(event.target===this) closeCoverModal()">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 class="m-0">{{ t.modal_cover_title }}<span id="modalSeriesName" style="color: var(--primary);"></span></h3>
+                <button type="button" class="close-btn" onclick="closeCoverModal()">&times;</button>
+            </div>
+            <div id="coversGrid" class="covers-grid">
+                <!-- Les images apparaîtront ici -->
+            </div>
+        </div>
+    </div>
 </body>
 </html>
