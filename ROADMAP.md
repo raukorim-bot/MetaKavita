@@ -8,12 +8,12 @@
 ## 🛠️ Partie A : Corrections et "Quality of Life" (UI/UX)
 *Le but : Rendre l'existant robuste, fluide et visuellement propre avant d'ajouter de la complexité.*
 
-- [ ] **A1. Sécuriser l'affichage des clés API :** Passer les champs de configuration des clés (DeepL, etc.) en type `password` avec une petite icône "œil" pour masquer/afficher.
-- [ ] **A2. Fixer l'UI du bandeau :** Corriger le CSS du bandeau principal qui est actuellement coupé/mal affiché.
-- [ ] **A3. Debug DeepL :** Ajouter des logs d'erreur explicites côté serveur et côté interface si l'API DeepL rejette la requête (quota dépassé, mauvaise clé).
-- [ ] **A4. Interface 100% dynamique (Live/AJAX) :** Passer tous les boutons et formulaires en Javascript (`fetch`) pour éviter les rechargements de page intempestifs lors d'un changement de paramètre.
-- [ ] **A5. Compteur de Batch :** Réintégrer le nombre d'éléments restants à traiter dans les live logs lors du lancement d'un traitement par lot.
-- [ ] **A6. Traduction globale :** Faire une passe sur le dictionnaire de traduction pour corriger les objets ou textes qui sont restés dans la mauvaise langue.
+- [x] **A1. Sécuriser l'affichage des clés API :** Passer les champs de configuration des clés (DeepL, etc.) en type `password` avec une petite icône "œil" pour masquer/afficher.
+- [x] **A2. Fixer l'UI du bandeau :** Corriger le CSS du bandeau principal qui est actuellement coupé/mal affiché.
+- [x] **A3. Debug DeepL :** Ajouter des logs d'erreur explicites côté serveur et côté interface si l'API DeepL rejette la requête (quota dépassé, mauvaise clé).
+- [x] **A4. Interface 100% dynamique (Live/AJAX) :** Passer tous les boutons et formulaires en Javascript (`fetch`) pour éviter les rechargements de page intempestifs lors d'un changement de paramètre.
+- [x] **A5. Compteur de Batch :** Réintégrer le nombre d'éléments restants à traiter dans les live logs lors du lancement d'un traitement par lot.
+- [x] **A6. Traduction globale :** Faire une passe sur le dictionnaire de traduction pour corriger les objets ou textes qui sont restés dans la mauvaise langue.
 
 ---
 
@@ -37,3 +37,4 @@
     - "Index Hipster" (Ratio mainstream vs oeuvres obscures).
     - "Mur de la honte" (Les séries les plus introuvables d'internet).
     - "Connexions troll" (Échecs de connexion sur la page d'accueil).
+- [ ] **B13. Barre de progression globale :** Ajouter une barre de chargement au-dessus ou à côté des Live Logs pour suivre visuellement l'avancée du traitement de masse, et rendre la fenêtre de logs redimensionnable.
