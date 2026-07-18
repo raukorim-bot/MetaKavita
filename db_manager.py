@@ -56,3 +56,20 @@ def get_all_cached_data():
     rows = c.fetchall()
     conn.close()
     return {row[0]: {'status': row[1], 'forced_id': row[2], 'alternative_title': row[3]} for row in rows}
+
+def clean_orphaned_cache(active_ids):
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    # On récupère tous les IDs actuellement dans notre cache
+    c.execute("SELECT series_id FROM series_cache")
+    cached_ids = {row[0] for row in c.fetchall()}
+    
+    # On trouve les fantômes (ceux qui sont dans le cache mais plus dans active_ids)
+    orphans = cached_ids - active_ids
+    if orphans:
+        # On les supprime du cache
+        c.executemany("DELETE FROM series_cache WHERE series_id = ?", [(o,) for o in orphans])
+        conn.commit()
+        
+    conn.close()
+    return len(orphans)

@@ -7,8 +7,8 @@ import queue
 import io
 from config_manager import load_config, save_config
 from kavita_api import KavitaAPI
-from metadata_fetcher import fetch_metadata, translate_text
-from db_manager import init_db, update_status, get_all_cached_data, save_forced_overrides, reset_errors
+from metadata_fetcher import fetch_metadata, translate_text, PROVIDERS_MAP
+from db_manager import init_db, update_status, get_all_cached_data, save_forced_overrides, reset_errors, clean_orphaned_cache
 from translations import translations
 
 app = Flask(__name__)
@@ -54,17 +54,13 @@ def worker():
         remaining = sync_queue.qsize()
         logging.info(t.get('log_worker_start').format(series_name, remaining))
         
-        success, msg, api_called = process_series_logic(series_id, series_name, force_update)
+        success, msg, used_providers = process_series_logic(series_id, series_name, force_update)
         
         # --- SÉCURITÉ ANTI-BAN DYNAMIQUE ---
-        if api_called:
-            # Dictionnaire des délais (en secondes) selon le provider
-            delays = {
-                "MANGABAKA": 2.5,  # Max 30 req/min
-                "NAUTILJON": 1.5,  # Anti-Cloudflare
-                "ANILIST": 1.0     # GraphQL Officiel (Max 90 req/min)
-            }
-            delay = delays.get(provider, 1.5)
+        if used_providers:
+            delays = {"MANGABAKA": 2.5, "NAUTILJON": 1.5, "ANILIST": 1.0}
+            # Si on a dû taper plusieurs API (fusion), on met la sécurité maximale (2.5s)
+            delay = 2.5 if len(used_providers) > 1 else delays.get(used_providers[0], 1.5)
             time.sleep(delay)
         else:
             time.sleep(0.02)
@@ -95,6 +91,8 @@ def auto_sync_worker():
                     if kavita.authenticate():
                         logging.info(t.get('log_auto_sync_start'))
                         all_series = kavita.get_all_series()
+                        active_ids = {s['id'] for s in all_series}
+                        clean_orphaned_cache(active_ids)
                         cached = get_all_cached_data()
                         
                         to_process = []
@@ -126,34 +124,51 @@ def process_series_logic(series_id, series_name, force_update=False):
         
         if not kavita.authenticate():
             logging.error(t.get('log_auth_fail').format(series_name))
-            return False, "Erreur Kavita.", False
+            return False, "Erreur Kavita.", []
 
         metadata = kavita.get_series_metadata(series_id)
         if not metadata:
             logging.error(t.get('log_meta_fail').format(series_name))
-            return False, "Erreur de métadonnées.", False
+            return False, "Erreur de métadonnées.", []
 
         if metadata.get('summary') and not force_update:
             logging.info(t.get('log_skip').format(series_name))
             update_status(series_id, 'COMPLETED')
-            return True, "Déjà à jour.", False
+            return True, "Déjà à jour.", []
 
         cache_data = get_all_cached_data().get(int(series_id), {})
         search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
 
-        provider = config.get("PROVIDER", "ANILIST")
-        logging.info(t.get('log_scraping').format(series_name, provider, search_query))
+        # --- NOUVELLE LOGIQUE DE FALLBACK ET FUSION ---
+        p1 = config.get("PROVIDER_1", "MANGABAKA")
+        p2 = config.get("PROVIDER_2", "NAUTILJON")
+        p3 = config.get("PROVIDER_3", "ANILIST")
         
-        provider_data = fetch_metadata(search_query, provider)
-        api_called = True 
+        # On filtre "NONE" et on dédoublonne tout en gardant l'ordre
+        raw_providers = [p for p in [p1, p2, p3] if p != "NONE"]
+        providers_list = list(dict.fromkeys(raw_providers))
+        
+        smart_completion = config.get("SMART_COMPLETION", False)
+
+        logging.info(t.get('log_scraping').format(series_name, " > ".join(providers_list), search_query))
+        
+        provider_data, used_providers = fetch_metadata(search_query, providers_list, smart_completion)
 
         if not provider_data:
-            logging.warning(t.get('log_not_found').format(series_name, provider))
+            logging.warning(t.get('log_not_found').format(series_name, "API(s)"))
             update_status(series_id, 'NOT_FOUND')
-            return False, "Introuvable.", api_called
+            return False, "Introuvable.", used_providers
 
-        logging.info(t.get('log_found').format(series_name))
+        # Extraction des infos de provenance pour le log final
+        actual_provider = provider_data.pop('_provider_used', 'Inconnu')
+        fusion_providers = provider_data.pop('_fusion_providers', [])
+        
+        msg_found = t.get('log_found').format(series_name) + f" (Base: {actual_provider})"
+        if fusion_providers:
+            msg_found += f" + 🧩 Fusion ({', '.join(fusion_providers)})"
+        logging.info(msg_found)
 
+        # --- MAPPAGE DES DONNÉES ---
         if provider_data.get('summary') and (not metadata.get('summary') or force_update):
             target_lang = config.get('TARGET_LANG', 'FR')
             metadata['summary'] = translate_text(provider_data['summary'], config.get('DEEPL_API_KEY'), target_lang)
@@ -201,12 +216,12 @@ def process_series_logic(series_id, series_name, force_update=False):
             metadata['pencillers'] = pencillers
             metadata['pencillersLocked'] = True
 
-        # --- NOUVEAU : Éditeur ---
+        # --- Éditeur ---
         if provider_data.get('publisher'):
             metadata['publisher'] = provider_data['publisher']
             metadata['publisherLocked'] = True
             
-        # --- NOUVEAU : Classification d'âge (Age Rating Kavita) ---
+        # --- Classification d'âge ---
         if provider_data.get('age_rating'):
             rating_str = str(provider_data['age_rating']).lower()
             if rating_str == 'safe': 
@@ -240,22 +255,40 @@ def process_series_logic(series_id, series_name, force_update=False):
             # ------------------------------------------------------
             
             update_status(series_id, 'COMPLETED')
-            return True, "Succès", api_called
+            return True, "Succès", used_providers
         else:
             logging.error(t.get('log_kavita_refused').format(series_name, msg))
-            return False, f"Erreur: {msg}", api_called
+            return False, f"Erreur: {msg}", used_providers
 
     except Exception as e:
         logging.error(t.get('log_crash').format(series_name, e))
-        return False, "Erreur interne.", False
+        return False, "Erreur interne.", []
 
 def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     series_list = []
     libraries = []
-    cached_info = get_all_cached_data()
     
     ui_lang = config.get('UI_LANG', 'fr')
     t = translations.get(ui_lang, translations['fr'])
+    
+    if config.get('KAVITA_API_KEY') and config.get('KAVITA_URL'):
+        kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
+        libraries = kavita.get_libraries()
+        if libraries:
+            series_list = kavita.get_all_series(library_id=selected_lib)
+            
+            # --- NETTOYAGE AUTO DU CACHE ---
+            # Uniquement si on n'a pas filtré par bibliothèque (pour avoir la liste exhaustive)
+            if not selected_lib:
+                active_ids = {s['id'] for s in series_list}
+                cleaned = clean_orphaned_cache(active_ids)
+                if cleaned > 0:
+                    logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")
+    else:
+        error_msg = t.get('err_kavita', "Connexion à Kavita échouée.")
+
+    # On charge le cache APRÈS le nettoyage éventuel pour que les stats soient justes
+    cached_info = get_all_cached_data()
     
     stats = {
         'total': len(cached_info),
@@ -265,22 +298,16 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         'ignored': sum(1 for v in cached_info.values() if v.get('status') == 'IGNORED')
     }
 
-    if config.get('KAVITA_API_KEY') and config.get('KAVITA_URL'):
-        kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
-        libraries = kavita.get_libraries()
-        if libraries:
-            series_list = kavita.get_all_series(library_id=selected_lib)
-            for s in series_list:
-                item_cache = cached_info.get(s['id'], {'status': 'PENDING', 'forced_id': '', 'alternative_title': ''})
-                s['status'] = item_cache.get('status', 'PENDING')
-                s['forced_id'] = item_cache.get('forced_id') or ''
-                s['alternative_title'] = item_cache.get('alternative_title') or ''
-        else:
-            error_msg = t.get('err_kavita', "Connexion à Kavita échouée.")
+    if libraries:
+        for s in series_list:
+            item_cache = cached_info.get(s['id'], {'status': 'PENDING', 'forced_id': '', 'alternative_title': ''})
+            s['status'] = item_cache.get('status', 'PENDING')
+            s['forced_id'] = item_cache.get('forced_id') or ''
+            s['alternative_title'] = item_cache.get('alternative_title') or ''
             
     return render_template('index.html', config=config, msg=msg, error_msg=error_msg, 
-                           series_list=series_list, libraries=libraries, selected_lib=selected_lib, t=t, stats=stats)
-
+                           series_list=series_list, libraries=libraries, selected_lib=selected_lib, 
+                           t=t, stats=stats, available_providers=list(PROVIDERS_MAP.keys()))
 @app.route('/', methods=['GET'])
 def index():
     config = load_config()
@@ -298,7 +325,10 @@ def save_config_ajax():
     config['DEEPL_API_KEY'] = request.form.get('DEEPL_API_KEY', '').strip()
     config['TARGET_LANG'] = request.form.get('TARGET_LANG', 'FR').strip()
     config['UI_LANG'] = request.form.get('UI_LANG', 'fr').strip()
-    config['PROVIDER'] = request.form.get('PROVIDER', 'ANILIST').strip()
+    config['PROVIDER_1'] = request.form.get('PROVIDER_1', 'MANGABAKA').strip()
+    config['PROVIDER_2'] = request.form.get('PROVIDER_2', 'NAUTILJON').strip()
+    config['PROVIDER_3'] = request.form.get('PROVIDER_3', 'ANILIST').strip()
+    config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
     
     # 3. On met à jour l'Auto-Sync (entier)
     try:

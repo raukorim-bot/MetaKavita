@@ -8,9 +8,20 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # --- Requis / Required ---
       - KAVITA_URL=http://ton-url-ou-ip:port
       - KAVITA_API_KEY=TA_CLE_API_KAVITA
       - DEEPL_API_KEY=TA_CLE_API_DEEPL
+      
+      # --- Optionnel / Optional (Peut être modifié via l'interface Web) ---
+      - TARGET_LANG=FR
+      - UI_LANG=fr
+      - PROVIDER_1=MANGABAKA
+      - PROVIDER_2=NAUTILJON
+      - PROVIDER_3=ANILIST
+      - SMART_COMPLETION=true
+      - AUTO_SYNC_INTERVAL=0
+      - AUTO_COVER=false
     volumes:
       - ./config.json:/app/config.json
       - ./metakavita.log:/app/metakavita.log

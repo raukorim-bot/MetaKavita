@@ -103,7 +103,7 @@ body {
 }
 
 .sidebar {
-    width: 320px;
+    width: 380px;
     background-color: var(--bg-app);
     border-right: 1px solid var(--border-color);
     padding: 20px;

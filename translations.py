@@ -102,7 +102,12 @@ translations = {
         "modal_cover_title": "Choix de la couverture : ",
         "modal_cover_loading": "⏳ Recherche d'images sur les serveurs...",
         "modal_cover_sending": "⬆️ Envoi de l'image à Kavita...",
-        "provider_mangabaka": "MangaBaka (API / Rapide)"
+        "provider_mangabaka": "MangaBaka (API / Rapide)",
+        "provider_1": "Source 1 (Base) :",
+        "provider_2": "Source 2 (Secours) :",
+        "provider_3": "Source 3 (Secours) :",
+        "provider_none": "Aucune",
+        "smart_completion": "🧩 Activer la complétion intelligente"
     },
     "en": {
         "title": "⚙️ MetaKavita Configuration",
@@ -207,6 +212,11 @@ translations = {
         "modal_cover_title": "Choose cover for: ",
         "modal_cover_loading": "⏳ Searching images on servers...",
         "modal_cover_sending": "⬆️ Sending image to Kavita...",
-        "provider_mangabaka": "MangaBaka (API / Fast)"
+        "provider_mangabaka": "MangaBaka (API / Fast)",
+        "provider_1": "Source 1 (Base):",
+        "provider_2": "Source 2 (Backup):",
+        "provider_3": "Source 3 (Backup):",
+        "provider_none": "None",
+        "smart_completion": "🧩 Enable Smart Completion",
     }
 }

@@ -506,3 +506,36 @@ function applyCover(seriesId, coverUrl) {
         }
     });
 }
+// --- GESTION DES MENUS PROVIDERS (ANTI-DOUBLONS FLUIDE) ---
+function handleProviderChange(changedSelect) {
+    const selects = [
+        document.querySelector('select[name="PROVIDER_1"]'),
+        document.querySelector('select[name="PROVIDER_2"]'),
+        document.querySelector('select[name="PROVIDER_3"]')
+    ];
+    
+    const newValue = changedSelect.value;
+
+    // 1. On gère le vol de sélection (Résolution des conflits)
+    if (newValue !== 'NONE') {
+        selects.forEach(otherSelect => {
+            if (otherSelect !== changedSelect && otherSelect.value === newValue) {
+                otherSelect.value = 'NONE'; // On efface la valeur de l'autre menu
+            }
+        });
+    }
+
+    // 2. PROTECTION VITALE : La Source 1 (Base) ne peut JAMAIS être vide
+    const p1 = selects[0];
+    
+    if (!p1.value || p1.value === 'NONE') {
+        // On récupère dynamiquement tous les providers possibles en lisant les options HTML
+        const allProviders = Array.from(p1.options).map(opt => opt.value).filter(val => val !== 'NONE');
+        const usedByOthers = [selects[1].value, selects[2].value];
+        
+        const freeProvider = allProviders.find(p => !usedByOthers.includes(p));
+        p1.value = freeProvider || allProviders[0]; // Sécurité absolue
+    }
+
+    saveConfig();
+}
