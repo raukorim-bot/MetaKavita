@@ -1,3 +1,5 @@
+# metadata_fetcher.py
+
 import requests
 import logging
 from scrapers.anilist import fetch_anilist_extended
@@ -6,65 +8,113 @@ from scrapers.mangabaka import fetch_mangabaka
 from config_manager import load_config
 from translations import translations
 
-# --- LE REGISTRE DES PROVIDERS ---
 PROVIDERS_MAP = {
     "MANGABAKA": fetch_mangabaka,
     "NAUTILJON": fetch_nautiljon,
     "ANILIST": fetch_anilist_extended
 }
 
-# Liste blanche dynamique pour la sécurité du Proxy d'images (SSRF)
 ALLOWED_PROXY_DOMAINS = [
     "mangabaka.org",
     "nautiljon.com",
     "anilist.co",
-    "mangadex.org" # (En prévision)
+    "mangadex.org"
 ]
 
-def fetch_metadata(query, providers_list, smart_fusion=False):
-    master_data = None
+def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None):
+    master_data = {}
     used_providers = []
+    base_provider_set = False
     
-    # 1. Le scraper a-t-il ramené des données VRAIMENT utiles ? (Anti-fantôme)
+    # Structures d'accumulation globale des identités
+    accumulated_ids = {
+        'anilist_id': None,
+        'mal_id': None,
+        'mangabaka_id': None
+    }
+    accumulated_links = set()
+    
     def has_useful_data(d):
         return bool(d.get('summary') or d.get('genres') or d.get('cover_url') or d.get('staff') or d.get('year'))
-
-    # 2. Le dictionnaire est-il parfait à 100% ?
-    def is_complete(d):
-        return bool(d.get('summary') and d.get('genres') and d.get('cover_url') and d.get('year') and d.get('staff'))
 
     for p in providers_list:
         fetch_func = PROVIDERS_MAP.get(p)
         if not fetch_func:
             continue
             
-        data = fetch_func(query)
-        
-        # NOUVEAU : On ignore les résultats si la page trouvée est vide de métadonnées
+        # Résolution de la requête selon le type d'identifiant et de fournisseur
+        is_id = str(query).isdigit()
+        if is_id:
+            # Si c'est un ID, seul le scraper AniList peut l'utiliser directement.
+            # Les autres basculent sur le titre d'origine.
+            provider_query = query if p == "ANILIST" else fallback_query
+        else:
+            provider_query = query
+            
+        if not provider_query:
+            continue
+            
+        try:
+            data = fetch_func(provider_query)
+        except Exception as e:
+            logging.error(f"❌ [Scraper {p}] Erreur lors de la récupération pour '{provider_query}': {e}")
+            data = None
+            
         if data and has_useful_data(data):
             used_providers.append(p)
             
-            if not master_data:
-                # Il devient la Base
-                master_data = data
-                master_data['_provider_used'] = p
-                if not smart_fusion or is_complete(master_data):
-                    break
-            else:
-                # Il sert pour la Fusion
-                filled_something = False
-                for key, value in data.items():
-                    if not master_data.get(key) and value:
-                        master_data[key] = value
-                        filled_something = True
+            # 1. Accumulation des identifiants uniques
+            for id_key in ['anilist_id', 'mal_id', 'mangabaka_id']:
+                if data.get(id_key) and not accumulated_ids[id_key]:
+                    accumulated_ids[id_key] = data[id_key]
+                    
+            # 2. Accumulation de tous les liens web uniques
+            if data.get('url'):
+                accumulated_links.add(data['url'])
                 
-                if filled_something:
-                    master_data['_fusion_providers'] = master_data.get('_fusion_providers', []) + [p]
-                
-                if is_complete(master_data):
-                    break
+            # Liens explicites de la clé 'links' (ex: MangaBaka)
+            if data.get('links'):
+                for link in data['links']:
+                    if link:
+                        accumulated_links.add(link)
+                        
+            # Liens explicites d'AniList
+            if data.get('external_links'):
+                for link_obj in data['external_links']:
+                    if isinstance(link_obj, dict) and link_obj.get('url'):
+                        accumulated_links.add(link_obj['url'])
+                    elif isinstance(link_obj, str):
+                        accumulated_links.add(link_obj)
 
-    return master_data, used_providers
+            # 3. Fusion et attribution des données de fiches standards
+            if not base_provider_set:
+                master_data = data.copy()
+                master_data['_provider_used'] = p
+                base_provider_set = True
+            else:
+                if smart_fusion:
+                    filled_something = False
+                    for key, value in data.items():
+                        # On ignore les champs d'identités gérés par l'accumulateur global
+                        if key in ['_provider_used', '_fusion_providers', 'anilist_id', 'mal_id', 'mangabaka_id', 'links', 'external_links', 'url']:
+                            continue
+                        if not master_data.get(key) and value:
+                            master_data[key] = value
+                            filled_something = True
+                    
+                    if filled_something:
+                        master_data['_fusion_providers'] = master_data.get('_fusion_providers', []) + [p]
+
+    # Injection des identifiants et des liens accumulés dans le résultat final
+    if base_provider_set:
+        for id_key, id_val in accumulated_ids.items():
+            if id_val:
+                master_data[id_key] = id_val
+        master_data['accumulated_links'] = list(accumulated_links)
+        return master_data, used_providers
+        
+    return None, used_providers
+
 
 def translate_text(text, api_key, target_lang="FR"):
     if not text or not api_key: 

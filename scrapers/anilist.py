@@ -22,6 +22,7 @@ def fetch_anilist_extended(title_or_id):
             countryOfOrigin
             staff { edges { role node { name { full } } } }
             characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
+            externalLinks { url site }
           }
         }
         '''
@@ -44,6 +45,7 @@ def fetch_anilist_extended(title_or_id):
             countryOfOrigin
             staff { edges { role node { name { full } } } }
             characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
+            externalLinks { url site }
           }
         }
         '''
@@ -66,8 +68,9 @@ def fetch_anilist_extended(title_or_id):
                     'age_rating': 'pornographic' if data.get('isAdult') else 'safe',
                     'format': data.get('countryOfOrigin'),
                     'publisher': None,
-                    'anilist_id': data.get('id'),     # <--- NOUVEAU
-                    'mal_id': data.get('idMal')       # <--- NOUVEAU
+                    'anilist_id': data.get('id'),
+                    'mal_id': data.get('idMal'),
+                    'external_links': [{'url': link['url'], 'site': link['site']} for link in data.get('externalLinks', [])] if data.get('externalLinks') else []
                 }
     except Exception as e:
         print(f"[Erreur Anilist] {e}")
