@@ -168,6 +168,12 @@
                                 {{ t.auto_cover }}
                             </label>
                         </div>
+						<div class="form-group">
+                            <label class="checkbox-label">
+                                <input type="checkbox" name="AUTO_READING_DIR" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()"> 
+                                {{ t.auto_reading_dir }}
+                            </label>
+                        </div>
                         <button type="button" class="btn-primary w-100" onclick="saveConfig()">{{ t.save_settings }}</button>
                     </form>
                 </div>
@@ -203,9 +209,12 @@
                 <div class="sidebar-footer">
                     <p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
                     <p>
-                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.0.0</a> | 
+                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.3.2</a> | 
                         <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
                     </p>
+                    {% if config.get('ADMIN_PASSWORD') %}
+                    <a href="/logout" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
+                    {% endif %}
                 </div>
             </aside>
 
@@ -215,21 +224,25 @@
                     <input type="hidden" name="library_id" value="{{ selected_lib or '' }}">
                     
                     <div class="toolbar card">
-                        <div class="toolbar-left">
+                        <div class="toolbar-left" style="flex-wrap: wrap; gap: 10px;">
                             <h2 class="m-0">{{ t.series_avail }}</h2>
-							<span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
-                            <select id="statusFilter" onchange="filterSeries()">
+                            <span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
+                            
+                            <!-- NOUVEAU : Barre de recherche propre -->
+                            <input type="text" id="searchInput" class="search-input" placeholder="{{ t.search_placeholder }}" onkeyup="filterSeries()">
+                            
+                            <select id="statusFilter" onchange="filterSeries()" style="width: auto;">
                                 <option value="ALL">{{ t.filter_all }}</option>
                                 <option value="PENDING">{{ t.filter_pending }}</option>
                                 <option value="COMPLETED">{{ t.filter_completed }}</option>
                                 <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
-								<option value="IGNORED">{{ t.filter_ignored }}</option>
+                                <option value="IGNORED">{{ t.filter_ignored }}</option>
                             </select>
                             <label class="checkbox-label">
                                 <input type="checkbox" id="selectAll" onclick="toggleSelectAll()"> 
                                 {{ t.select_all }}
                             </label>
-							<label class="checkbox-label">
+                            <label class="checkbox-label">
                                 <input type="checkbox" id="hideIgnoredCb" onclick="filterSeries()" checked> 
                                 {{ t.hide_ignored }}
                             </label>

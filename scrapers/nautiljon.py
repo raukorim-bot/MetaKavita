@@ -1,7 +1,7 @@
 import re
 from bs4 import BeautifulSoup
 from curl_cffi import requests
-from scrapers.anilist import clean_title
+from scrapers import clean_title
 
 BASE_URL = "https://www.nautiljon.com"
 HEADERS = {
@@ -60,16 +60,14 @@ def fetch_nautiljon(title_or_slug):
             
         soup = BeautifulSoup(res.text, 'html.parser')
         
-        # --- NOUVEAU : Récupération de l'image de couverture ---
+        # --- Récupération de l'image de couverture ---
         cover_url = None
         img_tag = soup.find('img', itemprop='image')
         if img_tag and img_tag.has_attr('src'):
-            # Si l'URL commence par "/", on ajoute la base du site
             if img_tag['src'].startswith('/'):
                 cover_url = f"{BASE_URL}{img_tag['src']}"
             else:
                 cover_url = img_tag['src']
-        # -------------------------------------------------------
 
         desc_div = soup.find(class_='description')
         summary = ""
@@ -89,6 +87,8 @@ def fetch_nautiljon(title_or_slug):
         
         genres, tags, staff, alternative_titles = [], [], [], []
         year, status = None, None
+        # CORRECTION : On initialise les variables à None pour éviter un crash si non trouvées
+        publisher, format_type, age_rating = None, None, None
         
         infos = soup.find(class_='infosFicheTop')
         if infos:
@@ -119,6 +119,17 @@ def fetch_nautiljon(title_or_slug):
                     elif "(En cours)" in text: status = "RELEASING"
                     elif "(En attente)" in text: status = "HIATUS"
                     elif "(Abandonné)" in text: status = "CANCELLED"
+                elif "Éditeur VF" in label:
+                    a_tags = li.find_all('a')
+                    if a_tags: publisher = a_tags[0].text.strip()
+                elif "Type" in label:
+                    a_tags = li.find_all('a')
+                    if a_tags: format_type = a_tags[0].text.strip()
+                elif "Âge conseillé" in label:
+                    age_text = text.replace(label, "").strip()
+                    if "18" in age_text or "averti" in age_text: age_rating = "pornographic"
+                    elif "16" in age_text or "14" in age_text: age_rating = "suggestive"
+                    else: age_rating = "safe"
                 elif "Titre alternatif" in label or "Titre original" in label:
                     alt_text = text.replace(label, "").strip()
                     parts = [p.strip() for p in alt_text.split('/') if p.strip()]
@@ -135,7 +146,11 @@ def fetch_nautiljon(title_or_slug):
             'status': status,
             'staff': staff,
             'characters': [],
-            'alternative_titles': alternative_titles
+            'alternative_titles': alternative_titles,
+            'publisher': publisher,
+            'format': format_type,
+            'age_rating': age_rating,
+            'url': url
         }
 
     except Exception as e:

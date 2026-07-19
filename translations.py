@@ -35,8 +35,6 @@ translations = {
         "auto_sync_interval": "Auto-Sync (minutes, 0 = désactivé) :",
         "log_auto_sync_start": "🔄 [Auto-Sync] Démarrage de la vérification automatique...",
         "log_auto_sync_found": "🔄 [Auto-Sync] {0} série(s) en attente trouvée(s). Ajout à la file...",
-        
-        # --- NOUVEAUTÉS A6 ---
         "config_title": "Configuration",
         "db_tools": "Outils Base de données",
         "dev_by": "Développé par",
@@ -69,7 +67,6 @@ translations = {
         "batch_added": "{} série(s) ajoutée(s) !",
         "report_title": "Rapport des erreurs",
         "report_item": "ID Kavita :",
-        # --- LOGS CONSOLE ---
         "log_batch_added": "🚀 LOT AJOUTÉ : {0} série(s) insérée(s) dans la file d'attente. (Total à traiter : {1})",
         "log_worker_start": "▶️ [{0}] Début du traitement... (Reste : {1} dans la file)",
         "log_auth_fail": "[{0}] ❌ Échec d'authentification à Kavita.",
@@ -108,9 +105,19 @@ translations = {
         "provider_3": "Source 3 (Secours) :",
         "provider_none": "Aucune",
         "smart_completion": "🧩 Activer la complétion intelligente",
-        # --- FR ---
         "err_kavita": "❌ Connexion à Kavita échouée. Vérifiez l'URL et la clé API.",
-        "err_missing": "⚠️ URL ou Clé API Kavita manquante."
+        "err_missing": "⚠️ URL ou Clé API Kavita manquante.",
+        "smart_completion": "🧩 Activer la complétion intelligente",
+        "err_kavita": "❌ Connexion à Kavita échouée. Vérifiez l'URL et la clé API.",
+        "err_missing": "⚠️ URL ou Clé API Kavita manquante.",
+        "login_title": "Verrouillage Actif",
+        "login_password": "Mot de passe",
+        "login_unlock": "Déverrouiller",
+        "login_error": "❌ Mot de passe incorrect.",
+        "logout_btn": "Déconnexion",
+        "log_proxy_ssrf": "🚨 [Sécurité] Tentative de SSRF bloquée vers : {0}",
+        "search_placeholder": "🔍 Rechercher une série...",
+        "auto_reading_dir": "Adapter le sens de lecture (Manga/Webtoon) :"
     },
     "en": {
         "title": "⚙️ MetaKavita Configuration",
@@ -148,8 +155,6 @@ translations = {
         "auto_sync_interval": "Auto-Sync (minutes, 0 = disabled):",
         "log_auto_sync_start": "🔄 [Auto-Sync] Starting automatic check...",
         "log_auto_sync_found": "🔄 [Auto-Sync] {0} pending series found. Adding to queue...",
-        
-        # --- NOUVEAUTÉS A6 ---
         "config_title": "Configuration",
         "db_tools": "Database Tools",
         "dev_by": "Developed by",
@@ -222,6 +227,18 @@ translations = {
         "provider_none": "None",
         "smart_completion": "🧩 Enable Smart Completion",
         "err_kavita": "❌ Failed to connect to Kavita. Check URL and API Key.",
-        "err_missing": "⚠️ Missing Kavita URL or API Key."
+        "err_missing": "⚠️ Missing Kavita URL or API Key.",
+        "smart_completion": "🧩 Enable Smart Completion",
+        "err_kavita": "❌ Failed to connect to Kavita. Check URL and API Key.",
+        "err_missing": "⚠️ Missing Kavita URL or API Key.",
+        # --- SECURITY ADDITIONS ---
+        "login_title": "Lock Active",
+        "login_password": "Password",
+        "login_unlock": "Unlock",
+        "login_error": "❌ Incorrect password.",
+        "logout_btn": "Logout",
+        "log_proxy_ssrf": "🚨 [Security] SSRF attempt blocked to: {0}",
+        "search_placeholder": "🔍 Search a series...",
+        "auto_reading_dir": "Auto-set reading direction (Manga/Webtoon):"
     }
 }

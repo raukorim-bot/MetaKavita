@@ -2,13 +2,11 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Installation des dépendances
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copie du reste de l'application
 COPY . .
 
-EXPOSE 5001
+EXPOSE 5010
 
-CMD ["python", "-u", "app.py"]
+CMD ["gunicorn", "--worker-class", "eventlet", "-w", "1", "--bind", "0.0.0.0:5010", "app:app"]

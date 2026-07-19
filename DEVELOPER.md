@@ -10,74 +10,54 @@
 
 This document is intended for developers who wish to understand the full architecture of MetaKavita, contribute to the project, or create a fork.
 
-### 1. Global Architecture & Tech Stack
-MetaKavita is a lightweight, modular web application acting as a bridge between a Kavita server and various metadata APIs.
-* **Backend:** Python 3.11 with the Flask framework (`app.py`, `Dockerfile`).
-* **Database & Data:** SQLite3 (`data/cache.db`). The `data/` directory is automatically generated at startup, containing the config and logs. Includes an auto-cleanup function (`clean_orphaned_cache`) to drop entries deleted on Kavita's end.
-* **Frontend:** Native HTML/CSS/JS (Vanilla). The UI is built to be a resilient SPA (Single Page Application) with zero page reloads via `fetch()`.
-* **Real-Time:** `Flask-SocketIO` on the server and `socket.io.js` on the client for live streaming console logs.
+### 1. Global Architecture & Security
+MetaKavita is a production-ready application running behind a **Gunicorn WSGI server** with **Eventlet** workers to support true asynchronous WebSockets.
+* **Security Layer:** Global authentication is enforced via `@app.before_request`. Session cookies are `HttpOnly` and `SameSite=Lax`. WebSockets connections are validated on `connect`.
+* **SSRF Protection:** The `/api/proxy-image` route uses dynamic strict whitelisting. If you add a new scraper, **you MUST add its domain** to the `ALLOWED_PROXY_DOMAINS` list in `metadata_fetcher.py`.
+* **Webhook Token:** IP-based webhook protection fails behind reverse proxies. MetaKavita uses a cryptographically secure `WEBHOOK_TOKEN` generated in `config.json`.
 
-### 2. Scrapers Logic & The "Smart Fusion" Algorithm
-The scraping system features a dynamic routing engine:
-* **PROVIDERS_MAP:** Located in `metadata_fetcher.py`, this dictionary maps string identifiers to scraper functions. The UI automatically reads this map to populate dropdowns, making the tool infinitely scalable.
-* **Smart Completion (Fusion):** If a user enables this, the script fetches data from the primary provider. If keys are missing (e.g., `genres: []`), it will sequentially ping the fallback providers to patch the missing holes without overwriting existing data.
-* **Dynamic Rate-Limiting:** The background worker adjusts its `time.sleep()` dynamically depending on how many providers were called during a Smart Fusion to avoid IP bans.
+### 2. The Regex Engine (`scrapers/__init__.py`)
+The `clean_title()` function is centralized. It's a highly optimized Regex engine that automatically strips volume numbers, edition keywords (Omnibus, Perfect), scantrad tags, and stray dots, ensuring API search queries are squeaky clean. Always import it when creating a new provider: `from scrapers import clean_title`.
 
-### 3. Kavita API Compliance (Important!)
-Kavita's backend is built in C# and expects very specific payload formatting when updating metadata via `/api/Series/metadata`.
-* **The `id: 0` Rule:** When sending lists of objects (like Genres, Tags, Writers, Pencillers, Characters), Kavita expects each object to have `"id": 0`. If you omit the ID or send Kavita's internal ID, the update might be silently ignored. Example: `[{"id": 0, "title": "Action"}]`.
-* **Locks:** Every field updated must be accompanied by its corresponding `Locked` boolean set to `true` (e.g., `summaryLocked: true`), or Kavita will overwrite it during its own internal scan.
+### 3. Kavita API Compliance
+* **The `id: 0` Rule:** When sending lists of objects (Genres, Tags, Staff), Kavita expects each object to have `"id": 0`.
+* **Locks:** Every field updated must be accompanied by its `Locked` boolean set to `true`.
+* **External IDs:** AniList and MAL IDs are injected via the `/api/Series/update` route, whereas standard metadata (Summaries, WebLinks) goes to `/api/Series/metadata`.
 
 ### 4. Vibecoding: Add a Provider using an LLM (AI)
-Because MetaKavita's architecture is strictly standardized, you don't even need to code to add a new provider (like MangaDex, Babelio, Goodreads). You can use an AI (ChatGPT, Claude, etc.) to do it for you in one shot!
+Copy and paste this prompt to your favorite LLM:
 
-Just copy and paste this prompt to your favorite LLM:
+> "I am working on a Python project. I need a web scraper function named `fetch_myprovider(query)` that takes a string (a manga title). Import `clean_title` from `scrapers`. Search on **[INSERT WEBSITE NAME HERE]**. 
+> The function MUST return `None` if it fails, or return exactly this dict structure:
+> { 'summary': 'str', 'cover_url': 'str', 'genres': ['list'], 'tags': ['list'], 'year': int, 'status': 'RELEASING/FINISHED/HIATUS/CANCELLED', 'staff': [{'role': 'Story/Art/Color/Translator', 'node': {'name': {'full': 'Author Name'}}}], 'publisher': 'str', 'age_rating': 'safe/suggestive/pornographic', 'format': 'manga/webtoon/comic', 'url': 'str_url_of_the_page', 'anilist_id': int, 'mal_id': int }."
 
-> "I am working on a Python project. I need a web scraper function named `fetch_myprovider(query)` that takes a string (a manga or comic title) and searches for it on **[INSERT WEBSITE NAME HERE]**. 
-> You can use `requests` and `BeautifulSoup4` (or `curl_cffi` if there is a Cloudflare protection).
-> The function MUST return `None` if it fails, or return exactly this Python dictionary structure if it succeeds:
-> { 'summary': 'string', 'cover_url': 'string or None', 'genres': ['list', 'of', 'strings'], 'tags': ['list', 'of', 'strings'], 'year': integer or None, 'status': 'RELEASING' or 'FINISHED' or 'HIATUS' or 'CANCELLED' or None, 'staff': [{'role': 'Story or Art', 'node': {'name': {'full': 'Author Name'}}}], 'characters': [], 'alternative_titles': ['list'] }."
-
-Once the AI generates the code:
-1. Save it in the `scrapers/` folder (e.g., `myprovider.py`).
-2. Import it in `metadata_fetcher.py`.
-3. Add it to the `PROVIDERS_MAP` dict (`"MYPROVIDER": fetch_myprovider`). The UI will update automatically!
+Add the function to `PROVIDERS_MAP` in `metadata_fetcher.py`, and you're done!
 
 ---
 
 ## 🇫🇷 Guide de Développement Français
 
-Ce document s'adresse aux développeurs souhaitant comprendre l'architecture complète de MetaKavita, y contribuer, ou créer un fork.
+Ce document s'adresse aux développeurs souhaitant comprendre l'architecture complète de MetaKavita.
 
-### 1. Architecture Globale & Stack Technique
-MetaKavita est une application web modulaire faisant office de pont entre un serveur Kavita et diverses API de métadonnées.
-* **Backend :** Python 3.11 avec Flask (`app.py`, `Dockerfile`).
-* **Base de données & Données :** SQLite3 (`data/cache.db`). Le dossier `data/` est auto-généré au lancement et contient la configuration et les logs. Inclut une fonction d'auto-nettoyage (`clean_orphaned_cache`) pour purger les séries supprimées côté Kavita.
-* **Frontend :** HTML/CSS/JS natif (Vanilla). Conçu pour réagir comme une SPA (Single Page Application) ultra-fluide via l'utilisation de `fetch()`.
-* **Temps Réel :** `Flask-SocketIO` côté serveur pour la diffusion en direct des logs de la console vers l'interface.
+### 1. Architecture Globale & Sécurité
+MetaKavita tourne sur un serveur de production **Gunicorn WSGI** avec des workers **Eventlet** pour supporter les WebSockets de manière asynchrone.
+* **Couche de Sécurité :** L'authentification globale empêche les attaques par force brute (délai de réponse) et temporelles (`compare_digest`). Les cookies sont `HttpOnly`.
+* **Protection SSRF :** Le proxy d'images utilise une liste blanche stricte. Si vous ajoutez un nouveau scraper, **vous DEVEZ ajouter son domaine** à `ALLOWED_PROXY_DOMAINS` dans `metadata_fetcher.py`.
+* **Webhook Token :** Le Webhook est sécurisé par un `WEBHOOK_TOKEN` généré dans le `config.json` pour éviter le spam d'API.
 
-### 2. Logique des Scrapers & Algorithme de "Fusion"
-Le système de scraping possède un moteur de routage dynamique :
-* **PROVIDERS_MAP :** Situé dans `metadata_fetcher.py`, ce dictionnaire relie le nom d'un provider à sa fonction Python. Le Frontend lit automatiquement ce registre pour construire l'interface, rendant le système parfaitement évolutif (scalable).
-* **Complétion Intelligente (Fusion) :** Si activée, le script interroge la source principale. S'il manque des données (ex: pas de genres), le script interrogera silencieusement les sources de secours pour "boucher les trous" sans jamais écraser la donnée de base.
-* **Rate-Limiting Dynamique :** Le délai de sécurité `time.sleep()` de la tâche de fond s'adapte automatiquement selon le nombre de sources sollicitées par l'algorithme de Fusion pour éviter un ban IP.
+### 2. Le Moteur de Regex (`scrapers/__init__.py`)
+La fonction `clean_title()` a été décentralisée. C'est un moteur Regex surpuissant qui nettoie les numéros de tomes, les mots-clés d'édition (Intégrale, Deluxe) et les extensions. Importez-la toujours pour vos nouveaux providers : `from scrapers import clean_title`.
 
-### 3. Conformité API Kavita (Important !)
-Le backend de Kavita (C#) exige un formatage de payload très strict lors de la mise à jour des métadonnées via l'endpoint `/api/Series/metadata`.
-* **La règle du `id: 0` :** Lors de l'envoi de listes d'objets (Genres, Tags, Staff, Characters), Kavita exige que chaque objet possède `"id": 0`. Si vous l'omettez, la mise à jour sera silencieusement ignorée. Exemple : `[{"id": 0, "title": "Action"}]`.
-* **Les Verrous (Locks) :** Chaque champ mis à jour doit être accompagné de son booléen `Locked` défini sur `true` (ex: `summaryLocked: true`), sinon Kavita écrasera vos données lors de son prochain scan interne.
+### 3. Conformité API Kavita
+* **La règle du `id: 0` :** Kavita exige que chaque objet d'une liste (Genres, Staff) possède `"id": 0`.
+* **Les Verrous :** Chaque champ doit avoir son booléen `Locked` (ex: `summaryLocked: true`).
+* **Identifiants Externes :** Les identifiants (AniListId) sont envoyés via la route `/api/Series/update`, contrairement au reste des métadonnées.
 
 ### 4. Vibecoding : Créer un Provider avec une IA (LLM)
-Grâce à l'architecture ultra standardisée de MetaKavita, tu n'as même pas besoin de savoir coder pour ajouter une nouvelle source de métadonnées (Babelio, MangaDex, etc.). Tu peux demander à une IA (ChatGPT, Claude...) de le faire pour toi en un seul message !
+Copie-colle ce "Prompt" à ton IA favorite :
 
-Copie-colle simplement ce "Prompt" à ton IA favorite :
+> "Je travaille sur un projet Python. J'ai besoin d'une fonction de web scraping nommée `fetch_mon_site(query)` qui prend un nom de manga. Importe `clean_title` depuis `scrapers`. Fais une recherche sur **[NOM DU SITE]**.
+> La fonction DOIT retourner `None` si elle échoue, ou retourner très exactement ce dictionnaire :
+> { 'summary': 'str', 'cover_url': 'str', 'genres': ['liste'], 'tags': ['liste'], 'year': int, 'status': 'RELEASING/FINISHED/HIATUS/CANCELLED', 'staff': [{'role': 'Story/Art/Color/Translator', 'node': {'name': {'full': 'Nom'}}}], 'publisher': 'str', 'age_rating': 'safe/suggestive/pornographic', 'format': 'manga/webtoon/comic', 'url': 'str_url_de_la_page_trouvée', 'anilist_id': int, 'mal_id': int }."
 
-> "Je travaille sur un projet Python. J'ai besoin d'une fonction de web scraping nommée `fetch_mon_site(query)` qui prend une chaîne de caractères (un nom de manga/BD) et effectue une recherche sur **[INSÉRER LE NOM DU SITE ICI]**.
-> Tu peux utiliser `requests` et `BeautifulSoup4` (ou `curl_cffi` si le site est sous Cloudflare).
-> La fonction DOIT retourner `None` si elle échoue, ou retourner très exactement ce format de dictionnaire Python si elle réussit :
-> { 'summary': 'string', 'cover_url': 'string or None', 'genres': ['liste', 'de', 'strings'], 'tags': ['liste', 'de', 'strings'], 'year': entier (ex: 2024) ou None, 'status': 'RELEASING' ou 'FINISHED' ou 'HIATUS' ou 'CANCELLED' ou None, 'staff': [{'role': 'Story ou Art', 'node': {'name': {'full': 'Nom Auteur'}}}], 'characters': [], 'alternative_titles': ['liste'] }."
-
-Une fois que l'IA t'a généré le code :
-1. Sauvegarde-le dans le dossier `scrapers/` (ex: `monsite.py`).
-2. Importe-le dans `metadata_fetcher.py`.
-3. Ajoute-le dans le dictionnaire `PROVIDERS_MAP` (`"MONSITE": fetch_mon_site`). L'interface Web se mettra à jour toute seule !
+Ajoute-le dans `PROVIDERS_MAP` (`metadata_fetcher.py`) et l'UI se mettra à jour !

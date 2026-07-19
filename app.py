@@ -1,20 +1,29 @@
-from flask import Flask, request, render_template, Response, jsonify
-from flask_socketio import SocketIO
 import threading
 import time
 import logging
 import queue
 import io
 import os
+import secrets
+from flask import Flask, request, render_template, Response, jsonify, session, redirect, url_for
+from flask_socketio import SocketIO
+from flask_socketio import disconnect
+from urllib.parse import urlparse
 from config_manager import load_config, save_config
 from kavita_api import KavitaAPI
-from metadata_fetcher import fetch_metadata, translate_text, PROVIDERS_MAP
+from metadata_fetcher import fetch_metadata, translate_text, PROVIDERS_MAP, ALLOWED_PROXY_DOMAINS
 from db_manager import init_db, update_status, get_all_cached_data, save_forced_overrides, reset_errors, clean_orphaned_cache
 from translations import translations
+from datetime import timedelta
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = 'kavita-secret-key'
-socketio = SocketIO(app, cors_allowed_origins="*")
+app.config['SECRET_KEY'] = load_config().get('SECRET_KEY', 'kavita-secret-key')
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True, # Empêche les scripts JS (XSS) de lire le cookie
+    SESSION_COOKIE_SAMESITE='Lax', # Empêche un site externe de forcer une action (CSRF)
+    PERMANENT_SESSION_LIFETIME=timedelta(days=30)
+)
+socketio = SocketIO(app)
 
 init_db()
 
@@ -27,10 +36,9 @@ ws_handler = WebSocketLogHandler()
 ws_formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S')
 ws_handler.setFormatter(ws_formatter)
 
-# --- NOUVEAU : On s'assure que le dossier "data" existe pour les logs ---
+# --- On s'assure que le dossier "data" existe pour les logs ---
 if not os.path.exists("data"):
     os.makedirs("data")
-# -----------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,7 +52,61 @@ logging.basicConfig(
 
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
+@app.before_request
+def require_login():
+    # On laisse passer les assets statiques, le login et les webhooks internes
+    if request.endpoint in ['login', 'static', 'webhook']:
+        return
+        
+    config = load_config()
+    admin_pwd = config.get('ADMIN_PASSWORD')
+    
+    # S'il y a un mot de passe, l'utilisateur doit avoir une session active
+    if admin_pwd and not session.get('logged_in'):
+        return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    config = load_config()
+    ui_lang = config.get('UI_LANG', 'fr')
+    t = translations.get(ui_lang, translations['fr'])
+
+    if not config.get('ADMIN_PASSWORD'):
+        return redirect(url_for('index'))
+        
+    error = None
+    if request.method == 'POST':
+        
+        # DÉBUT DE LA CORRECTION (Timing Attack Fix)
+        user_input = request.form.get('password', '')
+        real_password = config.get('ADMIN_PASSWORD', '')
+        
+        # On utilise compare_digest au lieu de "=="
+        if secrets.compare_digest(user_input.encode('utf-8'), real_password.encode('utf-8')):
+            session.permanent = True  # <--- Active le cookie longue durée
+            session['logged_in'] = True
+            return redirect(url_for('index'))
+        else:
+            time.sleep(2)
+            error = t.get('login_error')
+        # FIN DE LA CORRECTION
+            
+    return render_template('login.html', error=error, t=t, config=config)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+    
 sync_queue = queue.Queue()
+
+@socketio.on('connect')
+def handle_connect():
+    config = load_config()
+    # Si un mot de passe est requis mais que l'utilisateur n'est pas loggué
+    if config.get('ADMIN_PASSWORD') and not session.get('logged_in'):
+        logging.warning(f"🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {request.remote_addr}")
+        disconnect()
 
 def worker():
     while True:
@@ -119,7 +181,7 @@ def auto_sync_worker():
         time.sleep(30)
 
 threading.Thread(target=auto_sync_worker, daemon=True).start()
-# -------------------------------------
+
 
 def process_series_logic(series_id, series_name, force_update=False):
     config = load_config()
@@ -205,40 +267,93 @@ def process_series_logic(series_id, series_name, force_update=False):
             metadata['localizedName'] = " / ".join(provider_data['alternative_titles'])
             metadata['localizedNameLocked'] = True
 
-        writers, pencillers = [], []
+        # 1. Le Staff étendu
+        writers, pencillers, colorists, translators, cover_artists = [], [], [], [], []
         for edge in provider_data.get('staff', []):
             role = edge.get('role', '').lower()
-            if 'story' in role or 'original' in role: 
-                writers.append({"id": 0, "name": edge['node']['name']['full']})
-            if 'art' in role or 'illustration' in role: 
-                pencillers.append({"id": 0, "name": edge['node']['name']['full']})
-
-        if writers: 
-            metadata['writers'] = writers
-            metadata['writersLocked'] = True
+            name = edge.get('node', {}).get('name', {}).get('full', '')
+            if not name: continue
             
-        if pencillers: 
-            metadata['pencillers'] = pencillers
-            metadata['pencillersLocked'] = True
+            entry = {"id": 0, "name": name}
+            
+            if 'story' in role or 'original' in role or 'scénar' in role: writers.append(entry)
+            if 'art' in role or 'illustration' in role or 'dessin' in role: pencillers.append(entry)
+            if 'color' in role or 'couleur' in role: colorists.append(entry)
+            if 'translat' in role or 'traduct' in role: translators.append(entry)
+            if 'cover' in role or 'couverture' in role: cover_artists.append(entry)
 
-        # --- Éditeur ---
+        if writers: metadata['writers'] = writers; metadata['writersLocked'] = True
+        if pencillers: metadata['pencillers'] = pencillers; metadata['pencillersLocked'] = True
+        if colorists: metadata['colorists'] = colorists; metadata['coloristsLocked'] = True
+        if translators: metadata['translators'] = translators; metadata['translatorsLocked'] = True
+        if cover_artists: metadata['coverArtists'] = cover_artists; metadata['coverArtistsLocked'] = True
+
+        # 2. Éditeur
         if provider_data.get('publisher'):
             metadata['publisher'] = provider_data['publisher']
             metadata['publisherLocked'] = True
             
-        # --- Classification d'âge ---
+        # 3. Classification d'âge
         if provider_data.get('age_rating'):
             rating_str = str(provider_data['age_rating']).lower()
-            if rating_str == 'safe': 
-                metadata['ageRating'] = 1
-            elif rating_str == 'suggestive': 
-                metadata['ageRating'] = 2
-            elif rating_str == 'erotica': 
-                metadata['ageRating'] = 3
-            elif rating_str == 'pornographic': 
-                metadata['ageRating'] = 4
+            if rating_str == 'safe': metadata['ageRating'] = 1
+            elif rating_str == 'suggestive': metadata['ageRating'] = 2
+            elif rating_str == 'erotica': metadata['ageRating'] = 3
+            elif rating_str == 'pornographic': metadata['ageRating'] = 4
             metadata['ageRatingLocked'] = True
 
+        # 4. Sens de lecture (Format) - SEULEMENT SI L'OPTION EST COCHÉE !
+        if config.get('AUTO_READING_DIR') and provider_data.get('format'):
+            fmt = str(provider_data['format']).upper()
+            if 'MANGA' in fmt or 'JP' in fmt:
+                metadata['format'] = 2 # Droite à Gauche
+            elif 'WEBTOON' in fmt or 'MANHWA' in fmt or 'KR' in fmt:
+                metadata['format'] = 3 # Vertical
+            elif 'COMIC' in fmt or 'BD' in fmt or 'US' in fmt or 'FR' in fmt:
+                metadata['format'] = 1 # Gauche à Droite
+            metadata['formatLocked'] = True
+            
+        # 5. Identifiants Externes (Sauvegarde en base de données Kavita)
+        a_id = provider_data.get('anilist_id')
+        m_id = provider_data.get('mal_id')
+        mb_id = provider_data.get('mangabaka_id')
+        
+        if a_id or m_id or mb_id:
+            id_success, id_msg = kavita.update_series_external_ids(
+                series_id=series_id,
+                anilist_id=a_id,
+                mal_id=m_id,
+                mangabaka_id=mb_id
+            )
+            if not id_success:
+                logging.warning(f"[{series_name}] ⚠️ Impossible de sauvegarder les IDs externes : {id_msg}")
+
+        # 6. Liens Web (Génération auto à partir des IDs + Scrapers)
+        existing_links = metadata.get('webLinks', '')
+        links_list = [link.strip() for link in existing_links.split(',')] if existing_links else []
+        
+        # Petite fonction interne pour éviter d'ajouter des liens en double
+        def add_weblink(url):
+            if url and url not in links_list:
+                links_list.append(url)
+
+        # On transforme les IDs en vrais liens pour forcer l'affichage des icônes dans Kavita !
+        if a_id: 
+            add_weblink(f"https://anilist.co/manga/{a_id}")
+        if m_id: 
+            add_weblink(f"https://myanimelist.net/manga/{m_id}")
+        if mb_id:
+            add_weblink(f"https://mangabaka.org/{mb_id}")
+            
+        # On ajoute le lien récupéré directement par les scrapers (ex: Nautiljon)
+        if provider_data.get('url'):
+            add_weblink(provider_data['url'])
+            
+        # On recolle le tout avec des virgules et on envoie à Kavita
+        if links_list:
+            metadata['webLinks'] = ",".join(links_list)
+            metadata['webLinksLocked'] = True
+        
         metadata['seriesId'] = int(series_id)
         metadata.pop('created', None)
         metadata.pop('lastModified', None)
@@ -318,7 +433,11 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             s['forced_id'] = item_cache.get('forced_id') or ''
             s['alternative_title'] = item_cache.get('alternative_title') or ''
             
-    return render_template('index.html', config=config, msg=msg, error_msg=error_msg, 
+    safe_config = config.copy()
+    if safe_config.get('KAVITA_API_KEY'): safe_config['KAVITA_API_KEY'] = '********'
+    if safe_config.get('DEEPL_API_KEY'): safe_config['DEEPL_API_KEY'] = '********'
+            
+    return render_template('index.html', config=safe_config, msg=msg, error_msg=error_msg, 
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib, 
                            t=t, stats=stats, available_providers=list(PROVIDERS_MAP.keys()))
                            
@@ -330,13 +449,19 @@ def index():
 
 @app.route('/save-config', methods=['POST'])
 def save_config_ajax():
-    # 1. On charge d'abord la config existante (TRÈS IMPORTANT, c'est ce qui manquait !)
     config = load_config()
     
-    # 2. On met à jour toutes les valeurs textuelles
     config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
-    config['KAVITA_API_KEY'] = request.form.get('KAVITA_API_KEY', '').strip()
-    config['DEEPL_API_KEY'] = request.form.get('DEEPL_API_KEY', '').strip()
+    
+    # --- NOUVEAU : On enregistre seulement si on n'a pas renvoyé les étoiles ---
+    kavita_key = request.form.get('KAVITA_API_KEY', '').strip()
+    if kavita_key and kavita_key != '********':
+        config['KAVITA_API_KEY'] = kavita_key
+        
+    deepl_key = request.form.get('DEEPL_API_KEY', '').strip()
+    if deepl_key and deepl_key != '********':
+        config['DEEPL_API_KEY'] = deepl_key
+        
     config['TARGET_LANG'] = request.form.get('TARGET_LANG', 'FR').strip()
     config['UI_LANG'] = request.form.get('UI_LANG', 'fr').strip()
     config['PROVIDER_1'] = request.form.get('PROVIDER_1', 'MANGABAKA').strip()
@@ -344,16 +469,14 @@ def save_config_ajax():
     config['PROVIDER_3'] = request.form.get('PROVIDER_3', 'ANILIST').strip()
     config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
     
-    # 3. On met à jour l'Auto-Sync (entier)
     try:
         config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))
     except ValueError:
         config['AUTO_SYNC_INTERVAL'] = 0
         
-    # 4. On met à jour l'Auto-Cover (booléen)
     config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
+    config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'
     
-    # 5. On sauvegarde
     save_config(config)
     return jsonify(success=True)
 
@@ -380,7 +503,6 @@ def force_sync():
     success, result_msg, _ = process_series_logic(series_id, series_name, force_update=True)
     return jsonify(success=success, msg=result_msg)
 
-@app.route('/batch-sync', methods=['POST'])
 @app.route('/batch-sync', methods=['POST'])
 def batch_sync():
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
@@ -413,9 +535,13 @@ def batch_sync():
 
 @app.route('/stop-batch', methods=['POST'])
 def stop_batch():
-    with sync_queue.mutex:
-        sync_queue.queue.clear()
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
+    while not sync_queue.empty():
+        try:
+            sync_queue.get_nowait()
+            sync_queue.task_done()
+        except queue.Empty:
+            break
     logging.info(t.get('log_batch_stopped'))
     return jsonify(success=True, msg=t.get('batch_stopped'))
 
@@ -435,6 +561,15 @@ def export_errors():
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
+    config = load_config()
+    token = request.args.get('token')
+    
+    # --- SÉCURITÉ ANTI-SPAM INFAILLIBLE ---
+    if not token or not secrets.compare_digest(token, config.get('WEBHOOK_TOKEN', '')):
+        logging.warning("🚨 [Sécurité] Tentative d'accès au webhook bloquée (Jeton invalide).")
+        return "Unauthorized", 401
+    # --------------------------------------
+
     payload = request.json
     series_id = payload.get("seriesId") or payload.get("SeriesId")
     series_name = payload.get("name") or payload.get("Name")
@@ -474,9 +609,28 @@ def toggle_ignore():
 def proxy_image():
     img_url = request.args.get('url')
     if not img_url: return "Missing URL", 400
+    
+    config = load_config()
+    t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
+
+    # --- SÉCURITÉ ANTI-SSRF (Whitelisting Renforcé) ---
+    try:
+        parsed = urlparse(img_url)
+        # .split(':')[0] pour ignorer les ports (ex: nautiljon.com:443)
+        domain = parsed.netloc.lower().split(':')[0]
+        
+        # CORRECTION ICI : La parenthèse ferme TOUT à la fin
+        is_safe = any(domain == d or domain.endswith('.' + d) for d in ALLOWED_PROXY_DOMAINS)
+        
+        if not is_safe:
+            logging.warning(t.get('log_proxy_ssrf').format(domain))
+            return "Domain not allowed", 403
+    except Exception:
+        return "Invalid URL", 400
+
     try:
         from curl_cffi import requests as cffi_requests
-        from flask import send_file  # <-- L'oubli était là !
+        from flask import send_file
         import io
         
         headers = {
@@ -504,7 +658,7 @@ def get_series_covers(series_id):
 
     covers = []
     
-    from scrapers.anilist import clean_title
+    from scrapers import clean_title
     clean_sq = clean_title(search_query)
 
     # 1. Fouille sur AniList (Les 4 meilleurs résultats)
@@ -602,8 +756,6 @@ def get_series_covers(series_id):
                         })
     except Exception as e:
         logging.error(f"[Covers] Erreur MangaBaka V2 : {e}")
-
-    return jsonify({"success": True, "covers": covers})
 
     return jsonify({"success": True, "covers": covers})
 

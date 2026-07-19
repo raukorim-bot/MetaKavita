@@ -13,6 +13,14 @@ PROVIDERS_MAP = {
     "ANILIST": fetch_anilist_extended
 }
 
+# Liste blanche dynamique pour la sécurité du Proxy d'images (SSRF)
+ALLOWED_PROXY_DOMAINS = [
+    "mangabaka.org",
+    "nautiljon.com",
+    "anilist.co",
+    "mangadex.org" # (En prévision)
+]
+
 def fetch_metadata(query, providers_list, smart_fusion=False):
     master_data = None
     used_providers = []

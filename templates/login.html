@@ -1,0 +1,28 @@
+<!DOCTYPE html>
+<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MetaKavita - {{ t.login_title }}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');</script>
+</head>
+<body style="display: flex; justify-content: center; align-items: center; background-color: var(--bg-app);">
+    <div class="card" style="width: 100%; max-width: 350px; text-align: center; padding: 30px;">
+        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height: 60px; margin-bottom: 20px;">
+        <h2 style="margin-top: 0; margin-bottom: 20px;">{{ t.login_title }}</h2>
+        
+        {% if error %}
+        <div class="alert error" style="padding: 8px; margin-bottom: 15px;">{{ error }}</div>
+        {% endif %}
+
+        <form method="POST" action="/login">
+            <div class="form-group" style="text-align: left;">
+                <input type="password" name="password" placeholder="{{ t.login_password }}" required style="padding: 12px; font-size: 16px;">
+            </div>
+            <button type="submit" class="btn-primary w-100" style="padding: 12px; font-size: 16px;">{{ t.login_unlock }}</button>
+        </form>
+    </div>
+</body>
+</html>
