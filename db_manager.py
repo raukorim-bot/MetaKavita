@@ -1,12 +1,15 @@
 import sqlite3
 import os
 
-DB_FILE = "cache.db"
+DATA_DIR = "data"
+DB_FILE = os.path.join(DATA_DIR, "cache.db")
 
 def init_db():
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+        
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    # Remplacement de INTEGER par TEXT pour forced_id afin de supporter les slugs Nautiljon
     c.execute('''CREATE TABLE IF NOT EXISTS series_cache
                  (series_id INTEGER PRIMARY KEY, 
                   status TEXT, 
