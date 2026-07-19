@@ -1,3 +1,6 @@
+# --- Dossier de données généré (Contient config, db et logs) ---
+data/
+
 # Configuration et secrets (TRÈS IMPORTANT)
 config.json
 docker-compose.yml

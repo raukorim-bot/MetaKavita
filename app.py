@@ -5,6 +5,7 @@ import time
 import logging
 import queue
 import io
+import os
 from config_manager import load_config, save_config
 from kavita_api import KavitaAPI
 from metadata_fetcher import fetch_metadata, translate_text, PROVIDERS_MAP
@@ -23,15 +24,19 @@ class WebSocketLogHandler(logging.Handler):
         socketio.emit('log_update', {'data': log_entry})
 
 ws_handler = WebSocketLogHandler()
-# On crée un format ultra-court juste pour l'UI : "HH:MM:SS | Message"
 ws_formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S')
 ws_handler.setFormatter(ws_formatter)
+
+# --- NOUVEAU : On s'assure que le dossier "data" existe pour les logs ---
+if not os.path.exists("data"):
+    os.makedirs("data")
+# -----------------------------------------------------------------------
 
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
     handlers=[
-        logging.FileHandler("metakavita.log", encoding='utf-8'),
+        logging.FileHandler("data/metakavita.log", encoding='utf-8'), # <--- NOUVEAU CHEMIN
         logging.StreamHandler(),
         ws_handler
     ]

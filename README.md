@@ -28,24 +28,22 @@ MetaKavita is an automation tool designed to enrich metadata for your [Kavita](h
 ### 🤖 Auto-Sync (Background Polling)
 MetaKavita can run entirely hands-free. By setting an interval in the configuration, a background task will poll Kavita for new series every X minutes while strictly respecting API rate limits (dynamic delays).
 
-### 🛠️ Installation
-Before launching the container, you must prepare the environment and craft the necessary configuration files.
+### 🛠️ Installation (Zero-Setup)
+Thanks to its auto-generating architecture, deploying MetaKavita is as easy as starting the container!
 
 1. **Clone the repository**:
    `git clone https://github.com/raukorim-bot/MetaKavita.git`
    `cd MetaKavita`
 
-2. **Initialize the environment**:
-   Run the setup script to create the required directories, cache database, and the dummy configuration file.
-   `chmod +x setup.sh`
-   `./setup.sh`
+2. **Build and Launch Docker**:
+   Start the Docker container. It will automatically generate a `data/` folder containing your `config.json`, database, and logs.
+   `docker compose up -d --build`
 
-3. **Configure your API Keys**:
-   Edit the freshly generated `config.json` file to include your personal API keys. Without this, the container might fail to interact with Kavita or DeepL.
-   `nano config.json`
+3. **Access the Dashboard**:
+   Open your browser and navigate to `http://localhost:5010` (or your server's IP address). You can safely configure all your API keys directly from the Web UI!
 
-4. **Docker Environment Variables**:
-   All configuration options can be modified directly in the Web UI. However, you can also inject them via your `docker-compose.yml` to initialize your `config.json`.
+4. **Docker Environment Variables (Optional)**:
+   If you prefer configuring the app via your `docker-compose.yml` instead of the Web UI, you can inject these variables:
    
    | Variable | Description | Default Value |
    | :--- | :--- | :--- |
@@ -60,13 +58,6 @@ Before launching the container, you must prepare the environment and craft the n
    | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
    | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
    | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
-
-5. **Build and Launch**:
-   Start the Docker container.
-   `docker compose up -d --build`
-
-6. **Access the Dashboard**:
-   Open your browser and navigate to `http://localhost:5010` (or your server's IP address).
 
 ---
 
@@ -90,24 +81,22 @@ MetaKavita est un outil d'automatisation conçu pour enrichir les métadonnées 
 ### 🤖 Auto-Sync (Tâche de fond)
 MetaKavita peut fonctionner de manière totalement autonome. En définissant un intervalle, une tâche de fond traitera les nouvelles séries tout en respectant scrupuleusement les quotas des API (délais dynamiques).
 
-### 🛠️ Installation
-Avant de lancer le conteneur, tu dois obligatoirement préparer l'environnement et crafter les fichiers de configuration.
+### 🛠️ Installation (Zero-Setup)
+Grâce à son architecture auto-générée, déployer MetaKavita est aussi simple que de lancer le conteneur ! Plus de script `setup.sh` requis.
 
 1. **Cloner le dépôt** :
    `git clone https://github.com/raukorim-bot/MetaKavita.git`
    `cd MetaKavita`
 
-2. **Initialiser l'environnement** :
-   Lance le script de configuration pour créer les dossiers requis, la base de données de cache et le fichier de configuration vierge.
-   `chmod +x setup.sh`
-   `./setup.sh`
+2. **Construire et Lancer Docker** :
+   Démarre le conteneur. Il génèrera automatiquement un dossier `/data` contenant ton `config.json`, la base de données et les logs.
+   `docker compose up -d --build`
 
-3. **Configurer tes clés API** :
-   Édite le fichier `config.json` fraîchement créé pour y ajouter tes propres clés. Sans cela, le conteneur ne pourra pas communiquer avec Kavita ou DeepL.
-   `nano config.json`
+3. **Accéder au Dashboard** :
+   Ouvre ton navigateur et rends-toi sur `http://localhost:5010` (ou l'IP de ton serveur). Tu peux configurer toutes tes clés API en toute sécurité directement depuis l'interface web !
 
-4. **Variables d'environnement Docker** :
-   Tous ces paramètres peuvent être modifiés directement depuis l'interface web. Cependant, tu peux les déclarer dans ton `docker-compose.yml` pour initialiser la configuration de ton conteneur.
+4. **Variables d'environnement Docker (Optionnel)** :
+   Si tu préfères initialiser ton conteneur sans utiliser l'interface web, tu peux déclarer ces variables dans ton `docker-compose.yml`.
    
    | Variable | Description | Valeur par défaut |
    | :--- | :--- | :--- |
@@ -123,20 +112,13 @@ Avant de lancer le conteneur, tu dois obligatoirement préparer l'environnement 
    | `AUTO_SYNC_INTERVAL`| Intervalle de l'Auto-Sync en minutes (`0` pour désactiver).| `0` |
    | `AUTO_COVER` | Activer l'envoi automatique des couvertures à Kavita (`true` ou `false`). | `false` |
 
-5. **Construire et Lancer** :
-   Démarre le conteneur Docker.
-   `docker compose up -d --build`
-
-6. **Accéder au Dashboard** :
-   Ouvre ton navigateur et rends-toi sur `http://localhost:5010` (ou l'IP de ton serveur).
-
 ---
 
 ## ⚠️ Notes & Tech Stack
 
 ### Security / Sécurité
-*   🇬🇧 **Never share your `config.json`.** Keep it private. Ensure it is included in your `.gitignore`.
-*   🇫🇷 **Ne partage jamais ton `config.json`.** Garde-le privé et vérifie qu'il est bien dans ton `.gitignore`.
+*   🇬🇧 **Never share your `data/config.json`.** Keep it private. Ensure the `data/` folder is included in your `.gitignore`.
+*   🇫🇷 **Ne partage jamais ton `data/config.json`.** Garde-le privé et vérifie que le dossier `data/` est bien dans ton `.gitignore`.
 
 ### Scraping Limits / Limites de Scraping
 *   🇬🇧 The script enforces a **dynamic delay** between each API call to strictly respect provider quotas and maximize speed (AniList: 1.0s, Nautiljon: 1.5s, MangaBaka: 2.5s). 

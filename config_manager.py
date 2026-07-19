@@ -1,10 +1,14 @@
 import json
 import os
 
-CONFIG_FILE = "config.json"
+DATA_DIR = "data"
+CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
 def load_config():
-    # Remplacement de PROVIDER par les 3 sources et la fusion
+    # 1. On s'assure que le dossier data existe
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+        
     config = {
         "KAVITA_URL": "", "KAVITA_API_KEY": "", "DEEPL_API_KEY": "", 
         "TARGET_LANG": "FR", "UI_LANG": "fr", 
@@ -13,12 +17,15 @@ def load_config():
         "AUTO_SYNC_INTERVAL": 0, "AUTO_COVER": False
     }
     
+    # 2. Si le fichier existe, on le lit. Sinon, on le crée avec les valeurs par défaut !
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config.update(json.load(f))
         except json.JSONDecodeError:
             pass
+    else:
+        save_config(config)
             
     config["KAVITA_URL"] = os.getenv("KAVITA_URL", config.get("KAVITA_URL", ""))
     config["KAVITA_API_KEY"] = os.getenv("KAVITA_API_KEY", config.get("KAVITA_API_KEY", ""))
@@ -41,5 +48,7 @@ def load_config():
     return config
 
 def save_config(data):
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
     with open(CONFIG_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=4)

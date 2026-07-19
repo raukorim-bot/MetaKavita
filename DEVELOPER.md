@@ -13,7 +13,7 @@ This document is intended for developers who wish to understand the full archite
 ### 1. Global Architecture & Tech Stack
 MetaKavita is a lightweight, modular web application acting as a bridge between a Kavita server and various metadata APIs.
 * **Backend:** Python 3.11 with the Flask framework (`app.py`, `Dockerfile`).
-* **Database:** SQLite3 (`cache.db`). Includes an auto-cleanup function (`clean_orphaned_cache`) to drop entries deleted on Kavita's end.
+* **Database & Data:** SQLite3 (`data/cache.db`). The `data/` directory is automatically generated at startup, containing the config and logs. Includes an auto-cleanup function (`clean_orphaned_cache`) to drop entries deleted on Kavita's end.
 * **Frontend:** Native HTML/CSS/JS (Vanilla). The UI is built to be a resilient SPA (Single Page Application) with zero page reloads via `fetch()`.
 * **Real-Time:** `Flask-SocketIO` on the server and `socket.io.js` on the client for live streaming console logs.
 
@@ -52,7 +52,7 @@ Ce document s'adresse aux développeurs souhaitant comprendre l'architecture com
 ### 1. Architecture Globale & Stack Technique
 MetaKavita est une application web modulaire faisant office de pont entre un serveur Kavita et diverses API de métadonnées.
 * **Backend :** Python 3.11 avec Flask (`app.py`, `Dockerfile`).
-* **Base de données :** SQLite3 (`cache.db`). Inclut une fonction d'auto-nettoyage (`clean_orphaned_cache`) pour purger les séries supprimées côté Kavita.
+* **Base de données & Données :** SQLite3 (`data/cache.db`). Le dossier `data/` est auto-généré au lancement et contient la configuration et les logs. Inclut une fonction d'auto-nettoyage (`clean_orphaned_cache`) pour purger les séries supprimées côté Kavita.
 * **Frontend :** HTML/CSS/JS natif (Vanilla). Conçu pour réagir comme une SPA (Single Page Application) ultra-fluide via l'utilisation de `fetch()`.
 * **Temps Réel :** `Flask-SocketIO` côté serveur pour la diffusion en direct des logs de la console vers l'interface.
 

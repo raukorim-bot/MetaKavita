@@ -5,12 +5,13 @@
 
 ---
 
-## 🛠️ Partie A : Corrections et "Quality of Life" (UI/UX)
-*Le but : Rendre l'existant robuste, fluide et visuellement propre avant d'ajouter de la complexité.*
+## 🛠️ Partie A : Corrections et "Quality of Life" (UI/UX & Infra)
+*Le but : Rendre l'existant robuste, fluide, visuellement propre et facile à installer.*
 
 - [x] **A1 à A6 :** Sécurisation API, Live Logs, 100% AJAX, Traductions globales, UI Responsive.
 - [x] **A7. Nettoyage des séries fantômes :** Le cache SQLite se purge automatiquement des séries supprimées dans Kavita pour garder des statistiques justes.
 - [x] **A8. UI d'Erreur API :** Affichage d'un écran clair dans l'UI principale en cas d'erreur de connexion à Kavita (clés erronées ou serveur injoignable).
+- [x] **A9. Déploiement "Zero-Setup" :** Suppression du fichier `setup.sh`. Refonte de l'arborescence pour que Python génère automatiquement le dossier `data/` au premier lancement du conteneur Docker.
 
 ---
 
@@ -19,7 +20,7 @@
 
 - [x] **B7. Statut "À ignorer" :** Création d'un 4ème statut pour empêcher l'outil de boucler indéfiniment.
 - [x] **B8. Le Polling (Automatisation) :** Thread en tâche de fond qui interroge Kavita avec respect strict des Rate Limits.
-- [x] **B9. Hiérarchie des sites (Fallback) & Fusion :** Implémentation d'une cascade de requêtes (Source 1 > 2 > 3) avec une option de "Complétion intelligente" (Smart Fusion) pour boucher les trous de métadonnées de façon transparente.
+- [x] **B9. Hiérarchie des sites (Fallback) & Fusion :** Implémentation d'une cascade de requêtes (Source 1 > 2 > 3) avec une option de "Complétion intelligente" (Smart Fusion) pour boucher les trous de métadonnées.
 - [x] **B14. Images de couverture (Covers) :** Téléchargement et application auto ou via modal manuel avec proxy anti-hotlink.
 - [x] **B15. Provider "MangaBaka" :** Implémentation de l'API V2 de MangaBaka (Données enrichies, ultra-rapide).
 - [ ] **B10. Support des BD (Provider ISBN) :** Ajouter la recherche via ISBN (Google Books API, etc.) pour cibler parfaitement les comics/BD européennes.
