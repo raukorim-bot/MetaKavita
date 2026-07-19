@@ -203,15 +203,15 @@ def process_series_logic(series_id, series_name, force_update=False):
             update_status(series_id, 'COMPLETED')
             return True, "Déjà à jour.", []
 
+        # --- Détermination des requêtes de recherche et replis ---
         cache_data = get_all_cached_data().get(int(series_id), {})
         search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
+        fallback_query = cache_data.get('alternative_title') or series_name
 
-        # --- NOUVELLE LOGIQUE DE FALLBACK ET FUSION ---
         p1 = config.get("PROVIDER_1", "MANGABAKA")
         p2 = config.get("PROVIDER_2", "NAUTILJON")
         p3 = config.get("PROVIDER_3", "ANILIST")
         
-        # On filtre "NONE" et on dédoublonne tout en gardant l'ordre
         raw_providers = [p for p in [p1, p2, p3] if p != "NONE"]
         providers_list = list(dict.fromkeys(raw_providers))
         
@@ -219,7 +219,13 @@ def process_series_logic(series_id, series_name, force_update=False):
 
         logging.info(t.get('log_scraping').format(series_name, " > ".join(providers_list), search_query))
         
-        provider_data, used_providers = fetch_metadata(search_query, providers_list, smart_completion)
+        # --- Appel de la fonction de fetch mise à jour avec fallback_query ---
+        provider_data, used_providers = fetch_metadata(
+            search_query, 
+            providers_list, 
+            smart_completion, 
+            fallback_query=fallback_query
+        )
 
         if not provider_data:
             logging.warning(t.get('log_not_found').format(series_name, "API(s)"))
@@ -332,12 +338,11 @@ def process_series_logic(series_id, series_name, force_update=False):
         existing_links = metadata.get('webLinks', '')
         links_list = [link.strip() for link in existing_links.split(',')] if existing_links else []
         
-        # Petite fonction interne pour éviter d'ajouter des liens en double
         def add_weblink(url):
             if url and url not in links_list:
                 links_list.append(url)
 
-        # On transforme les IDs en vrais liens pour forcer l'affichage des icônes dans Kavita !
+        # Transformation des ID en liens explicites pour Kavita
         if a_id: 
             add_weblink(f"https://anilist.co/manga/{a_id}")
         if m_id: 
@@ -345,9 +350,13 @@ def process_series_logic(series_id, series_name, force_update=False):
         if mb_id:
             add_weblink(f"https://mangabaka.org/{mb_id}")
             
-        # On ajoute le lien récupéré directement par les scrapers (ex: Nautiljon)
+        # Ajout du lien principal du scraper de base
         if provider_data.get('url'):
             add_weblink(provider_data['url'])
+            
+        # --- NOUVEAU : Ajout de tous les liens accumulés lors du scraping ---
+        for link in provider_data.get('accumulated_links', []):
+            add_weblink(link)
             
         # On recolle le tout avec des virgules et on envoie à Kavita
         if links_list:

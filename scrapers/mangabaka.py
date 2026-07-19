@@ -1,10 +1,10 @@
 import requests
 from scrapers import clean_title
 
+# scrapers/mangabaka.py
+
 def fetch_mangabaka(title_or_id):
-    # La bonne URL de base pour les IDs
     base_url = "https://api.mangabaka.org/v2/series"
-    # La bonne URL pour la recherche
     search_url = "https://api.mangabaka.org/v2/series/search"
     
     is_id = str(title_or_id).isdigit()
@@ -37,7 +37,6 @@ def fetch_mangabaka(title_or_id):
         if not data:
             return None
 
-        # 1. Extraction de la couverture HD (clé 'raw' selon notre test)
         cover_url = None
         cover_data = data.get('cover')
         if isinstance(cover_data, dict):
@@ -45,7 +44,6 @@ def fetch_mangabaka(title_or_id):
         elif isinstance(cover_data, str):
             cover_url = cover_data
 
-        # 2. Extraction du Staff
         staff = []
         for author in data.get('authors', []):
             if isinstance(author, dict): author = author.get('name', '')
@@ -55,17 +53,25 @@ def fetch_mangabaka(title_or_id):
             if isinstance(artist, dict): artist = artist.get('name', '')
             if artist: staff.append({"role": "Art", "node": {"name": {"full": artist}}})
 
-        # 3. Extraction de l'année depuis 'published'
         year = None
         published = data.get('published', {})
         if isinstance(published, dict) and published.get('start_date'):
-            year = int(str(published['start_date'])[:4]) # On prend juste "2018" dans "2018-03-05"
+            year = int(str(published['start_date'])[:4])
 
-        # 4. Extraction des titres alternatifs
         alt_titles = []
         for t in data.get('titles', []):
             if isinstance(t, dict) and t.get('title'):
                 alt_titles.append(t['title'])
+
+        # --- NOUVEAU : Récupération des ID externes de MangaBaka ---
+        mb_sources = data.get('source', {})
+        anilist_id = None
+        mal_id = None
+        if isinstance(mb_sources, dict):
+            anilist_id = mb_sources.get('anilist', {}).get('id')
+            mal_id = mb_sources.get('mal', {}).get('id')
+            
+        links = data.get('links') or []
 
         return {
             'summary': data.get('description', ''),
@@ -77,7 +83,10 @@ def fetch_mangabaka(title_or_id):
             'staff': staff,
             'characters': [],
             'alternative_titles': alt_titles,
-            'mangabaka_id': data.get('id')
+            'mangabaka_id': data.get('id'),
+            'anilist_id': anilist_id,
+            'mal_id': mal_id,
+            'links': links
         }
 
     except Exception as e:
