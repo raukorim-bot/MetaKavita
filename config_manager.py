@@ -1,32 +1,51 @@
 import json
 import os
+import secrets
 
 DATA_DIR = "data"
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
 def load_config():
-    # 1. On s'assure que le dossier data existe
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
         
     config = {
-        "KAVITA_URL": "", "KAVITA_API_KEY": "", "DEEPL_API_KEY": "", 
-        "TARGET_LANG": "FR", "UI_LANG": "fr", 
-        "PROVIDER_1": "MANGABAKA", "PROVIDER_2": "NAUTILJON", "PROVIDER_3": "ANILIST", 
+        "KAVITA_URL": "", 
+        "KAVITA_API_KEY": "", 
+        "DEEPL_API_KEY": "", 
+        "TARGET_LANG": "FR", 
+        "UI_LANG": "fr", 
+        "PROVIDER_1": "MANGABAKA", 
+        "PROVIDER_2": "NAUTILJON", 
+        "PROVIDER_3": "ANILIST", 
         "SMART_COMPLETION": False,
-        "AUTO_SYNC_INTERVAL": 0, "AUTO_COVER": False
+        "AUTO_SYNC_INTERVAL": 0, 
+        "AUTO_COVER": False,
+        "AUTO_READING_DIR": False,
+        "ADMIN_PASSWORD": "", 
+        "SECRET_KEY": secrets.token_hex(24),
+        "WEBHOOK_TOKEN": secrets.token_urlsafe(16)
     }
     
-    # 2. Si le fichier existe, on le lit. Sinon, on le crée avec les valeurs par défaut !
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 config.update(json.load(f))
         except json.JSONDecodeError:
             pass
-    else:
-        save_config(config)
             
+    # Si la config chargée n'a pas de clés secrètes, on les génère et on sauvegarde
+    needs_save = False
+    if not config.get("SECRET_KEY"):
+        config["SECRET_KEY"] = secrets.token_hex(24)
+        needs_save = True
+    if not config.get("WEBHOOK_TOKEN"):
+        config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
+        needs_save = True
+        
+    if needs_save:
+        save_config(config)
+
     config["KAVITA_URL"] = os.getenv("KAVITA_URL", config.get("KAVITA_URL", ""))
     config["KAVITA_API_KEY"] = os.getenv("KAVITA_API_KEY", config.get("KAVITA_API_KEY", ""))
     config["DEEPL_API_KEY"] = os.getenv("DEEPL_API_KEY", config.get("DEEPL_API_KEY", ""))
@@ -43,7 +62,10 @@ def load_config():
         config["AUTO_SYNC_INTERVAL"] = 0
         
     config["AUTO_COVER"] = str(os.getenv("AUTO_COVER", config.get("AUTO_COVER", "False"))).lower() == "true"
+    config["AUTO_READING_DIR"] = str(os.getenv("AUTO_READING_DIR", config.get("AUTO_READING_DIR", "False"))).lower() == "true"
     config["SMART_COMPLETION"] = str(os.getenv("SMART_COMPLETION", config.get("SMART_COMPLETION", "False"))).lower() == "true"
+    
+    config["ADMIN_PASSWORD"] = os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", ""))
     
     return config
 

@@ -165,7 +165,7 @@ input[type="text"], input[type="password"], input[type="number"], select {
 input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:focus, select:focus { 
     border-color: var(--primary); outline: none; 
 }
-}
+
 /* --- Wrapper pour masquer/afficher les clés API --- */
 .password-wrapper {
     position: relative !important; /* Le !important bloque la fuite des yeux */
@@ -230,6 +230,12 @@ button, .block-link {
 .checkbox-label { display: flex; align-items: center; gap: 8px; cursor: pointer; color: var(--text-main); margin: 0;}
 .highlight-checkbox { background-color: rgba(245, 158, 11, 0.1); padding: 5px 10px; border-radius: 6px; border: 1px dashed var(--warning); color: var(--warning);}
 
+/* Barre de recherche dans la Toolbar */
+.search-input {
+    width: 250px;
+    padding: 8px 12px;
+    margin: 0;
+}
 /* --- Boutons d'action Batch (Refonte) --- */
 .batch-actions { 
     display: flex; 
@@ -383,7 +389,12 @@ button, .block-link {
         padding: 15px;
         overflow-y: visible; /* On laisse la sidebar scroller avec la page */
     }
-    
+	
+    .search-input {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+	
     .content {
         overflow: visible;
         height: auto !important;

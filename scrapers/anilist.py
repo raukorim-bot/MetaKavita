@@ -1,11 +1,6 @@
 import requests
 import re
-
-def clean_title(title):
-    title = re.sub(r'\(.*?\)', '', title)
-    title = re.sub(r'\[.*?\]', '', title)
-    title = re.sub(r'(Vol\.|Tome)\s*\d+', '', title, flags=re.IGNORECASE)
-    return title.strip()
+from scrapers import clean_title
 
 def fetch_anilist_extended(title_or_id):
     is_id = str(title_or_id).isdigit()
@@ -15,12 +10,16 @@ def fetch_anilist_extended(title_or_id):
         query = '''
         query ($id: Int) {
           Media(id: $id, type: MANGA) {
+            id
+            idMal
             description(asHtml: false)
             coverImage { extraLarge }
             genres
             tags { name }
             startDate { year }
             status
+            isAdult
+            countryOfOrigin
             staff { edges { role node { name { full } } } }
             characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
           }
@@ -33,12 +32,16 @@ def fetch_anilist_extended(title_or_id):
         query = '''
         query ($search: String) {
           Media(search: $search, type: MANGA) {
+            id
+            idMal
             description(asHtml: false)
             coverImage { extraLarge }
             genres
             tags { name }
             startDate { year }
             status
+            isAdult
+            countryOfOrigin
             staff { edges { role node { name { full } } } }
             characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
           }
@@ -59,7 +62,12 @@ def fetch_anilist_extended(title_or_id):
                     'year': data.get('startDate', {}).get('year'),
                     'status': data.get('status'),
                     'staff': data.get('staff', {}).get('edges', []),
-                    'characters': data.get('characters', {}).get('edges', [])
+                    'characters': data.get('characters', {}).get('edges', []),
+                    'age_rating': 'pornographic' if data.get('isAdult') else 'safe',
+                    'format': data.get('countryOfOrigin'),
+                    'publisher': None,
+                    'anilist_id': data.get('id'),     # <--- NOUVEAU
+                    'mal_id': data.get('idMal')       # <--- NOUVEAU
                 }
     except Exception as e:
         print(f"[Erreur Anilist] {e}")

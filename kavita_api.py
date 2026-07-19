@@ -27,6 +27,10 @@ class KavitaAPI:
                 "Content-Type": "application/json"
             }
             return True
+        except requests.exceptions.HTTPError as e: # <--- NOUVEAU
+            # On masque l'URL contenant la clé API dans le message d'erreur
+            print(f"[Erreur Auth] Le serveur Kavita a rejeté la requête (Code {e.response.status_code}).")
+            return False
         except Exception as e:
             print(f"[Erreur Auth] {e}")
             return False
@@ -176,4 +180,33 @@ class KavitaAPI:
             
         except Exception as e:
             print(f"[Erreur Upload Cover] {e}")
+            return False, str(e)
+            
+    def update_series_external_ids(self, series_id, anilist_id=None, mal_id=None, mangabaka_id=None):
+        if not self.token and not self.authenticate(): 
+            return False, "Non authentifié"
+            
+        # On prépare un mini-payload ciblé uniquement sur la Série (et non ses métadonnées)
+        payload = { "id": int(series_id) }
+        
+        if anilist_id: payload["aniListId"] = int(anilist_id)
+        if mal_id: payload["malId"] = int(mal_id)
+        if mangabaka_id: payload["mangaBakaId"] = int(mangabaka_id)
+        
+        # S'il n'y a que l'ID de la série dans le payload, on ne fait pas de requête inutile
+        if len(payload) == 1:
+            return True, "Aucun ID à mettre à jour"
+            
+        try:
+            url = f"{self.url}/api/Series/update"
+            print(f"[DEBUG] Envoi des IDs externes vers {url} : {payload}")
+            res = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            
+            if res.status_code == 200:
+                return True, "Succès"
+            else:
+                print(f"[DEBUG] Erreur Update IDs : {res.text}")
+                return False, f"Code {res.status_code} : {res.text}"
+        except Exception as e:
+            print(f"[Erreur Update IDs] {e}")
             return False, str(e)

@@ -59,27 +59,43 @@ async function saveAllOverrides() {
 function filterSeries() {
     const filter = document.getElementById('statusFilter').value;
     
-    // On vérifie si la case (si elle existe sur la page) est cochée
     const hideIgnoredCb = document.getElementById('hideIgnoredCb');
     const hideIgnored = hideIgnoredCb ? hideIgnoredCb.checked : false;
+    
+    // NOUVEAU : Récupération du texte de la barre de recherche
+    const searchInput = document.getElementById('searchInput');
+    const searchQuery = searchInput ? searchInput.value.toLowerCase().trim() : '';
     
     let count = 0;
     
     document.querySelectorAll('.series-item').forEach(item => {
         const status = item.dataset.status;
+        
+        // NOUVEAU : Récupération du nom de la série pour la recherche
+        const titleElem = item.querySelector('.series-name');
+        const title = titleElem ? titleElem.innerText.toLowerCase() : '';
+        
         let show = false;
         
+        // 1. Filtre par Statut
         if (filter === 'ALL') {
             show = true;
-            // Si la case est cochée et que c'est ignoré, on le cache quand même
             if (hideIgnored && status === 'IGNORED') {
                 show = false;
             }
         } else if (status === filter) {
-            // Si l'utilisateur demande explicitement "IGNORED" dans le menu, ça passe ici !
             show = true;
         }
         
+        // 2. Filtre par Recherche (Texte)
+        // Si l'élément a survécu au filtre de statut ET qu'il y a une recherche en cours
+        if (show && searchQuery !== '') {
+            if (!title.includes(searchQuery)) {
+                show = false; // On le cache s'il ne contient pas le texte tapé
+            }
+        }
+        
+        // Affichage final
         if (show) {
             item.style.display = 'flex';
             count++;

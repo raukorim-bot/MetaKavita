@@ -1,5 +1,5 @@
 import requests
-from scrapers.anilist import clean_title
+from scrapers import clean_title
 
 def fetch_mangabaka(title_or_id):
     # La bonne URL de base pour les IDs
@@ -76,7 +76,8 @@ def fetch_mangabaka(title_or_id):
             'status': str(data.get('status')).upper() if data.get('status') else None,
             'staff': staff,
             'characters': [],
-            'alternative_titles': alt_titles
+            'alternative_titles': alt_titles,
+            'mangabaka_id': data.get('id')
         }
 
     except Exception as e:
