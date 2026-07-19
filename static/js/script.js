@@ -1,3 +1,8 @@
+// Variables globales pour mémoriser l'état de la modal et de la brique de déploiement
+let currentCoverModalSeriesId = null;
+let currentCoverModalSeriesName = null;
+let allPanelsExpanded = false; // Mémorise l'état global du déploiement des options
+
 // --- GESTION DU THÈME ---
 function toggleTheme() {
     const currentTheme = document.documentElement.getAttribute('data-theme');
@@ -6,25 +11,76 @@ function toggleTheme() {
     localStorage.setItem('theme', newTheme);
 }
 
-// --- GESTION DE L'INTERFACE ---
+// --- GESTION DES MODALS (CONFIGURATION GLOBALE & COUVERTURES) ---
+function openConfigModal() {
+    document.getElementById('configModal').style.display = 'flex';
+}
+
+function closeConfigModal() {
+    document.getElementById('configModal').style.display = 'none';
+}
+
 function togglePanel(id) {
     var panel = document.getElementById(id);
     panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
 }
 
-function toggleConfig() {
-    const configSection = document.getElementById('configSection');
-    const isHidden = configSection.style.display === 'none';
-    configSection.style.display = isHidden ? 'block' : 'none';
-    localStorage.setItem('configHidden', !isHidden);
+// NOUVEAU : Fonction de déploiement/repli global de tous les panneaux d'options (Solution Ergonomie)
+function toggleAllOverridePanels() {
+    allPanelsExpanded = !allPanelsExpanded;
+    const targetDisplay = allPanelsExpanded ? 'block' : 'none';
+    
+    document.querySelectorAll('.override-panel').forEach(panel => {
+        panel.style.display = targetDisplay;
+    });
 }
 
-document.addEventListener('DOMContentLoaded', () => {
-    if (localStorage.getItem('configHidden') === 'true') {
-        const configSection = document.getElementById('configSection');
-        if(configSection) configSection.style.display = 'none';
+// Écouteur pour la touche "Entrée" sur la recherche de couverture de la modal
+document.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        const modalSearchInput = document.getElementById('modalCoverSearchInput');
+        if (document.activeElement === modalSearchInput) {
+            e.preventDefault();
+            triggerManualCoverSearch();
+        }
     }
-    // Appel forcé pour mettre à jour le compteur dès le chargement !
+});
+
+document.addEventListener('DOMContentLoaded', () => {
+    // Restauration des filtres mémorisés dans le localStorage
+    const savedStatus = localStorage.getItem('filter_status');
+    const savedHideIgnored = localStorage.getItem('filter_hide_ignored');
+    const savedSearch = localStorage.getItem('filter_search');
+    const savedLibrary = localStorage.getItem('filter_library');
+    
+    if (savedStatus) {
+        const statusSelect = document.getElementById('statusFilter');
+        if (statusSelect) statusSelect.value = savedStatus;
+    }
+    if (savedHideIgnored && savedHideIgnored === 'false') {
+        const hideIgnoredCb = document.getElementById('hideIgnoredCb');
+        if (hideIgnoredCb) hideIgnoredCb.checked = false;
+    }
+    if (savedSearch) {
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) searchInput.value = savedSearch;
+    }
+    
+    // Si aucune bibliothèque n'est présente dans l'URL mais qu'une était mémorisée, on la charge
+    const urlParams = new URLSearchParams(window.location.search);
+    if (!urlParams.has('library_id') && savedLibrary) {
+        const libSelector = document.getElementById('lib_selector');
+        if (libSelector && libSelector.querySelector(`option[value="${savedLibrary}"]`)) {
+            libSelector.value = savedLibrary;
+            loadLibrary(savedLibrary);
+            return; 
+        }
+    } else if (urlParams.has('library_id')) {
+        localStorage.setItem('filter_library', urlParams.get('library_id'));
+    } else {
+        localStorage.setItem('filter_library', '');
+    }
+
     filterSeries();
 });
 
@@ -46,6 +102,12 @@ function saveOverride(seriesId, btn) {
     });
 }
 
+// Recherche rapide d'ID (AniList Direct Lookup)
+function lookupAniListId(seriesName) {
+    const url = `https://anilist.co/search/manga?search=${encodeURIComponent(seriesName)}`;
+    window.open(url, '_blank');
+}
+
 async function saveAllOverrides() {
     const panels = document.querySelectorAll('.override-panel');
     for (let panel of panels) {
@@ -58,26 +120,26 @@ async function saveAllOverrides() {
 
 function filterSeries() {
     const filter = document.getElementById('statusFilter').value;
-    
     const hideIgnoredCb = document.getElementById('hideIgnoredCb');
     const hideIgnored = hideIgnoredCb ? hideIgnoredCb.checked : false;
     
-    // NOUVEAU : Récupération du texte de la barre de recherche
     const searchInput = document.getElementById('searchInput');
     const searchQuery = searchInput ? searchInput.value.toLowerCase().trim() : '';
+    
+    // Sauvegarde automatique de l'état des filtres
+    localStorage.setItem('filter_status', filter);
+    if (hideIgnoredCb) localStorage.setItem('filter_hide_ignored', hideIgnored ? 'true' : 'false');
+    if (searchInput) localStorage.setItem('filter_search', searchQuery);
     
     let count = 0;
     
     document.querySelectorAll('.series-item').forEach(item => {
         const status = item.dataset.status;
-        
-        // NOUVEAU : Récupération du nom de la série pour la recherche
         const titleElem = item.querySelector('.series-name');
         const title = titleElem ? titleElem.innerText.toLowerCase() : '';
         
         let show = false;
         
-        // 1. Filtre par Statut
         if (filter === 'ALL') {
             show = true;
             if (hideIgnored && status === 'IGNORED') {
@@ -87,22 +149,19 @@ function filterSeries() {
             show = true;
         }
         
-        // 2. Filtre par Recherche (Texte)
-        // Si l'élément a survécu au filtre de statut ET qu'il y a une recherche en cours
         if (show && searchQuery !== '') {
             if (!title.includes(searchQuery)) {
-                show = false; // On le cache s'il ne contient pas le texte tapé
+                show = false;
             }
         }
         
-        // Affichage final
         if (show) {
             item.style.display = 'flex';
             count++;
         } else {
             item.style.display = 'none';
             const cb = item.querySelector('.series-cb');
-            if(cb) cb.checked = false; // On décoche les cachés pour la sécurité du batch
+            if(cb) cb.checked = false;
         }
     });
     
@@ -198,7 +257,7 @@ async function launchBatch(event) {
         const libInput = form.querySelector('[name="library_id"]');
         if(libInput) formData.append('library_id', libInput.value);
         
-        const forceUpdateCb = form.querySelector('[name="force_update"]');
+        const forceUpdateCb = document.getElementById('sidebar_force_update');
         if (forceUpdateCb && forceUpdateCb.checked) {
             formData.append('force_update', 'true');
         }
@@ -220,7 +279,7 @@ function stopBatch() {
     });
 }
 
-// --- WEBSOCKETS LOGS ---
+// --- WEBSOCKETS LOGS & INDICATEUR LIVE DE TRAITEMENT ---
 var socket = io();
 var logConsole = document.getElementById('log-console');
 socket.on('connect', function() { 
@@ -237,26 +296,89 @@ socket.on('log_update', function(msg) {
     }
     logConsole.appendChild(newLog);
     logConsole.scrollTop = logConsole.scrollHeight;
+
+    try {
+        const matchStart = msg.data.match(/▶️\s+\[(.*?)\]\s+Début/i) || msg.data.match(/▶️\s+\[(.*?)\]\s+Starting/i);
+        if (matchStart && matchStart[1]) {
+            const activeTitle = matchStart[1].trim();
+            
+            document.querySelectorAll('.series-item.is-processing').forEach(item => {
+                item.classList.remove('is-processing');
+            });
+            
+            document.querySelectorAll('.series-item').forEach(item => {
+                const nameElem = item.querySelector('.series-name');
+                if (nameElem && nameElem.textContent.trim().toLowerCase() === activeTitle.toLowerCase()) {
+                    item.classList.add('is-processing');
+                    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }
+            });
+        }
+
+        const matchEnd = msg.data.match(/\[(.*?)\]\s+✅/i) || 
+                         msg.data.match(/\[(.*?)\]\s+⏭️/i) || 
+                         msg.data.match(/\[(.*?)\]\s+❌/i) || 
+                         msg.data.match(/\[(.*?)\]\s+⚠️/i);
+                         
+        if (matchEnd && matchEnd[1]) {
+            const finishedTitle = matchEnd[1].trim();
+            document.querySelectorAll('.series-item').forEach(item => {
+                const nameElem = item.querySelector('.series-name');
+                if (nameElem && nameElem.textContent.trim().toLowerCase() === finishedTitle.toLowerCase()) {
+                    item.classList.remove('is-processing');
+                    
+                    const badge = item.querySelector('.badge');
+                    if (badge) {
+                        if (msg.data.includes('✅') || msg.data.includes('réussi') || msg.data.includes('successfully')) {
+                            item.dataset.status = 'COMPLETED';
+                            badge.className = 'badge badge-completed';
+                            badge.innerText = window.AppTranslations.filter_completed;
+                        } else if (msg.data.includes('⏭️') || msg.data.includes('déjà à jour') || msg.data.includes('already up to date')) {
+                            item.dataset.status = 'COMPLETED';
+                            badge.className = 'badge badge-completed';
+                            badge.innerText = window.AppTranslations.filter_completed;
+                        } else if (msg.data.includes('introuvable') || msg.data.includes('Aucun résultat') || msg.data.includes('No results')) {
+                            item.dataset.status = 'NOT_FOUND';
+                            badge.className = 'badge badge-notfound';
+                            badge.innerText = window.AppTranslations.filter_notfound;
+                        }
+                    }
+                }
+            });
+        }
+    } catch(e) {
+        console.error("[WebSockets] Erreur Live Highlight :", e);
+    }
 });
 
-// --- GESTION DE L'AFFICHAGE DES CLÉS API ---
+// --- ENTRÉES DE TYPE MOT DE PASSE (ŒIL) ---
 function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
     if (input.type === 'password') {
         input.type = 'text';
-        btn.innerText = '🙈'; // Symbole masqué
+        btn.innerText = '🙈';
     } else {
         input.type = 'password';
-        btn.innerText = '👁️';  // Symbole visible
+        btn.innerText = '👁️';
     }
 }
-// --- SAUVEGARDE DE LA CONFIGURATION (AJAX) ---
+
+// --- SAUVEGARDE CONFIGURATION (AJAX HYBRIDE) ---
 function saveConfig() {
     const form = document.getElementById('configForm');
     const formData = new FormData(form);
+    
+    const smartCompletion = document.getElementById('sidebar_smart_completion');
+    const autoCover = document.getElementById('sidebar_auto_cover');
+    const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
+    
+    if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
+    if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
+    if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
+    
     const btn = form.querySelector('.btn-primary');
-    const originalText = btn.innerText;
-    btn.innerText = "⏳...";
+    const originalText = btn ? btn.innerText : "";
+    if (btn) btn.innerText = "⏳...";
 
     fetch('/save-config', {
         method: 'POST',
@@ -265,14 +387,14 @@ function saveConfig() {
     .then(res => res.json())
     .then(data => {
         if (data.success) {
-            btn.innerText = "✅ OK";
-            setTimeout(() => { btn.innerText = originalText; }, 2000);
+            if (btn) {
+                btn.innerText = "✅ OK";
+                setTimeout(() => { btn.innerText = originalText; }, 2000);
+            }
             
-            // Si la langue de l'UI a changé, on rafraîchit la page
-            // window.location.reload() conserve les paramètres de l'URL (?library_id=...) !
             const currentLang = document.documentElement.lang;
             const newLang = formData.get('UI_LANG');
-            if (currentLang !== newLang) {
+            if (newLang && currentLang !== newLang) {
                 window.location.reload();
             }
         }
@@ -291,7 +413,6 @@ function resetErrors(btn) {
             btn.innerText = "✅ OK";
             setTimeout(() => { btn.innerText = originalText; }, 2000);
             
-            // Mise à jour de l'interface en direct sans recharger la page
             document.querySelectorAll('.series-item[data-status="NOT_FOUND"]').forEach(item => {
                 item.dataset.status = 'PENDING';
                 const badge = item.querySelector('.badge-notfound');
@@ -300,47 +421,42 @@ function resetErrors(btn) {
                     badge.innerText = window.AppTranslations.filter_pending;
                 }
             });
-            filterSeries(); // Réapplique le filtre actuel proprement
+            filterSeries();
         }
     });
 }
 
-// --- CHARGEMENT DYNAMIQUE DES BIBLIOTHÈQUES (AJAX / DOM Swap) ---
+// --- CHARGEMENT DYNAMIQUE DES BIBLIOTHÈQUES (AJAX) ---
 function loadLibrary(libraryId) {
     const contentArea = document.querySelector('.content');
-    contentArea.style.opacity = '0.5'; // Petit effet visuel pour montrer que ça charge
-    contentArea.style.pointerEvents = 'none'; // Empêche le clic pendant le chargement
+    contentArea.style.opacity = '0.5';
+    contentArea.style.pointerEvents = 'none';
     
-    // On requête la page complète en arrière-plan
+    localStorage.setItem('filter_library', libraryId || '');
+    
     fetch('/?library_id=' + libraryId)
         .then(res => res.text())
         .then(html => {
-            // On convertit le texte HTML en un vrai "Document" manipulable par le navigateur
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             
-            // 1. On remplace uniquement la zone principale (les séries et boutons)
             const newContent = doc.querySelector('.content');
             if (newContent) {
                 contentArea.innerHTML = newContent.innerHTML;
             }
             
-            // 2. On en profite pour mettre à jour la carte des statistiques (au cas où)
             const currentStats = document.querySelectorAll('.sidebar .card')[0];
             const newStats = doc.querySelectorAll('.sidebar .card')[0];
             if (currentStats && newStats) {
                 currentStats.innerHTML = newStats.innerHTML;
             }
             
-            // 3. On met à jour l'URL dans la barre du navigateur SANS recharger la page
             const newUrl = libraryId ? '/?library_id=' + libraryId : '/';
             window.history.pushState({ path: newUrl }, '', newUrl);
             
-            // 4. On restaure l'interface
             contentArea.style.opacity = '1';
             contentArea.style.pointerEvents = 'auto';
             
-            // On relance le filtre pour mettre à jour le compteur d'éléments
             filterSeries();
         })
         .catch(err => {
@@ -350,7 +466,6 @@ function loadLibrary(libraryId) {
         });
 }
 
-// On gère le cas où l'utilisateur clique sur le bouton "Précédent" ou "Suivant" du navigateur
 window.addEventListener('popstate', () => {
     window.location.reload();
 });
@@ -360,7 +475,6 @@ function toggleIgnore(seriesId, btn) {
     const seriesItem = btn.closest('.series-item');
     const currentStatus = seriesItem.dataset.status;
     
-    // Désactiver le bouton temporairement pour éviter le double clic
     const originalText = btn.innerText;
     btn.innerText = "⏳";
     btn.disabled = true;
@@ -376,7 +490,6 @@ function toggleIgnore(seriesId, btn) {
         if(data.success) {
             seriesItem.dataset.status = data.new_status;
             
-            // Mettre à jour l'icône et le titre du bouton
             if (data.new_status === 'IGNORED') {
                 btn.innerText = '🔄';
                 btn.title = window.AppTranslations.unignore_btn;
@@ -385,7 +498,6 @@ function toggleIgnore(seriesId, btn) {
                 btn.title = window.AppTranslations.ignore_btn;
             }
             
-            // Mettre à jour le badge visuel
             const badge = seriesItem.querySelector('.badge');
             if (badge) {
                 if (data.new_status === 'IGNORED') {
@@ -397,7 +509,7 @@ function toggleIgnore(seriesId, btn) {
                 }
             }
             
-            filterSeries(); // Réappliquer le filtre en cours (le cache instantanément si on filtre par PENDING)
+            filterSeries();
         } else {
             btn.innerText = originalText;
         }
@@ -423,7 +535,6 @@ async function ignoreSelection() {
         const seriesId = cb.value;
         const currentStatus = seriesItem.dataset.status;
 
-        // On ignore uniquement si ce n'est pas déjà ignoré
         if (currentStatus !== 'IGNORED') {
             try {
                 const res = await fetch('/toggle-ignore', {
@@ -434,14 +545,12 @@ async function ignoreSelection() {
                 const data = await res.json();
                 
                 if (data.success) {
-                    // Mise à jour visuelle instantanée pour cet élément
                     seriesItem.dataset.status = 'IGNORED';
                     const badge = seriesItem.querySelector('.badge');
                     if (badge) {
                         badge.className = 'badge badge-ignored';
                         badge.innerText = window.AppTranslations.filter_ignored;
                     }
-                    // Mise à jour de l'icône du petit bouton individuel
                     const ignoreBtn = seriesItem.querySelector('.series-actions .btn-icon');
                     if (ignoreBtn) {
                         ignoreBtn.innerText = '🔄';
@@ -454,29 +563,37 @@ async function ignoreSelection() {
         }
     }
     
-    // Animation de fin et rafraîchissement
     btn.innerText = "✅ OK";
     setTimeout(() => { 
         btn.innerText = originalText; 
         btn.disabled = false;
-        filterSeries(); // Fait disparaître les séries ignorées de l'écran principal
+        filterSeries();
     }, 1000);
 }
 
-// --- MODAL COUVERTURES (OPTION 3) ---
+// --- MODAL COUVERTURES AVEC RECHERCHE MANUELLE ---
 function openCoverModal(seriesId, seriesName) {
+    currentCoverModalSeriesId = seriesId;
+    currentCoverModalSeriesName = seriesName;
+    
     document.getElementById('modalSeriesName').innerText = seriesName;
+    
+    const modalSearchInput = document.getElementById('modalCoverSearchInput');
+    if (modalSearchInput) modalSearchInput.value = seriesName;
+    
     document.getElementById('coverModal').style.display = 'flex';
     document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_loading}</div>`;
     
-    // On requête le backend qui va chercher sur tous les providers en même temps
-    fetch(`/api/series/${seriesId}/covers?series_name=${encodeURIComponent(seriesName)}`)
+    fetchCovers(seriesId, seriesName);
+}
+
+function fetchCovers(seriesId, query) {
+    fetch(`/api/series/${seriesId}/covers?series_name=${encodeURIComponent(query)}`)
     .then(r => r.json())
     .then(data => {
         if(data.success && data.covers.length > 0) {
             let html = '';
             data.covers.forEach(c => {
-                // Utilisation du proxy pour éviter le blocage anti-hotlink de Nautiljon
                 let displayUrl = c.provider === 'Nautiljon' ? `/api/proxy-image?url=${encodeURIComponent(c.url)}` : c.url;
                 
                 html += `
@@ -492,17 +609,29 @@ function openCoverModal(seriesId, seriesName) {
         }
     })
     .catch(err => {
-        document.getElementById('coversGrid').innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">❌ Erreur réseau.</div>`;
+        document.getElementById('coversGrid').innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">❌ Erreur réseau ou de scraping.</div>`;
     });
+}
+
+function triggerManualCoverSearch() {
+    const modalSearchInput = document.getElementById('modalCoverSearchInput');
+    if (modalSearchInput && currentCoverModalSeriesId) {
+        const query = modalSearchInput.value.trim();
+        if (query) {
+            document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_loading}</div>`;
+            fetchCovers(currentCoverModalSeriesId, query);
+        }
+    }
 }
 
 function closeCoverModal() {
     document.getElementById('coverModal').style.display = 'none';
-    document.getElementById('coversGrid').innerHTML = ''; // Nettoyer pour la prochaine fois
+    document.getElementById('coversGrid').innerHTML = '';
+    currentCoverModalSeriesId = null;
+    currentCoverModalSeriesName = null;
 }
 
 function applyCover(seriesId, coverUrl) {
-    // Affiche le statut d'envoi
     document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_sending}</div>`;
     
     fetch(`/api/series/${seriesId}/update-cover`, {
@@ -514,15 +643,14 @@ function applyCover(seriesId, coverUrl) {
     .then(data => {
         if(data.success) {
             closeCoverModal();
-            // On pourrait afficher un petit message de succès flottant ici (Toast), 
-            // mais l'image sera déjà changée dans Kavita !
         } else {
             alert("Erreur lors de l'envoi de la couverture : " + data.msg);
             closeCoverModal();
         }
     });
 }
-// --- GESTION DES MENUS PROVIDERS (ANTI-DOUBLONS FLUIDE) ---
+
+// --- GESTION DES MENUS PROVIDERS ---
 function handleProviderChange(changedSelect) {
     const selects = [
         document.querySelector('select[name="PROVIDER_1"]'),
@@ -532,25 +660,20 @@ function handleProviderChange(changedSelect) {
     
     const newValue = changedSelect.value;
 
-    // 1. On gère le vol de sélection (Résolution des conflits)
     if (newValue !== 'NONE') {
         selects.forEach(otherSelect => {
             if (otherSelect !== changedSelect && otherSelect.value === newValue) {
-                otherSelect.value = 'NONE'; // On efface la valeur de l'autre menu
+                otherSelect.value = 'NONE';
             }
         });
     }
 
-    // 2. PROTECTION VITALE : La Source 1 (Base) ne peut JAMAIS être vide
     const p1 = selects[0];
-    
     if (!p1.value || p1.value === 'NONE') {
-        // On récupère dynamiquement tous les providers possibles en lisant les options HTML
         const allProviders = Array.from(p1.options).map(opt => opt.value).filter(val => val !== 'NONE');
         const usedByOthers = [selects[1].value, selects[2].value];
-        
         const freeProvider = allProviders.find(p => !usedByOthers.includes(p));
-        p1.value = freeProvider || allProviders[0]; // Sécurité absolue
+        p1.value = freeProvider || allProviders[0];
     }
 
     saveConfig();

@@ -16,6 +16,8 @@
             update: "{{ t['update'] }}",
             launchBatch: "{{ t.launch_batch }}",
             filter_pending: "{{ t.filter_pending }}",
+            filter_completed: "{{ t.filter_completed }}",
+            filter_notfound: "{{ t.filter_notfound }}",
 			filter_ignored: "{{ t.filter_ignored }}",
             ignore_btn: "{{ t.ignore_btn }}",
             unignore_btn: "{{ t.unignore_btn }}",
@@ -39,7 +41,7 @@
                 MetaKavita
             </div>
             <div class="topbar-actions">
-                <button type="button" class="btn-icon" onclick="toggleConfig()" title="{{ t.toggle_config }}">⚙️ Config</button>
+                <button type="button" class="btn-icon" onclick="openConfigModal()" title="{{ t.toggle_config }}">⚙️ Config</button>
                 <button type="button" class="btn-icon" onclick="toggleTheme()" title="{{ t.toggle_theme }}">🌓 Thème</button>
             </div>
         </header>
@@ -47,26 +49,27 @@
         <div class="dashboard-body">
             <aside class="sidebar">
                 
+                <!-- BLOC 1: STATISTIQUES -->
                 <div class="card">
                     <h3 class="section-title">{{ t.stats_title }}</h3>
-						<div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px; flex-wrap: wrap;">
-							<div style="flex: 1;">
-								<h4 style="margin:0; color: var(--success); font-size: 1.2rem;">{{ stats.completed }}</h4>
-								<small class="text-muted">{{ t.stats_enriched }}</small>
-							</div>
-							<div style="flex: 1;">
-								<h4 style="margin:0; color: var(--danger); font-size: 1.2rem;">{{ stats.not_found }}</h4>
-								<small class="text-muted">{{ t.stats_errors }}</small>
-							</div>
-							<div style="flex: 1;">
-								<h4 style="margin:0; color: var(--warning); font-size: 1.2rem;">{{ stats.pending }}</h4>
-								<small class="text-muted">{{ t.stats_pending }}</small>
-							</div>
-							<div style="flex: 1;">
-								<h4 style="margin:0; color: var(--secondary); font-size: 1.2rem;">{{ stats.ignored }}</h4>
-								<small class="text-muted">{{ t.stats_ignored }}</small>
-							</div>
-						</div>
+                    <div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px; flex-wrap: wrap;">
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--success); font-size: 1.2rem;">{{ stats.completed }}</h4>
+                            <small class="text-muted">{{ t.stats_enriched }}</small>
+                        </div>
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--danger); font-size: 1.2rem;">{{ stats.not_found }}</h4>
+                            <small class="text-muted">{{ t.stats_errors }}</small>
+                        </div>
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--warning); font-size: 1.2rem;">{{ stats.pending }}</h4>
+                            <small class="text-muted">{{ t.stats_pending }}</small>
+                        </div>
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--secondary); font-size: 1.2rem;">{{ stats.ignored }}</h4>
+                            <small class="text-muted">{{ t.stats_ignored }}</small>
+                        </div>
+                    </div>
                     <div style="width: 100%; background: var(--bg-input); height: 8px; border-radius: 4px; overflow: hidden; display: flex;">
                         {% if stats.total > 0 %}
                         <div style="width: {{ (stats.completed / stats.total) * 100 }}%; background: var(--success);"></div>
@@ -78,127 +81,43 @@
                     <a href="/stats" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">{{ t.open_stats }}</a>
                 </div>
 
-                <div id="configSection" class="card">
-                    <h3 class="section-title">{{ t.config_title }}</h3>
-                    {% if msg %}<div class="alert success">{{ msg }}</div>{% endif %}
-                    {% if error_msg %}<div class="alert error">{{ error_msg }}</div>{% endif %}
-                    
-                    <form id="configForm">
-					                        <div class="form-group">
-                            <label>{{ t.kavita_url }}</label>
-                            <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
-                        </div>
-                        <div class="form-group">
-                            <label>{{ t.ui_lang }}</label>
-                            <select name="UI_LANG" onchange="saveConfig()">
-                                <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
-                                <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
-                            </select>
-                        </div>
-						<div class="form-group">
-                            <label>{{ t.kavita_api }}</label>
-                            <div class="password-wrapper" style="position: relative; width: 100%;">
-                                <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
-                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="Afficher/Masquer">👁️</button>
-                            </div>
-                        </div>
-						<div class="form-group">
-                            <label>{{ t.deepl_api }}</label>
-                            <div class="password-wrapper" style="position: relative; width: 100%;">
-                                <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
-                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="Afficher/Masquer">👁️</button>
-                            </div>
-                        </div>
-                        <div class="form-group">
-                            <label>{{ t.target_lang }}</label>
-                            <select name="TARGET_LANG" onchange="saveConfig()">
-                                <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
-                                <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
-                                <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
-                                <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
-                                <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
-                                <option value="PT-BR" {% if config.get('TARGET_LANG') == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
-                                <option value="NL" {% if config.get('TARGET_LANG') == 'NL' %}selected{% endif %}>Nederlands</option>
-                                <option value="PL" {% if config.get('TARGET_LANG') == 'PL' %}selected{% endif %}>Polski</option>
-                                <option value="RU" {% if config.get('TARGET_LANG') == 'RU' %}selected{% endif %}>Русский</option>
-                                <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="display: flex; gap: 10px;">
-                            <div style="flex: 1;">
-                                <label style="font-size: 11px;">{{ t.provider_1 }}</label>
-                                <select name="PROVIDER_1" onchange="handleProviderChange(this)" style="font-size: 12px; padding: 6px;">
-                                    {% for p in available_providers %}
-                                    <option value="{{ p }}" {% if config.get("PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div style="flex: 1;">
-                                <label style="font-size: 11px;">{{ t.provider_2 }}</label>
-                                <select name="PROVIDER_2" onchange="handleProviderChange(this)" style="font-size: 12px; padding: 6px;">
-                                    <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                    {% for p in available_providers %}
-                                    <option value="{{ p }}" {% if config.get("PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div style="flex: 1;">
-                                <label style="font-size: 11px;">{{ t.provider_3 }}</label>
-                                <select name="PROVIDER_3" onchange="handleProviderChange(this)" style="font-size: 12px; padding: 6px;">
-                                    <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                    {% for p in available_providers %}
-                                    <option value="{{ p }}" {% if config.get("PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                        </div>
-                        <div class="form-group" style="margin-top: -5px; padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3);">
-                            <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
-                                <input type="checkbox" name="SMART_COMPLETION" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()"> 
-                                {{ t.smart_completion }}
-                            </label>
-                        </div>
-						<div class="form-group">
-                            <label>{{ t.auto_sync_interval }}</label>
-                            <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0" onchange="saveConfig()">
-                        </div>
-						<div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="AUTO_COVER" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
-                                {{ t.auto_cover }}
-                            </label>
-                        </div>
-						<div class="form-group">
-                            <label class="checkbox-label">
-                                <input type="checkbox" name="AUTO_READING_DIR" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()"> 
-                                {{ t.auto_reading_dir }}
-                            </label>
-                        </div>
-                        <button type="button" class="btn-primary w-100" onclick="saveConfig()">{{ t.save_settings }}</button>
-                    </form>
+                <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
+                <div class="card">
+                    <h3 class="section-title">{{ t.options }}</h3>
+                    <div class="form-group" style="padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3); margin-bottom: 12px;">
+                        <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
+                            <input type="checkbox" id="sidebar_smart_completion" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.smart_completion }}
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sidebar_auto_cover" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.auto_cover }}
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sidebar_auto_reading_dir" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.auto_reading_dir }}
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 5px; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 6px; border: 1px dashed var(--warning);">
+                        <label class="checkbox-label" style="color: var(--warning);">
+                            <input type="checkbox" id="sidebar_force_update" value="true"> 
+                            <strong>{{ t.force_update }}</strong>
+                        </label>
+                    </div>
                 </div>
 
-                <div class="card">
-                    <h3 class="section-title">{{ t.db_tools }}</h3>
-                    {% if libraries %}
-                    <div class="mb-3">
-                        <select id="lib_selector" onchange="loadLibrary(this.value)">
-                            <option value="">{{ t.all_libs }}</option>
-                            {% for lib in libraries %}
-                            <option value="{{ lib.id }}" {% if selected_lib == lib.id|string %}selected{% endif %}>{{ lib.name }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    {% endif %}
-                    <button type="button" class="btn-warning w-100 mb-3" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
-                    
-                    {% if libraries %}
-                    <div class="mt-3 text-center">
-                        <a href="/export-errors" class="btn-danger block-link w-100">{{ t.export_errors }}</a>
-                    </div>
-                    {% endif %}
+                <!-- EXPORT DES ERREURS -->
+                {% if libraries %}
+                <div style="margin-top: -10px; margin-bottom: 10px;">
+                    <a href="/export-errors" class="btn-danger block-link w-100" style="font-size: 13px; padding: 10px;">{{ t.export_errors }}</a>
                 </div>
+                {% endif %}
                 
+                <!-- BLOC 3: TERMINAL DE LOGS -->
                 <div class="logs-container card" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
                     <h3 class="section-title m-0 mb-2">{{ t.live_logs }}</h3>
                     <div id="log-console" class="log-console" style="flex: 1;">
@@ -206,10 +125,11 @@
                     </div>
                 </div>
 
+                <!-- PIED DE LA BARRE LATÉRALE -->
                 <div class="sidebar-footer">
                     <p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
                     <p>
-                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.3.2</a> | 
+                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.4.0</a> | 
                         <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
                     </p>
                     {% if config.get('ADMIN_PASSWORD') %}
@@ -228,9 +148,18 @@
                             <h2 class="m-0">{{ t.series_avail }}</h2>
                             <span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
                             
-                            <!-- NOUVEAU : Barre de recherche propre -->
+                            <!-- BARRE DE RECHERCHE -->
                             <input type="text" id="searchInput" class="search-input" placeholder="{{ t.search_placeholder }}" onkeyup="filterSeries()">
                             
+                            <!-- SÉLECTEUR DE BIBLIOTHÈQUE -->
+                            <select id="lib_selector" onchange="loadLibrary(this.value)" style="width: auto;">
+                                <option value="">{{ t.all_libs }}</option>
+                                {% for lib in libraries %}
+                                <option value="{{ lib.id }}" {% if selected_lib == lib.id|string %}selected{% endif %}>{{ lib.name }}</option>
+                                {% endfor %}
+                            </select>
+
+                            <!-- FILTRE DE STATUTS -->
                             <select id="statusFilter" onchange="filterSeries()" style="width: auto;">
                                 <option value="ALL">{{ t.filter_all }}</option>
                                 <option value="PENDING">{{ t.filter_pending }}</option>
@@ -238,6 +167,7 @@
                                 <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
                                 <option value="IGNORED">{{ t.filter_ignored }}</option>
                             </select>
+
                             <label class="checkbox-label">
                                 <input type="checkbox" id="selectAll" onclick="toggleSelectAll()"> 
                                 {{ t.select_all }}
@@ -247,12 +177,11 @@
                                 {{ t.hide_ignored }}
                             </label>
                         </div>
-                        <div class="toolbar-right">
-                            <label class="checkbox-label highlight-checkbox">
-                                <input type="checkbox" id="force_update" name="force_update" value="true">
-                                <strong>{{ t.force_update }}</strong>
-                            </label>
-                            <button type="button" onclick="saveAllOverrides()" class="btn-secondary">{{ t.save_all }}</button>
+                        
+                        <!-- ACTIONS DE CONFIGURATION DE MASSE (Corrigées : Plus de chevauchement) -->
+                        <div class="toolbar-right" style="display: flex; gap: 10px;">
+                            <button type="button" onclick="toggleAllOverridePanels()" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.toggle_all_overrides }}</button>
+                            <button type="button" onclick="saveAllOverrides()" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.save_all }}</button>
                         </div>
                     </div>
 
@@ -278,7 +207,6 @@
                                         {% endif %}
                                     </div>
                                     <div class="series-actions">
-                                        <!-- LE NOUVEAU BOUTON EST ICI -->
                                         <button type="button" class="btn-icon" onclick="toggleIgnore('{{ series.id }}', this)" title="{% if series.status == 'IGNORED' %}{{ t.unignore_btn }}{% else %}{{ t.ignore_btn }}{% endif %}">
                                             {% if series.status == 'IGNORED' %}🔄{% else %}🚫{% endif %}
                                         </button>
@@ -293,7 +221,10 @@
                                     <div class="override-grid">
                                         <div>
                                             <span class="input-hint">{{ t.anilist_id }}</span>
-                                            <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_id }}">
+                                            <div style="display: flex; gap: 5px; align-items: center;">
+                                                <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_id }}" style="flex: 1;">
+                                                <button type="button" class="btn-icon" onclick="lookupAniListId('{{ series.name|replace("'", "\\'") }}')" title="{{ t.quick_lookup_title }}" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; height: 38px;">🔍</button>
+                                            </div>
                                         </div>
                                         <div>
                                             <span class="input-hint">{{ t.alt_title }}</span>
@@ -308,8 +239,10 @@
                     </div>
                     {% endif %}
 
+                    <!-- ACCORDION D'ACTIONS DE MASSE -->
                     <div class="batch-actions">
-						<button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()" style="flex: 1;">{{ t.launch_ignore }}</button>
+                        <button type="button" class="btn-warning" id="batchResetBtn" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
+						<button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>
                         <button type="submit" class="btn-batch" id="mainBatchBtn">{{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
@@ -328,18 +261,138 @@
             </main>
         </div>
     </div>
-    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
-	<!-- MODAL DE SÉLECTION DE COUVERTURE -->
+
+    <!-- MODAL DE CONFIGURATION GLOBALE -->
+    <div id="configModal" class="modal-overlay" onclick="if(event.target===this) closeConfigModal()">
+        <div class="modal-content modal-large">
+            <div class="modal-header">
+                <h3 class="m-0">⚙️ {{ t.config_title }}</h3>
+                <button type="button" class="close-btn" onclick="closeConfigModal()">&times;</button>
+            </div>
+            <form id="configForm" onsubmit="event.preventDefault(); saveConfig();">
+                <div class="config-grid">
+                    <!-- Section 1 : Connexion Kavita -->
+                    <div class="config-section">
+                        <h4 class="config-section-title">{{ t.conn_kavita }}</h4>
+                        <div class="form-group">
+                            <label>{{ t.kavita_url }}</label>
+                            <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
+                        </div>
+                        <div class="form-group">
+                            <label>{{ t.kavita_api }}</label>
+                            <div class="password-wrapper">
+                                <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
+                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 2 : Traduction DeepL & Langues -->
+                    <div class="config-section">
+                        <h4 class="config-section-title">{{ t.trans_lang }}</h4>
+                        <div class="form-group">
+                            <label>{{ t.deepl_api }}</label>
+                            <div class="password-wrapper">
+                                <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
+                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                            </div>
+                        </div>
+                        <div class="form-group-row">
+                            <div class="form-group">
+                                <label>{{ t.ui_lang }}</label>
+                                <select name="UI_LANG">
+                                    <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
+                                    <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>{{ t.target_lang }}</label>
+                                <select name="TARGET_LANG">
+                                    <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
+                                    <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
+                                    <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
+                                    <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
+                                    <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
+                                    <option value="PT-BR" {% if config.get('TARGET_LANG') == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
+                                    <option value="NL" {% if config.get('TARGET_LANG') == 'NL' %}selected{% endif %}>Nederlands</option>
+                                    <option value="PL" {% if config.get('TARGET_LANG') == 'PL' %}selected{% endif %}>Polski</option>
+                                    <option value="RU" {% if config.get('TARGET_LANG') == 'RU' %}selected{% endif %}>Русский</option>
+                                    <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 3 : Ordre des Providers de recherche -->
+                    <div class="config-section">
+                        <h4 class="config-section-title">{{ t.provider_cascade }}</h4>
+                        <div class="providers-row">
+                            <div class="form-group">
+                                <label>{{ t.provider_1 }}</label>
+                                <select name="PROVIDER_1" onchange="handleProviderChange(this)">
+                                    {% for p in available_providers %}
+                                    <option value="{{ p }}" {% if config.get("PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>{{ t.provider_2 }}</label>
+                                <select name="PROVIDER_2" onchange="handleProviderChange(this)">
+                                    <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                    {% for p in available_providers %}
+                                    <option value="{{ p }}" {% if config.get("PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>{{ t.provider_3 }}</label>
+                                <select name="PROVIDER_3" onchange="handleProviderChange(this)">
+                                    <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                    {% for p in available_providers %}
+                                    <option value="{{ p }}" {% if config.get("PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Section 4 : Paramètres de synchronisation -->
+                    <div class="config-section">
+                        <h4 class="config-section-title">{{ t.planning }}</h4>
+                        <div class="form-group">
+                            <label>{{ t.auto_sync_interval }}</label>
+                            <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button type="submit" class="btn-primary w-100" style="padding: 12px; font-size: 15px;">{{ t.save_settings }}</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+	<!-- MODAL DE SÉLECTION DE COUVERTURE AVEC RECHERCHE MANUELLE INTÉGRÉE -->
     <div id="coverModal" class="modal-overlay" onclick="if(event.target===this) closeCoverModal()">
         <div class="modal-content">
-            <div class="modal-header">
-                <h3 class="m-0">{{ t.modal_cover_title }}<span id="modalSeriesName" style="color: var(--primary);"></span></h3>
-                <button type="button" class="close-btn" onclick="closeCoverModal()">&times;</button>
+            <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 class="m-0">{{ t.modal_cover_title }}<span id="modalSeriesName" style="color: var(--primary);"></span></h3>
+                    <button type="button" class="close-btn" onclick="closeCoverModal()">&times;</button>
+                </div>
+                <!-- RECHERCHE MANUELLE DE COUVERTURE DANS LA MODAL -->
+                <div class="modal-search-wrapper" style="display: flex; gap: 8px; margin-top: 5px;">
+                    <input type="text" id="modalCoverSearchInput" placeholder="{{ t.search_placeholder_covers }}" style="flex: 1; padding: 8px;">
+                    <button type="button" class="btn-primary" id="modalCoverSearchBtn" onclick="triggerManualCoverSearch()" style="padding: 8px 15px;">{{ t.search_btn }}</button>
+                </div>
             </div>
-            <div id="coversGrid" class="covers-grid">
+            <div id="coversGrid" class="covers-grid" style="max-height: 55vh; overflow-y: auto; padding: 5px;">
                 <!-- Les images apparaîtront ici -->
             </div>
         </div>
     </div>
+
+    <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>
