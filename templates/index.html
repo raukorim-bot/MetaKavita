@@ -129,7 +129,7 @@
                 <div class="sidebar-footer">
                     <p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
                     <p>
-                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.4.0</a> | 
+                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.5.0</a> | 
                         <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
                     </p>
                     {% if config.get('ADMIN_PASSWORD') %}
@@ -270,98 +270,226 @@
                 <button type="button" class="close-btn" onclick="closeConfigModal()">&times;</button>
             </div>
             <form id="configForm" onsubmit="event.preventDefault(); saveConfig();">
+                <!-- templates/index.html (Remplacement du bloc .config-grid dans la modal) -->
+
                 <div class="config-grid">
-                    <!-- Section 1 : Connexion Kavita -->
-                    <div class="config-section">
-                        <h4 class="config-section-title">{{ t.conn_kavita }}</h4>
-                        <div class="form-group">
-                            <label>{{ t.kavita_url }}</label>
-                            <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
+                    <!-- COLONNE GAUCHE : Connexions & API Fournisseurs -->
+                    <div class="config-col">
+                        <!-- Section 1 : Connexion Kavita -->
+                        <div class="config-section">
+                            <h4 class="config-section-title">{{ t.conn_kavita }}</h4>
+                            <div class="form-group">
+                                <label>{{ t.kavita_url }}</label>
+                                <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required>
+                            </div>
+                            <div class="form-group">
+                                <label>{{ t.kavita_api }}</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
+                                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                                </div>
+                            </div>
                         </div>
-                        <div class="form-group">
-                            <label>{{ t.kavita_api }}</label>
-                            <div class="password-wrapper">
-                                <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
-                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+
+                        <!-- Section 1.5 : Clés API Fournisseurs (Sous Kavita) -->
+                        <div class="config-section">
+                            <h4 class="config-section-title">{{ t.providers_api_title }}</h4>
+                            <div class="form-group">
+                                <label>{{ t.comicvine_api }}</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="COMICVINE_API_KEY" id="comicvine_api_key" value="{{ config.get('COMICVINE_API_KEY', '') }}">
+                                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('comicvine_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                                </div>
+                            </div>
+                            <div class="form-group" style="margin-top: 10px;">
+                                <label>{{ t.googlebooks_api }}</label>
+                                <div class="password-wrapper">
+                                    <input type="password" name="GOOGLEBOOKS_API_KEY" id="googlebooks_api_key" value="{{ config.get('GOOGLEBOOKS_API_KEY', '') }}">
+                                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('googlebooks_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    <!-- Section 2 : Traduction DeepL & Langues -->
-                    <div class="config-section">
-                        <h4 class="config-section-title">{{ t.trans_lang }}</h4>
-                        <div class="form-group">
-                            <label>{{ t.deepl_api }}</label>
-                            <div class="password-wrapper">
-                                <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value="{{ config.get('DEEPL_API_KEY', '') }}" required>
-                                <button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                    <!-- COLONNE DROITE : Traduction & Planification -->
+                    <div class="config-col">
+                        <!-- Section 2 : Traduction & Langues -->
+                        <div class="config-section">
+                            <h4 class="config-section-title">{{ t.trans_lang }}</h4>
+                            
+                            <!-- MENU DÉROULANT DU FOURNISSEUR -->
+                            <div class="form-group">
+                                <label>{{ t.trans_provider }}</label>
+                                <select name="TRANSLATION_PROVIDER" id="translationProvider" onchange="toggleTranslationFields()">
+                                    <option value="GOOGLE" {% if config.get('TRANSLATION_PROVIDER', 'GOOGLE') == 'GOOGLE' %}selected{% endif %}>{{ t.trans_google }}</option>
+                                    <option value="DEEPL" {% if config.get('TRANSLATION_PROVIDER') == 'DEEPL' %}selected{% endif %}>{{ t.trans_deepl }}</option>
+                                    <option value="AZURE" {% if config.get('TRANSLATION_PROVIDER') == 'AZURE' %}selected{% endif %}>{{ t.trans_azure }}</option>
+                                </select>
+                            </div>
+
+                            <!-- CHAMPS DEEPL (Masqués par défaut) -->
+                            <div id="deepl_fields" style="display: none; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 15px;">
+                                <div class="form-group m-0">
+                                    <label>{{ t.deepl_api }}</label>
+                                    <div class="password-wrapper">
+                                        <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value="{{ config.get('DEEPL_API_KEY', '') }}">
+                                        <button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- CHAMPS AZURE (Masqués par défaut) -->
+                            <div id="azure_fields" style="display: none; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 15px;">
+                                <div class="form-group">
+                                    <label>{{ t.azure_api }}</label>
+                                    <div class="password-wrapper">
+                                        <input type="password" name="AZURE_API_KEY" id="azure_api_key" value="{{ config.get('AZURE_API_KEY', '') }}">
+                                        <button type="button" class="toggle-password" onclick="togglePasswordVisibility('azure_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+                                    </div>
+                                </div>
+                                <div class="form-group m-0">
+                                    <label>{{ t.azure_region }}</label>
+                                    <input type="text" name="AZURE_REGION" value="{{ config.get('AZURE_REGION', '') }}" placeholder="ex: francecentral">
+                                </div>
+                            </div>
+
+                            <div class="form-group-row">
+                                <div class="form-group">
+                                    <label>{{ t.ui_lang }}</label>
+                                    <select name="UI_LANG">
+                                        <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
+                                        <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.target_lang }}</label>
+                                    <select name="TARGET_LANG">
+                                        <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
+                                        <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
+                                        <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
+                                        <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
+                                        <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
+                                        <option value="PT-BR" {% if config.get('TARGET_LANG') == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
+                                        <option value="NL" {% if config.get('TARGET_LANG') == 'NL' %}selected{% endif %}>Nederlands</option>
+                                        <option value="PL" {% if config.get('TARGET_LANG') == 'PL' %}selected{% endif %}>Polski</option>
+                                        <option value="RU" {% if config.get('TARGET_LANG') == 'RU' %}selected{% endif %}>Русский</option>
+                                        <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                        <div class="form-group-row">
+
+                        <!-- Section 4 : Planification -->
+                        <div class="config-section">
+                            <h4 class="config-section-title">{{ t.planning }}</h4>
                             <div class="form-group">
-                                <label>{{ t.ui_lang }}</label>
-                                <select name="UI_LANG">
-                                    <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
-                                    <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>{{ t.target_lang }}</label>
-                                <select name="TARGET_LANG">
-                                    <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
-                                    <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
-                                    <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
-                                    <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
-                                    <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
-                                    <option value="PT-BR" {% if config.get('TARGET_LANG') == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
-                                    <option value="NL" {% if config.get('TARGET_LANG') == 'NL' %}selected{% endif %}>Nederlands</option>
-                                    <option value="PL" {% if config.get('TARGET_LANG') == 'PL' %}selected{% endif %}>Polski</option>
-                                    <option value="RU" {% if config.get('TARGET_LANG') == 'RU' %}selected{% endif %}>Русский</option>
-                                    <option value="ZH" {% if config.get('TARGET_LANG') == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
-                                </select>
+                                <label>{{ t.auto_sync_interval }}</label>
+                                <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">
                             </div>
                         </div>
                     </div>
 
-                    <!-- Section 3 : Ordre des Providers de recherche -->
-                    <div class="config-section">
+                    <!-- Section 3 : Ordre des Providers de recherche (Prend toute la largeur) -->
+                    <div class="config-section config-span-all">
                         <h4 class="config-section-title">{{ t.provider_cascade }}</h4>
-                        <div class="providers-row">
-                            <div class="form-group">
-                                <label>{{ t.provider_1 }}</label>
-                                <select name="PROVIDER_1" onchange="handleProviderChange(this)">
-                                    {% for p in available_providers %}
-                                    <option value="{{ p }}" {% if config.get("PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>{{ t.provider_2 }}</label>
-                                <select name="PROVIDER_2" onchange="handleProviderChange(this)">
-                                    <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                    {% for p in available_providers %}
-                                    <option value="{{ p }}" {% if config.get("PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
-                                    {% endfor %}
-                                </select>
-                            </div>
-                            <div class="form-group">
-                                <label>{{ t.provider_3 }}</label>
-                                <select name="PROVIDER_3" onchange="handleProviderChange(this)">
-                                    <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                    {% for p in available_providers %}
-                                    <option value="{{ p }}" {% if config.get("PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
-                                    {% endfor %}
-                                </select>
+                        
+                        <!-- CASCADE MANGA -->
+                        <div style="margin-bottom: 20px;">
+                            <label style="font-weight: 700; color: var(--primary); margin-bottom: 8px; display: block;">{{ t.manga_cascade_title }}</label>
+                            <div class="providers-row">
+                                <div class="form-group">
+                                    <label>{{ t.provider_1 }}</label>
+                                    <select name="PROVIDER_1" onchange="handleProviderChange(this)">
+                                        {% for p in manga_providers %}
+                                        <option value="{{ p }}" {% if config.get("PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.provider_2 }}</label>
+                                    <select name="PROVIDER_2" onchange="handleProviderChange(this)">
+                                        <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                        {% for p in manga_providers %}
+                                        <option value="{{ p }}" {% if config.get("PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.provider_3 }}</label>
+                                    <select name="PROVIDER_3" onchange="handleProviderChange(this)">
+                                        <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                        {% for p in manga_providers %}
+                                        <option value="{{ p }}" {% if config.get("PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- Section 4 : Paramètres de synchronisation -->
-                    <div class="config-section">
-                        <h4 class="config-section-title">{{ t.planning }}</h4>
-                        <div class="form-group">
-                            <label>{{ t.auto_sync_interval }}</label>
-                            <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">
+                        <!-- CASCADE COMIC -->
+                        <div style="margin-bottom: 20px;">
+                            <label style="font-weight: 700; color: var(--accent); margin-bottom: 8px; display: block;">{{ t.comic_cascade_title }}</label>
+                            <div class="providers-row">
+                                <div class="form-group">
+                                    <label>{{ t.provider_1 }}</label>
+                                    <select name="COMIC_PROVIDER_1" onchange="handleProviderChange(this)">
+                                        {% for p in comic_providers %}
+                                        <option value="{{ p }}" {% if config.get("COMIC_PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.provider_2 }}</label>
+                                    <select name="COMIC_PROVIDER_2" onchange="handleProviderChange(this)">
+                                        <option value="NONE" {% if config.get("COMIC_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                        {% for p in comic_providers %}
+                                        <option value="{{ p }}" {% if config.get("COMIC_PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.provider_3 }}</label>
+                                    <select name="COMIC_PROVIDER_3" onchange="handleProviderChange(this)">
+                                        <option value="NONE" {% if config.get("COMIC_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                        {% for p in comic_providers %}
+                                        <option value="{{ p }}" {% if config.get("COMIC_PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- CASCADE BOOK -->
+                        <div>
+                            <label style="font-weight: 700; color: var(--success); margin-bottom: 8px; display: block;">{{ t.book_cascade_title }}</label>
+                            <div class="providers-row">
+                                <div class="form-group">
+                                    <label>{{ t.provider_1 }}</label>
+                                    <select name="BOOK_PROVIDER_1" onchange="handleProviderChange(this)">
+                                        {% for p in book_providers %}
+                                        <option value="{{ p }}" {% if config.get("BOOK_PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.provider_2 }}</label>
+                                    <select name="BOOK_PROVIDER_2" onchange="handleProviderChange(this)">
+                                        <option value="NONE" {% if config.get("BOOK_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                        {% for p in book_providers %}
+                                        <option value="{{ p }}" {% if config.get("BOOK_PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.provider_3 }}</label>
+                                    <select name="BOOK_PROVIDER_3" onchange="handleProviderChange(this)">
+                                        <option value="NONE" {% if config.get("BOOK_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                        {% for p in book_providers %}
+                                        <option value="{{ p }}" {% if config.get("BOOK_PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 </div>

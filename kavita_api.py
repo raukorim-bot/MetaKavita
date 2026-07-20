@@ -3,6 +3,9 @@ import requests
 import base64
 
 class KavitaAPI:
+    # Cache mémoire au niveau de la CLASSE (partagé et conservé pour tout le batch)
+    _series_lib_type_cache = {}
+
     def __init__(self, url, api_key):
         self.url = url.strip().rstrip('/') if url else ""
         self.api_key = api_key.strip() if api_key else ""
@@ -27,7 +30,7 @@ class KavitaAPI:
                 "Content-Type": "application/json"
             }
             return True
-        except requests.exceptions.HTTPError as e: # <--- NOUVEAU
+        except requests.exceptions.HTTPError as e:
             # On masque l'URL contenant la clé API dans le message d'erreur
             print(f"[Erreur Auth] Le serveur Kavita a rejeté la requête (Code {e.response.status_code}).")
             return False
@@ -67,9 +70,24 @@ class KavitaAPI:
                     
                     if series_res.status_code == 200:
                         for s in series_res.json():
-                            # LA SÉCURITÉ ABSOLUE : on filtre nous-mêmes !
-                            # Si la série n'a pas le bon libraryId, elle dégage.
+                            # Filtrage de sécurité
                             if str(s.get('libraryId', lib['id'])) == str(lib['id']):
+                                # Récupération et conversion du type de bibliothèque
+                                raw_type = lib.get('type') or lib.get('libraryType') or lib.get('LibraryType') or lib.get('Type') or 0
+                                if raw_type in [0, "0", "Manga", "manga"]:
+                                    lib_type_str = "Manga"
+                                elif raw_type in [1, "1", "Comic", "comic", "Comics", "comics"]:
+                                    lib_type_str = "Comic"
+                                elif raw_type in [2, "2", "Book", "book", "Books", "books"]:
+                                    lib_type_str = "Book"
+                                elif raw_type in [3, "3", "Novel", "novel", "LightNovel", "lightnovel", "Light Novels", "light novels"]:
+                                    lib_type_str = "Book"
+                                elif raw_type in [4, "4", "Image", "image", "Images", "images"]:
+                                    lib_type_str = "Manga"
+                                else:
+                                    lib_type_str = "Manga"
+                                    
+                                s['libraryType'] = lib_type_str
                                 unique_series[s['id']] = s
                                 
                 except Exception as inner_e:
@@ -82,6 +100,47 @@ class KavitaAPI:
         except Exception as e:
             print(f"[Erreur globale] {e}")
             return []
+
+    def get_library_type_for_series(self, series_id):
+        """
+        Récupère le type de bibliothèque exact (Manga, Comic, Book) pour une série donnée.
+        Utilise un cache mémoire interne pour optimiser les performances.
+        """
+        if int(series_id) in self._series_lib_type_cache:
+            return self._series_lib_type_cache[int(series_id)]
+            
+        if not self.token and not self.authenticate():
+            return "Manga"
+            
+        try:
+            all_libs = self.get_libraries()
+            lib_id_to_type = {}
+            for lib in all_libs:
+                raw_type = lib.get('type') or lib.get('libraryType') or lib.get('LibraryType') or lib.get('Type') or 0
+                if raw_type in [0, "0", "Manga", "manga"]:
+                    lib_type_str = "Manga"
+                elif raw_type in [1, "1", "Comic", "comic", "Comics", "comics"]:
+                    lib_type_str = "Comic"
+                elif raw_type in [2, "2", "Book", "book", "Books", "books"]:
+                    lib_type_str = "Book"
+                elif raw_type in [3, "3", "Novel", "novel", "LightNovel", "lightnovel", "Light Novels", "light novels"]:
+                    lib_type_str = "Book"
+                elif raw_type in [4, "4", "Image", "image", "Images", "images"]:
+                    lib_type_str = "Manga"
+                else:
+                    lib_type_str = "Manga"
+                lib_id_to_type[lib['id']] = lib_type_str
+                
+            all_series = self.get_all_series()
+            for s in all_series:
+                s_id = s['id']
+                l_id = s.get('libraryId')
+                self._series_lib_type_cache[int(s_id)] = lib_id_to_type.get(l_id, "Manga")
+                
+            return self._series_lib_type_cache.get(int(series_id), "Manga")
+        except Exception as e:
+            print(f"[Erreur Library Type for Series] {e}")
+            return "Manga"
 
     def get_series_metadata(self, series_id):
         if not self.token and not self.authenticate(): 
@@ -119,12 +178,8 @@ class KavitaAPI:
             return False, str(e)
             
     def update_series_summary(self, series_id, summary_text):
-        # On cible l'endpoint /api/Series/update comme indiqué dans ta doc
         url = f"{self.url}/api/Series/update"
         
-        # Le payload minimaliste. 
-        # Kavita n'a besoin que de l'ID pour identifier la série
-        # et des champs que tu veux modifier (summary et summaryLocked)
         payload = {
             "id": int(series_id),
             "summary": summary_text,
@@ -140,7 +195,6 @@ class KavitaAPI:
             print(f"[Erreur Update Summary] {e}")
             return False, str(e)
 
-    # --- NOUVELLE FONCTION POUR UPLOADER L'IMAGE ---
     def upload_series_cover(self, series_id, cover_url):
         if not self.token and not self.authenticate(): 
             return False, "Non authentifié"
@@ -149,21 +203,30 @@ class KavitaAPI:
             return False, "URL de couverture invalide"
             
         try:
-            # 1. On télécharge l'image depuis le web (AVEC BYPASS CLOUDFLARE/HOTLINK)
             print(f"[DEBUG] Téléchargement de la couverture depuis : {cover_url}")
+            
+            referer = "https://kitsu.io/"
+            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            
+            if "comicvine" in cover_url or "gamespot" in cover_url:
+                referer = "https://comicvine.gamespot.com/"
+                # CORRECTION : Utiliser un agent navigateur pour éviter le 403 sur le CDN
+                user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                
             headers = {
-                "Referer": "https://www.nautiljon.com/",
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+                "Referer": referer,
+                "User-Agent": user_agent
             }
+            
             img_res = cffi_requests.get(cover_url, headers=headers, impersonate="safari15_5", timeout=15)
             
             if img_res.status_code != 200:
                 return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
             
-            # 2. On convertit l'image en base64 pur
+            # Convertit l'image en base64
             img_base64 = base64.b64encode(img_res.content).decode('utf-8')
             
-            # 3. On envoie à Kavita via l'API Upload (en HTTP standard)
+            # Envoi de la couverture à l'API Kavita
             upload_url = f"{self.url}/api/Upload/series"
             payload = {
                 "id": int(series_id),
@@ -186,14 +249,12 @@ class KavitaAPI:
         if not self.token and not self.authenticate(): 
             return False, "Non authentifié"
             
-        # On prépare un mini-payload ciblé uniquement sur la Série (et non ses métadonnées)
         payload = { "id": int(series_id) }
         
         if anilist_id: payload["aniListId"] = int(anilist_id)
         if mal_id: payload["malId"] = int(mal_id)
         if mangabaka_id: payload["mangaBakaId"] = int(mangabaka_id)
         
-        # S'il n'y a que l'ID de la série dans le payload, on ne fait pas de requête inutile
         if len(payload) == 1:
             return True, "Aucun ID à mettre à jour"
             

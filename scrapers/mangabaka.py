@@ -3,11 +3,9 @@ from scrapers import clean_title
 
 # scrapers/mangabaka.py
 
-def fetch_mangabaka(title_or_id):
+def fetch_mangabaka(title_or_id, library_type="Manga", is_id=False):
     base_url = "https://api.mangabaka.org/v2/series"
     search_url = "https://api.mangabaka.org/v2/series/search"
-    
-    is_id = str(title_or_id).isdigit()
     
     try:
         if is_id:
@@ -73,11 +71,37 @@ def fetch_mangabaka(title_or_id):
             
         links = data.get('links') or []
 
+        # --- NOUVEAU : Déduction du format (Manga vs Webtoon) ---
+        format_type = None
+        
+        # Sécurisation absolue : on force une liste vide si l'API renvoie 'null'
+        tags_list = data.get('tags') or []
+        genres_list = data.get('genres') or []
+        
+        try:
+            # 1. Vérifier si MangaBaka donne le type explicitement
+            mb_type = str(data.get('type', '')).upper()
+            if 'MANHWA' in mb_type or 'WEBTOON' in mb_type:
+                format_type = 'webtoon'
+            elif 'MANGA' in mb_type:
+                format_type = 'manga'
+                
+            # 2. Chercher dans les tags ET les genres s'il n'a rien trouvé
+            if not format_type:
+                # On extrait proprement, que l'API nous donne des chaînes ou des dictionnaires
+                tags_str = " ".join([str(t.get('name', t)) if isinstance(t, dict) else str(t) for t in tags_list]).upper()
+                genres_str = " ".join([str(g) for g in genres_list]).upper()
+                
+                if "MANHWA" in tags_str or "WEBTOON" in tags_str or "MANHWA" in genres_str or "WEBTOON" in genres_str:
+                    format_type = "webtoon"
+        except Exception:
+            pass # Si la déduction échoue, on l'ignore silencieusement sans tuer la fiche !
+
         return {
             'summary': data.get('description', ''),
             'cover_url': cover_url,
-            'genres': data.get('genres', []),
-            'tags': data.get('tags', [])[:15] if data.get('tags') else [],
+            'genres': genres_list,
+            'tags': tags_list[:15],
             'year': year,
             'status': str(data.get('status')).upper() if data.get('status') else None,
             'staff': staff,
@@ -86,9 +110,12 @@ def fetch_mangabaka(title_or_id):
             'mangabaka_id': data.get('id'),
             'anilist_id': anilist_id,
             'mal_id': mal_id,
-            'links': links
+            'links': links,
+            'format': format_type
         }
 
     except Exception as e:
-        print(f"[Erreur MangaBaka V2] {e}")
+        # On remplace le print par un logging pour voir l'erreur dans l'UI au cas où ça arrive encore !
+        import logging
+        logging.error(f"[Erreur MangaBaka V2] {e}")
         return None

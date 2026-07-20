@@ -2,9 +2,7 @@ import requests
 import re
 from scrapers import clean_title
 
-def fetch_anilist_extended(title_or_id):
-    is_id = str(title_or_id).isdigit()
-    
+def fetch_anilist_extended(title_or_id, library_type="Manga", is_id=False):
     if is_id:
         print(f"[Anilist] Requête directe par ID : {title_or_id}")
         query = '''
@@ -28,8 +26,9 @@ def fetch_anilist_extended(title_or_id):
         '''
         variables = {'id': int(title_or_id)}
     else:
-        clean = clean_title(title_or_id)
-        print(f"[Anilist] Recherche par titre : '{clean}'")
+        # Nettoyage contextuel du titre
+        clean = clean_title(title_or_id, library_type=library_type)
+        print(f"[Anilist] Recherche par titre ({library_type}) : '{clean}'")
         query = '''
         query ($search: String) {
           Media(search: $search, type: MANGA) {

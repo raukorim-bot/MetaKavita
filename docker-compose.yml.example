@@ -18,7 +18,7 @@ services:
       # - TARGET_LANG=FR
       # - UI_LANG=fr
       # - PROVIDER_1=MANGABAKA
-      # - PROVIDER_2=NAUTILJON
+      # - PROVIDER_2=KITSU
       # - PROVIDER_3=ANILIST
       # - SMART_COMPLETION=false
       # - AUTO_SYNC_INTERVAL=0

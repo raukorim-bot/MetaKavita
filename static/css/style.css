@@ -459,6 +459,15 @@ button, .block-link {
 .loader-spinner { 
     text-align: center; padding: 40px; color: var(--warning); font-weight: bold; font-size: 15px; grid-column: 1 / -1; 
 }
+.config-col {
+    display: flex;
+    flex-direction: column;
+    gap: 15px;
+}
+
+.config-span-all {
+    grid-column: 1 / -1;
+}
 
 /* RESPONSIVE DESIGN */
 @media (max-width: 850px) {

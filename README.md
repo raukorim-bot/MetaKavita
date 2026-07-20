@@ -1,6 +1,6 @@
 # MetaKavita
 
-MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with DeepL, and pushes them directly into your Kavita instance.
+MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance.
 
 ---
 
@@ -10,12 +10,14 @@ MetaKavita is an automated metadata enricher and manager for [Kavita](https://ka
    * [Enriched Metadata Fields](#-enriched-metadata-fields)
    * [Installation (Zero-Effort & Source)](#-installation)
    * [Configuration Variables](#-configuration-variables)
+   * [Translation APIs & Quotas](#-translation-apis--quotas)
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks)
 2. [🇫🇷 Documentation Française](#-documentation-française)
    * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie)
    * [Métadonnées Enrichies](#-métadonnées-enrichies)
    * [Installation (Zéro-Effort & Sources)](#-installation-1)
    * [Variables de Configuration](#-variables-de-configuration)
+   * [APIs de Traduction & Quotas](#-apis-de-traduction--quotas)
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks-1)
 3. [⚠️ Notes & Tech Stack](#-notes--tech-stack)
 
@@ -23,9 +25,9 @@ MetaKavita is an automated metadata enricher and manager for [Kavita](https://ka
 
 ## 🇺🇸 English Documentation
 
-### 🎨 User Interface & Ergonomics (V1.4.0)
+### 🎨 User Interface & Ergonomics (V1.5.0)
 
-MetaKavita has been completely redesigned in version 1.4.0 to separate background configuration from daily operational strategy.
+MetaKavita has been completely redesigned in version 1.4.0 and heavily refined in **1.5.0** to separate background configuration from daily operational strategy.
 
 #### 1. Main Dashboard & Workspace Persistence
 The interface uses a 100% AJAX layout with zero page reloads. The left sidebar handles active strategic options, while the main panel presents your library. Thanks to local storage persistence, the dashboard automatically remembers your selected library, status filter, hide ignored state, and search query between sessions.
@@ -33,7 +35,8 @@ The interface uses a 100% AJAX layout with zero page reloads. The left sidebar h
 ![MetaKavita Main Dashboard](./assets/dashboard.png)
 
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
-Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter.
+Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. 
+*New in 1.5.0*: API Keys for metadata providers (ComicVine, Google Books) are now neatly grouped in a dedicated section directly under the Kavita connection settings for better readability.
 The left sidebar contains only the **Scraping Options** card for quick tactical switches (Smart Completion, Auto-Covers, Auto-Reading Direction, Force Update) and the download button for your error reports.
 
 ![Global Configuration Modal](./assets/config_modal.png)
@@ -51,7 +54,7 @@ Each series has an advanced Options panel. If a series is unmatched, click the s
 ![Override & Advanced Panel](./assets/override_panel.png)
 
 #### 5. Manual & Smart Cover Management
-You can enable auto-cover replacement or browse covers manually. The manual cover modal includes a **manual search input**, allowing you to enter alternate or translated titles on the fly to find correct covers without modifying your database.
+You can enable auto-cover replacement or browse covers manually. The manual cover modal includes a **manual search input**, allowing you to enter alternate or translated titles on the fly to find correct covers without modifying your database. It now supports MangaBaka, Kitsu, AniList, and **ComicVine** covers out of the box.
 
 ![Cover Selection Modal](./assets/cover_modal.png)
 
@@ -69,12 +72,12 @@ The entire application can be locked behind a secure login screen with Timing-At
 
 ### 📚 Enriched Metadata Fields
 
-MetaKavita maps and automatically locks the following metadata fields directly into Kavita's database structure:
+MetaKavita adapts its scraping strategy depending on Kavita's library types (`Manga`, `Comic`, `Book`) and maps the following metadata fields directly into Kavita's database structure:
 
 | Category | Metadata Fields | Mapped Source Details |
 | :--- | :--- | :--- |
 | **Core Details** | Localized Name / Alternative Titles | Joins localized titles with a `" / "` separator |
-| | Summary / Description | Scraped in source language, translated via DeepL |
+| | Summary / Description | Scraped in source language, translated via Azure, DeepL, or Google |
 | | Release Year | Publication start year |
 | | Publication Status | Maps to native codes: Ongoing, On Hiatus, Completed, Cancelled |
 | **Collections & Lore** | Genres | Comprehensive mapping from visited sources |
@@ -130,16 +133,34 @@ docker compose up -d --build
 | `ADMIN_PASSWORD` | Secures the dashboard with a password. | *(Empty = No Auth)* |
 | `KAVITA_URL` | Your Kavita instance URL. | *(Empty)* |
 | `KAVITA_API_KEY` | Your Kavita API Key. | *(Empty)* |
-| `DEEPL_API_KEY` | Your DeepL Translation API Key. | *(Empty)* |
-| `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). | `FR` |
+| `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
+| `AZURE_REGION` | Microsoft Azure Translator API Region (e.g. `francecentral`). | *(Empty)* |
+| `DEEPL_API_KEY` | Your DeepL Translation API Key (Fallback Translation Engine). | *(Empty)* |
+| `COMICVINE_API_KEY`| Your ComicVine API Key (Required for Comics/BDs). | *(Empty)* |
+| `GOOGLEBOOKS_API_KEY`| Google Books API Key (Optional, prevents HTTP 429 limit). | *(Empty)* |
+| `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! | `FR` |
 | `UI_LANG` | Dashboard interface language (`fr` or `en`). | `fr` |
-| `PROVIDER_1` | Primary metadata source (`MANGABAKA`, `NAUTILJON`, `ANILIST`). | `MANGABAKA` |
-| `PROVIDER_2` | Fallback source 1. | `NAUTILJON` |
-| `PROVIDER_3` | Fallback source 2. | `ANILIST` |
+| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`). | `MANGABAKA` |
+| `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
+| `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
+| `COMIC_PROVIDER_1`| Primary comic metadata source (`COMICVINE`, `GOOGLEBOOKS`, `ANILIST`). | `COMICVINE` |
+| `COMIC_PROVIDER_2`| Fallback comic source 1. | `ANILIST` |
+| `COMIC_PROVIDER_3`| Fallback comic source 2. | `NONE` |
+| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `ANILIST`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_2` | Fallback book source 1. | `ANILIST` |
+| `BOOK_PROVIDER_3` | Fallback book source 2. | `NONE` |
 | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
 | `AUTO_READING_DIR` | Auto-detect and set Manga/Webtoon reading direction. | `false` |
+
+---
+
+### 🌍 Translation APIs & Quotas
+
+If you have a massive library to process, keep in mind that the **DeepL Free API** is now strictly limited to a **lifetime total of 1,000,000 characters** with no monthly reset. Because we are honest and responsible users who don't want to create fake accounts just to fraud new API keys, MetaKavita natively integrates **Google Translate** for a 100% free, zero-config experience.
+
+However, for maximum stability, we highly recommend setting up **Microsoft Azure Translator** (generous Free Tier F0 with **2,000,000 characters per month**) as your primary engine, keeping DeepL or Google as automatic safety fallbacks!
 
 ---
 
@@ -157,9 +178,9 @@ For immediate enrichment upon import, configure a Webhook in Kavita pointing to 
 
 ## 🇫🇷 Documentation Française
 
-### 🎨 Interface Utilisateur & Ergonomie (V1.4.0)
+### 🎨 Interface Utilisateur & Ergonomie (V1.5.0)
 
-MetaKavita a été entièrement repensé dans sa version 1.4.0 pour séparer la configuration technique de la stratégie de scraping opérationnelle.
+MetaKavita a été entièrement repensé dans sa version 1.4.0 et peaufiné en **1.5.0** pour séparer la configuration technique de la stratégie de scraping opérationnelle.
 
 #### 1. Tableau de Bord & Persistance de l'Espace de Travail
 L'interface utilise une structure 100% AJAX (zéro rechargement de page). La barre latérale gauche gère la stratégie active tandis que le panneau central affiche tes œuvres. Grâce au stockage local (`localStorage`), le tableau de bord se souvient automatiquement de tes filtres (bibliothèque sélectionnée, tri de statut, barre de recherche et masquage des ignorés) d'une session à l'autre.
@@ -168,6 +189,7 @@ L'interface utilise une structure 100% AJAX (zéro rechargement de page). La bar
 
 #### 2. Architecture Double-Formulaire (Modal + Sidebar)
 Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement.
+*Nouveauté 1.5.0* : Les clés d'API des fournisseurs (ComicVine, Google Books) sont désormais proprement regroupées dans un bloc dédié sous la connexion Kavita.
 La barre latérale ne contient plus que la carte **Options de Scraping** (Fusion intelligente, Auto-Covers, Sens de lecture auto, Mise à jour forcée) et l'export des erreurs.
 
 ![Modal de Configuration Globale](./assets/config_modal.png)
@@ -185,7 +207,7 @@ Chaque série dispose d'un volet d'options avancées. Si une œuvre n'est pas tr
 ![Options avancées de séries](./assets/override_panel.png)
 
 #### 5. Gestion de Couvertures Manuelle & Intelligente
-Tu peux activer l'auto-cover ou choisir tes couvertures visuellement. La modal intègre une **barre de recherche manuelle** permettant de saisir un titre alternatif ou traduit à la volée pour trouver des images sans modifier ta base de données.
+Tu peux activer l'auto-cover ou choisir tes couvertures visuellement. La modal intègre une **barre de recherche manuelle** permettant de saisir un titre alternatif ou traduit à la volée pour trouver des images sans modifier ta base de données. Elle intègre désormais les couvertures de MangaBaka, Kitsu, AniList et **ComicVine**.
 
 ![Modal de choix des couvertures](./assets/cover_modal.png)
 
@@ -203,12 +225,12 @@ L'application peut être verrouillée par un écran de connexion sécurisé cont
 
 ### 📚 Métadonnées Enrichies
 
-MetaKavita traite et verrouille automatiquement les champs de métadonnées suivants directement dans la structure de données de Kavita :
+MetaKavita traite et verrouille automatiquement les champs de métadonnées suivants directement dans la structure de données de Kavita selon le type de bibliothèque (`Manga`, `Comic`, `Book`) :
 
 | Catégorie | Métadonnée Kavita | Détails de la source mappée |
 | :--- | :--- | :--- |
 | **Identité** | Titre Localisé / Alternatif | Assemble les titres alternatifs officiels séparés par `" / "` |
-| | Résumé / Description | Récupère le résumé d'origine et le traduit via DeepL |
+| | Résumé / Description | Récupère le résumé d'origine et le traduit via Azure, DeepL ou Google |
 | | Année de sortie | Année de début de publication |
 | | Statut de publication | Mappe vers les statuts natifs : En cours, En pause, Terminé, Abandonné |
 | **Thématiques** | Genres | Liste complète des genres récupérés |
@@ -264,12 +286,22 @@ docker compose up -d --build
 | `ADMIN_PASSWORD` | Sécurise l'interface par mot de passe. | *(Vide = Pas d'Auth)* |
 | `KAVITA_URL` | L'URL de ton instance Kavita. | *(Vide)* |
 | `KAVITA_API_KEY` | Ta clé API Kavita. | *(Vide)* |
-| `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction. | *(Vide)* |
-| `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`, `ES`...). | `FR` |
+| `AZURE_API_KEY` | Ta clé d'API Microsoft Azure Translator (Moteur principal). | *(Vide)* |
+| `AZURE_REGION` | Ta région Azure Translator (ex: `francecentral`). | *(Vide)* |
+| `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction (Repli de secours). | *(Vide)* |
+| `COMICVINE_API_KEY`| Ta clé API ComicVine (Obligatoire pour les BDs/Comics). | *(Vide)* |
+| `GOOGLEBOOKS_API_KEY`| Ta clé API Google Books (Optionnelle, évite l'erreur HTTP 429). | *(Vide)* |
+| `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`...). Modifie dynamiquement la langue de recherche Google Books ! | `FR` |
 | `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). | `fr` |
-| `PROVIDER_1` | Source de métadonnées principale (`MANGABAKA`, `NAUTILJON`, `ANILIST`). | `MANGABAKA` |
-| `PROVIDER_2` | Source de secours 1. | `NAUTILJON` |
-| `PROVIDER_3` | Source de secours 2. | `ANILIST` |
+| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`). | `MANGABAKA` |
+| `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
+| `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
+| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`COMICVINE`, `GOOGLEBOOKS`, `ANILIST`). | `COMICVINE` |
+| `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
+| `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
+| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `ANILIST`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `ANILIST` |
+| `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
@@ -277,10 +309,18 @@ docker compose up -d --build
 
 ---
 
+### 🌍 APIs de Traduction & Quotas
+
+Si vous avez une très grosse bibliothèque à traiter, gardez à l'esprit que l'**API gratuite de DeepL** est désormais strictement limitée à **1 000 000 de caractères à vie** (sans aucun reset mensuel). Comme nous sommes des utilisateurs honnêtes et responsables et que nous refusons de recréer de faux comptes pour frauder de nouvelles clés API, MetaKavita intègre nativement **Google Translate** pour une expérience 100% gratuite et "zéro-config".
+
+Cependant, pour une stabilité maximale, nous vous recommandons vivement de configurer **Microsoft Azure Translator** (généreux niveau gratuit F0 offrant **2 000 000 de caractères par mois**) en traducteur principal, et de garder DeepL ou Google en roue de secours automatique !
+
+---
+
 ### 🤖 Auto-Sync & Webhooks
 
-#### 1. Planification en arrière-plan (Auto-Sync)
-Si `AUTO_SYNC_INTERVAL` est supérieur à `0`, MetaKavita vérifie périodiquement la présence de nouvelles séries ou de fiches en attente pour lancer leur enrichissement.
+#### 1. Background Polling (Auto-Sync)
+Si `AUTO_SYNC_INTERVAL` est supérieur à `0`, MetaKavita verifie périodiquement la présence de nouvelles séries ou de fiches en attente pour lancer leur enrichissement.
 
 #### 2. Webhook temps réel
 Pour un enrichissement instantané à l'import, configure un Webhook dans Kavita pointant vers MetaKavita :

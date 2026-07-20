@@ -6,31 +6,36 @@ This guide is designed for developers and AI assistants wishing to understand, m
 
 ## Sommaire / Table of Contents
 1. [🇺🇸 English Developer Guide](#-english-developer-guide)
-   * [Global Architecture & Security](#1-global-architecture--security)
-   * [Frontend Mechanics (V1.4.0)](#2-frontend-mechanics-v140)
-   * [Scraper Pipeline & Fallback Query Routing](#3-scraper-pipeline--fallback-query-routing)
-   * [AI-Powered Scraper Creation (Vibecoding)](#4-ai-powered-scraper-creation-vibecoding)
+   * [1. Global Architecture & Security](#1-global-architecture--security)
+   * [2. Frontend Mechanics (V1.5.0)](#2-frontend-mechanics-v150)
+   * [3. Scraper Factory & Dynamic Category Routing](#3-scraper-factory--dynamic-category-routing)
+   * [4. Resilient Translation Pipeline](#4-resilient-translation-pipeline)
+   * [5. AI-Powered Scraper Creation (Vibecoding)](#5-ai-powered-scraper-creation-vibecoding)
+   * [6. API Keys & Third-Party Services](#6-api-keys--third-party-services)
 2. [🇫🇷 Guide de Développement Français](#-guide-de-développement-français)
-   * [Architecture Globale & Sécurité](#1-architecture-globale--sécurité)
-   * [Mécanismes Frontend (V1.4.0)](#2-mécanismes-frontend-v140)
-   * [Pipeline de Scraping & Routage de Repli](#3-pipeline-de-scraping--routage-de-repli)
-   * [Création de Scrapers via IA (Vibecoding)](#4-création-de-scrapers-via-ia-vibecoding)
+   * [1. Architecture Globale & Sécurité](#1-architecture-globale--sécurité-1)
+   * [2. Mécanismes Frontend (V1.5.0)](#2-mécanismes-frontend-v150-1)
+   * [3. Scraper Factory & Routage Dynamique](#3-scraper-factory--routage-dynamique)
+   * [4. Pipeline de Traduction Abstrait](#4-pipeline-de-traduction-abstrait)
+   * [5. Création de Scrapers via IA (Vibecoding)](#5-création-de-scrapers-via-ia-vibecoding-1)
+   * [6. Clés API & Services Tiers](#6-clés-api--services-tiers)
 
 ---
 
 ## 🇺🇸 English Developer Guide
 
 ### 1. Global Architecture & Security
-MetaKavita is a production-ready asynchronous Python application running behind a **Gunicorn WSGI server** with **Eventlet** workers to support real-time WebSockets via Flask-SocketIO.
+MetaKavita is an asynchronous Python application powered by a **Gunicorn WSGI server** with **Eventlet** workers to support real-time WebSockets via Flask-SocketIO.
 
 *   **Security Layer:** Global authentication is enforced via `@app.before_request`. Session cookies are configured as `HttpOnly` and `SameSite=Lax`.
 *   **Timing Attack Protection:** The login system uses `secrets.compare_digest` to prevent timing analysis of passwords, paired with a brute-force delay on failure.
 *   **SSRF Protection:** The `/api/proxy-image` route uses dynamic strict whitelisting. If you add a new scraper, **you must add its domain** to the `ALLOWED_PROXY_DOMAINS` list in `metadata_fetcher.py`.
 *   **Webhook Hardening:** Webhooks require a cryptographically secure `WEBHOOK_TOKEN` generated in `config.json`.
+*   **API Keys Masking:** All sensitive API keys (`KAVITA_API_KEY`, `DEEPL_API_KEY`, `AZURE_API_KEY`, `COMICVINE_API_KEY`, `GOOGLEBOOKS_API_KEY`) are censored with `********` on DOM generation to protect credentials from shoulder-surfing or browser extension scraping.
 
 ---
 
-### 2. Frontend Mechanics (V1.4.0)
+### 2. Frontend Mechanics (V1.5.0)
 
 #### A. Hybrid AJAX Configuration Saving
 To preserve ergonomics, persistent technical parameters sit inside `#configForm` in the settings Modal, while active scraping checkboxes (smart completion, auto cover, reading direction, force update) are located in the sidebar.
@@ -47,29 +52,54 @@ The WebSocket log receiver inside `script.js` parses incoming backend log messag
 
 ---
 
-### 3. Scraper Pipeline & Fallback Query Routing
+### 3. Scraper Factory & Dynamic Category Routing
 
-When a batch is run, `app.py` passes the `forced_id` (if set) as `search_query` and the clean folder/alternate title as `fallback_query` to `fetch_metadata()`.
+MetaKavita automatically queries the Kavita API to detect library categories (`Manga = 0`, `Comic = 1`, `Book = 2`) and resolves the category in memory.
 
 ```python
-# Mapped query routing inside metadata_fetcher.py
-is_id = str(query).isdigit()
-if is_id:
-    # Numeric IDs (like AniList IDs) are only sent to AniList
-    provider_query = query if p == "ANILIST" else fallback_query
-else:
-    provider_query = query
+# Mapped Factory Pattern inside metadata_fetcher.py
+PROVIDERS_MAP = {
+    "Manga": {
+        "MANGABAKA": fetch_mangabaka,
+        "KITSU": fetch_kitsu,  # Replaced MAL/Jikan and Nautiljon
+        "ANILIST": fetch_anilist_extended
+    },
+    "Comic": {
+        "COMICVINE": fetch_comicvine,
+        "GOOGLEBOOKS": fetch_googlebooks,  # Shares Book scraper logic to resolve European BDs
+        "ANILIST": fetch_anilist_extended
+    },
+    "Book": {
+        "GOOGLEBOOKS": fetch_googlebooks,
+        "ANILIST": fetch_anilist_extended
+    }
+}
 ```
-*   **The Logic:** This prevents numeric AniList IDs from being queried in text-only REST APIs like MangaBaka or scrapers like Nautiljon, eliminating mismatched searches.
-*   **Early-Break Bypass for Identities:** Even if `smart_completion` is disabled (meaning standard metadata fields like summary, year, genres are not merged), the pipeline **never breaks early** for external identity fields. It visits all active providers to aggregate and merge all possible IDs (`anilist_id`, `mal_id`, `mangabaka_id`) and clickable WebLinks.
+
+> **📜 Historical Note on Nautiljon & MyAnimeList (MAL)**: You might notice the absence of the French provider *Nautiljon*. Their admins are from another era and are terrified of their processors heating up, resulting in abusive Cloudflare IP bans. We initially replaced it with the MyAnimeList Jikan API (`scrapers/mal.py`), but that story will end badly too: MAL is aggressively blocking Jikan's servers, causing constant 504 Gateway Timeouts, and the public Jikan API is shutting down. We left `mal.py` in the codebase for users who self-host a Jikan instance, but the default reliable engine is now **Kitsu** thanks to their glorious JSON:API.
+
+*   **Scraper Engine Selection**: The function `get_scraper_engine(library_type, provider_name)` selects the correct scraper according to the library type. If a requested provider is missing from the specific category, it automatically falls back to default Manga providers.
+*   **Contextual Title Cleaning**: The `clean_title` function in `scrapers/__init__.py` cleans queries contextually:
+    *   *Manga*: Normalizes names, removes scanlation brackets, and strips volume/chapter suffixes.
+    *   *Comic*: Safely cleans leading sorting prefixes (e.g., `04 ` or `04 - `) while preserving internal volume and issue numbering (e.g. protecting titles like *100 Bullets*).
+    *   *Book*: Automatically isolates `"Title - Author"` and `"Author - Title"` splits.
 
 ---
 
-### 4. AI-Powered Scraper Creation (Vibecoding)
+### 4. Resilient Translation Pipeline
+All translation operations are abstracted inside `translator.py` and utilize a 3-tier cascade to ensure 100% success rate.
+
+*   **Tier 1: Microsoft Azure Translator** (F0 tier, 2M chars/month free) - Recommended primary engine.
+*   **Tier 2: DeepL API** (Free tier, 1M chars lifetime limit) - Excellent automatic fail-safe.
+*   **Tier 3: Google Translate ("Zero-Config" Fallback)** - Implemented using the unofficial [py-googletrans](https://github.com/ssut/py-googletrans) Python library (specifically version `4.0.0-rc1` to bypass recent API changes). It requires absolutely NO API key and acts as the ultimate free fallback out-of-the-box if no keys are provided or if the paid APIs crash.
+
+---
+
+### 5. AI-Powered Scraper Creation (Vibecoding)
 
 If you are writing a new metadata provider (scraper) using an AI assistant (LLM), you can streamline the process immensely. 
 
-**Vibecoding Tip:** Feed one of our existing scraper files (like `scrapers/mangabaka.py` or `scrapers/anilist.py`) directly into the LLM context first. This teaches the AI our parsing structure, import layout, and error-handling patterns, allowing it to generate extremely accurate code on the first try.
+**Vibecoding Tip:** Feed one of our existing scraper files (like `scrapers/mangabaka.py` or `scrapers/kitsu.py`) directly into the LLM context first. This teaches the AI our parsing structure, import layout, and error-handling patterns, allowing it to generate extremely accurate code on the first try.
 
 #### The AI Prompt Template
 Copy and paste this prompt to your favorite LLM:
@@ -80,30 +110,39 @@ Copy and paste this prompt to your favorite LLM:
 > - Centralized regex title cleaning is available: `from scrapers import clean_title`.
 > - The target site is **[INSERT WEBSITE NAME OR API ENDPOINT HERE]**.
 > - The function MUST return `None` if it fails, or return exactly this dict structure:
-> 
-> ```python
-> {
->     'summary': 'str',                  # Description
->     'cover_url': 'str',                # URL of the main cover image
->     'genres': ['list'],                # Mapped genres list
->     'tags': ['list'],                  # Top themes/tags (max 15)
->     'year': int,                       # Publication start year
->     'status': 'RELEASING/FINISHED/HIATUS/CANCELLED',
->     'staff': [{'role': 'Story/Art/Color/Translator', 'node': {'name': {'full': 'Author Name'}}}],
->     'publisher': 'str',                # Official publisher
->     'age_rating': 'safe/suggestive/pornographic',
->     'format': 'manga/webtoon/comic',   # Country-of-origin context
->     'url': 'str_url_of_the_page',      # Direct link to the matched series page
->     'anilist_id': int,                 # If available
->     'mal_id': int,                     # If available
->     'mangabaka_id': int,               # If available
->     'links': ['list_of_urls']          # Additional reference links (e.g. MangaDex, Kitsu)
-> }
-> ```
-> 
+
+```python
+{
+    'summary': 'str',                  # Description
+    'cover_url': 'str',                # URL of the main cover image
+    'genres': ['list'],                # Mapped genres list
+    'tags': ['list'],                  # Top themes/tags (max 15)
+    'year': int,                       # Publication start year
+    'status': 'RELEASING/FINISHED/HIATUS/CANCELLED',
+    'staff': [{'role': 'Story/Art/Color/Translator', 'node': {'name': {'full': 'Author Name'}}}],
+    'publisher': 'str',                # Official publisher
+    'age_rating': 'safe/suggestive/pornographic',
+    'format': 'manga/webtoon/comic',   # Country-of-origin context
+    'url': 'str_url_of_the_page',      # Direct link to the matched series page
+    'anilist_id': int,                 # If available
+    'mal_id': int,                     # If available
+    'mangabaka_id': int,               # If available
+    'links': ['list_of_urls']          # Additional reference links (e.g. MangaDex, Kitsu)
+}
+```
+
 > Please generate the scraper using this exact format."
 
 Once generated, drop the file into `scrapers/`, import it, and register it in `metadata_fetcher.py`'s `PROVIDERS_MAP` to automatically expose it in the Global Configuration Modal.
+
+---
+
+### 6. API Keys & Third-Party Services
+To fully test and run the scraping environment, you might need to generate personal API keys for the integrated providers:
+*   **DeepL API Free**: [DeepL Pro API](https://www.deepl.com/pro-api) (Key must end with `:fx`)
+*   **Azure Translator**: [Azure Portal](https://portal.azure.com/) (F0 Free Tier, 2M chars/month)
+*   **ComicVine**: [ComicVine API](https://comicvine.gamespot.com/api/) (Requires a free GameSpot account)
+*   **Google Books**: [Google Cloud Console](https://console.cloud.google.com/) (Enable "Books API" and generate an API key)
 
 ---
 
@@ -116,10 +155,11 @@ MetaKavita est une application Python asynchrone fonctionnant derrière un **ser
 *   **Attaques Temporelles (Timing Attacks) :** Le système de connexion utilise `secrets.compare_digest` pour empêcher l'analyse du temps de réponse lors de la comparaison des mots de passe.
 *   **Protection SSRF :** La route de proxy d'images `/api/proxy-image` utilise une liste blanche de domaines stricte. Si vous ajoutez un nouveau scraper, **vous devez ajouter son domaine** à la liste `ALLOWED_PROXY_DOMAINS` dans `metadata_fetcher.py`.
 *   **Sécurisation Webhook :** L'endpoint webhook exige la clé cryptographique `WEBHOOK_TOKEN` générée dans `config.json`.
+*   **Censure de sécurité des clés :** Toutes les clés d'API sensibles (`KAVITA_API_KEY`, `DEEPL_API_KEY`, `AZURE_API_KEY`, `COMICVINE_API_KEY`, `GOOGLEBOOKS_API_KEY`) sont remplacées par `********` lors de la génération du DOM pour protéger vos identifiants des regards indiscrets et des extensions de navigateur malveillantes.
 
 ---
 
-### 2. Mécanismes Frontend (V1.4.0)
+### 2. Mécanismes Frontend (V1.5.0)
 
 #### A. Sauvegarde Hybride (AJAX)
 Pour conserver une ergonomie propre, les paramètres techniques résident dans le formulaire `#configForm` de la Modal, tandis que les options de scraping stratégiques (fusion intelligente, auto cover, sens de lecture, mise à jour forcée) résident dans la sidebar.
@@ -136,29 +176,54 @@ Le récepteur WebSocket de `script.js` analyse en direct le flux de logs renvoy�
 
 ---
 
-### 3. Pipeline de Scraping & Routage de Repli
+### 3. Scraper Factory & Routage Dynamique
 
-Lors d'une synchronisation, `app.py` transmet l'ID forcé (si configuré) comme `search_query` et le titre nettoyé de la série comme `fallback_query` à `fetch_metadata()`.
+L'application interroge Kavita pour détecter le type exact de la bibliothèque (`Manga = 0`, `Comic = 1`, `Book = 2`) et l'enregistre en cache mémoire pour optimiser les performances.
 
 ```python
-# Routage intelligent de la requête dans metadata_fetcher.py
-is_id = str(query).isdigit()
-if is_id:
-    # Un ID numérique n'est envoyé qu'à AniList
-    provider_query = query if p == "ANILIST" else fallback_query
-else:
-    provider_query = query
+# Mappe de sélection Factory dans metadata_fetcher.py
+PROVIDERS_MAP = {
+    "Manga": {
+        "MANGABAKA": fetch_mangabaka,
+        "KITSU": fetch_kitsu,  # Remplace MAL/Jikan et Nautiljon
+        "ANILIST": fetch_anilist_extended
+    },
+    "Comic": {
+        "COMICVINE": fetch_comicvine,
+        "GOOGLEBOOKS": fetch_googlebooks,  # Permet d'utiliser le scraper de livres pour les BD européennes
+        "ANILIST": fetch_anilist_extended
+    },
+    "Book": {
+        "GOOGLEBOOKS": fetch_googlebooks,
+        "ANILIST": fetch_anilist_extended
+    }
+}
 ```
-*   **Intérêt :** Cela évite qu'un ID numérique AniList ne soit envoyé par erreur sur les API REST textuelles de MangaBaka ou de Nautiljon, éliminant ainsi les faux positifs.
-*   **Compilation d'Identités :** Même si l'option `smart_completion` est désactivée (empêchant la fusion des résumés, genres, etc.), le pipeline **ne s'interrompt jamais** lors de la collecte des identifiants et des liens web. Il parcourt l'ensemble des providers de la liste pour fusionner et construire la liste de liens cliquables la plus complète possible.
+
+> **📜 Note historique sur Nautiljon et MyAnimeList (MAL)** : Vous remarquerez l'absence du fournisseur francophone *Nautiljon*. Leurs administrateurs sont d'un autre temps et paniquent à l'idée que leurs processeurs chauffent, distribuant des bans IP Cloudflare à tour de bras. Nous l'avions remplacé par MyAnimeList via l'API Jikan (`scrapers/mal.py`), mais l'histoire finit mal : MAL bloquant agressivement les serveurs de Jikan (erreurs 504), l'API publique ferme bientôt. Le fichier `mal.py` reste dans le code pour ceux qui auto-hébergent Jikan, mais le moteur par défaut est désormais **Kitsu** avec sa superbe API JSON ouverte et gratuite.
+
+*   **Sélection de Scraper** : La fonction `get_scraper_engine(library_type, provider_name)` résout le scraper à appeler dans `PROVIDERS_MAP` selon la catégorie de l'œuvre. Si le fournisseur est absent de cette catégorie, elle applique un repli automatique vers les scrapers Manga généraux.
+*   **Nettoyage Contextuel de Titre** : La fonction `clean_title` dans `scrapers/__init__.py` s'adapte au format de l'œuvre :
+    *   *Manga* : Normalise, retire les balises de scantrad et supprime les suffixes de tomes ou volumes.
+    *   *Comic* : Nettoie proprement les préfixes de tri (ex: `"04 Le bureau..."` devient `"Le bureau..."`) tout en protégeant les œuvres aux noms chiffrés (ex: *100 Bullets*).
+    *   *Book* : Isole proprement les structures `"Titre - Auteur"` et `"Auteur - Titre"`.
 
 ---
 
-### 4. Création de Scrapers via IA (Vibecoding)
+### 4. Pipeline de Traduction Abstrait
+Toutes les opérations de traduction sont centralisées dans `translator.py` et utilisent une cascade à 3 niveaux pour garantir 100% de réussite.
+
+*   **Niveau 1 : Microsoft Azure Translator** (F0, 2M caractères gratuits/mois) - Moteur principal recommandé.
+*   **Niveau 2 : DeepL API** (1M caractères gratuits à vie) - Excellent système de secours automatique.
+*   **Niveau 3 : Google Translate ("Zero-Config")** - Implémenté de manière non officielle via la librairie Python [py-googletrans](https://github.com/ssut/py-googletrans) (plus précisément la version `4.0.0-rc1`). Il ne nécessite AUCUNE clé API et s'exécute magiquement par défaut à l'installation, ou prend le relais si les quotas Azure/DeepL explosent.
+
+---
+
+### 5. Création de Scrapers via IA (Vibecoding)
 
 Si tu développes un nouveau scraper avec l'aide d'un assistant IA (LLM), tu peux grandement accélérer le processus.
 
-**Astuce de Vibecoding :** Injecte directement le code d'un de nos scrapers existants (comme `scrapers/mangabaka.py` ou `scrapers/anilist.py`) dans le contexte de ton LLM. Cela permettra à l'IA de comprendre instantanément notre structure d'importation, nos méthodes de parsing BeautifulSoup4, et notre gestion des erreurs, garantissant un code fonctionnel dès le premier essai.
+**Astuce de Vibecoding :** Injecte directement le code d'un de nos scrapers existants (comme `scrapers/mangabaka.py` ou `scrapers/kitsu.py`) dans le contexte de ton LLM. Cela permettra à l'IA de comprendre instantanément notre structure d'importation, nos méthodes de parsing BeautifulSoup4, et notre gestion des erreurs, garantissant un code fonctionnel dès le premier essai.
 
 #### Le Prompt de Référence IA
 Copie-colle ce prompt dans ton modèle d'IA favori :
@@ -169,27 +234,36 @@ Copie-colle ce prompt dans ton modèle d'IA favori :
 > - Une fonction de nettoyage de titre centralisée est disponible : `from scrapers import clean_title`.
 > - Le site cible est **[NOM DU SITE OU ENDPOINT D'API]**.
 > - La fonction DOIT retourner `None` si elle échoue, ou retourner très exactement ce dictionnaire :
-> 
-> ```python
-> {
->     'summary': 'str',                  # Résumé / Description
->     'cover_url': 'str',                # URL de l'image de couverture
->     'genres': ['liste'],               # Liste des genres mappés
->     'tags': ['liste'],                 # Liste des catégories/thèmes (max 15)
->     'year': int,                       # Année de début de publication
->     'status': 'RELEASING/FINISHED/HIATUS/CANCELLED',
->     'staff': [{'role': 'Story/Art/Color/Translator', 'node': {'name': {'full': 'Nom'}}}],
->     'publisher': 'str',                # Éditeur officiel
->     'age_rating': 'safe/suggestive/pornographic',
->     'format': 'manga/webtoon/comic',   # Type/Origine de l'œuvre
->     'url': 'str_url_de_la_page',      # Lien direct vers la fiche de l'œuvre
->     'anilist_id': int,                 # Si disponible
->     'mal_id': int,                     # Si disponible
->     'mangabaka_id': int,               # Si disponible
->     'links': ['liste_d_urls']          # Liens de référence alternatifs (ex: MangaDex, Kitsu)
-> }
-> ```
-> 
+
+```python
+{
+    'summary': 'str',                  # Résumé / Description
+    'cover_url': 'str',                # URL de l'image de couverture
+    'genres': ['liste'],               # Liste des genres mappés
+    'tags': ['liste'],                 # Liste des catégories/thèmes (max 15)
+    'year': int,                       # Année de début de publication
+    'status': 'RELEASING/FINISHED/HIATUS/CANCELLED',
+    'staff': [{'role': 'Story/Art/Color/Translator', 'node': {'name': {'full': 'Nom'}}}],
+    'publisher': 'str',                # Éditeur officiel
+    'age_rating': 'safe/suggestive/pornographic',
+    'format': 'manga/webtoon/comic',   # Type/Origine de l'œuvre
+    'url': 'str_url_de_la_page',      # Lien direct vers la fiche de l'œuvre
+    'anilist_id': int,                 # Si disponible
+    'mal_id': int,                     # Si disponible
+    'mangabaka_id': int,               # Si disponible
+    'links': ['liste_d_urls']          # Liens de référence alternatifs (ex: MangaDex, Kitsu)
+}
+```
+
 > Génère le scraper en respectant scrupuleusement ce format."
 
 Une fois ton fichier généré, place-le dans `scrapers/`, importe-le, et enregistre-le dans le `PROVIDERS_MAP` de `metadata_fetcher.py` pour l'exposer automatiquement dans l'UI.
+
+---
+
+### 6. Clés API & Services Tiers
+Pour tester pleinement l'environnement de scraping, vous devrez générer des clés d'API personnelles pour les fournisseurs intégrés :
+*   **DeepL API Free** : [DeepL Pro API](https://www.deepl.com/pro-api) (La clé doit se terminer par `:fx`)
+*   **Azure Translator** : [Portail Azure](https://portal.azure.com/) (Niveau gratuit F0, 2M caractères/mois)
+*   **ComicVine** : [API ComicVine](https://comicvine.gamespot.com/api/) (Nécessite un compte GameSpot gratuit)
+*   **Google Books** : [Console Google Cloud](https://console.cloud.google.com/) (Activez l'"API Books" et générez une clé)

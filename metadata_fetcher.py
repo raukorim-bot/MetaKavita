@@ -1,27 +1,68 @@
-# metadata_fetcher.py
-
 import requests
 import logging
+import inspect
 from scrapers.anilist import fetch_anilist_extended
-from scrapers.nautiljon import fetch_nautiljon
 from scrapers.mangabaka import fetch_mangabaka
+from scrapers.kitsu import fetch_kitsu  # <-- Kitsu à la rescousse !
+from scrapers.comicvine import scrape_data as fetch_comicvine
+from scrapers.googlebooks import scrape_data as fetch_googlebooks
 from config_manager import load_config
 from translations import translations
+from translator import translate_text
 
 PROVIDERS_MAP = {
-    "MANGABAKA": fetch_mangabaka,
-    "NAUTILJON": fetch_nautiljon,
-    "ANILIST": fetch_anilist_extended
+    "Manga": {
+        "MANGABAKA": fetch_mangabaka,
+        "KITSU": fetch_kitsu,       # <-- Bye MAL !
+        "ANILIST": fetch_anilist_extended
+    },
+    "Comic": {
+        "COMICVINE": fetch_comicvine,
+        "GOOGLEBOOKS": fetch_googlebooks,
+        "ANILIST": fetch_anilist_extended
+    },
+    "Book": {
+        "GOOGLEBOOKS": fetch_googlebooks,
+        "ANILIST": fetch_anilist_extended
+    }
 }
 
 ALLOWED_PROXY_DOMAINS = [
     "mangabaka.org",
-    "nautiljon.com",
     "anilist.co",
-    "mangadex.org"
+    "mangadex.org",
+    "comicvine.gamespot.com",
+    "gamespot.com",
+    "books.google.com",
+    "kitsu.io",         # <-- Kitsu
+    "media.kitsu.app",  # <-- Kitsu CDN
+    "media.kitsu.io"    # <-- Kitsu CDN
 ]
 
-def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None):
+def get_scraper_engine(library_type, provider_name):
+    """
+    Factory Pattern : Retourne la fonction de scraping appropriée pour le type de bibliothèque
+    et le nom du fournisseur souhaité. Gère de manière robuste les replis vers la catégorie Manga.
+    """
+    lib_type = library_type if library_type else "Manga"
+    
+    # 1. Vérification si la catégorie de bibliothèque existe dans PROVIDERS_MAP, sinon repli sur Manga
+    target_lib_type = lib_type if lib_type in PROVIDERS_MAP else "Manga"
+    lib_providers = PROVIDERS_MAP[target_lib_type]
+    
+    # 2. Si le fournisseur est enregistré dans cette catégorie, on le retourne
+    if provider_name in lib_providers:
+        return lib_providers[provider_name]
+        
+    # 3. Repli intelligent : Recherche du fournisseur dans la catégorie Manga par défaut
+    manga_providers = PROVIDERS_MAP["Manga"]
+    if provider_name in manga_providers:
+        return manga_providers[provider_name]
+        
+    # 4. Fallback ultime
+    return None
+
+def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False):
     master_data = {}
     used_providers = []
     base_provider_set = False
@@ -38,13 +79,12 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         return bool(d.get('summary') or d.get('genres') or d.get('cover_url') or d.get('staff') or d.get('year'))
 
     for p in providers_list:
-        fetch_func = PROVIDERS_MAP.get(p)
+        fetch_func = get_scraper_engine(library_type, p)
         if not fetch_func:
             continue
             
-        # Résolution de la requête selon le type d'identifiant et de fournisseur
-        is_id = str(query).isdigit()
-        if is_id:
+        # Résolution de la requête via le flag is_forced_id passé par app.py
+        if is_forced_id:
             # Si c'est un ID, seul le scraper AniList peut l'utiliser directement.
             # Les autres basculent sur le titre d'origine.
             provider_query = query if p == "ANILIST" else fallback_query
@@ -55,7 +95,15 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
             continue
             
         try:
-            data = fetch_func(provider_query)
+            sig = inspect.signature(fetch_func)
+            kwargs = {}
+            if "library_type" in sig.parameters:
+                kwargs["library_type"] = library_type
+            if "is_id" in sig.parameters:
+                kwargs["is_id"] = is_forced_id
+                
+            data = fetch_func(provider_query, **kwargs)
+            
         except Exception as e:
             logging.error(f"❌ [Scraper {p}] Erreur lors de la récupération pour '{provider_query}': {e}")
             data = None
@@ -72,13 +120,13 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
             if data.get('url'):
                 accumulated_links.add(data['url'])
                 
-            # Liens explicites de la clé 'links' (ex: MangaBaka)
+            # Liens de la clé 'links' (ex: MangaBaka)
             if data.get('links'):
                 for link in data['links']:
                     if link:
                         accumulated_links.add(link)
                         
-            # Liens explicites d'AniList
+            # Liens d'AniList
             if data.get('external_links'):
                 for link_obj in data['external_links']:
                     if isinstance(link_obj, dict) and link_obj.get('url'):
@@ -113,35 +161,4 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         master_data['accumulated_links'] = list(accumulated_links)
         return master_data, used_providers
         
-    return None, used_providers
-
-
-def translate_text(text, api_key, target_lang="FR"):
-    if not text or not api_key: 
-        return text
-        
-    t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
-    
-    text = text.replace('<br>', '\n').replace('<i>', '').replace('</i>', '')
-    url = "https://api-free.deepl.com/v2/translate"
-    headers = {"Authorization": f"DeepL-Auth-Key {api_key}"}
-    payload = {"text": [text], "target_lang": target_lang}
-    
-    try:
-        response = requests.post(url, json=payload, headers=headers, timeout=15)
-        if response.status_code == 200:
-            return response.json()['translations'][0]['text']
-        
-        elif response.status_code == 403:
-            logging.error(t.get('log_deepl_403'))
-        elif response.status_code == 456:
-            logging.error(t.get('log_deepl_456'))
-        else:
-            logging.warning(t.get('log_deepl_fail').format(response.status_code, response.text))
-            
-    except requests.exceptions.Timeout:
-        logging.warning(t.get('log_deepl_timeout'))
-    except Exception as e:
-        logging.error(t.get('log_deepl_crash').format(e))
-    
-    return text
+    return None, used_providers# metadata_fetcher.py
