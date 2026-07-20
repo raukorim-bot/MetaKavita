@@ -5,3 +5,4 @@ beautifulsoup4==4.12.3
 curl-cffi==0.6.2
 gunicorn==21.2.0
 eventlet==0.35.2
+googletrans==4.0.0-rc1

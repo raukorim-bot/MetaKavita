@@ -3,6 +3,27 @@ let currentCoverModalSeriesId = null;
 let currentCoverModalSeriesName = null;
 let allPanelsExpanded = false; // Mémorise l'état global du déploiement des options
 
+// --- AFFICHAGE CONDITIONNEL DU FOURNISSEUR DE TRADUCTION ---
+function toggleTranslationFields() {
+    const provider = document.getElementById('translationProvider');
+    if (!provider) return;
+    
+    const deeplFields = document.getElementById('deepl_fields');
+    const azureFields = document.getElementById('azure_fields');
+    
+    if (provider.value === 'DEEPL') {
+        deeplFields.style.display = 'block';
+        azureFields.style.display = 'none';
+    } else if (provider.value === 'AZURE') {
+        deeplFields.style.display = 'none';
+        azureFields.style.display = 'block';
+    } else {
+        // Mode Google (Gratuit) : On masque toutes les clés API !
+        deeplFields.style.display = 'none';
+        azureFields.style.display = 'none';
+    }
+}
+
 // --- GESTION DU THÈME ---
 function toggleTheme() {
     const currentTheme = document.documentElement.getAttribute('data-theme');
@@ -52,7 +73,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedHideIgnored = localStorage.getItem('filter_hide_ignored');
     const savedSearch = localStorage.getItem('filter_search');
     const savedLibrary = localStorage.getItem('filter_library');
-    
+    toggleTranslationFields();
     if (savedStatus) {
         const statusSelect = document.getElementById('statusFilter');
         if (statusSelect) statusSelect.value = savedStatus;
@@ -594,7 +615,8 @@ function fetchCovers(seriesId, query) {
         if(data.success && data.covers.length > 0) {
             let html = '';
             data.covers.forEach(c => {
-                let displayUrl = c.provider === 'Nautiljon' ? `/api/proxy-image?url=${encodeURIComponent(c.url)}` : c.url;
+                // CORRECTION : Faire passer Nautiljon et ComicVine par notre proxy d'images
+                let displayUrl = (c.provider === 'Kitsu' || c.provider.startsWith('ComicVine')) ? `/api/proxy-image?url=${encodeURIComponent(c.url)}` : c.url;
                 
                 html += `
                 <div class="cover-item" onclick="applyCover('${seriesId}', '${c.url}')" title="${c.title}">
@@ -652,26 +674,34 @@ function applyCover(seriesId, coverUrl) {
 
 // --- GESTION DES MENUS PROVIDERS ---
 function handleProviderChange(changedSelect) {
+    const name = changedSelect.name; // ex: "COMIC_PROVIDER_1" ou "PROVIDER_2"
+    let prefix = "";
+    if (name.startsWith("COMIC_")) {
+        prefix = "COMIC_";
+    } else if (name.startsWith("BOOK_")) {
+        prefix = "BOOK_";
+    }
+    
     const selects = [
-        document.querySelector('select[name="PROVIDER_1"]'),
-        document.querySelector('select[name="PROVIDER_2"]'),
-        document.querySelector('select[name="PROVIDER_3"]')
+        document.querySelector(`select[name="${prefix}PROVIDER_1"]`),
+        document.querySelector(`select[name="${prefix}PROVIDER_2"]`),
+        document.querySelector(`select[name="${prefix}PROVIDER_3"]`)
     ];
     
     const newValue = changedSelect.value;
 
     if (newValue !== 'NONE') {
         selects.forEach(otherSelect => {
-            if (otherSelect !== changedSelect && otherSelect.value === newValue) {
+            if (otherSelect && otherSelect !== changedSelect && otherSelect.value === newValue) {
                 otherSelect.value = 'NONE';
             }
         });
     }
 
     const p1 = selects[0];
-    if (!p1.value || p1.value === 'NONE') {
+    if (p1 && (!p1.value || p1.value === 'NONE')) {
         const allProviders = Array.from(p1.options).map(opt => opt.value).filter(val => val !== 'NONE');
-        const usedByOthers = [selects[1].value, selects[2].value];
+        const usedByOthers = [selects[1] ? selects[1].value : 'NONE', selects[2] ? selects[2].value : 'NONE'];
         const freeProvider = allProviders.find(p => !usedByOthers.includes(p));
         p1.value = freeProvider || allProviders[0];
     }

@@ -12,7 +12,7 @@ HEADERS = {
     "Upgrade-Insecure-Requests": "1"
 }
 
-def fetch_nautiljon(title_or_slug):
+def fetch_nautiljon(title_or_slug, library_type="Manga"):
     slug = None
     
     session = requests.Session(impersonate="safari15_5")

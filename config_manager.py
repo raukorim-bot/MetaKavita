@@ -10,14 +10,19 @@ def load_config():
         os.makedirs(DATA_DIR)
         
     config = {
+        "TRANSLATION_PROVIDER": "GOOGLE", 
         "KAVITA_URL": "", 
         "KAVITA_API_KEY": "", 
         "DEEPL_API_KEY": "", 
+        "AZURE_API_KEY": "", 
+        "AZURE_REGION": "", 
         "TARGET_LANG": "FR", 
         "UI_LANG": "fr", 
         "PROVIDER_1": "MANGABAKA", 
-        "PROVIDER_2": "NAUTILJON", 
-        "PROVIDER_3": "ANILIST", 
+        "PROVIDER_2": "KITSU", 
+        "PROVIDER_3": "ANILIST",
+        "COMICVINE_API_KEY": "",
+        "GOOGLEBOOKS_API_KEY": "",  # NOUVEAU
         "SMART_COMPLETION": False,
         "AUTO_SYNC_INTERVAL": 0, 
         "AUTO_COVER": False,
@@ -27,14 +32,15 @@ def load_config():
         "WEBHOOK_TOKEN": secrets.token_urlsafe(16)
     }
     
+    file_config = {}
     if os.path.exists(CONFIG_FILE):
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
-                config.update(json.load(f))
+                file_config = json.load(f)
+                config.update(file_config)
         except json.JSONDecodeError:
             pass
             
-    # Si la config chargée n'a pas de clés secrètes, on les génère et on sauvegarde
     needs_save = False
     if not config.get("SECRET_KEY"):
         config["SECRET_KEY"] = secrets.token_hex(24)
@@ -46,27 +52,35 @@ def load_config():
     if needs_save:
         save_config(config)
 
-    config["KAVITA_URL"] = os.getenv("KAVITA_URL", config.get("KAVITA_URL", ""))
-    config["KAVITA_API_KEY"] = os.getenv("KAVITA_API_KEY", config.get("KAVITA_API_KEY", ""))
-    config["DEEPL_API_KEY"] = os.getenv("DEEPL_API_KEY", config.get("DEEPL_API_KEY", ""))
-    config["TARGET_LANG"] = os.getenv("TARGET_LANG", config.get("TARGET_LANG", "FR"))
-    config["UI_LANG"] = os.getenv("UI_LANG", config.get("UI_LANG", "fr"))
-    
-    config["PROVIDER_1"] = os.getenv("PROVIDER_1", config.get("PROVIDER_1", "MANGABAKA"))
-    config["PROVIDER_2"] = os.getenv("PROVIDER_2", config.get("PROVIDER_2", "NAUTILJON"))
-    config["PROVIDER_3"] = os.getenv("PROVIDER_3", config.get("PROVIDER_3", "ANILIST"))
-    
-    try:
-        config["AUTO_SYNC_INTERVAL"] = int(os.getenv("AUTO_SYNC_INTERVAL", config.get("AUTO_SYNC_INTERVAL", 0)))
-    except ValueError:
-        config["AUTO_SYNC_INTERVAL"] = 0
-        
-    config["AUTO_COVER"] = str(os.getenv("AUTO_COVER", config.get("AUTO_COVER", "False"))).lower() == "true"
-    config["AUTO_READING_DIR"] = str(os.getenv("AUTO_READING_DIR", config.get("AUTO_READING_DIR", "False"))).lower() == "true"
-    config["SMART_COMPLETION"] = str(os.getenv("SMART_COMPLETION", config.get("SMART_COMPLETION", "False"))).lower() == "true"
-    
-    config["ADMIN_PASSWORD"] = os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", ""))
-    
+    if "ADMIN_PASSWORD" in file_config:
+        config["ADMIN_PASSWORD"] = file_config["ADMIN_PASSWORD"]
+    else:
+        config["ADMIN_PASSWORD"] = os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", ""))
+
+    for key in [
+        "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION", 
+        "TARGET_LANG", "UI_LANG", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3", "COMICVINE_API_KEY",
+        "GOOGLEBOOKS_API_KEY"  # NOUVEAU
+    ]:
+        if key in file_config:
+            config[key] = file_config[key]
+        else:
+            config[key] = os.getenv(key, config.get(key, ""))
+            
+    if "AUTO_SYNC_INTERVAL" in file_config:
+        config["AUTO_SYNC_INTERVAL"] = file_config["AUTO_SYNC_INTERVAL"]
+    else:
+        try:
+            config["AUTO_SYNC_INTERVAL"] = int(os.getenv("AUTO_SYNC_INTERVAL", config.get("AUTO_SYNC_INTERVAL", 0)))
+        except ValueError:
+            config["AUTO_SYNC_INTERVAL"] = 0
+            
+    for bool_key in ["AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION"]:
+        if bool_key in file_config:
+            config[bool_key] = file_config[bool_key]
+        else:
+            config[bool_key] = str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true"
+            
     return config
 
 def save_config(data):
