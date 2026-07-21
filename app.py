@@ -737,24 +737,37 @@ def proxy_image():
 @app.route('/api/series/<int:series_id>/covers', methods=['GET'])
 def get_series_covers(series_id):
     from scrapers import ScraperRegistry
-    from scrapers.utils import clean_title
     
     series_name = request.args.get('series_name')
     cache_data = get_all_cached_data().get(series_id, {})
     search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
 
+    config = load_config()
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    
+    # 1. On interroge Kavita pour connaître le type exact (Manga, Comic, Book)
+    library_type = kavita.get_library_type_for_series(series_id)
+
     covers = []
     
-    # Interrogation dynamique (Open/Closed Principle !!)
-    for scraper in ScraperRegistry.get_all():
+    # 2. Le Registre magique nous donne UNIQUEMENT les scrapers compatibles avec ce format !
+    target_scrapers = ScraperRegistry.get_by_type(library_type)
+    
+    # Sécurité : si la catégorie n'a aucun scraper, on se rabat sur Manga
+    if not target_scrapers:
+        target_scrapers = ScraperRegistry.get_by_type("Manga")
+
+    # 3. On boucle uniquement sur les scrapers pertinents
+    for scraper in target_scrapers:
         try:
-            scraper_covers = scraper.fetch_covers(search_query)
+            # On passe le library_type pour que le nettoyage du titre soit adapté (ex: zéros des comics)
+            scraper_covers = scraper.fetch_covers(search_query, library_type=library_type)
             if scraper_covers:
                 covers.extend(scraper_covers)
         except Exception as e:
             logging.error(f"[Covers] Erreur sur le scraper {scraper.id} : {e}")
 
-    return jsonify({"success": True, "covers": covers[:16]})
+    return jsonify({"success": True, "covers": covers[:20]})
     
 @app.route('/api/series/<int:series_id>/update-cover', methods=['POST'])
 def apply_series_cover(series_id):

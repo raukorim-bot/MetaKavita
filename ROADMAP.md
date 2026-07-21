@@ -41,6 +41,8 @@
 ### 🐛 V1.4.x / V1.5.0 Bug Fixes & Security Hardening (Completed)
 - [x] **BF1. Admin Password Env Var Override Bug:** Resolved the issue where clearing the admin password via `docker-compose.yml` failed. Implemented a prioritize-config-over-env logic in `config_manager.py`.
 - [x] **BF2. Permanent Auth Cookie Cleansing:** Ensured a hard logout completely destroys the long-lived session cookie via `expires=0` to force clean logins when authentication states are modified.
+- [x] **BF3. Bédéthèque Spin-off Override Bug**: Fixed an issue where searching for a main series (e.g., "La Quête d'Ewilan") would return covers from its spin-offs (e.g., "Ellana") due to Bédéthèque's alphabetical sorting. Implemented an exact-match logic that delays the loop-break, evaluating all title variations (with and without articles) to guarantee the parent series is pushed to the top of the results.
+- [x] **BF4. Context-Aware Cover Fetching**: Fixed a regression where the manual cover search queried all scrapers blindly. The system now dynamically filters active scrapers based on the Kavita `library_type` (e.g., Manga, Comic) and passes this context to adapt the title cleaning rules (fixing the `unexpected keyword argument` crash).
 
 ---
 
@@ -50,8 +52,9 @@
 - [x] **C1. MyAnimeList (MAL) Scraper:** Integrated the public and free **Jikan API v4** (no key required) to natively grab `MalId` and rich metadata, replacing Nautiljon.
 - [ ] **C2. MangaDex Scraper:** Integrate the official **MangaDex REST API** for rich metadata tags (themes like *Isekai*), localized descriptions, and extra cover artwork.
 - [ ] **C3. Baka-Updates (MangaUpdates) Scraper:** Integrate the scanlation catalog to retrieve vast lists of alternative associated titles to auto-populate overrides.
-- [ ] **C4. Kitsu Scraper:** Add Kitsu JSON:API as a reliable global fallback source.
+- [X] **C4. Kitsu Scraper:** Add Kitsu JSON:API as a reliable global fallback source.
 - [ ] **C5. Manga-News Scraper:** Implement BeautifulSoup4 scraping of the French licensing catalog to retrieve official publisher credits, VF volumes count, and regional age recommendations.
+- [x] **C6. Scraper Bedethèque : **  Scraping BeautifulSoup4 (Voir comicrack comme base).
 
 #### 2. Advanced Features
 - [x] **C6. Western Comics & Books Support (B10):** Integrated the Google Books API as a production-ready scraper to allow metadata fetching for Novels, Franco-Belgian BDs, and Western Comics.
@@ -99,7 +102,8 @@
 ### 🐛 Corrections de Bugs V1.4.x / V1.5.0 & Sécurité (Complété)
 - [x] **BF1. Bug de Surcharge de Mot de Passe en Env Var :** Résolution du problème où vider le mot de passe dans le `docker-compose.yml` échouait. Mise en place d'une priorité de configuration locale via `config.json`.
 - [x] **BF2. Nettoyage de Session à la Déconnexion :** Le bouton de déconnexion détruit désormais entièrement le cookie de session longue durée (expiration forcée) pour forcer une ré-authentification propre.
-
+- [x] **BF3. Recherche de Couvertures Contextuelle** : Correction d'une régression où la recherche manuelle d'images interrogeait tous les fournisseurs à l'aveugle. Le système filtre désormais dynamiquement les scrapers selon le type de bibliothèque (`Manga`, `Comic`, `Book`) et transmet ce contexte pour adapter le nettoyage du titre (ce qui corrige au passage l'erreur fatale `unexpected keyword argument`).
+- [x] **BF4. Bug d'Écrasement par les Spin-offs (Bédéthèque)** : Résolution d'un problème où la recherche d'une série principale (ex: "La Quête d'Ewilan") renvoyait les couvertures de son spin-off (ex: "Ellana") à cause du tri alphabétique natif de Bédéthèque. Ajout d'une logique de "match exact" qui évalue toutes les variations de titres (gestion des articles "Le", "La") pour garantir que la série mère remonte en première position.
 ---
 
 ### 🔮 Partie C : Scrapers Cibles & Nouvelles Fonctionnalités (V1.5.0+)
@@ -108,9 +112,9 @@
 - [x] **C1. Scraper MyAnimeList (MAL) :** Utilisation de l'API publique et gratuite **Jikan v4** (sans clé API) pour récupérer les descriptions et les ID MAL natifs, remplaçant définitivement Nautiljon.
 - [ ] **C2. Scraper MangaDex :** Intégration de l'API REST officielle **MangaDex** pour extraire les thèmes, résumés multilingues natifs et couvertures de chapitres.
 - [ ] **C3. Scraper Baka-Updates (MangaUpdates) :** Exploitation du catalogue pour importer d'importantes listes de titres associés afin d'auto-remplir les titres alternatifs.
-- [ ] **C4. Scraper Kitsu :** Ajout de la source Kitsu comme repli international rapide.
+- [X] **C4. Scraper Kitsu :** Ajout de la source Kitsu comme repli international rapide.
 - [ ] **C5. Scraper Manga-News :** Scraping BeautifulSoup4 du catalogue VF pour récupérer l'éditeur français exact, le nombre de volumes VF parus et les recommandations d'âges régionales.
-- [ ] **C6. Scraper Bedethèque : **  Scraping BeautifulSoup4 (Voir comicrack comme base).
+- [x] **C6. Scraper Bedethèque : **  Scraping BeautifulSoup4 (Voir comicrack comme base).
 
 #### 2. Fonctionnalités Avancées
 - [x] **C6. Support des BD Occidentales & Romans (B10) :** Intégration de l'API Google Books en scraper de production pour enrichir les romans, les BD franco-belges et comics américains (compatible catégories Comic et Book).

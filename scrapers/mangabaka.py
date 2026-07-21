@@ -104,9 +104,9 @@ class MangaBakaScraper(BaseScraper):
             logging.error(f"[Erreur MangaBaka V2] {e}")
             return None
 
-    def fetch_covers(self, query: str):
+    def fetch_covers(self, query: str, library_type: str = "Manga"):
         covers = []
-        clean_sq = clean_title(query)
+        clean_sq = clean_title(query, library_type=library_type)
         try:
             res = requests.get("https://api.mangabaka.org/v2/series/search", params={"q": clean_sq}, timeout=10)
             if res.status_code == 200:

@@ -68,9 +68,9 @@ class GoogleBooksScraper(BaseScraper):
             logging.error(f"[GoogleBooks] Erreur : {e}")
             return None
 
-    def fetch_covers(self, query: str):
+    def fetch_covers(self, query: str, library_type: str = "Book"):
         covers = []
-        cleaned = clean_title(query)
+        cleaned = clean_title(query, library_type=library_type)
         config = load_config()
         api_key = config.get("GOOGLEBOOKS_API_KEY", "").strip()
         url = "https://www.googleapis.com/books/v1/volumes"
