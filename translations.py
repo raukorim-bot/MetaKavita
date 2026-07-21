@@ -137,7 +137,6 @@ translations = {
         "err_comicvine_missing": "❌ Clé API ComicVine manquante. Veuillez la configurer dans l'onglet Config.",
         "err_comicvine_auth": "❌ Clé API ComicVine invalide ou refusée (Vérifiez votre clé ComicVine).",
         
-        # --- NOUVEAUX LOGS DE DIAGNOSTIC COMICVINE ---
         "log_cv_step_a": "🔍 [ComicVine] Étape A : Recherche de Volume pour '{0}'...",
         "log_cv_vol_matched": "🎯 [ComicVine] Match de Volume direct trouvé : '{0}' (ID: 4050-{1})",
         "log_cv_step_b": "🔍 [ComicVine] Étape B : Pas de Volume confiant. Passage à la recherche par Issue (Tome/Album) pour '{0}'...",
@@ -152,7 +151,6 @@ translations = {
         "log_cv_homonym_fetch": "⚡ [ComicVine] Requête de détails sur le meilleur homonyme ID 4050-{0}...",
         "log_cv_homonym_success": "👉 [ComicVine] Description trouvée sur l'homonyme majeur (ID : 4050-{0})",
         "log_cv_fail_summary": "⚠️ [ComicVine] Échec : Aucun résumé textuel rédigé trouvé pour '{0}'.",
-        "comicvine_api": "Clé API ComicVine (Optionnelle) :",
         "googlebooks_api": "Clé API Google Books (Optionnelle) :",
         "providers_api_title": "🔑 Clés API Fournisseurs",
         "log_google_fallback": "🔄 [Translator] Bascule automatique vers Google Translate (Gratuit)...",
@@ -160,7 +158,19 @@ translations = {
         "trans_provider": "Moteur de traduction :",
         "trans_google": "Google Translate (Gratuit / Sans clé)",
         "trans_deepl": "DeepL",
-        "trans_azure": "Microsoft Azure"
+        "trans_azure": "Microsoft Azure",
+
+        # --- TEXTES & LOGS SPÉCIFIQUES BÉDÉTHÈQUE ---
+        "bedetheque_search": "🔍 [Bédéthèque] Recherche pour '{0}'...",
+        "bedetheque_not_found": "⚠️ [Bédéthèque] Aucun album trouvé pour '{0}'.",
+        "bedetheque_scraping_serie": "⚡ [Bédéthèque] Scraping de la Série ({0})",
+        "bedetheque_error": "❌ [Bédéthèque] Erreur inattendue : {0}",
+        "bedetheque_covers_err": "❌ [Covers] Erreur Bédéthèque pour '{0}' : {1}",
+        "bedetheque_unknown": "Inconnu",
+        "bedetheque_articles_regex": r'^(?i)(le\s+|la\s+|les\s+|l[\'’]\s*|the\s+|a\s+|an\s+|un\s+|une\s+|des\s+)(.*)$',
+        "bedetheque_regex_summary": r'^Résumé\s*:\s*',
+        "bedetheque_regex_all_about": r'^Tout sur la série.*?:\s*',
+        "bedetheque_ignore_text": "Rechercher sur les site"
     },
     "en": {
         "title": "⚙️ MetaKavita Configuration",
@@ -298,7 +308,6 @@ translations = {
         "err_comicvine_missing": "❌ ComicVine API Key is missing. Please configure it in the Config tab.",
         "err_comicvine_auth": "❌ ComicVine API Key is invalid or refused (Check your ComicVine key).",
         
-        # --- NEW COMICVINE DIAGNOSTIC LOGS ---
         "log_cv_step_a": "🔍 [ComicVine] Step A: Volume Search for '{0}'...",
         "log_cv_vol_matched": "🎯 [ComicVine] Direct Volume match found: '{0}' (ID: 4050-{1})",
         "log_cv_step_b": "🔍 [ComicVine] Step B: No confident Volume. Switching to Issue (Book) search for '{0}'...",
@@ -313,7 +322,6 @@ translations = {
         "log_cv_homonym_fetch": "⚡ [ComicVine] Detailed request on best homonym ID 4050-{0}...",
         "log_cv_homonym_success": "👉 [ComicVine] Description found on major homonym (ID: 4050-{0})",
         "log_cv_fail_summary": "⚠️ [ComicVine] Failure: No written summary found for '{0}'.",
-        "comicvine_api": "ComicVine API Key (Optional):",
         "googlebooks_api": "Google Books API Key (Optional):",
         "providers_api_title": "🔑 Metadata Providers Keys",
         "log_google_fallback": "🔄 [Translator] Automatic fallback switch to Google Translate (Free)...",
@@ -321,6 +329,18 @@ translations = {
         "trans_provider": "Translation Engine:",
         "trans_google": "Google Translate (Free / No key)",
         "trans_deepl": "DeepL",
-        "trans_azure": "Microsoft Azure"        
+        "trans_azure": "Microsoft Azure",
+
+        # --- TEXTES & LOGS SPÉCIFIQUES BÉDÉTHÈQUE ---
+        "bedetheque_search": "🔍 [Bédéthèque] Searching for '{0}'...",
+        "bedetheque_not_found": "⚠️ [Bédéthèque] No album found for '{0}'.",
+        "bedetheque_scraping_serie": "⚡ [Bédéthèque] Scraping Series ({0})",
+        "bedetheque_error": "❌ [Bédéthèque] Unexpected error: {0}",
+        "bedetheque_covers_err": "❌ [Covers] Bédéthèque error for '{0}': {1}",
+        "bedetheque_unknown": "Unknown",
+        "bedetheque_articles_regex": r'^(?i)(the\s+|a\s+|an\s+|le\s+|la\s+|les\s+|l[\'’]\s*|un\s+|une\s+|des\s+)(.*)$',
+        "bedetheque_regex_summary": r'^(?i)(Résumé|Summary)\s*:\s*',
+        "bedetheque_regex_all_about": r'^(?i)(Tout sur la série|All about the series).*?:\s*',
+        "bedetheque_ignore_text": "Rechercher sur les site"
     }
 }

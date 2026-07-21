@@ -14,10 +14,12 @@ from flask_socketio import disconnect
 from urllib.parse import urlparse
 from config_manager import load_config, save_config
 from kavita_api import KavitaAPI
-from metadata_fetcher import fetch_metadata, translate_text, PROVIDERS_MAP, ALLOWED_PROXY_DOMAINS
+from metadata_fetcher import fetch_metadata, ALLOWED_PROXY_DOMAINS
+from translator import translate_text
 from db_manager import init_db, update_status, get_all_cached_data, save_forced_overrides, reset_errors, clean_orphaned_cache
 from translations import translations
 from datetime import timedelta
+from scrapers import ScraperRegistry
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = load_config().get('SECRET_KEY', 'kavita-secret-key')
@@ -127,13 +129,15 @@ def worker():
         success, msg, used_providers = process_series_logic(series_id, series_name, force_update)
         
         if used_providers:
-            delays = {"MANGABAKA": 2.5, "KITSU": 1.5, "ANILIST": 1.0, "COMICVINE": 1.5, "GOOGLEBOOKS": 1.5}
-            delay = 2.5 if len(used_providers) > 1 else delays.get(used_providers[0], 1.5)
+            from scrapers import ScraperRegistry
+            delay = 1.5
+            if len(used_providers) > 1:
+                delay = 2.5
+            else:
+                scraper = ScraperRegistry.get(used_providers[0])
+                if scraper:
+                    delay = scraper.rate_limit
             time.sleep(delay)
-        else:
-            time.sleep(0.02)
-            
-        sync_queue.task_done()
         
         if sync_queue.empty():
             logging.info(t.get('log_batch_finished'))
@@ -464,9 +468,11 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     if safe_config.get('COMICVINE_API_KEY'): safe_config['COMICVINE_API_KEY'] = '********'
     if safe_config.get('GOOGLEBOOKS_API_KEY'): safe_config['GOOGLEBOOKS_API_KEY'] = '********'
     
-    manga_providers = list(PROVIDERS_MAP["Manga"].keys())
-    comic_providers = list(PROVIDERS_MAP["Comic"].keys())
-    book_providers = list(PROVIDERS_MAP["Book"].keys())
+    from scrapers import ScraperRegistry
+    
+    manga_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Manga")]
+    comic_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Comic")]
+    book_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Book")]
             
     return render_template('index.html', config=safe_config, msg=msg, error_msg=error_msg, 
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib, 
@@ -730,151 +736,25 @@ def proxy_image():
 
 @app.route('/api/series/<int:series_id>/covers', methods=['GET'])
 def get_series_covers(series_id):
+    from scrapers import ScraperRegistry
+    from scrapers.utils import clean_title
+    
     series_name = request.args.get('series_name')
     cache_data = get_all_cached_data().get(series_id, {})
     search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
 
     covers = []
     
-    from scrapers import clean_title
-    clean_sq = clean_title(search_query)
+    # Interrogation dynamique (Open/Closed Principle !!)
+    for scraper in ScraperRegistry.get_all():
+        try:
+            scraper_covers = scraper.fetch_covers(search_query)
+            if scraper_covers:
+                covers.extend(scraper_covers)
+        except Exception as e:
+            logging.error(f"[Covers] Erreur sur le scraper {scraper.id} : {e}")
 
-    # 1. Recherche AniList
-    try:
-        import requests
-        query = '''
-        query ($search: String) {
-          Page(page: 1, perPage: 4) {
-            media(search: $search, type: MANGA) {
-              title { romaji }
-              coverImage { extraLarge }
-            }
-          }
-        }
-        '''
-        res = requests.post('https://graphql.anilist.co', json={'query': query, 'variables': {'search': clean_sq}}, timeout=10)
-        if res.status_code == 200:
-            results = res.json().get('data', {}).get('Page', {}).get('media', [])
-            for m in results:
-                if m.get('coverImage', {}).get('extraLarge'):
-                    covers.append({
-                        "provider": "AniList", 
-                        "title": m.get('title', {}).get('romaji', 'Inconnu'),
-                        "url": m['coverImage']['extraLarge']
-                    })
-    except Exception as e:
-        logging.error(f"[Covers] Erreur AniList : {e}")
-
-    # 2. Recherche MangaBaka
-    try:
-        import requests
-        res = requests.get("https://api.mangabaka.org/v2/series/search", params={"q": clean_sq}, timeout=10)
-        
-        if res.status_code == 200:
-            json_res = res.json()
-            results = json_res.get('data') if 'data' in json_res else json_res
-            
-            if isinstance(results, list):
-                for m in results[:4]:
-                    cover_data = m.get('cover', {})
-                    cover_url = None
-                    if isinstance(cover_data, dict):
-                        cover_url = cover_data.get('raw') or cover_data.get('original')
-                    elif isinstance(cover_data, str):
-                        cover_url = cover_data
-                        
-                    if cover_url:
-                        title = "Inconnu"
-                        titles_list = m.get('titles', [])
-                        if titles_list and isinstance(titles_list, list) and isinstance(titles_list[0], dict):
-                            title = titles_list[0].get('title', 'Inconnu')
-                            
-                        covers.append({
-                            "provider": "MangaBaka",
-                            "title": title,
-                            "url": cover_url
-                        })
-    except Exception as e:
-        logging.error(f"[Covers] Erreur MangaBaka V2 : {e}")
-        
-        # 2. Recherche Kitsu (JSON:API)
-    try:
-        import requests
-        url = "https://kitsu.io/api/edge/manga"
-        params = {
-            "filter[text]": clean_sq,
-            "page[limit]": 4
-        }
-        headers = {"Accept": "application/vnd.api+json"}
-        
-        res = requests.get(url, params=params, headers=headers, timeout=10)
-        if res.status_code == 200:
-            results = res.json().get('data', [])
-            for m in results:
-                attrs = m.get('attributes', {})
-                cover_url = attrs.get('posterImage', {}).get('original') or attrs.get('posterImage', {}).get('large')
-                
-                if cover_url:
-                    title = attrs.get('canonicalTitle', 'Inconnu')
-                    covers.append({
-                        "provider": "Kitsu",
-                        "title": title,
-                        "url": cover_url
-                    })
-    except Exception as e:
-        logging.error(f"[Covers] Erreur Kitsu : {e}")
-
-    # 4. Recherche ComicVine (NOUVEAU : Intégration Volumes & Albums pour BD)
-    try:
-        config = load_config()
-        cv_key = config.get("COMICVINE_API_KEY", "").strip()
-        if cv_key:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-                "Accept": "application/json"
-            }
-            # Recherche de volumes (Séries de BD)
-            url = "https://comicvine.gamespot.com/api/search/"
-            params = {
-                "api_key": cv_key,
-                "format": "json",
-                "resources": "volume",
-                "query": clean_sq,
-                "limit": 4
-            }
-            res = requests.get(url, params=params, headers=headers, timeout=10)
-            if res.status_code == 200:
-                results = res.json().get('results', [])
-                for v in results:
-                    img_dict = v.get('image') or {}
-                    cover_url = img_dict.get('original_url') or img_dict.get('super_url')
-                    if cover_url:
-                        covers.append({
-                            "provider": "ComicVine (Série)",
-                            "title": v.get('name', 'Inconnu'),
-                            "url": cover_url
-                        })
-            
-            # Recherche d'issues (Albums / Tomes individuels)
-            params["resources"] = "issue"
-            res_issue = requests.get(url, params=params, headers=headers, timeout=10)
-            if res_issue.status_code == 200:
-                results = res_issue.json().get('results', [])
-                for i in results:
-                    img_dict = i.get('image') or {}
-                    cover_url = img_dict.get('original_url') or img_dict.get('super_url')
-                    if cover_url:
-                        issue_num = i.get('issue_number') or ''
-                        title = f"{i.get('name', 'Inconnu')} (n°{issue_num})" if issue_num else i.get('name', 'Inconnu')
-                        covers.append({
-                            "provider": "ComicVine (Album)",
-                            "title": title,
-                            "url": cover_url
-                        })
-    except Exception as e:
-        logging.error(f"[Covers] Erreur de récupération ComicVine : {e}")
-
-    return jsonify({"success": True, "covers": covers})
+    return jsonify({"success": True, "covers": covers[:16]})
     
 @app.route('/api/series/<int:series_id>/update-cover', methods=['POST'])
 def apply_series_cover(series_id):

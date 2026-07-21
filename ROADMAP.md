@@ -110,6 +110,7 @@
 - [ ] **C3. Scraper Baka-Updates (MangaUpdates) :** Exploitation du catalogue pour importer d'importantes listes de titres associés afin d'auto-remplir les titres alternatifs.
 - [ ] **C4. Scraper Kitsu :** Ajout de la source Kitsu comme repli international rapide.
 - [ ] **C5. Scraper Manga-News :** Scraping BeautifulSoup4 du catalogue VF pour récupérer l'éditeur français exact, le nombre de volumes VF parus et les recommandations d'âges régionales.
+- [ ] **C6. Scraper Bedethèque : **  Scraping BeautifulSoup4 (Voir comicrack comme base).
 
 #### 2. Fonctionnalités Avancées
 - [x] **C6. Support des BD Occidentales & Romans (B10) :** Intégration de l'API Google Books en scraper de production pour enrichir les romans, les BD franco-belges et comics américains (compatible catégories Comic et Book).

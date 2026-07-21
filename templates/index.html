@@ -401,7 +401,7 @@
                                     <label>{{ t.provider_1 }}</label>
                                     <select name="PROVIDER_1" onchange="handleProviderChange(this)">
                                         {% for p in manga_providers %}
-                                        <option value="{{ p }}" {% if config.get("PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -410,7 +410,7 @@
                                     <select name="PROVIDER_2" onchange="handleProviderChange(this)">
                                         <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
                                         {% for p in manga_providers %}
-                                        <option value="{{ p }}" {% if config.get("PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -419,7 +419,7 @@
                                     <select name="PROVIDER_3" onchange="handleProviderChange(this)">
                                         <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
                                         {% for p in manga_providers %}
-                                        <option value="{{ p }}" {% if config.get("PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -434,7 +434,7 @@
                                     <label>{{ t.provider_1 }}</label>
                                     <select name="COMIC_PROVIDER_1" onchange="handleProviderChange(this)">
                                         {% for p in comic_providers %}
-                                        <option value="{{ p }}" {% if config.get("COMIC_PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -443,7 +443,7 @@
                                     <select name="COMIC_PROVIDER_2" onchange="handleProviderChange(this)">
                                         <option value="NONE" {% if config.get("COMIC_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
                                         {% for p in comic_providers %}
-                                        <option value="{{ p }}" {% if config.get("COMIC_PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -452,7 +452,7 @@
                                     <select name="COMIC_PROVIDER_3" onchange="handleProviderChange(this)">
                                         <option value="NONE" {% if config.get("COMIC_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
                                         {% for p in comic_providers %}
-                                        <option value="{{ p }}" {% if config.get("COMIC_PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -467,7 +467,7 @@
                                     <label>{{ t.provider_1 }}</label>
                                     <select name="BOOK_PROVIDER_1" onchange="handleProviderChange(this)">
                                         {% for p in book_providers %}
-                                        <option value="{{ p }}" {% if config.get("BOOK_PROVIDER_1") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -476,7 +476,7 @@
                                     <select name="BOOK_PROVIDER_2" onchange="handleProviderChange(this)">
                                         <option value="NONE" {% if config.get("BOOK_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
                                         {% for p in book_providers %}
-                                        <option value="{{ p }}" {% if config.get("BOOK_PROVIDER_2") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
@@ -485,7 +485,7 @@
                                     <select name="BOOK_PROVIDER_3" onchange="handleProviderChange(this)">
                                         <option value="NONE" {% if config.get("BOOK_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
                                         {% for p in book_providers %}
-                                        <option value="{{ p }}" {% if config.get("BOOK_PROVIDER_3") == p %}selected{% endif %}>{{ p.capitalize() }}</option>
+                                        <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
                                         {% endfor %}
                                     </select>
                                 </div>
