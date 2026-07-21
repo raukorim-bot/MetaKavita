@@ -97,9 +97,9 @@ class KitsuScraper(BaseScraper):
             logging.error(f"[Erreur Kitsu] {e}")
             return None
 
-    def fetch_covers(self, query: str):
+    def fetch_covers(self, query: str, library_type: str = "Manga"):
         covers = []
-        clean_sq = clean_title(query)
+        clean_sq = clean_title(query, library_type=library_type)
         try:
             url = "https://kitsu.io/api/edge/manga"
             params = {"filter[text]": clean_sq, "page[limit]": 4}

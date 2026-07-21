@@ -217,9 +217,9 @@ class ComicVineScraper(BaseScraper):
             'url': site_url
         }
 
-    def fetch_covers(self, query: str):
+    def fetch_covers(self, query: str, library_type: str = "Comic"):
         covers = []
-        clean_sq = clean_title(query)
+        clean_sq = clean_title(query, library_type=library_type)
         config = load_config()
         cv_key = config.get("COMICVINE_API_KEY", "").strip()
         if not cv_key: return covers

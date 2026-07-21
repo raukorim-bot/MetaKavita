@@ -13,7 +13,7 @@ class BaseScraper(ABC):
         """Doit retourner un dictionnaire standardisé de métadonnées, ou None."""
         pass
 
-    def fetch_covers(self, query: str) -> List[Dict[str, str]]:
+    def fetch_covers(self, query: str, library_type: str = "Manga") -> List[Dict[str, str]]:
         """
         Optionnel: Retourne une liste de couvertures pour la recherche manuelle.
         Format: [{"provider": str, "title": str, "url": str}]

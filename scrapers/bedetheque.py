@@ -337,15 +337,18 @@ class BedethequeScraper(BaseScraper):
             logging.error(msg_error.format(e))
             return None
 
-    def fetch_covers(self, query: str):
+    def fetch_covers(self, query: str, library_type: str = "Comic"):
         covers = []
-        clean = clean_title(query)
+        clean = clean_title(query, library_type=library_type)
         queries_to_try = generate_search_queries(clean)
         
         session = requests.Session(impersonate="chrome110")
         headers = {"Accept": "text/html", "Referer": "https://www.bedetheque.com/search/albums"}
         
         csrf_token = self._get_csrf_token(session, headers)
+        
+        exact_matches = []
+        fallback_matches = []
         
         for q in queries_to_try:
             params = {"RechSerie": q, "csrf_token_bel": csrf_token}
@@ -357,39 +360,72 @@ class BedethequeScraper(BaseScraper):
                     results_ul = soup.find('ul', class_='search-list')
                     
                     if results_ul:
-                        for li in results_ul.find_all('li')[:8]:
+                        for li in results_ul.find_all('li'):
                             a_tag = li.find('a', class_='image-tooltip')
-                            if a_tag and a_tag.get('rel'):
-                                cover_url = a_tag['rel']
+                            if not a_tag or not a_tag.get('rel'):
+                                continue
                                 
-                                cover_url = cover_url.replace('/cache/thb_couv/', '/media/Couvertures/')
-                                if not cover_url.startswith('http'):
-                                    cover_url = f"https://www.bedetheque.com{cover_url}"
+                            raw_rel = a_tag['rel']
+                            cover_url = raw_rel[0] if isinstance(raw_rel, list) else raw_rel
+                            
+                            cover_url = cover_url.replace('/cache/thb_couv/', '/media/Couvertures/')
+                            if not cover_url.startswith('http'):
+                                cover_url = f"https://www.bedetheque.com{cover_url}"
+                                
+                            serie_span = a_tag.find('span', class_='serie')
+                            title_span = a_tag.find('span', class_='titre')
+                            num_span = a_tag.find('span', class_='num')
+                            
+                            txt_unknown = _t("bedetheque_unknown", "Inconnu")
+                            serie_text = serie_span.get_text(strip=True) if serie_span else txt_unknown
+                            title = serie_text
+                            
+                            if num_span and num_span.get_text(strip=True):
+                                title += f" {num_span.get_text(strip=True)}"
+                                
+                            if title_span and title_span.get_text(strip=True):
+                                title += f" - {title_span.get_text(strip=True)}"
+                            
+                            cover_data = {
+                                "provider": "Bédéthèque",
+                                "title": title,
+                                "url": cover_url
+                            }
+                            
+                            # --- VÉRIFICATION DE MATCH EXACT ---
+                            is_exact = False
+                            norm_serie = serie_text.lower().strip()
+                            
+                            # 1. Correspondance avec l'une des requêtes générées
+                            for qt in queries_to_try:
+                                if norm_serie == qt.lower().strip():
+                                    is_exact = True
+                                    break
+                            
+                            # 2. Correspondance permissive (sans les articles)
+                            if not is_exact:
+                                clean_serie_no_article = re.sub(r'\s*\((le|la|les|l\')\)$', '', norm_serie).strip()
+                                clean_query_no_article = re.sub(r'^(le|la|les|l\')\s+', '', clean.lower().strip()).strip()
+                                if clean_serie_no_article == clean_query_no_article:
+                                    is_exact = True
+
+                            # Ajout sans doublons d'URL
+                            if is_exact:
+                                if cover_url not in [c['url'] for c in exact_matches]:
+                                    exact_matches.append(cover_data)
+                            else:
+                                if cover_url not in [c['url'] for c in fallback_matches]:
+                                    fallback_matches.append(cover_data)
                                     
-                                serie_span = a_tag.find('span', class_='serie')
-                                title_span = a_tag.find('span', class_='titre')
-                                num_span = a_tag.find('span', class_='num')
-                                
-                                txt_unknown = _t("bedetheque_unknown", "Inconnu")
-                                title = serie_span.get_text(strip=True) if serie_span else txt_unknown
-                                
-                                if num_span and num_span.get_text(strip=True):
-                                    title += f" {num_span.get_text(strip=True)}"
-                                    
-                                if title_span and title_span.get_text(strip=True):
-                                    title += f" - {title_span.get_text(strip=True)}"
-                                
-                                covers.append({
-                                    "provider": "Bédéthèque",
-                                    "title": title,
-                                    "url": cover_url
-                                })
-                                
-                        if covers:
+                        # Si on a trouvé des match exacts sur cette requête (ex: "Quête d'Ewilan (La)"), 
+                        # on peut s'arrêter et ne pas tester la 3ème variation.
+                        if len(exact_matches) >= 1:
                             break
                             
             except Exception as e:
                 msg_covers_err = _t("bedetheque_covers_err", "❌ [Covers] Erreur Bédéthèque pour '{0}' : {1}")
                 logging.error(msg_covers_err.format(q, e))
                 
-        return covers
+        # On privilégie les exacts. Si vraiment la série n'existe pas, on renvoie les fallbacks.
+        best_covers = exact_matches if exact_matches else fallback_matches
+        return best_covers[:8]

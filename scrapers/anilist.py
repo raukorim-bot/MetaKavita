@@ -66,9 +66,9 @@ class AnilistScraper(BaseScraper):
             logging.error(f"[Erreur Anilist] {e}")
         return None
 
-    def fetch_covers(self, query: str):
+    def fetch_covers(self, query: str, library_type: str = "Manga"):
         covers = []
-        clean = clean_title(query)
+        clean = clean_title(query, library_type=library_type)
         try:
             graphql_query = '''
             query ($search: String) {
