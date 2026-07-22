@@ -7,6 +7,7 @@ class BaseScraper(ABC):
     supported_types: Set[str] = set()
     rate_limit: float = 1.0
     proxy_domains: List[str] = []
+    has_direct_id_support: bool = False
 
     @abstractmethod
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False) -> Optional[Dict[str, Any]]:
@@ -19,3 +20,11 @@ class BaseScraper(ABC):
         Format: [{"provider": str, "title": str, "url": str}]
         """
         return []
+        
+    def extract_id_from_url(self, url: str) -> Optional[str]:
+        """
+        Extrait l'ID depuis une URL. 
+        Désactivé par défaut (renvoie None). 
+        À surcharger UNIQUEMENT dans les scrapers enfants qui supportent techniquement la recherche par URL.
+        """
+        return None

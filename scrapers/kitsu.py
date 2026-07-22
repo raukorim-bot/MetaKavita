@@ -4,6 +4,7 @@ import unicodedata
 import difflib
 from .base import BaseScraper
 from .utils import clean_title
+from typing import Optional
 
 def normalize_str(s):
     if not s: return ""
@@ -15,43 +16,74 @@ class KitsuScraper(BaseScraper):
     supported_types = {"Manga"}
     rate_limit = 1.5
     proxy_domains = ["kitsu.io", "media.kitsu.app", "media.kitsu.io"]
+    has_direct_id_support = True
+
+    def extract_id_from_url(self, url: str) -> Optional[str]:
+        """Extrait le slug (ex: attack-on-titan) depuis l'URL Kitsu"""
+        if "kitsu.io/manga/" in url or "kitsu.app/manga/" in url:
+            return url.split('/manga/')[-1].split('/')[0].split('?')[0]
+        return None
 
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False):
-        clean = clean_title(query, library_type=library_type)
-        logging.info(f"[Kitsu] Recherche par titre : '{clean}'")
-        url = "https://kitsu.io/api/edge/manga"
-        params = {"filter[text]": clean, "page[limit]": 5, "include": "categories"}
-
+        headers = {"Accept": "application/vnd.api+json"}
+        
         try:
-            headers = {"Accept": "application/vnd.api+json"}
-            res = requests.get(url, params=params, headers=headers, timeout=10)
-            if res.status_code != 200: return None
-
-            json_res = res.json()
-            data_list = json_res.get('data', [])
-            if not data_list: return None
-
-            norm_query = normalize_str(clean)
-            best_match = None
-            
-            for manga in data_list:
-                attrs = manga.get('attributes', {})
-                titles_to_check = [attrs.get('canonicalTitle', '')]
-                if isinstance(attrs.get('titles'), dict):
-                    titles_to_check.extend(attrs['titles'].values())
+            if is_id:
+                logging.info(f"[Kitsu] Requête directe par ID/Slug : '{query}'")
+                if str(query).isdigit():
+                    url = f"https://kitsu.io/api/edge/manga/{query}"
+                    params = {"include": "categories"}
+                else:
+                    url = "https://kitsu.io/api/edge/manga"
+                    params = {"filter[slug]": query, "include": "categories"}
                     
-                for t in titles_to_check:
-                    norm_t = normalize_str(str(t))
-                    if not norm_t: continue
-                    is_substring = (norm_query in norm_t or norm_t in norm_query) if (len(norm_query) >= 3 and len(norm_t) >= 3) else False
-                    ratio = difflib.SequenceMatcher(None, norm_query, norm_t).ratio()
+                res = requests.get(url, params=params, headers=headers, timeout=10)
+                if res.status_code != 200: return None
+                
+                json_res = res.json()
+                
+                if isinstance(json_res.get('data'), list):
+                    if not json_res['data']: return None
+                    best_match = json_res['data'][0]
+                else:
+                    best_match = json_res.get('data')
                     
-                    if is_substring or ratio >= 0.80:
-                        best_match = manga
-                        break
-                if best_match: break
+                if not best_match: return None
 
-            if not best_match: return None
+            else:
+                clean = clean_title(query, library_type=library_type)
+                logging.info(f"[Kitsu] Recherche par titre : '{clean}'")
+                url = "https://kitsu.io/api/edge/manga"
+                params = {"filter[text]": clean, "page[limit]": 5, "include": "categories"}
+
+                res = requests.get(url, params=params, headers=headers, timeout=10)
+                if res.status_code != 200: return None
+
+                json_res = res.json()
+                data_list = json_res.get('data', [])
+                if not data_list: return None
+
+                norm_query = normalize_str(clean)
+                best_match = None
+                
+                for manga in data_list:
+                    attrs = manga.get('attributes', {})
+                    titles_to_check = [attrs.get('canonicalTitle', '')]
+                    if isinstance(attrs.get('titles'), dict):
+                        titles_to_check.extend(attrs['titles'].values())
+                        
+                    for t in titles_to_check:
+                        norm_t = normalize_str(str(t))
+                        if not norm_t: continue
+                        is_substring = (norm_query in norm_t or norm_t in norm_query) if (len(norm_query) >= 3 and len(norm_t) >= 3) else False
+                        ratio = difflib.SequenceMatcher(None, norm_query, norm_t).ratio()
+                        
+                        if is_substring or ratio >= 0.80:
+                            best_match = manga
+                            break
+                    if best_match: break
+
+                if not best_match: return None
                 
             attrs = best_match.get('attributes', {})
             raw_status = attrs.get('status', '')
@@ -80,7 +112,14 @@ class KitsuScraper(BaseScraper):
 
             cover_url = attrs.get('posterImage', {}).get('original') or attrs.get('posterImage', {}).get('large')
 
+            # Protection contre les dictionnaires foireux
+            alt_titles = []
+            if isinstance(attrs.get('titles'), dict):
+                alt_titles = [t for t in attrs.get('titles').values() if t]
+
             return {
+                'title': attrs.get('canonicalTitle', ''), # 👈 Capital pour le Smart Match
+                'alternative_titles': alt_titles,
                 'summary': attrs.get('synopsis', ''),
                 'cover_url': cover_url,
                 'genres': [], 

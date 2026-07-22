@@ -2,6 +2,7 @@ import requests
 import logging
 from .base import BaseScraper
 from .utils import clean_title
+from typing import Optional
 
 class AnilistScraper(BaseScraper):
     id = "ANILIST"
@@ -9,29 +10,56 @@ class AnilistScraper(BaseScraper):
     supported_types = {"Manga", "Comic", "Book"}
     rate_limit = 1.0
     proxy_domains = ["anilist.co"]
+    has_direct_id_support = True
+
+    def extract_id_from_url(self, url: str) -> Optional[str]:
+        """Extrait l'ID (ex: 119161) d'une URL anilist.co"""
+        if "anilist.co/manga/" in url:
+            # Sépare à partir de 'anilist.co/manga/' et prend le premier bloc numérique
+            parts = url.split('anilist.co/manga/')[-1].split('/')
+            if parts and parts[0].isdigit():
+                return parts[0]
+        return None    
 
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False):
         if is_id:
-            logging.info(f"[Anilist] Requête directe par ID : {query}")
-            graphql_query = '''
-            query ($id: Int) {
-              Media(id: $id, type: MANGA) {
-                id idMal description(asHtml: false) coverImage { extraLarge }
-                genres tags { name } startDate { year } status isAdult countryOfOrigin
-                staff { edges { role node { name { full } } } }
-                characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
-                externalLinks { url site }
-              }
-            }
-            '''
-            variables = {'id': int(query)}
+            # --- GESTION ID vs SLUG ---
+            if str(query).isdigit():
+                logging.info(f"[Anilist] Requête directe par ID : {query}")
+                graphql_query = '''
+                query ($id: Int) {
+                  Media(id: $id, type: MANGA) {
+                    id idMal description(asHtml: false) coverImage { extraLarge } title { romaji english native }
+                    genres tags { name } startDate { year } status isAdult countryOfOrigin
+                    staff { edges { role node { name { full } } } }
+                    characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
+                    externalLinks { url site }
+                  }
+                }
+                '''
+                variables = {'id': int(query)}
+            else:
+                logging.info(f"[Anilist] Requête directe par Slug : '{query}'")
+                graphql_query = '''
+                query ($search: String) {
+                  Media(search: $search, type: MANGA) {
+                    id idMal description(asHtml: false) coverImage { extraLarge } title { romaji english native }
+                    genres tags { name } startDate { year } status isAdult countryOfOrigin
+                    staff { edges { role node { name { full } } } }
+                    characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
+                    externalLinks { url site }
+                  }
+                }
+                '''
+                variables = {'search': str(query)}
         else:
+            # --- RECHERCHE CLASSIQUE ---
             clean = clean_title(query, library_type=library_type)
             logging.info(f"[Anilist] Recherche par titre ({library_type}) : '{clean}'")
             graphql_query = '''
             query ($search: String) {
               Media(search: $search, type: MANGA) {
-                id idMal description(asHtml: false) coverImage { extraLarge }
+                id idMal description(asHtml: false) coverImage { extraLarge } title { romaji english native }
                 genres tags { name } startDate { year } status isAdult countryOfOrigin
                 staff { edges { role node { name { full } } } }
                 characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
@@ -47,6 +75,8 @@ class AnilistScraper(BaseScraper):
                 data = response.json().get('data', {}).get('Media')
                 if data:
                     return {
+                        'title': data.get('title', {}).get('romaji', ''),
+                        'alternative_titles': [t for t in data.get('title', {}).values() if t],
                         'summary': data.get('description', ''),
                         'cover_url': data.get('coverImage', {}).get('extraLarge'),
                         'genres': data.get('genres', []),

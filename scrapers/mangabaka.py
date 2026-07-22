@@ -2,6 +2,7 @@ import requests
 import logging
 from .base import BaseScraper
 from .utils import clean_title
+from typing import Optional
 
 class MangaBakaScraper(BaseScraper):
     id = "MANGABAKA"
@@ -9,6 +10,14 @@ class MangaBakaScraper(BaseScraper):
     supported_types = {"Manga"}
     rate_limit = 2.5
     proxy_domains = ["mangabaka.org"]
+    has_direct_id_support = True
+
+    def extract_id_from_url(self, url: str) -> Optional[str]:
+        """Extrait l'ID (ex: 2027) d'une URL mangabaka.org"""
+        if "mangabaka.org" in url:
+            # Enlève les paramètres éventuels ?q=... et prend le dernier élément
+            return url.split('?')[0].rstrip('/').split('/')[-1]
+        return None
 
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False):
         base_url = "https://api.mangabaka.org/v2/series"
@@ -62,6 +71,11 @@ class MangaBakaScraper(BaseScraper):
             for t in data.get('titles', []):
                 if isinstance(t, dict) and t.get('title'):
                     alt_titles.append(t['title'])
+                    
+            # NOUVEAU : Récupération du titre principal pour le Smart Match
+            fetched_title = data.get('name') or data.get('title')
+            if not fetched_title and alt_titles:
+                fetched_title = alt_titles[0]
 
             mb_sources = data.get('source', {})
             anilist_id, mal_id = None, None
@@ -85,6 +99,7 @@ class MangaBakaScraper(BaseScraper):
             except Exception: pass
 
             return {
+                'title': fetched_title, # 👈 Ajout capital pour le Smart Match
                 'summary': data.get('description', ''),
                 'cover_url': cover_url,
                 'genres': genres_list,

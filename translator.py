@@ -85,6 +85,12 @@ def translate_text(text, api_key_fallback_ignored=None, target_lang="FR"):
     
     # Récupération du choix utilisateur
     provider = config.get("TRANSLATION_PROVIDER", "GOOGLE")
+    
+    # NOUVEAU : Interception absolue si le système est désactivé
+    if provider == "NONE":
+        logging.info(t.get('log_trans_disabled', "⏭️ [Translator] Traduction désactivée, conservation de la VO."))
+        return text_clean
+
     azure_key = config.get("AZURE_API_KEY", "").strip()
     azure_region = config.get("AZURE_REGION", "").strip()
     deepl_key = config.get("DEEPL_API_KEY", "").strip()

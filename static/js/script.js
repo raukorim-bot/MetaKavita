@@ -3,6 +3,9 @@ let currentCoverModalSeriesId = null;
 let currentCoverModalSeriesName = null;
 let allPanelsExpanded = false; // Mémorise l'état global du déploiement des options
 
+// Fonction de secours pour garantir que le root_path existe toujours
+const getRootPath = () => window.ROOT_PATH || '';
+
 // --- AFFICHAGE CONDITIONNEL DU FOURNISSEUR DE TRADUCTION ---
 function toggleTranslationFields() {
     const provider = document.getElementById('translationProvider');
@@ -18,7 +21,7 @@ function toggleTranslationFields() {
         deeplFields.style.display = 'none';
         azureFields.style.display = 'block';
     } else {
-        // Mode Google (Gratuit) : On masque toutes les clés API !
+        // Mode Google (Gratuit) OU Mode Désactivé (NONE) : On masque toutes les clés API !
         deeplFields.style.display = 'none';
         azureFields.style.display = 'none';
     }
@@ -46,7 +49,7 @@ function togglePanel(id) {
     panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
 }
 
-// NOUVEAU : Fonction de déploiement/repli global de tous les panneaux d'options (Solution Ergonomie)
+// NOUVEAU : Fonction de déploiement/repli global de tous les panneaux d'options
 function toggleAllOverridePanels() {
     allPanelsExpanded = !allPanelsExpanded;
     const targetDisplay = allPanelsExpanded ? 'block' : 'none';
@@ -109,12 +112,23 @@ document.addEventListener('DOMContentLoaded', () => {
 function saveOverride(seriesId, btn) {
     const forcedId = document.getElementById('id-' + seriesId).value;
     const altTitle = document.getElementById('title-' + seriesId).value;
+    
+    const providerSelect = document.getElementById('provider-' + seriesId);
+    const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
+    
+    // NOUVEAU : Les 12 champs exhaustifs de l'architecture
+    const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
+    const activeFields = fields.filter(f => {
+        const cb = document.getElementById(`field-${f}-${seriesId}`);
+        return cb && cb.checked;
+    }).join(',');
+
     btn.innerText = "⏳...";
     
-    fetch('/save-override', {
+    fetch(getRootPath() + '/save-override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `series_id=${seriesId}&forced_id=${forcedId}&alternative_title=${encodeURIComponent(altTitle)}`
+        body: `series_id=${seriesId}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}`
     }).then(r => {
         if(r.ok) {
             btn.innerText = "✅"; 
@@ -129,14 +143,36 @@ function lookupAniListId(seriesName) {
     window.open(url, '_blank');
 }
 
-async function saveAllOverrides() {
+// SAUVEGARDE GLOBALE
+async function saveAllOverrides(btn) {
     const panels = document.querySelectorAll('.override-panel');
+    const originalText = btn.innerHTML;
+    
+    // Feedback visuel du bouton global
+    btn.classList.add('btn-saving');
+    btn.innerHTML = "⏳ " + window.AppTranslations.saving_progress;
+    btn.disabled = true;
+
     for (let panel of panels) {
-        if (panel.style.display === 'block') {
-            panel.querySelector('button.btn-success').click();
-            await new Promise(r => setTimeout(r, 200));
+        if (panel.style.display === 'block' || panel.style.display === 'flex') {
+            const saveBtn = panel.querySelector('button.btn-success');
+            if(saveBtn) {
+                saveBtn.click();
+                await new Promise(r => setTimeout(r, 250)); // Petit délai pour ne pas saturer le serveur
+            }
         }
     }
+    
+    // Restauration du bouton global
+    btn.innerHTML = "✅ " + window.AppTranslations.save_done;
+    btn.classList.remove('btn-saving');
+    btn.classList.add('btn-success');
+    
+    setTimeout(() => { 
+        btn.innerHTML = originalText;
+        btn.classList.remove('btn-success');
+        btn.disabled = false;
+    }, 2000);
 }
 
 function filterSeries() {
@@ -212,16 +248,24 @@ function syncSingle(id, name, btn) {
     if(forcedIdInput && altTitleInput) {
         const forcedId = forcedIdInput.value;
         const altTitle = altTitleInput.value;
+        const providerSelect = document.getElementById('provider-' + id);
+        const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
+        
+        const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
+        const activeFields = fields.filter(f => {
+            const cb = document.getElementById(`field-${f}-${id}`);
+            return cb && cb.checked;
+        }).join(',');
         
         btn.style.display = 'none';
         btn.previousElementSibling.style.display = 'none'; 
         let loading = btn.nextElementSibling;
         loading.style.display = 'inline-block';
         
-        fetch('/save-override', {
+        fetch(getRootPath() + '/save-override', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `series_id=${id}&forced_id=${forcedId}&alternative_title=${encodeURIComponent(altTitle)}`
+            body: `series_id=${id}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}`
         }).then(() => proceedSyncSingle(id, name, btn, loading));
     } else {
         proceedSyncSingle(id, name, btn, null);
@@ -237,7 +281,7 @@ function proceedSyncSingle(id, name, btn, loadingElem) {
         loading.style.display = 'inline-block';
     }
 
-    fetch('/force-sync', {
+    fetch(getRootPath() + '/force-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `series_id=${id}&series_name=${encodeURIComponent(name)}`
@@ -284,7 +328,7 @@ async function launchBatch(event) {
         }
         
         batch.forEach(id => formData.append('selected_series', id));
-        await fetch('/batch-sync', { method: 'POST', body: formData });
+        await fetch(getRootPath() + '/batch-sync', { method: 'POST', body: formData });
     }
 
     btn.innerText = window.AppTranslations.batch_ok;
@@ -292,7 +336,7 @@ async function launchBatch(event) {
 }
 
 function stopBatch() {
-    fetch('/stop-batch', { method: 'POST' })
+    fetch(getRootPath() + '/stop-batch', { method: 'POST' })
     .then(res => res.json())
     .then(data => {
         const btn = document.getElementById('mainBatchBtn');
@@ -301,7 +345,7 @@ function stopBatch() {
 }
 
 // --- WEBSOCKETS LOGS & INDICATEUR LIVE DE TRAITEMENT ---
-var socket = io();
+var socket = io({ path: getRootPath() + '/socket.io' });
 var logConsole = document.getElementById('log-console');
 socket.on('connect', function() { 
     logConsole.innerHTML += '<div class="log-line" style="color: var(--primary);">' + window.AppTranslations.terminal_ready + '</div>'; 
@@ -401,7 +445,7 @@ function saveConfig() {
     const originalText = btn ? btn.innerText : "";
     if (btn) btn.innerText = "⏳...";
 
-    fetch('/save-config', {
+    fetch(getRootPath() + '/save-config', {
         method: 'POST',
         body: formData
     })
@@ -427,7 +471,7 @@ function resetErrors(btn) {
     const originalText = btn.innerText;
     btn.innerText = "⏳...";
     
-    fetch('/reset-errors', { method: 'POST' })
+    fetch(getRootPath() + '/reset-errors', { method: 'POST' })
     .then(res => res.json())
     .then(data => {
         if (data.success) {
@@ -455,7 +499,7 @@ function loadLibrary(libraryId) {
     
     localStorage.setItem('filter_library', libraryId || '');
     
-    fetch('/?library_id=' + libraryId)
+    fetch(getRootPath() + '/?library_id=' + libraryId)
         .then(res => res.text())
         .then(html => {
             const parser = new DOMParser();
@@ -472,7 +516,7 @@ function loadLibrary(libraryId) {
                 currentStats.innerHTML = newStats.innerHTML;
             }
             
-            const newUrl = libraryId ? '/?library_id=' + libraryId : '/';
+            const newUrl = libraryId ? getRootPath() + '/?library_id=' + libraryId : getRootPath() + '/';
             window.history.pushState({ path: newUrl }, '', newUrl);
             
             contentArea.style.opacity = '1';
@@ -500,7 +544,7 @@ function toggleIgnore(seriesId, btn) {
     btn.innerText = "⏳";
     btn.disabled = true;
 
-    fetch('/toggle-ignore', {
+    fetch(getRootPath() + '/toggle-ignore', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `series_id=${seriesId}&current_status=${currentStatus}`
@@ -558,7 +602,7 @@ async function ignoreSelection() {
 
         if (currentStatus !== 'IGNORED') {
             try {
-                const res = await fetch('/toggle-ignore', {
+                const res = await fetch(getRootPath() + '/toggle-ignore', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                     body: `series_id=${seriesId}&current_status=${currentStatus}`
@@ -609,14 +653,13 @@ function openCoverModal(seriesId, seriesName) {
 }
 
 function fetchCovers(seriesId, query) {
-    fetch(`/api/series/${seriesId}/covers?series_name=${encodeURIComponent(query)}`)
+    fetch(`${getRootPath()}/api/series/${seriesId}/covers?series_name=${encodeURIComponent(query)}`)
     .then(r => r.json())
     .then(data => {
         if(data.success && data.covers.length > 0) {
             let html = '';
             data.covers.forEach(c => {
-                // CORRECTION : Faire passer Nautiljon et ComicVine par notre proxy d'images
-                let displayUrl = (c.provider === 'Kitsu' || c.provider.startsWith('ComicVine')) ? `/api/proxy-image?url=${encodeURIComponent(c.url)}` : c.url;
+                let displayUrl = (c.provider === 'Kitsu' || c.provider.startsWith('ComicVine')) ? getRootPath() + '/api/proxy-image?url=' + encodeURIComponent(c.url) : c.url;
                 
                 html += `
                 <div class="cover-item" onclick="applyCover('${seriesId}', '${c.url}')" title="${c.title}">
@@ -656,7 +699,7 @@ function closeCoverModal() {
 function applyCover(seriesId, coverUrl) {
     document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_sending}</div>`;
     
-    fetch(`/api/series/${seriesId}/update-cover`, {
+    fetch(`${getRootPath()}/api/series/${seriesId}/update-cover`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cover_url: coverUrl })
@@ -674,7 +717,7 @@ function applyCover(seriesId, coverUrl) {
 
 // --- GESTION DES MENUS PROVIDERS ---
 function handleProviderChange(changedSelect) {
-    const name = changedSelect.name; // ex: "COMIC_PROVIDER_1" ou "PROVIDER_2"
+    const name = changedSelect.name;
     let prefix = "";
     if (name.startsWith("COMIC_")) {
         prefix = "COMIC_";
@@ -707,4 +750,34 @@ function handleProviderChange(changedSelect) {
     }
 
     saveConfig();
+}
+// --- REGÉNÉRATION DU JETON WEBHOOK (AJAX) ---
+function regenerateWebhookToken(btn) {
+    if (!confirm(window.AppTranslations.regen_webhook_confirm || "Régénérer le jeton Webhook ?")) {
+        return;
+    }
+    
+    const originalText = btn.innerText;
+    btn.innerText = "⏳...";
+    btn.disabled = true;
+
+    fetch(getRootPath() + '/regenerate-webhook-token', { method: 'POST' })
+    .then(res => res.json())
+    .then(data => {
+        btn.disabled = false;
+        if (data.success) {
+            const webhookInput = document.getElementById('webhookUrlInput');
+            if (webhookInput) {
+                webhookInput.value = `${getRootPath()}/webhook?token=${data.new_token}`;
+            }
+            btn.innerText = "✅ OK";
+            setTimeout(() => { btn.innerText = originalText; }, 2000);
+        } else {
+            btn.innerText = originalText;
+        }
+    })
+    .catch(() => {
+        btn.disabled = false;
+        btn.innerText = originalText;
+    });
 }

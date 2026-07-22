@@ -9,16 +9,17 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
-        const savedTheme = localStorage.getItem('theme') || 'dark';
+        window.ROOT_PATH = "{{ request.script_root }}"; // S'adapte magiquement au sous-chemin !
+		const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
-		window.AppTranslations = {
+        window.AppTranslations = {
             save: "{{ t.save }}",
             update: "{{ t['update'] }}",
             launchBatch: "{{ t.launch_batch }}",
             filter_pending: "{{ t.filter_pending }}",
             filter_completed: "{{ t.filter_completed }}",
             filter_notfound: "{{ t.filter_notfound }}",
-			filter_ignored: "{{ t.filter_ignored }}",
+            filter_ignored: "{{ t.filter_ignored }}",
             ignore_btn: "{{ t.ignore_btn }}",
             unignore_btn: "{{ t.unignore_btn }}",
             element: "{{ t.element }}",
@@ -26,11 +27,15 @@
             batch_empty: "{{ t.batch_empty }}",
             batch_sending: "{{ t.batch_sending }}",
             batch_ok: "{{ t.batch_ok }}",
-			terminal_ready: "{{ t.terminal_ready }}",
-			manage_covers: "{{ t.manage_covers }}",
+            terminal_ready: "{{ t.terminal_ready }}",
+            manage_covers: "{{ t.manage_covers }}",
             modal_cover_loading: "{{ t.modal_cover_loading }}",
-            modal_cover_sending: "{{ t.modal_cover_sending }}"
+            modal_cover_sending: "{{ t.modal_cover_sending }}",
+            saving_progress: "{{ t.get('saving_progress', 'Sauvegarde en cours...') }}",
+            save_done: "{{ t.get('save_done', 'Terminé') }}",
+			regen_webhook_confirm: "{{ t.regen_webhook_confirm }}"
         };
+
     </script>
 </head>
 <body>
@@ -78,7 +83,7 @@
                         <div style="width: {{ (stats.ignored / stats.total) * 100 }}%; background: var(--secondary);"></div>
                         {% endif %}
                     </div>
-                    <a href="/stats" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">{{ t.open_stats }}</a>
+                    <a href="{{ url_for('stats') }}" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">{{ t.open_stats }}</a>
                 </div>
 
                 <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
@@ -113,7 +118,7 @@
                 <!-- EXPORT DES ERREURS -->
                 {% if libraries %}
                 <div style="margin-top: -10px; margin-bottom: 10px;">
-                    <a href="/export-errors" class="btn-danger block-link w-100" style="font-size: 13px; padding: 10px;">{{ t.export_errors }}</a>
+                    <a href="{{ url_for('export_errors') }}" class="btn-danger block-link w-100" style="font-size: 13px; padding: 10px;">{{ t.export_errors }}</a>
                 </div>
                 {% endif %}
                 
@@ -129,11 +134,11 @@
                 <div class="sidebar-footer">
                     <p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
                     <p>
-                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.5.2</a> | 
+                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.5.4</a> | 
                         <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
                     </p>
                     {% if config.get('ADMIN_PASSWORD') %}
-                    <a href="/logout" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
+                    <a href="{{ url_for('logout') }}" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
                     {% endif %}
                 </div>
             </aside>
@@ -178,10 +183,10 @@
                             </label>
                         </div>
                         
-                        <!-- ACTIONS DE CONFIGURATION DE MASSE (Corrigées : Plus de chevauchement) -->
+                        <!-- ACTIONS DE CONFIGURATION DE MASSE -->
                         <div class="toolbar-right" style="display: flex; gap: 10px;">
                             <button type="button" onclick="toggleAllOverridePanels()" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.toggle_all_overrides }}</button>
-                            <button type="button" onclick="saveAllOverrides()" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.save_all }}</button>
+                            <button type="button" onclick="saveAllOverrides(this)" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.save_all }}</button>
                         </div>
                     </div>
 
@@ -218,20 +223,55 @@
                                 </div>
                                 
                                 <div id="panel-{{ series.id }}" class="override-panel">
-                                    <div class="override-grid">
-                                        <div>
-                                            <span class="input-hint">{{ t.anilist_id }}</span>
-                                            <div style="display: flex; gap: 5px; align-items: center;">
-                                                <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_id }}" style="flex: 1;">
-                                                <button type="button" class="btn-icon" onclick="lookupAniListId('{{ series.name|replace("'", "\\'") }}')" title="{{ t.quick_lookup_title }}" style="padding: 8px; display: inline-flex; align-items: center; justify-content: center; height: 38px;">🔍</button>
-                                            </div>
-                                        </div>
+                                    <div class="override-grid" style="grid-template-columns: 1.5fr 1.5fr auto; gap: 10px; align-items: start;">
+                                        
+                                        <!-- CHAMP 1 : TITRE ALTERNATIF PRÉ-REMPLI -->
                                         <div>
                                             <span class="input-hint">{{ t.alt_title }}</span>
-                                            <input type="text" id="title-{{ series.id }}" value="{{ series.alternative_title }}" placeholder="{{ t.placeholder_title }}">
+                                            <input type="text" id="title-{{ series.id }}" value="{{ series.alternative_title or series.name }}" placeholder="{{ t.placeholder_title }}">
                                         </div>
-                                        <button type="button" class="btn-success" onclick="saveOverride('{{ series.id }}', this)">{{ t.save }}</button>
+
+                                        <!-- CHAMP 2 : LE "CHAMP MAGIQUE" (PROVIDER + ID/URL) -->
+                                        <div>
+                                            <span class="input-hint">{{ t.magic_input_hint }}</span>
+                                            <div style="display: flex; gap: 5px;">
+                                                <select id="provider-{{ series.id }}" style="width: 35%; padding: 8px; font-size: 12px;">
+                                                    <option value="AUTO">{{ t.provider_auto }}</option>
+                                                    {% for scraper in magic_scrapers %}
+                                                        {% if series.libraryType in scraper.supported_types or "Manga" in scraper.supported_types %}
+                                                            <option value="{{ scraper.id }}" {% if series.forced_provider == scraper.id %}selected{% endif %}>{{ scraper.display_name }}</option>
+                                                        {% endif %}
+                                                    {% endfor %}
+                                                </select>
+                                                <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_magic }}" style="flex: 1;">
+                                            </div>
+                                        </div>
+
+                                        <!-- BOUTON SAUVEGARDER -->
+                                        <div style="padding-top: 20px;">
+                                            <button type="button" class="btn-success" onclick="saveOverride('{{ series.id }}', this)">{{ t.save }}</button>
+                                        </div>
                                     </div>
+
+                                    <!-- SOUS-MENU CACHÉ POUR LE SCRAPING CIBLÉ (TOUS LES CHAMPS) -->
+                                    <details class="targeted-scraping-details" style="margin-top: 10px;">
+                                        <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">⚙️ {{ t.targeted_fields }}</summary>
+                                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; padding: 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border-color);">
+                                            {% set tf = series.targeted_fields|default('ALL') %}
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-summary-{{ series.id }}" {% if 'summary' in tf or tf == 'ALL' %}checked{% endif %}> Résumé</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-cover-{{ series.id }}" {% if 'cover' in tf or tf == 'ALL' %}checked{% endif %}> Couverture</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-staff-{{ series.id }}" {% if 'staff' in tf or tf == 'ALL' %}checked{% endif %}> Auteurs/Staff</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-genres-{{ series.id }}" {% if 'genres' in tf or tf == 'ALL' %}checked{% endif %}> Genres</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-tags-{{ series.id }}" {% if 'tags' in tf or tf == 'ALL' %}checked{% endif %}> Thèmes/Persos</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-year-{{ series.id }}" {% if 'year' in tf or tf == 'ALL' %}checked{% endif %}> Année</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-status-{{ series.id }}" {% if 'status' in tf or tf == 'ALL' %}checked{% endif %}> Statut</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-publisher-{{ series.id }}" {% if 'publisher' in tf or tf == 'ALL' %}checked{% endif %}> Éditeur</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-age-{{ series.id }}" {% if 'age' in tf or tf == 'ALL' %}checked{% endif %}> Âge</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-format-{{ series.id }}" {% if 'format' in tf or tf == 'ALL' %}checked{% endif %}> Sens lecture</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-{{ series.id }}" {% if 'weblinks' in tf or tf == 'ALL' %}checked{% endif %}> Liens & IDs</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-{{ series.id }}" {% if 'alt_titles' in tf or tf == 'ALL' %}checked{% endif %}> Titres Alternatifs</label>
+                                        </div>
+                                    </details>
                                 </div>
                             </div>
                             {% endfor %}
@@ -242,12 +282,12 @@
                     <!-- ACCORDION D'ACTIONS DE MASSE -->
                     <div class="batch-actions">
                         <button type="button" class="btn-warning" id="batchResetBtn" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
-						<button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>
+                        <button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>
                         <button type="submit" class="btn-batch" id="mainBatchBtn">{{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
                 </form>
-				{% else %}
+                {% else %}
                 <div class="card" style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
                     <div style="font-size: 50px; margin-bottom: 20px;">{% if error_msg %}🔌{% else %}👋{% endif %}</div>
                     <h2 style="color: var(--text-muted); margin-bottom: 10px;">
@@ -270,8 +310,6 @@
                 <button type="button" class="close-btn" onclick="closeConfigModal()">&times;</button>
             </div>
             <form id="configForm" onsubmit="event.preventDefault(); saveConfig();">
-                <!-- templates/index.html (Remplacement du bloc .config-grid dans la modal) -->
-
                 <div class="config-grid">
                     <!-- COLONNE GAUCHE : Connexions & API Fournisseurs -->
                     <div class="config-col">
@@ -291,7 +329,7 @@
                             </div>
                         </div>
 
-                        <!-- Section 1.5 : Clés API Fournisseurs (Sous Kavita) -->
+                        <!-- Section 1.5 : Clés API Fournisseurs -->
                         <div class="config-section">
                             <h4 class="config-section-title">{{ t.providers_api_title }}</h4>
                             <div class="form-group">
@@ -317,17 +355,16 @@
                         <div class="config-section">
                             <h4 class="config-section-title">{{ t.trans_lang }}</h4>
                             
-                            <!-- MENU DÉROULANT DU FOURNISSEUR -->
                             <div class="form-group">
                                 <label>{{ t.trans_provider }}</label>
                                 <select name="TRANSLATION_PROVIDER" id="translationProvider" onchange="toggleTranslationFields()">
-                                    <option value="GOOGLE" {% if config.get('TRANSLATION_PROVIDER', 'GOOGLE') == 'GOOGLE' %}selected{% endif %}>{{ t.trans_google }}</option>
-                                    <option value="DEEPL" {% if config.get('TRANSLATION_PROVIDER') == 'DEEPL' %}selected{% endif %}>{{ t.trans_deepl }}</option>
-                                    <option value="AZURE" {% if config.get('TRANSLATION_PROVIDER') == 'AZURE' %}selected{% endif %}>{{ t.trans_azure }}</option>
-                                </select>
+									<option value="NONE" {% if config.get('TRANSLATION_PROVIDER') == 'NONE' %}selected{% endif %}>{{ t.trans_none }}</option>
+									<option value="GOOGLE" {% if config.get('TRANSLATION_PROVIDER', 'GOOGLE') == 'GOOGLE' %}selected{% endif %}>{{ t.trans_google }}</option>
+									<option value="DEEPL" {% if config.get('TRANSLATION_PROVIDER') == 'DEEPL' %}selected{% endif %}>{{ t.trans_deepl }}</option>
+									<option value="AZURE" {% if config.get('TRANSLATION_PROVIDER') == 'AZURE' %}selected{% endif %}>{{ t.trans_azure }}</option>
+								</select>
                             </div>
 
-                            <!-- CHAMPS DEEPL (Masqués par défaut) -->
                             <div id="deepl_fields" style="display: none; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 15px;">
                                 <div class="form-group m-0">
                                     <label>{{ t.deepl_api }}</label>
@@ -338,7 +375,6 @@
                                 </div>
                             </div>
                             
-                            <!-- CHAMPS AZURE (Masqués par défaut) -->
                             <div id="azure_fields" style="display: none; padding: 10px; background: rgba(0,0,0,0.1); border-radius: 6px; margin-bottom: 15px;">
                                 <div class="form-group">
                                     <label>{{ t.azure_api }}</label>
@@ -365,7 +401,8 @@
                                     <label>{{ t.target_lang }}</label>
                                     <select name="TARGET_LANG">
                                         <option value="FR" {% if config.get('TARGET_LANG') == 'FR' %}selected{% endif %}>Français</option>
-                                        <option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
+                                        <option value="EN" {% if config.get('TARGET_LANG') == 'EN' %}selected{% endif %}>English</option>
+										<option value="ES" {% if config.get('TARGET_LANG') == 'ES' %}selected{% endif %}>Español</option>
                                         <option value="DE" {% if config.get('TARGET_LANG') == 'DE' %}selected{% endif %}>Deutsch</option>
                                         <option value="IT" {% if config.get('TARGET_LANG') == 'IT' %}selected{% endif %}>Italiano</option>
                                         <option value="JA" {% if config.get('TARGET_LANG') == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
@@ -380,16 +417,25 @@
                         </div>
 
                         <!-- Section 4 : Planification -->
-                        <div class="config-section">
-                            <h4 class="config-section-title">{{ t.planning }}</h4>
-                            <div class="form-group">
-                                <label>{{ t.auto_sync_interval }}</label>
-                                <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">
-                            </div>
-                        </div>
+						<div class="config-section">
+							<h4 class="config-section-title">{{ t.planning }}</h4>
+							<div class="form-group">
+								<label>{{ t.auto_sync_interval }}</label>
+								<input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">
+							</div>
+							
+							<!-- CHAMP WEBHOOK + BOUTON REGÉNÉRATION -->
+							<div class="form-group" style="margin-top: 10px;">
+								<label>{{ t.webhook_url_label }}</label>
+								<div style="display: flex; gap: 8px;">
+									<input type="text" id="webhookUrlInput" readonly value="{{ request.script_root }}/webhook?token={{ config.get('WEBHOOK_TOKEN', '') }}" onclick="this.select();" style="cursor: pointer; background: var(--bg-card); font-size: 11px; flex: 1;" title="Cliquer pour tout sélectionner">
+									<button type="button" class="btn-secondary" onclick="regenerateWebhookToken(this)" style="font-size: 12px; padding: 6px 10px; white-space: nowrap;">{{ t.regen_webhook_btn }}</button>
+								</div>
+							</div>
+						</div>
                     </div>
 
-                    <!-- Section 3 : Ordre des Providers de recherche (Prend toute la largeur) -->
+                    <!-- Section 3 : Ordre des Providers de recherche -->
                     <div class="config-section config-span-all">
                         <h4 class="config-section-title">{{ t.provider_cascade }}</h4>
                         
@@ -501,7 +547,7 @@
         </div>
     </div>
 
-	<!-- MODAL DE SÉLECTION DE COUVERTURE AVEC RECHERCHE MANUELLE INTÉGRÉE -->
+    <!-- MODAL DE SÉLECTION DE COUVERTURE AVEC RECHERCHE MANUELLE INTÉGRÉE -->
     <div id="coverModal" class="modal-overlay" onclick="if(event.target===this) closeCoverModal()">
         <div class="modal-content">
             <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 10px;">
