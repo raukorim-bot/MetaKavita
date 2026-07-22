@@ -22,14 +22,14 @@ def load_config():
         "PROVIDER_2": "KITSU", 
         "PROVIDER_3": "ANILIST",
         "COMICVINE_API_KEY": "",
-        "GOOGLEBOOKS_API_KEY": "",  # NOUVEAU
+        "GOOGLEBOOKS_API_KEY": "",
         "SMART_COMPLETION": False,
         "AUTO_SYNC_INTERVAL": 0, 
         "AUTO_COVER": False,
         "AUTO_READING_DIR": False,
         "ADMIN_PASSWORD": "", 
-        "SECRET_KEY": secrets.token_hex(24),
-        "WEBHOOK_TOKEN": secrets.token_urlsafe(16)
+        "SECRET_KEY": "",     # 👈 Initialisé à vide pour forcer la détection
+        "WEBHOOK_TOKEN": ""   # 👈 Initialisé à vide pour forcer la détection
     }
     
     file_config = {}
@@ -60,7 +60,7 @@ def load_config():
     for key in [
         "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION", 
         "TARGET_LANG", "UI_LANG", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3", "COMICVINE_API_KEY",
-        "GOOGLEBOOKS_API_KEY"  # NOUVEAU
+        "GOOGLEBOOKS_API_KEY"
     ]:
         if key in file_config:
             config[key] = file_config[key]

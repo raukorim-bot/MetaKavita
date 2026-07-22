@@ -17,7 +17,7 @@
 - [x] **A1 to A6:** Secure API integration, Live Logs, 100% AJAX, Global Translation bridges, Responsive UI.
 - [x] **A7 to A9:** Self-cleaning SQLite cache, explicit connection error indicators, Zero-Setup deployment.
 - [x] **A10. Production WSGI Server:** Eventlet + Gunicorn asynchronous stack.
-- [x] **A11. Global Security:** SSRF Protection on Image Proxy,Timing-Attack immune authentication (`secrets.compare_digest`), HttpOnly Session cookies, hidden API keys in DOM, Token-protected webhooks.
+- [x] **A11. Global Security:** SSRF Protection on Image Proxy, Timing-Attack immune authentication (`secrets.compare_digest`), HttpOnly Session cookies, hidden API keys in DOM, Token-protected webhooks.
 
 ---
 
@@ -38,30 +38,39 @@
 
 ---
 
-### 🐛 V1.4.x / V1.5.0 Bug Fixes & Security Hardening (Completed)
+### 🐛 V1.4.x / V1.5.0+ Bug Fixes & Security Hardening
 - [x] **BF1. Admin Password Env Var Override Bug:** Resolved the issue where clearing the admin password via `docker-compose.yml` failed. Implemented a prioritize-config-over-env logic in `config_manager.py`.
 - [x] **BF2. Permanent Auth Cookie Cleansing:** Ensured a hard logout completely destroys the long-lived session cookie via `expires=0` to force clean logins when authentication states are modified.
 - [x] **BF3. Bédéthèque Spin-off Override Bug**: Fixed an issue where searching for a main series (e.g., "La Quête d'Ewilan") would return covers from its spin-offs (e.g., "Ellana") due to Bédéthèque's alphabetical sorting. Implemented an exact-match logic that delays the loop-break, evaluating all title variations (with and without articles) to guarantee the parent series is pushed to the top of the results.
 - [x] **BF4. Context-Aware Cover Fetching**: Fixed a regression where the manual cover search queried all scrapers blindly. The system now dynamically filters active scrapers based on the Kavita `library_type` (e.g., Manga, Comic) and passes this context to adapt the title cleaning rules (fixing the `unexpected keyword argument` crash).
+- [x] **BF5. Publisher Metadata Parsing Fix:** Corrected an oversight where publisher metadata wasn't properly scraped and pushed to Kavita from certain active providers.
+- [x] **BF6. Disable Translation Option:** Added a configuration setting (`NONE`) to disable the translation pipeline and preserve the original scraped language.
 
 ---
 
 ### 🔮 Part C: Target Scrapers & New Features (V1.5.0+)
 
-#### 1. New Manga Providers (Priority Integration)
+#### 1. New Providers (Priority Integration)
 - [x] **C1. MyAnimeList (MAL) Scraper:** Integrated the public and free **Jikan API v4** (no key required) to natively grab `MalId` and rich metadata, replacing Nautiljon.
 - [ ] **C2. MangaDex Scraper:** Integrate the official **MangaDex REST API** for rich metadata tags (themes like *Isekai*), localized descriptions, and extra cover artwork.
 - [ ] **C3. Baka-Updates (MangaUpdates) Scraper:** Integrate the scanlation catalog to retrieve vast lists of alternative associated titles to auto-populate overrides.
-- [X] **C4. Kitsu Scraper:** Add Kitsu JSON:API as a reliable global fallback source.
+- [x] **C4. Kitsu Scraper:** Add Kitsu JSON:API as a reliable global fallback source.
 - [ ] **C5. Manga-News Scraper:** Implement BeautifulSoup4 scraping of the French licensing catalog to retrieve official publisher credits, VF volumes count, and regional age recommendations.
-- [x] **C6. Scraper Bedethèque : **  Scraping BeautifulSoup4 (Voir comicrack comme base).
+- [x] **C6. Scraper Bedethèque:** Scraping BeautifulSoup4 for Franco-Belgian comics.
 
-#### 2. Advanced Features
+#### 2. Advanced Features & Core Architecture
 - [x] **C6. Western Comics & Books Support (B10):** Integrated the Google Books API as a production-ready scraper to allow metadata fetching for Novels, Franco-Belgian BDs, and Western Comics.
 - [ ] **C7. Playful Statistics Dashboard (B12):** Display fun metrics on the `/stats` page, such as estimated time saved, estimated DeepL Translation costs avoided, and provider usage charts.
 - [ ] **C8. Resiliency & Rate-Limiting Control:** Add an automatic exponential backoff retry mechanism to prevent API blocks (429 errors) during very large batches.
-- [ ] **C14. Context-Aware Cover Search:** Dynamically filter the queried providers inside the manual cover selection modal based on the Kavita `libraryType` (Manga, Comic, Book). This will prevent massive false positives (e.g., ComicVine returning irrelevant covers for Manga queries).
+- [x] **C14. Context-Aware Cover Search:** Dynamically filter the queried providers inside the manual cover selection modal based on the Kavita `libraryType` (Manga, Comic, Book). 
 - [ ] **C15. Title Translation Fallback:** When a search yields no results ("Not Found"), automatically translate the query into English and perform a second pass to maximize match rates for highly localized titles.
+- [ ] **C16. Hardcover Scraper:** Integrate the Hardcover API as an additional metadata source to expand matching capabilities.
+- [x] **C17. Reverse Proxy & Subpath Support:** Introduced `ROOT_PATH` environment variable and WSGI middleware to dynamically prefix application routes, allowing MetaKavita to run seamlessly behind reverse proxies (e.g., Nginx Proxy Manager, Traefik) on custom subpaths.
+- [x] **C18. The "Magic Input" (Smart URL Routing):** Replaced static ID fields with a universal URL/ID parser. The UI now dynamically restricts compatible providers and securely routes direct page scraping to bypass false-positive search results.
+- [x] **C19. Granular Scraping (Targeted Fields):** Built UI and backend support to individually toggle 12 Kavita metadata fields (Summary, Cover, Publisher, Staff, etc.), allowing users to prevent accidental overwrites of manually edited details.
+- [x] **C20. Self-Healing Configuration Engine:** Dynamic validation of search cascades. Automatically falls back to the next available scraper if a user's configured default provider file is missing or deleted.
+- [x] **C21. Smart ID Match Engine:** Implemented a title similarity validation engine (>50% ratio threshold). When searching via raw ID strings, the system cross-references the retrieved title with Kavita's title to prevent homonym corruption.
+- [x] **C22. Extended Kavita API Mapping:** Added Editors, Letterers, Inkers, and Localized Language strictly to the Kavita payload mapping block.
 
 #### 🌐 3. Multi-Media & Resiliency (Completed V1.5.0)
 - [x] **C9. Resilient Multi-API Translator:** Dedicated translation module (`translator.py`) combining Microsoft Azure Translator (Primary F0 tier) and DeepL (Fallback) with automatic switch upon HTTP quota errors.
@@ -99,29 +108,39 @@
 
 ---
 
-### 🐛 Corrections de Bugs V1.4.x / V1.5.0 & Sécurité (Complété)
+### 🐛 Corrections de Bugs V1.4.x / V1.5.0+ & Sécurité
 - [x] **BF1. Bug de Surcharge de Mot de Passe en Env Var :** Résolution du problème où vider le mot de passe dans le `docker-compose.yml` échouait. Mise en place d'une priorité de configuration locale via `config.json`.
 - [x] **BF2. Nettoyage de Session à la Déconnexion :** Le bouton de déconnexion détruit désormais entièrement le cookie de session longue durée (expiration forcée) pour forcer une ré-authentification propre.
 - [x] **BF3. Recherche de Couvertures Contextuelle** : Correction d'une régression où la recherche manuelle d'images interrogeait tous les fournisseurs à l'aveugle. Le système filtre désormais dynamiquement les scrapers selon le type de bibliothèque (`Manga`, `Comic`, `Book`) et transmet ce contexte pour adapter le nettoyage du titre (ce qui corrige au passage l'erreur fatale `unexpected keyword argument`).
 - [x] **BF4. Bug d'Écrasement par les Spin-offs (Bédéthèque)** : Résolution d'un problème où la recherche d'une série principale (ex: "La Quête d'Ewilan") renvoyait les couvertures de son spin-off (ex: "Ellana") à cause du tri alphabétique natif de Bédéthèque. Ajout d'une logique de "match exact" qui évalue toutes les variations de titres (gestion des articles "Le", "La") pour garantir que la série mère remonte en première position.
+- [x] **BF5. Correction du Parsing des Éditeurs (Publisher) :** Résolution d'un oubli de parsing où le nom de l'éditeur n'était pas correctement extrait et envoyé vers Kavita sur certains fournisseurs actifs.
+- [x] **BF6. Option de Désactivation de la Traduction :** Ajout d'un paramètre de configuration (`NONE`) pour désactiver complètement le pipeline de traduction et conserver la langue d'origine scrapée.
+
 ---
 
 ### 🔮 Partie C : Scrapers Cibles & Nouvelles Fonctionnalités (V1.5.0+)
 
-#### 1. Nouveaux Scrapers Manga (Priorité d'intégration)
+#### 1. Nouveaux Scrapers (Priorité d'intégration)
 - [x] **C1. Scraper MyAnimeList (MAL) :** Utilisation de l'API publique et gratuite **Jikan v4** (sans clé API) pour récupérer les descriptions et les ID MAL natifs, remplaçant définitivement Nautiljon.
 - [ ] **C2. Scraper MangaDex :** Intégration de l'API REST officielle **MangaDex** pour extraire les thèmes, résumés multilingues natifs et couvertures de chapitres.
 - [ ] **C3. Scraper Baka-Updates (MangaUpdates) :** Exploitation du catalogue pour importer d'importantes listes de titres associés afin d'auto-remplir les titres alternatifs.
-- [X] **C4. Scraper Kitsu :** Ajout de la source Kitsu comme repli international rapide.
+- [x] **C4. Scraper Kitsu :** Ajout de la source Kitsu comme repli international rapide.
 - [ ] **C5. Scraper Manga-News :** Scraping BeautifulSoup4 du catalogue VF pour récupérer l'éditeur français exact, le nombre de volumes VF parus et les recommandations d'âges régionales.
-- [x] **C6. Scraper Bedethèque : **  Scraping BeautifulSoup4 (Voir comicrack comme base).
+- [x] **C6. Scraper Bédéthèque :** Scraping BeautifulSoup4 optimisé pour la bande dessinée franco-belge.
 
-#### 2. Fonctionnalités Avancées
+#### 2. Fonctionnalités Avancées & Architecture Core
 - [x] **C6. Support des BD Occidentales & Romans (B10) :** Intégration de l'API Google Books en scraper de production pour enrichir les romans, les BD franco-belges et comics américains (compatible catégories Comic et Book).
 - [ ] **C7. Tableau de bord Statistiques ludique (B12) :** Ajout de métriques amusantes sur la page `/stats` (estimation du temps de recherche épargné, équivalent en euros économisé sur DeepL, graphiques de répartition par scrapers).
 - [ ] **C8. Gestion de la Résilience d'API :** Système de retry automatique avec attente exponentielle pour contourner le rate limiting lors des très gros batchs.
-- [ ] **C14. Recherche de Couvertures Contextuelle :** Filtrer dynamiquement les fournisseurs interrogés dans la modal de sélection d'images selon le type exact de la bibliothèque Kavita (Manga, Comic, Livre). Cela mettra fin à l'avalanche de faux positifs (ex: empêcher ComicVine de répondre avec des données parasites sur une recherche de manga).
+- [x] **C14. Recherche de Couvertures Contextuelle :** Filtrer dynamiquement les fournisseurs interrogés dans la modal de sélection d'images selon le type exact de la bibliothèque Kavita (Manga, Comic, Livre). 
 - [ ] **C15. Traduction de Titre (Secours) :** Lorsqu'une recherche échoue ("Introuvable"), traduire automatiquement le titre en anglais et relancer une seconde passe pour maximiser les correspondances d'œuvres très localisées.
+- [ ] **C16. Scraper Hardcover :** Intégration de l'API Hardcover comme nouvelle source de métadonnées pour élargir les correspondances.
+- [x] **C17. Support Reverse Proxy & Subpath :** Ajout de la variable d'environnement `ROOT_PATH` et d'un middleware WSGI pour préfixer dynamiquement les routes de l'application et exposer proprement MetaKavita derrière un reverse proxy (Nginx Proxy Manager, Traefik).
+- [x] **C18. Le "Champ Magique" (Routage URL Intelligent) :** Remplacement de l'ancien champ d'ID AniList statique par un analyseur universel d'URL. L'UI filtre dynamiquement les fournisseurs compatibles et route l'URL directement pour contourner les faux positifs de recherche.
+- [x] **C19. Scraping Granulaire (Champs Ciblés) :** Prise en charge (UI/Backend) du ciblage individuel des 12 champs de métadonnées Kavita (Résumé, Cover, Éditeur, etc.) pour éviter d'écraser des informations éditées manuellement.
+- [x] **C20. Auto-Réparation de la Configuration (Self-Healing) :** Validation dynamique des cascades de recherche. Bascule automatique et transparente vers un autre scraper disponible si l'utilisateur supprime physiquement un fichier provider par défaut.
+- [x] **C21. Moteur Smart ID Match :** Implémentation d'un validateur par similarité de titre (>50%). Lors d'une requête par ID brut, le système croise le titre récupéré avec le titre Kavita pour éviter de corrompre la base de données avec des mangas homonymes.
+- [x] **C22. Mappage API Kavita Étendu :** Ajout des Éditeurs (Staff), Lettreurs, Encreurs et de la Langue native dans la structure des requêtes vers Kavita.
 
 #### 🌐 3. Multi-Média & Résilience (Complété V1.5.0)
 - [x] **C9. Traducteur Multi-API Résilient :** Couche d'abstraction (`translator.py`) combinant Microsoft Azure Translator (Moteur principal F0) et DeepL (Secours automatique en cas de quota dépassé).

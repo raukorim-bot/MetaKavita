@@ -1,4 +1,28 @@
 import re
+import unicodedata
+import difflib
+
+def normalize_str(s):
+    """Retire les accents, met en minuscule et nettoie la chaîne pour la comparaison."""
+    if not s: return ""
+    return "".join(c for c in unicodedata.normalize('NFD', str(s).lower()) if unicodedata.category(c) != 'Mn').strip()
+
+def calculate_similarity(s1, s2):
+    """Calcule le pourcentage de ressemblance entre deux titres (0.0 à 1.0)"""
+    n1 = normalize_str(s1)
+    n2 = normalize_str(s2)
+    if not n1 or not n2: return 0.0
+    
+    # On calcule le ratio mathématique exact
+    ratio = difflib.SequenceMatcher(None, n1, n2).ratio()
+    
+    # Bonus absolu : si l'un est inclus dans l'autre (ex: "Naruto" dans "Naruto Shippuden")
+    # On garde le meilleur score entre le ratio réel et le bonus de 0.85
+    if len(n1) > 4 and len(n2) > 4:
+        if n1 in n2 or n2 in n1:
+            return max(0.85, ratio)
+            
+    return ratio
 
 def clean_title(title: str, library_type: str = "Manga") -> str:
     title = str(title)

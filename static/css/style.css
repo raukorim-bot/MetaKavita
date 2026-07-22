@@ -166,7 +166,7 @@ input[type="text"]:focus, input[type="password"]:focus, input[type="number"]:foc
     border-color: var(--primary); outline: none; 
 }
 
-/* CORRECTION CLÉ : Renforcement de la spécificité pour la barre de recherche */
+/* Spécificité pour la barre de recherche */
 input[type="text"].search-input {
     width: 250px !important;
     max-width: 100%;
@@ -216,6 +216,19 @@ button, .block-link {
     border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 14px;
     transition: all 0.2s; text-align: center;
 }
+/* Effet de clic visuel global sur les boutons */
+button:active {
+    transform: scale(0.96);
+    opacity: 0.9;
+    transition: transform 0.1s;
+}
+
+.btn-saving {
+    background-color: var(--warning) !important;
+    color: white !important;
+    cursor: wait;
+}
+
 .btn-primary { background-color: var(--primary); color: #fff; }
 .btn-primary:hover { background-color: var(--primary-hover); }
 .btn-secondary { background-color: var(--secondary); color: #fff; }

@@ -17,7 +17,7 @@
         <div class="alert error" style="padding: 8px; margin-bottom: 15px;">{{ error }}</div>
         {% endif %}
 
-        <form method="POST" action="/login">
+        <form method="POST" action="{{ url_for('login') }}">
             <div class="form-group" style="text-align: left;">
                 <input type="password" name="password" placeholder="{{ t.login_password }}" required style="padding: 12px; font-size: 16px;">
             </div>

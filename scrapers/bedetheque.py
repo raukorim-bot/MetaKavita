@@ -6,6 +6,7 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 from .base import BaseScraper
 from .utils import clean_title
+from typing import Optional
 
 # -- IMPORT DES TRADUCTIONS UNIQUEMENT POUR UI/LOGS --
 try:
@@ -41,32 +42,20 @@ def format_author_name(name: str) -> str:
 def generate_search_queries(title: str) -> list:
     """
     Génère les 3 variations de titre de façon dynamique.
-    Ex: 
-    1. "La nuit est belle" (Original)
-    2. "Nuit est belle (La)" (Article à la fin, standard bédéthèque)
-    3. "Nuit est belle" (Sans article)
     """
     queries = [title]
-    
-    # Regex identifiant l'article français/anglais au début de la chaîne
     pattern = r'^(le\s+|la\s+|les\s+|l[\'’]\s*|the\s+|a\s+|an\s+|un\s+|une\s+|des\s+)(.*)$'
-    
     match = re.match(pattern, title, flags=re.IGNORECASE)
     
     if match:
         article = match.group(1).strip()
         rest = match.group(2).strip()
-        
         if rest:
-            # Variation 2 : "Nuit est belle (La)"
             var2 = f"{rest} ({article})"
             if var2 not in queries:
                 queries.append(var2)
-            
-            # Variation 3 : "Nuit est belle"
             if rest not in queries:
                 queries.append(rest)
-                
     return queries
 
 class BedethequeScraper(BaseScraper):
@@ -75,6 +64,13 @@ class BedethequeScraper(BaseScraper):
     supported_types = {"Comic"}
     rate_limit = 2.0
     proxy_domains = ["bedetheque.com"]
+    has_direct_id_support = True # 👈 NOUVEAU : Active l'URL Magique
+
+    def extract_id_from_url(self, url: str) -> Optional[str]:
+        """Pour Bédéthèque, l'ID magique EST l'URL complète"""
+        if "bedetheque.com" in url:
+            return url
+        return None
 
     def _get_csrf_token(self, session, headers):
         try:
@@ -126,7 +122,6 @@ class BedethequeScraper(BaseScraper):
             if not parent:
                 continue
                 
-            # Extraire les auteurs
             a_tags = parent.find_all('a')
             authors = []
             if a_tags:
@@ -138,7 +133,6 @@ class BedethequeScraper(BaseScraper):
                     if auth.strip():
                         authors.append(auth.strip())
                         
-            # Formater et ajouter au staff (Rôles originaux: Story, Art, Color)
             for name_raw in authors:
                 name = format_author_name(name_raw)
                 if not name:
@@ -156,9 +150,6 @@ class BedethequeScraper(BaseScraper):
         return staff, publisher
 
     def fetch(self, query: str, library_type: str = "Comic", is_id: bool = False):
-        clean = clean_title(query, library_type=library_type)
-        queries_to_try = generate_search_queries(clean)
-        
         session = requests.Session(impersonate="chrome110")
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
@@ -166,94 +157,112 @@ class BedethequeScraper(BaseScraper):
             "Referer": "https://www.bedetheque.com/search/albums"
         }
         
-        csrf_token = self._get_csrf_token(session, headers)
-        
         album_url = None
+        serie_url = None
         fallback_url = None
 
         try:
-            # --- ÉTAPE 1 : RECHERCHE ---
-            for q in queries_to_try:
-                params = {"RechSerie": q, "csrf_token_bel": csrf_token}
+            # =======================================================
+            # ÉTAPE 1 : RÉSOLUTION DU LIEN (Recherche ou URL Magique)
+            # =======================================================
+            if is_id:
+                logging.info(f"🎯 [Bédéthèque] Court-circuit activé : Scraping direct de l'URL '{query}'")
+                if '/album-' in query:
+                    album_url = query
+                elif '/serie-' in query:
+                    serie_url = query
+                else:
+                    logging.warning(f"⚠️ [Bédéthèque] L'URL fournie n'est ni un album ni une série reconnue : {query}")
+                    return None
+            else:
+                clean = clean_title(query, library_type=library_type)
+                queries_to_try = generate_search_queries(clean)
+                csrf_token = self._get_csrf_token(session, headers)
                 
-                msg_search = _t("bedetheque_search", "🔍 [Bédéthèque] Recherche pour '{0}'...")
-                logging.info(msg_search.format(q))
-                
-                res_search = session.get("https://www.bedetheque.com/search/albums", params=params, headers=headers, timeout=15)
-                if res_search.status_code != 200: 
-                    continue
-                
-                soup_search = BeautifulSoup(res_search.text, 'html.parser')
-                results_ul = soup_search.find('ul', class_='search-list')
-                if not results_ul:
-                    continue
+                for q in queries_to_try:
+                    params = {"RechSerie": q, "csrf_token_bel": csrf_token}
+                    msg_search = _t("bedetheque_search", "🔍 [Bédéthèque] Recherche pour '{0}'...")
+                    logging.info(msg_search.format(q))
                     
-                lis = results_ul.find_all('li')
-                if not lis:
-                    continue
+                    res_search = session.get("https://www.bedetheque.com/search/albums", params=params, headers=headers, timeout=15)
+                    if res_search.status_code != 200: continue
+                    
+                    soup_search = BeautifulSoup(res_search.text, 'html.parser')
+                    results_ul = soup_search.find('ul', class_='search-list')
+                    if not results_ul: continue
+                        
+                    lis = results_ul.find_all('li')
+                    if not lis: continue
 
-                for li in lis:
-                    a_tag = li.find('a', class_='image-tooltip') or li.find('a')
-                    if not a_tag or not a_tag.get('href'): 
-                        continue
-                    
-                    serie_span = a_tag.find('span', class_='serie')
-                    if serie_span:
-                        serie_text = serie_span.get_text(strip=True)
-                        if serie_text.lower() == q.lower() or serie_text.lower() == clean.lower():
-                            album_url = a_tag['href']
-                            break # Correspondance exacte trouvée !
-                
-                if album_url:
-                    break 
-                
-                if not fallback_url:
                     for li in lis:
                         a_tag = li.find('a', class_='image-tooltip') or li.find('a')
-                        if not a_tag or not a_tag.get('href'): 
-                            continue
-                        fallback_url = a_tag['href']
-                        break
-            
-            if not album_url:
-                if fallback_url:
-                    album_url = fallback_url
-                else:
-                    msg_not_found = _t("bedetheque_not_found", "⚠️ [Bédéthèque] Aucun album trouvé pour '{0}'.")
-                    logging.warning(msg_not_found.format(clean))
-                    return None
+                        if not a_tag or not a_tag.get('href'): continue
+                        
+                        serie_span = a_tag.find('span', class_='serie')
+                        if serie_span:
+                            serie_text = serie_span.get_text(strip=True)
+                            if serie_text.lower() == q.lower() or serie_text.lower() == clean.lower():
+                                album_url = a_tag['href']
+                                break # Correspondance exacte trouvée !
                     
-            if not album_url.startswith('http'): 
-                album_url = f"https://www.bedetheque.com{album_url}"
+                    if album_url: break 
+                    
+                    if not fallback_url:
+                        for li in lis:
+                            a_tag = li.find('a', class_='image-tooltip') or li.find('a')
+                            if not a_tag or not a_tag.get('href'): continue
+                            fallback_url = a_tag['href']
+                            break
+                
+                if not album_url:
+                    if fallback_url:
+                        album_url = fallback_url
+                    else:
+                        msg_not_found = _t("bedetheque_not_found", "⚠️ [Bédéthèque] Aucun album trouvé pour '{0}'.")
+                        logging.warning(msg_not_found.format(clean))
+                        return None
 
-            # --- ÉTAPE 2 : PAGE ALBUM ---
-            time.sleep(1.0)
-            res_album = session.get(album_url, headers=headers, timeout=15)
-            soup_album = BeautifulSoup(res_album.text, 'html.parser')
-            album_summary = self._extract_summary(soup_album)
-            
-            # PARSING CHIRURGICAL DU STAFF
+            # Formattage propre des URLs trouvées
+            if album_url and not album_url.startswith('http'): 
+                album_url = f"https://www.bedetheque.com{album_url}"
+            if serie_url and not serie_url.startswith('http'):
+                serie_url = f"https://www.bedetheque.com{serie_url}"
+
+
+            # =======================================================
+            # ÉTAPE 2 : SCRAPING DE L'ALBUM (Si disponible)
+            # =======================================================
+            album_summary = ""
             staff = []
             publisher = None
-            staff, publisher = self._extract_staff_and_publisher(soup_album, staff, publisher)
-
-            # Recherche URL Série
-            serie_url = None
-            h1_serie = soup_album.find('h1')
-            if h1_serie and h1_serie.find('a'):
-                serie_url = h1_serie.find('a').get('href')
             
-            if not serie_url:
-                serie_links = soup_album.find_all('a', href=lambda h: h and '/serie-' in h and '.html' in h)
-                if serie_links:
-                    serie_url = serie_links[0]['href']
+            if album_url:
+                time.sleep(1.0)
+                res_album = session.get(album_url, headers=headers, timeout=15)
+                soup_album = BeautifulSoup(res_album.text, 'html.parser')
+                album_summary = self._extract_summary(soup_album)
+                staff, publisher = self._extract_staff_and_publisher(soup_album, staff, publisher)
 
-            # --- ÉTAPE 3 : PAGE SÉRIE ---
+                # Si c'est pas un court-circuit de série direct, on cherche la série parente
+                if not serie_url:
+                    h1_serie = soup_album.find('h1')
+                    if h1_serie and h1_serie.find('a'):
+                        serie_url = h1_serie.find('a').get('href')
+                    
+                    if not serie_url:
+                        serie_links = soup_album.find_all('a', href=lambda h: h and '/serie-' in h and '.html' in h)
+                        if serie_links:
+                            serie_url = serie_links[0]['href']
+
+            # =======================================================
+            # ÉTAPE 3 : SCRAPING DE LA SÉRIE (Pour les mots-clés/Statut)
+            # =======================================================
             genres = []
             year = None
             status = "FINISHED"
             serie_summary = ""
             cover_url = None
+            fetched_title = "" # NOUVEAU : Récupération du titre pour le Smart Match
             
             if serie_url:
                 if not serie_url.startswith('http'): 
@@ -265,6 +274,11 @@ class BedethequeScraper(BaseScraper):
                 
                 res_serie = session.get(serie_url, headers=headers, timeout=15)
                 soup_serie = BeautifulSoup(res_serie.text, 'html.parser')
+
+                # Récupération du Titre !
+                h1_title = soup_serie.find('h1')
+                if h1_title:
+                    fetched_title = h1_title.get_text(strip=True)
 
                 cover_img = soup_serie.find('img', class_='couv') or soup_serie.select_one('.serie-image img')
                 if not cover_img: 
@@ -289,13 +303,17 @@ class BedethequeScraper(BaseScraper):
                 if soup_serie.find(string=re.compile(r'En cours', re.IGNORECASE)):
                     status = "RELEASING"
                     
-                # Si l'album ne possédait aucun auteur, on tente le fallback sur la série parent
+                # Si l'album ne possédait aucun auteur (ou court-circuit direct sur série), on chope le staff
                 if not staff:
                     staff, publisher = self._extract_staff_and_publisher(soup_serie, staff, publisher)
             else:
-                cover_img = soup_album.find('img', class_='couv')
-                if cover_img and cover_img.get('src'):
-                    cover_url = cover_img['src']
+                # Si pas de page série, on tente d'extraire de la page Album
+                if soup_album:
+                    h1_title = soup_album.find('h1')
+                    if h1_title: fetched_title = h1_title.get_text(strip=True)
+                    cover_img = soup_album.find('img', class_='couv')
+                    if cover_img and cover_img.get('src'):
+                        cover_url = cover_img['src']
 
             if cover_url:
                 cover_url = cover_url.replace('/cache/thb_couv/', '/media/Couvertures/')
@@ -304,7 +322,7 @@ class BedethequeScraper(BaseScraper):
 
             final_summary = album_summary if album_summary else serie_summary
 
-            # Dé-doublonnage du staff pour garder une liste propre (1 scénariste, 1 dessinateur)
+            # Dé-doublonnage du staff pour garder une liste propre
             unique_staff = []
             seen_staff = set()
             for s in staff:
@@ -319,6 +337,8 @@ class BedethequeScraper(BaseScraper):
                 return None
 
             return {
+                'title': fetched_title, # Indispensable pour le Smart Match !
+                'alternative_titles': [],
                 'summary': final_summary,
                 'cover_url': cover_url,
                 'genres': ["BD"] if not genres else [genres[0]],
@@ -392,24 +412,20 @@ class BedethequeScraper(BaseScraper):
                                 "url": cover_url
                             }
                             
-                            # --- VÉRIFICATION DE MATCH EXACT ---
                             is_exact = False
                             norm_serie = serie_text.lower().strip()
                             
-                            # 1. Correspondance avec l'une des requêtes générées
                             for qt in queries_to_try:
                                 if norm_serie == qt.lower().strip():
                                     is_exact = True
                                     break
                             
-                            # 2. Correspondance permissive (sans les articles)
                             if not is_exact:
                                 clean_serie_no_article = re.sub(r'\s*\((le|la|les|l\')\)$', '', norm_serie).strip()
                                 clean_query_no_article = re.sub(r'^(le|la|les|l\')\s+', '', clean.lower().strip()).strip()
                                 if clean_serie_no_article == clean_query_no_article:
                                     is_exact = True
 
-                            # Ajout sans doublons d'URL
                             if is_exact:
                                 if cover_url not in [c['url'] for c in exact_matches]:
                                     exact_matches.append(cover_data)
@@ -417,8 +433,6 @@ class BedethequeScraper(BaseScraper):
                                 if cover_url not in [c['url'] for c in fallback_matches]:
                                     fallback_matches.append(cover_data)
                                     
-                        # Si on a trouvé des match exacts sur cette requête (ex: "Quête d'Ewilan (La)"), 
-                        # on peut s'arrêter et ne pas tester la 3ème variation.
                         if len(exact_matches) >= 1:
                             break
                             
@@ -426,6 +440,5 @@ class BedethequeScraper(BaseScraper):
                 msg_covers_err = _t("bedetheque_covers_err", "❌ [Covers] Erreur Bédéthèque pour '{0}' : {1}")
                 logging.error(msg_covers_err.format(q, e))
                 
-        # On privilégie les exacts. Si vraiment la série n'existe pas, on renvoie les fallbacks.
         best_covers = exact_matches if exact_matches else fallback_matches
         return best_covers[:8]

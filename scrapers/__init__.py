@@ -12,34 +12,40 @@ class _ScraperRegistry:
     def load_all(self):
         current_dir = os.path.dirname(__file__)
         for filename in os.listdir(current_dir):
+            # On ignore les fichiers de structure et utilitaires
             if filename.endswith(".py") and filename not in ["__init__.py", "base.py", "utils.py"]:
                 module_name = f"scrapers.{filename[:-3]}"
                 try:
                     module = importlib.import_module(module_name)
                     for name, obj in inspect.getmembers(module, inspect.isclass):
+                        # On charge toutes les classes qui héritent de BaseScraper
                         if issubclass(obj, BaseScraper) and obj is not BaseScraper:
                             instance = obj()
                             self._scrapers[instance.id] = instance
                 except Exception as e:
-                    logging.error(f"[Registry] Erreur chargement scraper {filename}: {e}")
+                    logging.error(f"[Registry] Erreur au chargement du scraper {filename}: {e}")
 
     def get(self, scraper_id: str) -> BaseScraper:
+        """Retourne une instance de scraper spécifique via son ID (ex: 'MANGABAKA')."""
         return self._scrapers.get(scraper_id)
 
     def get_by_type(self, lib_type: str) -> list:
-        # Trie alphabétiquement par sécurité
+        """Retourne la liste des scrapers supportant une catégorie (Manga, Comic, Book), triée par nom."""
         scrapers = [s for s in self._scrapers.values() if lib_type in s.supported_types]
         return sorted(scrapers, key=lambda x: x.display_name)
 
     def get_all(self) -> list:
-        return list(self._scrapers.values())
+        """Retourne la liste complète de tous les scrapers actifs, triée par nom alphabétique."""
+        scrapers = list(self._scrapers.values())
+        return sorted(scrapers, key=lambda x: x.display_name)
 
     def get_all_proxy_domains(self) -> list:
+        """Génère la liste blanche globale des domaines autorisés pour le proxy d'images."""
         domains = set()
         for s in self._scrapers.values():
             domains.update(s.proxy_domains)
         return list(domains)
 
-# Instanciation globale
+# Instanciation globale et chargement automatique au démarrage de l'app
 ScraperRegistry = _ScraperRegistry()
 ScraperRegistry.load_all()

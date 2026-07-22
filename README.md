@@ -11,23 +11,27 @@ MetaKavita is an automated metadata enricher and manager for [Kavita](https://ka
    * [Installation (Zero-Effort & Source)](#-installation)
    * [Configuration Variables](#-configuration-variables)
    * [Translation APIs & Quotas](#-translation-apis--quotas)
+   * [Reverse Proxy & Subpath Hosting](#-reverse-proxy--subpath-hosting)
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks)
+   * [Security Disclaimer & Best Practices](#-security-disclaimer--deployment-best-practices)
 2. [🇫🇷 Documentation Française](#-documentation-française)
    * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie)
    * [Métadonnées Enrichies](#-métadonnées-enrichies)
    * [Installation (Zéro-Effort & Sources)](#-installation-1)
    * [Variables de Configuration](#-variables-de-configuration)
    * [APIs de Traduction & Quotas](#-apis-de-traduction--quotas)
+   * [Reverse Proxy & Hébergement en Sous-dossier](#-reverse-proxy--hébergement-en-sous-dossier)
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks-1)
+   * [Avertissement de Sécurité & Bonnes Pratiques](#-avertissement-de-sécurité--bonnes-pratiques)
 3. [⚠️ Notes & Tech Stack](#-notes--tech-stack)
 
 ---
 
 ## 🇺🇸 English Documentation
 
-### 🎨 User Interface & Ergonomics (V1.5.0)
+### 🎨 User Interface & Ergonomics (V1.5.4)
 
-MetaKavita has been completely redesigned in version 1.4.0 and heavily refined in **1.5.0** to separate background configuration from daily operational strategy.
+MetaKavita has been completely redesigned and heavily refined to separate background configuration from daily operational strategy, offering a zero-reload AJAX experience.
 
 #### 1. Main Dashboard & Workspace Persistence
 The interface uses a 100% AJAX layout with zero page reloads. The left sidebar handles active strategic options, while the main panel presents your library. Thanks to local storage persistence, the dashboard automatically remembers your selected library, status filter, hide ignored state, and search query between sessions.
@@ -35,8 +39,7 @@ The interface uses a 100% AJAX layout with zero page reloads. The left sidebar h
 ![MetaKavita Main Dashboard](./assets/dashboard.png)
 
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
-Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. 
-*New in 1.5.0*: API Keys for metadata providers (ComicVine, Google Books) are now neatly grouped in a dedicated section directly under the Kavita connection settings for better readability.
+Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. API Keys for metadata providers are neatly grouped in a dedicated section directly under the Kavita connection settings.
 The left sidebar contains only the **Scraping Options** card for quick tactical switches (Smart Completion, Auto-Covers, Auto-Reading Direction, Force Update) and the download button for your error reports.
 
 ![Global Configuration Modal](./assets/config_modal.png)
@@ -44,17 +47,20 @@ The left sidebar contains only the **Scraping Options** card for quick tactical 
 
 #### 3. Unified Filtering & Central Toolbar
 The Library Selector, Search bar, and Status Filter are consolidated into a single horizontal toolbar. This puts all target controls on one cohesive line.
-To the right, the **Expand/Collapse All** (`📐`) button allows you to toggle open all individual overrides panels for fast mass editing, next to the **Save All Overrides** button.
+To the right, the **Expand/Collapse All** (`📐`) button allows you to toggle open all individual overrides panels for fast mass editing, next to the **Save All Overrides** button (which features real-time visual loading feedback).
 
 ![Central Toolbar](./assets/toolbar.png)
 
-#### 4. Advanced Per-Series Controls & Quick Lookup
-Each series has an advanced Options panel. If a series is unmatched, click the search icon (`🔍`) next to the AniList ID field to open a pre-filled AniList search in a new tab to find the ID.
+#### 4. The "Magic Input" & Granular Scraping
+Each series has an advanced Options panel with powerful tools:
+*   **The Magic Input (Smart URL/ID Routing)**: Paste a direct URL (e.g., `https://kitsu.io/manga/attack-on-titan`), a slug, or a raw ID into this field. MetaKavita will auto-detect the provider, bypass the standard search cascade, and scrape that exact page! The provider dropdown is **context-aware** and only displays scrapers compatible with your Kavita Library Type.
+*   **Smart ID Match**: If you paste a raw ID and leave the dropdown on "AUTO", the system will query compatible providers and intelligently validate the match by comparing the fetched title with your Kavita title (>50% similarity required) to prevent data corruption.
+*   **Granular Scraping (Targeted Fields)**: Click the "⚙️ Targeted Fields" details menu to individually uncheck specific metadata fields (Summary, Cover, Authors, Tags, Publisher, etc.) you don't want MetaKavita to overwrite.
 
 ![Override & Advanced Panel](./assets/override_panel.png)
 
 #### 5. Manual & Smart Cover Management
-You can enable auto-cover replacement or browse covers manually. The manual cover modal includes a **manual search input**, allowing you to enter alternate or translated titles on the fly to find correct covers without modifying your database. It now supports MangaBaka, Kitsu, AniList, and **ComicVine** covers out of the box.
+You can enable auto-cover replacement or browse covers manually. The manual cover modal includes a **manual search input**, allowing you to enter alternate or translated titles on the fly to find correct covers without modifying your database. It automatically routes the search through your specific library type providers (e.g., querying ComicVine for Comics, or AniList/MangaBaka for Mangas).
 
 ![Cover Selection Modal](./assets/cover_modal.png)
 
@@ -77,9 +83,10 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 | Category | Metadata Fields | Mapped Source Details |
 | :--- | :--- | :--- |
 | **Core Details** | Localized Name / Alternative Titles | Joins localized titles with a `" / "` separator |
-| | Summary / Description | Scraped in source language, translated via Azure, DeepL, or Google |
+| | Summary / Description | Scraped in source language, preserved as-is or translated via Azure, DeepL, or Google |
 | | Release Year | Publication start year |
 | | Publication Status | Maps to native codes: Ongoing, On Hiatus, Completed, Cancelled |
+| | Language | Localized language translated target (e.g., `fr`, `en`) |
 | **Collections & Lore** | Genres | Comprehensive mapping from visited sources |
 | | Tags | Top 15 thematic categories |
 | | Characters | Rich character lists populated in Kavita |
@@ -88,6 +95,7 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 | | Colorists | Coloring staff |
 | | Translators | Translation credits / Localization groups |
 | | Cover Artists | Original cover artists |
+| | Editors, Letterers, Inkers | Extended staff roles mapping |
 | | Publisher | Official licensing publisher |
 | **Classifications** | Reading Direction (Format) | Automatically set to Left-to-Right, Right-to-Left, or Vertical |
 | | Age Rating | Maps to native ratings: Safe, Suggestive, Erotica, Pornographic |
@@ -97,6 +105,8 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 ---
 
 ### 🚀 Installation
+
+> ⚠️ **Security Note**: MetaKavita is designed primarily as an internal management tool (LAN / VPN). Before exposing it publicly to the web, please read the [Security Disclaimer & Best Practices](#-security-disclaimer--deployment-best-practices).
 
 #### Option A: Pull pre-built image (Zero-Effort - Recommended)
 No cloning required. Create a `docker-compose.yml` file anywhere on your server with the following content:
@@ -111,6 +121,7 @@ services:
       - "5010:5010"
     environment:
       - ADMIN_PASSWORD=your_secure_password
+      # - ROOT_PATH=/metakavita # Optional subpath for reverse proxies
     volumes:
       - ./data:/app/data
 ```
@@ -131,8 +142,10 @@ docker compose up -d --build
 | Variable | Description | Default Value |
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | Secures the dashboard with a password. | *(Empty = No Auth)* |
+| `ROOT_PATH` | Custom URL subpath when hosted behind a reverse proxy (e.g. `/metakavita`). | *(Empty)* |
 | `KAVITA_URL` | Your Kavita instance URL. | *(Empty)* |
 | `KAVITA_API_KEY` | Your Kavita API Key. | *(Empty)* |
+| `TRANSLATION_PROVIDER` | Active translation engine (`GOOGLE`, `DEEPL`, `AZURE`, or `NONE` to disable). | `GOOGLE` |
 | `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
 | `AZURE_REGION` | Microsoft Azure Translator API Region (e.g. `francecentral`). | *(Empty)* |
 | `DEEPL_API_KEY` | Your DeepL Translation API Key (Fallback Translation Engine). | *(Empty)* |
@@ -158,38 +171,88 @@ docker compose up -d --build
 
 ### 🌍 Translation APIs & Quotas
 
-If you have a massive library to process, keep in mind that the **DeepL Free API** is now strictly limited to a **lifetime total of 1,000,000 characters** with no monthly reset. Because we are honest and responsible users who don't want to create fake accounts just to fraud new API keys, MetaKavita natively integrates **Google Translate** for a 100% free, zero-config experience.
+If you want to keep scraped descriptions in their original language without modification, select **Disabled (Keep original)** (`NONE`) as your Translation Provider.
 
-However, for maximum stability, we highly recommend setting up **Microsoft Azure Translator** (generous Free Tier F0 with **2,000,000 characters per month**) as your primary engine, keeping DeepL or Google as automatic safety fallbacks!
+If translation is enabled, keep in mind that the **DeepL Free API** is strictly limited to a **lifetime total of 1,000,000 characters**. MetaKavita integrates **Google Translate** out of the box for a free, zero-config experience. For maximum stability, we recommend setting up **Microsoft Azure Translator** (Free Tier F0 with **2,000,000 characters per month**) as your primary engine, with DeepL or Google as fallbacks.
+
+---
+
+### 🌐 Reverse Proxy & Subpath Hosting
+
+MetaKavita supports subpath hosting (e.g., `https://your-domain.com/metakavita`) natively.
+
+1. Set `ROOT_PATH=/metakavita` in your container environment variables.
+2. In your reverse proxy (e.g., Nginx Proxy Manager or Traefik), route requests for `/metakavita` to the container port (`5010`).
+3. Ensure WebSockets upgrade headers are passed (`Upgrade $http_upgrade` and `Connection "upgrade"`).
+
+Client AJAX routes and Socket.IO connection paths will automatically adapt to the configured subpath while enforcing Same-Origin security.
+
+> 💡 **Dual-Access Compatibility**: Enabling `ROOT_PATH` does not break direct access. MetaKavita remains accessible both through your reverse proxy subpath (`https://your-domain.com/metakavita`) and via direct local IP (`http://192.168.x.x:5010/`).
 
 ---
 
 ### 🤖 Auto-Sync & Webhooks
 
-#### 1. Background Polling (Auto-Sync)
-Setting `AUTO_SYNC_INTERVAL` to a value higher than `0` schedules a background task that regularly checks for new or pending series.
+#### 1. Background Polling (Auto-Sync - Recommended)
+Since Kavita does not natively provide outgoing Webhooks for library updates, MetaKavita uses background polling. Setting `AUTO_SYNC_INTERVAL` to a value higher than `0` (e.g., `30` minutes) schedules an automated task that periodically queries Kavita to fetch and process new or pending series.
 
-#### 2. Real-Time Webhook
-For immediate enrichment upon import, configure a Webhook in Kavita pointing to your instance:
-`http://<your-metakavita-ip>:5010/webhook?token=<YOUR_WEBHOOK_TOKEN>`
-*(The secure `WEBHOOK_TOKEN` is automatically generated inside `data/config.json` on first launch).*
+#### 2. Webhook Endpoint for Custom Scripts & External Pipelines
+For advanced workflows (e.g., n8n, Node-RED, or custom download post-processing scripts), MetaKavita exposes a dedicated endpoint to trigger instant processing for a specific series:
+`POST http://<your-metakavita-ip>:5010/webhook?token=<YOUR_WEBHOOK_TOKEN>`
+
+You can view your ready-to-use Webhook URL or generate a new token anytime directly inside the **Config Modal** (under the Planning section).
+
+**Payload Example:**
+```json
+{
+  "seriesId": 6827,
+  "name": "Chiisakobe",
+  "force": true
+}
+```
+*(Setting `"force": true` in the JSON or adding `&force=true` to the URL triggers a forced re-scrape, overwriting existing metadata even if already marked as completed).*
+
+---
+
+### 🛡️ Security Disclaimer & Deployment Best Practices
+
+#### 🏠 Primary Intended Use: Internal Backoffice
+MetaKavita is designed primarily as an **internal management tool (backoffice)** intended to run within a local network (LAN) or a private network environment (such as WireGuard or Tailscale).
+
+#### 🔒 Security Measures Included
+Although designed for internal management, several security hardening controls are built into the application to mitigate common risks:
+* **Authentication**: Password locking with timing-attack prevention (`secrets.compare_digest`) and artificial anti-brute-force delays.
+* **Session Security**: Hardened `HttpOnly` and `SameSite=Lax` session cookies.
+* **Proxy Restrictions**: Strict domain whitelisting on the `/api/proxy-image` endpoint to prevent SSRF (Server-Side Request Forgery) exploits.
+* **Token Protection**: Webhooks require a cryptographically generated authorization token (`WEBHOOK_TOKEN`) with on-demand UI token rotation.
+* **Credential Masking**: API keys are censored in the HTML DOM to protect sensitive values.
+
+#### ⚠️ Important Notice for Public Web Exposure
+The presence of built-in security features **does not guarantee absolute immunity against external threats**. Exposing MetaKavita directly to the open internet is done at your own risk.
+
+**Recommended Security Layers for Public Exposure:**
+1. **Reverse Proxy & HTTPS**: Always host MetaKavita behind a Reverse Proxy (Nginx, Traefik, Caddy) enforcing valid HTTPS/TLS encryption.
+2. **Secondary Authentication Layer**: Combine the built-in login with an external authentication gateway (e.g., Authelia, Authentik, Cloudflare Access, or HTTP Basic Auth).
+3. **Network Restrictions / VPN**: Restrict access to trusted IP ranges or keep access restricted to a private VPN whenever possible.
+4. **Strong Passwords**: Define a long, complex `ADMIN_PASSWORD` in your container environment variables.
+
+> **Disclaimer**: MetaKavita is provided "as-is" without warranty of any kind. The maintainers assume no liability for data loss, unauthorized access, or security incidents resulting from public exposure or network misconfiguration.
 
 ---
 
 ## 🇫🇷 Documentation Française
 
-### 🎨 Interface Utilisateur & Ergonomie (V1.5.0)
+### 🎨 Interface Utilisateur & Ergonomie (V1.5.4)
 
-MetaKavita a été entièrement repensé dans sa version 1.4.0 et peaufiné en **1.5.0** pour séparer la configuration technique de la stratégie de scraping opérationnelle.
+MetaKavita a été entièrement repensé et peaufiné pour séparer la configuration technique de la stratégie de scraping opérationnelle, tout en offrant une navigation fluide sans rechargements de page (AJAX).
 
 #### 1. Tableau de Bord & Persistance de l'Espace de Travail
-L'interface utilise une structure 100% AJAX (zéro rechargement de page). La barre latérale gauche gère la stratégie active tandis que le panneau central affiche tes œuvres. Grâce au stockage local (`localStorage`), le tableau de bord se souvient automatiquement de tes filtres (bibliothèque sélectionnée, tri de statut, barre de recherche et masquage des ignorés) d'une session à l'autre.
+L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la stratégie active tandis que le panneau central affiche tes œuvres. Grâce au stockage local (`localStorage`), le tableau de bord se souvient automatiquement de tes filtres (bibliothèque sélectionnée, tri de statut, barre de recherche et masquage des ignorés) d'une session à l'autre.
 
 ![Tableau de bord MetaKavita](./assets/dashboard.png)
 
 #### 2. Architecture Double-Formulaire (Modal + Sidebar)
-Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement.
-*Nouveauté 1.5.0* : Les clés d'API des fournisseurs (ComicVine, Google Books) sont désormais proprement regroupées dans un bloc dédié sous la connexion Kavita.
+Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement. Les clés d'API des fournisseurs sont proprement regroupées dans un bloc dédié sous la connexion Kavita.
 La barre latérale ne contient plus que la carte **Options de Scraping** (Fusion intelligente, Auto-Covers, Sens de lecture auto, Mise à jour forcée) et l'export des erreurs.
 
 ![Modal de Configuration Globale](./assets/config_modal.png)
@@ -197,17 +260,20 @@ La barre latérale ne contient plus que la carte **Options de Scraping** (Fusion
 
 #### 3. Filtrage Unifié & Toolbar Centrale
 Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut sont regroupés dans une seule barre d'outils centrale. Toutes les commandes de ciblage se situent ainsi sur une même ligne horizontale cohérente.
-À droite, le bouton **Déplier/Replier tout** (`📐`) permet de basculer l'affichage de tous les panneaux individuels pour des corrections rapides, aux côtés du bouton de sauvegarde globale.
+À droite, le bouton **Déplier/Replier tout** (`📐`) permet de basculer l'affichage de tous les panneaux individuels pour des corrections rapides, aux côtés du bouton de sauvegarde globale (qui intègre désormais un retour visuel en temps réel).
 
 ![Barre d'outils centrale](./assets/toolbar.png)
 
-#### 4. Contrôles de Séries & Recherche d'ID rapide
-Chaque série dispose d'un volet d'options avancées. Si une œuvre n'est pas trouvée, un clic sur l'icône de recherche (`🔍`) à côté du champ d'ID AniList ouvre une recherche AniList pré-remplie dans un nouvel onglet pour trouver l'ID.
+#### 4. Le "Champ Magique" & Scraping Granulaire
+Chaque série dispose d'un volet d'options avancées redoutable :
+*   **Le Champ Magique (Routage URL intelligent)** : Collez une URL directe (ex: `https://mangabaka.org/1234`), un slug ou un ID pur dans ce champ. MetaKavita détectera automatiquement le site, contournera la recherche habituelle, et ciblera cette page exacte ! Le menu déroulant du fournisseur est **contextuel** : il ne vous proposera que les bases de données compatibles avec le type de votre bibliothèque.
+*   **Smart ID Match (Résolution Intelligente)** : Si vous laissez le fournisseur sur "AUTO" et saisissez un ID brut, le système va interroger les sites compatibles et valider les résultats en comparant le nom de la série Kavita avec le nom trouvé par l'API (nécessite >50% de ressemblance) pour éviter d'écraser vos données avec un manga homonyme.
+*   **Scraping Granulaire (Champs Ciblés)** : Cliquez sur le menu "⚙️ Champs Ciblés" pour décocher individuellement n'importe quelle métadonnée (Résumé, Couvertures, Auteurs, Éditeur, etc.) que vous souhaitez figer et protéger des modifications de MetaKavita.
 
 ![Options avancées de séries](./assets/override_panel.png)
 
 #### 5. Gestion de Couvertures Manuelle & Intelligente
-Tu peux activer l'auto-cover ou choisir tes couvertures visuellement. La modal intègre une **barre de recherche manuelle** permettant de saisir un titre alternatif ou traduit à la volée pour trouver des images sans modifier ta base de données. Elle intègre désormais les couvertures de MangaBaka, Kitsu, AniList et **ComicVine**.
+Tu peux activer l'auto-cover ou choisir tes couvertures visuellement. La modal intègre une **barre de recherche manuelle** permettant de saisir un titre alternatif ou traduit à la volée pour trouver des images sans modifier ta base de données. Elle filtre dynamiquement les fournisseurs d'images selon que tu recherches des Mangas ou des Comics (MangaBaka, Kitsu, AniList, ou ComicVine).
 
 ![Modal de choix des couvertures](./assets/cover_modal.png)
 
@@ -230,9 +296,10 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 | Catégorie | Métadonnée Kavita | Détails de la source mappée |
 | :--- | :--- | :--- |
 | **Identité** | Titre Localisé / Alternatif | Assemble les titres alternatifs officiels séparés par `" / "` |
-| | Résumé / Description | Récupère le résumé d'origine et le traduit via Azure, DeepL ou Google |
+| | Résumé / Description | Récupère le résumé d'origine et le conserve tel quel ou le traduit via Azure, DeepL ou Google |
 | | Année de sortie | Année de début de publication |
 | | Statut de publication | Mappe vers les statuts natifs : En cours, En pause, Terminé, Abandonné |
+| | Langue (Language) | Calquée automatiquement sur votre langue cible (ex: `fr`, `en`) |
 | **Thématiques** | Genres | Liste complète des genres récupérés |
 | | Thèmes (Tags) | Les 15 catégories thématiques les plus importantes |
 | | Personnages | Liste enrichie des personnages secondaires |
@@ -241,7 +308,8 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 | | Coloristes | Équipe de colorisation |
 | | Traducteurs | Groupes de scantrad / Traducteurs officiels |
 | | Dessinateurs de couverture | Artistes des couvertures originales |
-| | Éditeur (Publisher) | Éditeur officiel licencié |
+| | Éditeurs, Encreurs, Lettreurs | Rôles avancés extraits selon disponibilité des sources |
+| | Éditeur (Publisher) | Maison d'édition officielle licenciée |
 | **Classifications** | Sens de lecture (Format) | Configuré automatiquement en Gauche-à-Droite, Droite-à-Gauche ou Vertical |
 | | Classification d'Âge | Mappage natif : Sûr (Safe), Suggestif, Érotique, Pornographique |
 | **ID & Liens** | Identifiants Plateformes | Renseigne directement `AniListId`, `MalId` et `MangaBakaId` |
@@ -250,6 +318,8 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 ---
 
 ### 🚀 Installation
+
+> ⚠️ **Note de sécurité** : MetaKavita est conçu en priorité comme un outil de gestion interne (LAN / VPN). Avant toute exposition publique sur Internet, veuillez consulter la section [Avertissement de Sécurité & Bonnes Pratiques](#-avertissement-de-sécurité--bonnes-pratiques).
 
 #### Option A : Télécharger l'image pré-compilée (Zéro effort - Recommandé)
 Aucun clonage de dépôt n'est requis. Crée simplement un fichier `docker-compose.yml` sur ton serveur contenant ce bloc :
@@ -264,6 +334,7 @@ services:
       - "5010:5010"
     environment:
       - ADMIN_PASSWORD=votre_mot_de_passe_securise
+      # - ROOT_PATH=/metakavita # Optionnel : pour hébergement en sous-dossier
     volumes:
       - ./data:/app/data
 ```
@@ -284,8 +355,10 @@ docker compose up -d --build
 | Variable | Description | Valeur par défaut |
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | Sécurise l'interface par mot de passe. | *(Vide = Pas d'Auth)* |
+| `ROOT_PATH` | Sous-chemin d'URL lors de l'exposition derrière un reverse proxy (ex: `/metakavita`). | *(Vide)* |
 | `KAVITA_URL` | L'URL de ton instance Kavita. | *(Vide)* |
 | `KAVITA_API_KEY` | Ta clé API Kavita. | *(Vide)* |
+| `TRANSLATION_PROVIDER` | Moteur de traduction actif (`GOOGLE`, `DEEPL`, `AZURE`, ou `NONE` pour désactiver). | `GOOGLE` |
 | `AZURE_API_KEY` | Ta clé d'API Microsoft Azure Translator (Moteur principal). | *(Vide)* |
 | `AZURE_REGION` | Ta région Azure Translator (ex: `francecentral`). | *(Vide)* |
 | `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction (Repli de secours). | *(Vide)* |
@@ -300,7 +373,7 @@ docker compose up -d --build
 | `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
 | `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `ANILIST`). | `GOOGLEBOOKS` |
-| `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `ANILIST` |
+| `BOOK_PROVIDER_2` | Source de secours 2 Roman. | `ANILIST` |
 | `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
@@ -311,21 +384,72 @@ docker compose up -d --build
 
 ### 🌍 APIs de Traduction & Quotas
 
-Si vous avez une très grosse bibliothèque à traiter, gardez à l'esprit que l'**API gratuite de DeepL** est désormais strictement limitée à **1 000 000 de caractères à vie** (sans aucun reset mensuel). Comme nous sommes des utilisateurs honnêtes et responsables et que nous refusons de recréer de faux comptes pour frauder de nouvelles clés API, MetaKavita intègre nativement **Google Translate** pour une expérience 100% gratuite et "zéro-config".
+Si vous souhaitez conserver les résumés d'origine sans aucune modification ni traduction, choisissez **Désactivé (Conserver l'original)** (`NONE`) dans les paramètres de traduction.
 
-Cependant, pour une stabilité maximale, nous vous recommandons vivement de configurer **Microsoft Azure Translator** (généreux niveau gratuit F0 offrant **2 000 000 de caractères par mois**) en traducteur principal, et de garder DeepL ou Google en roue de secours automatique !
+Si la traduction est activée, gardez à l'esprit que l'**API gratuite de DeepL** est strictly limitée à **1 000 000 de caractères à vie**. MetaKavita intègre nativement **Google Translate** pour une expérience 100% gratuite et sans configuration. Pour une stabilité maximale, nous vous recommandons de configurer **Microsoft Azure Translator** (généreux niveau gratuit F0 offrant **2 000 000 de caractères par mois**) en traducteur principal, et de garder DeepL ou Google en secours.
+
+---
+
+### 🌐 Reverse Proxy & Hébergement en Sous-dossier
+
+MetaKavita prend en charge le déploiement sous un sous-chemin d'URL (ex: `https://ton-domaine.com/metakavita`).
+
+1. Renseigne `ROOT_PATH=/metakavita` dans les variables d'environnement de ton conteneur.
+2. Dans ton Reverse Proxy (Nginx Proxy Manager, Traefik, Caddy), redirige la location `/metakavita` vers le port du conteneur (`5010`).
+3. Assure-toi de transmettre les en-têtes de mise à niveau WebSocket (`Upgrade $http_upgrade` et `Connection "upgrade"`).
+
+Toutes les requêtes AJAX et la connexion WebSocket (`Socket.IO`) adapteront automatiquement leurs routes au sous-chemin défini tout en appliquant la sécurité Same-Origin.
+
+> 💡 **Compatibilité d'accès double** : Activer `ROOT_PATH` ne bloque pas l'accès local. MetaKavita reste simultanément accessible via le sous-chemin de votre reverse proxy (`https://ton-domaine.com/metakavita`) et en direct via l'IP locale (`http://192.168.x.x:5010/`).
 
 ---
 
 ### 🤖 Auto-Sync & Webhooks
 
-#### 1. Background Polling (Auto-Sync)
-Si `AUTO_SYNC_INTERVAL` est supérieur à `0`, MetaKavita verifie périodiquement la présence de nouvelles séries ou de fiches en attente pour lancer leur enrichissement.
+#### 1. Polling d'Arrière-Plan (Auto-Sync - Recommandé)
+Comme Kavita ne propose pas nativement de Webhooks sortants lors des ajouts de bibliothèques, MetaKavita s'appuie sur le polling. Renseigner une valeur supérieure à `0` pour `AUTO_SYNC_INTERVAL` (ex: `30` minutes) lance une tâche d'arrière-plan qui interroge régulièrement l'API de Kavita pour enrichir automatiquement les nouvelles séries ou fiches en attente.
 
-#### 2. Webhook temps réel
-Pour un enrichissement instantané à l'import, configure un Webhook dans Kavita pointant vers MetaKavita :
-`http://<ton-ip-metakavita>:5010/webhook?token=<TON_WEBHOOK_TOKEN>`
-*(Le jeton sécurisé `WEBHOOK_TOKEN` est généré automatiquement dans `data/config.json` au premier lancement).*
+#### 2. Endpoint Webhook pour Scripts Tiers
+Pour les besoins d'automatisation avancés (ex: workflows n8n, Node-RED, ou scripts de post-traitement post-téléchargement), MetaKavita expose un endpoint dédié permettant de forcer l'enrichissement immédiat d'une série spécifique :
+`POST http://<ton-ip-metakavita>:5010/webhook?token=<TON_WEBHOOK_TOKEN>`
+
+Vous pouvez consulter votre URL Webhook prête à l'emploi ou régénérer un jeton à tout moment directement depuis la **Modal Config** (dans la section Planification).
+
+**Exemple de payload :**
+```json
+{
+  "seriesId": 6827,
+  "name": "Chiisakobe",
+  "force": true
+}
+```
+*(Définir `"force": true` dans le JSON ou ajouter `&force=true` dans l'URL déclenche un ré-enrichissement forcé, écrasant les métadonnées existantes même si la fiche était marquée comme complétée).*
+
+---
+
+### 🛡️ Avertissement de Sécurité & Bonnes Pratiques
+
+#### 🏠 Usage Principal : Outil de Backoffice Interne
+MetaKavita est conçu en priorité comme un **outil de gestion interne (backoffice)** destiné à s'exécuter au sein d'un réseau local (LAN) ou d'un réseau privé (ex: WireGuard, Tailscale).
+
+#### 🔒 Mesures de Sécurité Intégrées
+Bien que pensé pour un usage privé, plusieurs mécanismes de protection sont intégrés à l'application pour limiter les risques :
+* **Authentification** : Verrouillage par mot de passe protégé contre les attaques temporelles (`secrets.compare_digest`) et ralentissement anti-force brute.
+* **Sécurité des Sessions** : Cookies de session configurés avec les attributs `HttpOnly` et `SameSite=Lax`.
+* **Protection Proxy** : Liste blanche de domaines sur l'endpoint `/api/proxy-image` pour prévenir les vulnérabilités SSRF (Server-Side Request Forgery).
+* **Protection Webhook** : Authentification des appels webhook exigeant un jeton cryptographique (`WEBHOOK_TOKEN`) réinitialisable à la demande.
+* **Masquage des Identifiants** : Censure des clés API dans l'interface web.
+
+#### ⚠️ Avertissement en Cas d'Exposition Publique
+L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vous choisissez d'exposer directement MetaKavita sur Internet, vous le faites sous votre propre responsabilité.
+
+**Recommandations pour une exposition publique :**
+1. **Reverse Proxy & HTTPS** : Hébergez systématiquement l'application derrière un Reverse Proxy (Nginx, Traefik, Caddy) configuré avec un certificat HTTPS/TLS valide.
+2. **Authentification Renforcée** : Associez l'accès à un portail de sécurité ou SSO (ex: Authelia, Authentik, Cloudflare Access ou authentification HTTP de base).
+3. **Restriction d'Accès / VPN** : Restreignez l'accès aux seules adresses IP de confiance ou privilégiez un accès via VPN.
+4. **Mot de Passe Fort** : Définissez un paramètre `ADMIN_PASSWORD` complexe dans l'environnement de votre conteneur.
+
+> **Avertissement de responsabilité** : MetaKavita est fourni "en l'état", sans aucune garantie. Les développeurs et contributeurs déclinent toute responsabilité en cas d'altération de données, d'intrusion ou d'incident de sécurité découlant d'une exposition publique ou d'une erreur de configuration.
 
 ---
 
