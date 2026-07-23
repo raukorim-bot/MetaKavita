@@ -229,15 +229,23 @@ class KavitaAPI:
             if img_res.status_code != 200:
                 return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
             
+            # 🎯 DÉTECTION DU TYPE MIME (jpeg, png, webp)
+            content_type = img_res.headers.get('Content-Type', 'image/jpeg').split(';')[0].strip().lower()
+            if not content_type.startswith('image/'):
+                content_type = 'image/jpeg'
+
             img_base64 = base64.b64encode(img_res.content).decode('utf-8')
+            
+            # 🎯 FIX CRITIQUE : Construction du Data URI complet requis par le moteur C# de Kavita
+            data_uri = f"data:{content_type};base64,{img_base64}"
             
             upload_url = f"{self.url}/api/Upload/series"
             payload = {
                 "id": int(series_id),
-                "url": img_base64
+                "url": data_uri
             }
             
-            res = requests.post(upload_url, json=payload, headers=self.headers, timeout=15)
+            res = requests.post(upload_url, json=payload, headers=self.headers, timeout=35)
             
             if res.status_code != 200:
                 logging.error(f"[DEBUG] Erreur Upload Cover Kavita : {res.text}")
