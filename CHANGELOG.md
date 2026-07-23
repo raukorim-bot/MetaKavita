@@ -1,7 +1,5 @@
 # Changelog
 
-# Changelog
-
 ## [1.5.6] - 2026-07-24 (The Permanent Cover Upload Hotfix)
 
 EN
