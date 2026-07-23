@@ -1,5 +1,71 @@
 # Changelog
 
+# Changelog
+
+## [1.5.5] - 2026-07-23 (The Deep Extraction, High-Speed Engine & Scoring Precision Update)
+
+EN
+### ⚡ High-Speed Engine & Throttling Overhaul
+* **Smart Per-Provider Rate Limiter (`metadata_fetcher.py`)**: Replaced hardcoded worker sleep delays (`1.5s`/`2.5s`) with a timestamp-based dynamic throttler (`LAST_REQUEST_TIMES`). Idle APIs respond instantly with zero artificial delay, executing 3-provider Smart Fusions in ~1.6s.
+* **Unrestricted Provider Forcing (`templates/index.html`, `metadata_fetcher.py`)**: Unlocked all registered scrapers in the Magic Input dropdown, allowing users to force any metadata source regardless of library type or search string.
+
+### ✨ Deep Metadata Extraction & Unified Scoring Matrix
+* **Deep Kavita Metadata Extraction (`kavita_api.py`, `app.py`)**: Pre-fetches existing metadata from Kavita's database (sanitized ISBNs, authors, publisher, release year, genres) before querying external APIs to anchor searches and prevent false positives.
+* **Unified Weighted Scoring Matrix (`scrapers/utils.py`)**:
+  * *ISBN Golden Rule*: Instant 100% confidence match on exact ISBN.
+  * *Anti-Homonym Author Mismatch Rule*: Implemented a strict `-50%` penalty if a candidate's author differs from Kavita's context (e.g., preventing manga adaptations from matching classical novels).
+  * *Roman Numeral Volume Converter*: Automatically converts Roman volume numbers (e.g. `Tome II` -> `Tome 2`) before evaluating similarity.
+  * *Anti-Spin-Off & Guidebook Filters*: Added `-35%` penalty for missing distinctive query words (*Lanfeust des Étoiles* vs *Troy*) and `-50%` penalty for noise keywords (`Guidebook`, `Fanbook`, `Artbook`).
+  * *Volume 1 Anchoring*: Grants `+0.10` bonus to Volume 1/unnumbered editions while applying `-0.45` penalty to intermediate volumes.
+
+### 🦸 New Scrapers & Core Enhancements
+* **ComicVine Refactor (`scrapers/comicvine.py`)**:
+  * Switched volume queries to structured `/volumes/?filter=name:` endpoint with explicit `field_list`.
+  * Weighted candidate selection favoring primary US/European publishers (`DC Comics`, `Marvel`, `Image`, `Dargaud`) and issue count while heavily penalizing foreign translation houses.
+  * **Issue #1 Creator & Summary Fallback**: Automatically queries Issue #1 when a Volume lacks staff or description, boosting summary length from 39 chars to 3,500+ chars.
+* **New Scraper Integrations**:
+  * **Hardcover (Experimental)**: Hasura GraphQL & Typesense search engine for books and graphic novels (`curl_cffi` Chrome impersonation).
+  * **MangaDex**: Official REST API v5 integration with content rating filters, native AniList/MAL ID extraction, and oneshot scoring.
+  * **MangaUpdates**: Official REST API v1 scraper with `hit_title` matching and BBCode text cleaning.
+  * **Manga-News**: Franco-Belgian & French catalog scraper (`curl_cffi`) for VF publishers and HD artwork.
+  * **Shikimori**: Fast REST JSON scraper with multilingual title matching and dedicated `/roles` staff parsing.
+  * **Open Library**: Literature and novel provider powered by Internet Archive.
+* **Resiliency & Bug Fixes**:
+  * **Bédéthèque**: Fixed duplicate method signature causing fatal `.get()` crashes on lists.
+  * **MangaBaka**: Added `(data.get('authors') or [])` guards against null JSON keys causing `TypeError`.
+  * **Kavita Cache Invalidation**: Dynamically clears `_series_lib_type_cache` on batch runs, recognizing updated library types (including ID 5 `Comic Flexible`) without container restarts.
+
+FR
+### ⚡ Moteur Haute Performance & Throttling Dynamique
+* **Rate-Limiter Intelligente par Horodatage (`metadata_fetcher.py`)** : Remplacement des pauses fixes dans `app.py` par un régulateur dynamique basé sur `time.time()`. Les API inactives répondent instantanément sans attente artificielle, exécutant les Smart Fusions de 3 sources en ~1,6s.
+* **Forçage Libre des Fournisseurs (`templates/index.html`, `metadata_fetcher.py`)** : Déblocage de l'ensemble des scrapers dans le menu déroulant du Champ Magique pour permettre le forçage manuel de n'importe quelle source.
+
+### ✨ Extraction Profonde & Matrice de Scoring
+* **Extraction Profonde Kavita (`kavita_api.py`, `app.py`)** : Récupération en amont des données existantes (ISBN, auteurs, éditeur, année) avant le scraping pour ancrer les recherches.
+* **Matrice de Scoring Unifiée (`scrapers/utils.py`)** :
+  * *Règle d'or ISBN* : Match instantané à 100% sur ISBN exact.
+  * *Règle Anti-Homonyme Auteur* : Pénalité de `-50%` si l'auteur du candidat diffère de l'auteur dans Kavita.
+  * *Convertisseur de Chiffres Romains* : Conversion automatique des tomes (`Tome II` -> `Tome 2`).
+  * *Filtres Anti-Spin-Off & Anti-Guidebook* : Pénalités ciblées sur les mots-clés manquants (`-35%`) ou parasites (`-50%` pour `Guidebook`/`Fanbook`).
+  * *Ancrage Tome 1* : Bonus de `+0.10` pour les Tomes 1 et pénalité de `-0.45` sur les tomes intermédiaires.
+
+### 🦸 Nouveaux Scrapers & Améliorations Core
+* **Refonte Structurée ComicVine (`scrapers/comicvine.py`)** :
+  * Bascule sur l'endpoint structuré `/volumes/?filter=name:` avec `field_list` explicite.
+  * Priorisation des éditeurs originaux majeurs (`DC Comics`, `Marvel`, `Image`, `Dargaud`) et pénalisation des traducteurs étrangers.
+  * Récupération automatique du résumé et des auteurs sur l'Issue #1 si la fiche série est pauvre (résumés propulsés de 39 à 3 500+ caractères).
+* **Nouveaux Scrapers Intégrés** :
+  * **Hardcover (Expérimental)** : Moteur GraphQL Hasura & Typesense pour livres et BDs.
+  * **MangaDex** : API v5 avec filtres adulte, IDs externes et scoring.
+  * **MangaUpdates** : API v1 avec nettoyage BBCode et matching `hit_title`.
+  * **Manga-News** : Catalogue VF (`curl_cffi`) pour éditeurs français et couvertures HD.
+  * **Shikimori** : API REST JSON multilingue avec extraction du staff via `/roles`.
+  * **Open Library** : API Littérature d'Internet Archive.
+* **Correctifs & Stabilité** :
+  * **Bédéthèque** : Correction de la méthode `fetch()` écrasée par erreur.
+  * **MangaBaka** : Sécurisation contre les clés `null` dans l'API JSON.
+  * **Cache Kavita** : Purge automatique du cache au lancement des batchs pour reconnaître les changements de types de bibliothèques (ID 5 `Comic Flexible`) sans redémarrer Docker.
+  
 ## [1.5.4] - 2026-07-22 (The "Smart Override" & Network Flexibility Update)
 
 EN

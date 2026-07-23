@@ -10,6 +10,7 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
         window.ROOT_PATH = "{{ request.script_root }}"; // S'adapte magiquement au sous-chemin !
+		window.APP_VERSION = "{{ app_version }}";
 		const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
         window.AppTranslations = {
@@ -33,7 +34,10 @@
             modal_cover_sending: "{{ t.modal_cover_sending }}",
             saving_progress: "{{ t.get('saving_progress', 'Sauvegarde en cours...') }}",
             save_done: "{{ t.get('save_done', 'Terminé') }}",
-			regen_webhook_confirm: "{{ t.regen_webhook_confirm }}"
+			regen_webhook_confirm: "{{ t.regen_webhook_confirm }}",
+			changelog_btn_got_it: "{{ t.get('changelog_btn_got_it', 'J\'ai compris !') }}",
+			cover_streaming_start: "{{ t.get('cover_streaming_start', 'Recherche en direct sur tous les fournisseurs...') }}",
+			cover_no_images_found: "{{ t.get('cover_no_images_found', '❌ Aucune image trouvée sur l\'ensemble des sources.') }}"
         };
 
     </script>
@@ -46,6 +50,7 @@
                 MetaKavita
             </div>
             <div class="topbar-actions">
+			<button type="button" class="btn-icon" onclick="openChangelogModal(true)" title="Voir les nouveautés">✨ v{{ app_version }}</button>
                 <button type="button" class="btn-icon" onclick="openConfigModal()" title="{{ t.toggle_config }}">⚙️ Config</button>
                 <button type="button" class="btn-icon" onclick="toggleTheme()" title="{{ t.toggle_theme }}">🌓 Thème</button>
             </div>
@@ -107,6 +112,12 @@
                             {{ t.auto_reading_dir }}
                         </label>
                     </div>
+					<div class="form-group" style="margin-bottom: 10px;">
+                        <label class="checkbox-label" style="font-size: 12px;">
+                            <input type="checkbox" id="sidebar_reset_context" value="true" {% if config.get('RESET_CONTEXT_ON_FORCE') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.get('reset_context_on_force', "Effacer le contexte en mode forcé") }}
+                        </label>
+                    </div>
                     <div class="form-group" style="margin-bottom: 5px; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 6px; border: 1px dashed var(--warning);">
                         <label class="checkbox-label" style="color: var(--warning);">
                             <input type="checkbox" id="sidebar_force_update" value="true"> 
@@ -132,11 +143,11 @@
 
                 <!-- PIED DE LA BARRE LATÉRALE -->
                 <div class="sidebar-footer">
-                    <p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
-                    <p>
-                        <a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v1.5.4</a> | 
-                        <a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
-                    </p>
+					<p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
+					<p>
+						<a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v{{ app_version }}</a> | 
+						<a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
+					</p>
                     {% if config.get('ADMIN_PASSWORD') %}
                     <a href="{{ url_for('logout') }}" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
                     {% endif %}
@@ -236,13 +247,11 @@
                                             <span class="input-hint">{{ t.magic_input_hint }}</span>
                                             <div style="display: flex; gap: 5px;">
                                                 <select id="provider-{{ series.id }}" style="width: 35%; padding: 8px; font-size: 12px;">
-                                                    <option value="AUTO">{{ t.provider_auto }}</option>
-                                                    {% for scraper in magic_scrapers %}
-                                                        {% if series.libraryType in scraper.supported_types or "Manga" in scraper.supported_types %}
-                                                            <option value="{{ scraper.id }}" {% if series.forced_provider == scraper.id %}selected{% endif %}>{{ scraper.display_name }}</option>
-                                                        {% endif %}
-                                                    {% endfor %}
-                                                </select>
+													<option value="AUTO">{{ t.provider_auto }}</option>
+													{% for scraper in magic_scrapers %}
+														<option value="{{ scraper.id }}" {% if series.forced_provider == scraper.id %}selected{% endif %}>{{ scraper.display_name }}</option>
+													{% endfor %}
+												</select>
                                                 <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_magic }}" style="flex: 1;">
                                             </div>
                                         </div>
@@ -330,23 +339,22 @@
                         </div>
 
                         <!-- Section 1.5 : Clés API Fournisseurs -->
-                        <div class="config-section">
-                            <h4 class="config-section-title">{{ t.providers_api_title }}</h4>
-                            <div class="form-group">
-                                <label>{{ t.comicvine_api }}</label>
-                                <div class="password-wrapper">
-                                    <input type="password" name="COMICVINE_API_KEY" id="comicvine_api_key" value="{{ config.get('COMICVINE_API_KEY', '') }}">
-                                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('comicvine_api_key', this)" title="{{ t.show_hide }}">👁️</button>
-                                </div>
-                            </div>
-                            <div class="form-group" style="margin-top: 10px;">
-                                <label>{{ t.googlebooks_api }}</label>
-                                <div class="password-wrapper">
-                                    <input type="password" name="GOOGLEBOOKS_API_KEY" id="googlebooks_api_key" value="{{ config.get('GOOGLEBOOKS_API_KEY', '') }}">
-                                    <button type="button" class="toggle-password" onclick="togglePasswordVisibility('googlebooks_api_key', this)" title="{{ t.show_hide }}">👁️</button>
-                                </div>
-                            </div>
-                        </div>
+						<div class="config-section">
+							<h4 class="config-section-title">{{ t.providers_api_title }}</h4>
+							
+							<!-- 👈 BOUCLE DYNAMIQUE : Fini le hardcoding ! -->
+							{% for scraper in scrapers_with_keys %}
+							<div class="form-group" style="{% if not loop.first %}margin-top: 10px;{% endif %}">
+								<label>API Key - {{ scraper.display_name }} :</label>
+								<div class="password-wrapper">
+									<input type="password" name="{{ scraper.id }}_API_KEY" id="{{ scraper.id|lower }}_api_key" value="{{ config.get(scraper.id ~ '_API_KEY', '') }}">
+									<button type="button" class="toggle-password" onclick="togglePasswordVisibility('{{ scraper.id|lower }}_api_key', this)" title="{{ t.show_hide }}">👁️</button>
+								</div>
+							</div>
+							{% else %}
+							<p style="font-size: 12px; color: var(--text-muted); margin: 0;">Aucun fournisseur actif ne nécessite de clé API.</p>
+							{% endfor %}
+						</div>
                     </div>
 
                     <!-- COLONNE DROITE : Traduction & Planification -->
@@ -566,7 +574,23 @@
             </div>
         </div>
     </div>
-
+	<!-- MODAL CHANGELOG DYNAMIQUE -->
+	<div id="changelogModal" class="modal-overlay" onclick="if(event.target===this) closeChangelogModal()">
+		<div class="modal-content" style="max-width: 550px;">
+			<div class="modal-header">
+				<h3 class="m-0">🎉 MetaKavita v{{ app_version }}</h3>
+				<button type="button" class="close-btn" onclick="closeChangelogModal()">&times;</button>
+			</div>
+			<div id="changelogModalBody" style="max-height: 60vh; overflow-y: auto; font-size: 13px; line-height: 1.6; padding-right: 5px;">
+				<!-- Contenu injecté dynamiquement via /api/changelog -->
+			</div>
+			<div class="modal-footer" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: flex-end;">
+				<button type="button" class="btn-primary" onclick="closeChangelogModal()" style="padding: 8px 20px;">
+					{{ t.get('changelog_btn_got_it', "J'ai compris !") }}
+				</button>
+			</div>
+		</div>
+	</div>
     <script src="{{ url_for('static', filename='js/script.js') }}"></script>
 </body>
 </html>

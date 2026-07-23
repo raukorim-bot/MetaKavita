@@ -1,11 +1,12 @@
 from curl_cffi import requests as cffi_requests
 import requests
 import base64
+import logging
 
 class KavitaAPI:
-    # Cache mémoire au niveau de la CLASSE (partagé et conservé pour tout le batch)
+    # Le cache sera purgé dynamiquement lors des appels batch/dashboard !
     _series_lib_type_cache = {}
-
+    
     def __init__(self, url, api_key):
         self.url = url.strip().rstrip('/') if url else ""
         self.api_key = api_key.strip() if api_key else ""
@@ -13,7 +14,7 @@ class KavitaAPI:
         self.headers = {}
 
     def authenticate(self):
-        print(f"[DEBUG] Auth tentée avec URL: '{self.url}' et Key: '{self.api_key[:5]}...'")
+        logging.info(f"[DEBUG] Auth tentée avec URL: '{self.url}' et Key: '{self.api_key[:5]}...'")
         if not self.api_key or not self.url:
             return False
             
@@ -31,32 +32,55 @@ class KavitaAPI:
             }
             return True
         except requests.exceptions.HTTPError as e:
-            # On masque l'URL contenant la clé API dans le message d'erreur
-            print(f"[Erreur Auth] Le serveur Kavita a rejeté la requête (Code {e.response.status_code}).")
+            logging.error(f"[Erreur Auth] Le serveur Kavita a rejeté la requête (Code {e.response.status_code}).")
             return False
         except Exception as e:
-            print(f"[Erreur Auth] {e}")
+            logging.error(f"[Erreur Auth] {e}")
             return False
 
     def get_libraries(self):
         if not self.token and not self.authenticate():
             return []
         try:
-            res = requests.get(f"{self.url}/api/Library/libraries", headers=self.headers, timeout=10)
+            res = requests.get(f"{self.url}/api/Library/libraries", headers=self.headers, timeout=20)
             res.raise_for_status()
             return res.json()
         except Exception as e:
-            print(f"[Erreur Libraries] {e}")
+            logging.error(f"[Erreur Libraries] {e}")
             return []
+
+    @staticmethod
+    def _normalize_library_type(raw_type):
+        """Convertit n'importe quel type de bibliothèque Kavita (ID ou String) en type standard MetaKavita."""
+        if raw_type is None:
+            return "Manga"
+            
+        val_str = str(raw_type).strip().lower()
+        
+        # 1. Détection des Comics / BD / Comic (Flexible) [IDs Kavita 1 et 5]
+        if val_str in ["1", "5", "comic", "comics", "comic (flexible)", "comicflexible", "comic_flexible", "flexiblecomic"] or "comic" in val_str:
+            return "Comic"
+            
+        # 2. Détection des Livres / Romans / Light Novels [IDs Kavita 2 et 3]
+        if val_str in ["2", "3", "book", "books", "novel", "novels", "lightnovel", "lightnovels", "light novel", "light novels"] or "book" in val_str or "novel" in val_str:
+            return "Book"
+            
+        # 3. Détection des Mangas / Images / Webtoons [IDs Kavita 0, 4 et 6]
+        if val_str in ["0", "4", "6", "manga", "image", "images", "webtoon"] or "manga" in val_str or "image" in val_str or "webtoon" in val_str:
+            return "Manga"
+            
+        return "Manga"
 
     def get_all_series(self, library_id=None):
         if not self.token and not self.authenticate():
             return []
             
         try:
+            # 🎯 PURGE DU CACHE ! (À chaque ouverture du dashboard ou début de batch)
+            self.__class__._series_lib_type_cache.clear()
+            
             all_libs = self.get_libraries()
             if library_id:
-                # On isole uniquement la bibliothèque demandée
                 libraries_to_scan = [lib for lib in all_libs if str(lib['id']) == str(library_id)]
             else:
                 libraries_to_scan = all_libs
@@ -70,42 +94,24 @@ class KavitaAPI:
                     
                     if series_res.status_code == 200:
                         for s in series_res.json():
-                            # Filtrage de sécurité
                             if str(s.get('libraryId', lib['id'])) == str(lib['id']):
-                                # Récupération et conversion du type de bibliothèque
                                 raw_type = lib.get('type') or lib.get('libraryType') or lib.get('LibraryType') or lib.get('Type') or 0
-                                if raw_type in [0, "0", "Manga", "manga"]:
-                                    lib_type_str = "Manga"
-                                elif raw_type in [1, "1", "Comic", "comic", "Comics", "comics"]:
-                                    lib_type_str = "Comic"
-                                elif raw_type in [2, "2", "Book", "book", "Books", "books"]:
-                                    lib_type_str = "Book"
-                                elif raw_type in [3, "3", "Novel", "novel", "LightNovel", "lightnovel", "Light Novels", "light novels"]:
-                                    lib_type_str = "Book"
-                                elif raw_type in [4, "4", "Image", "image", "Images", "images"]:
-                                    lib_type_str = "Manga"
-                                else:
-                                    lib_type_str = "Manga"
-                                    
-                                s['libraryType'] = lib_type_str
+                                s['libraryType'] = self._normalize_library_type(raw_type)
                                 unique_series[s['id']] = s
                                 
                 except Exception as inner_e:
-                    print(f"[Erreur] Bibliothèque {lib.get('id')} : {inner_e}")
+                    logging.error(f"[Erreur] Bibliothèque {lib.get('id')} : {inner_e}")
                     
             all_series = list(unique_series.values())
             all_series.sort(key=lambda x: x.get('name', '').lower())
             return all_series
             
         except Exception as e:
-            print(f"[Erreur globale] {e}")
+            logging.error(f"[Erreur globale] {e}")
             return []
 
+    # 🎯 CORRECTION : Récupération ciblée ultra-rapide
     def get_library_type_for_series(self, series_id):
-        """
-        Récupère le type de bibliothèque exact (Manga, Comic, Book) pour une série donnée.
-        Utilise un cache mémoire interne pour optimiser les performances.
-        """
         if int(series_id) in self._series_lib_type_cache:
             return self._series_lib_type_cache[int(series_id)]
             
@@ -113,86 +119,83 @@ class KavitaAPI:
             return "Manga"
             
         try:
+            # 1. On récupère la map des bibliothèques (Rapide)
             all_libs = self.get_libraries()
             lib_id_to_type = {}
             for lib in all_libs:
                 raw_type = lib.get('type') or lib.get('libraryType') or lib.get('LibraryType') or lib.get('Type') or 0
-                if raw_type in [0, "0", "Manga", "manga"]:
-                    lib_type_str = "Manga"
-                elif raw_type in [1, "1", "Comic", "comic", "Comics", "comics"]:
-                    lib_type_str = "Comic"
-                elif raw_type in [2, "2", "Book", "book", "Books", "books"]:
-                    lib_type_str = "Book"
-                elif raw_type in [3, "3", "Novel", "novel", "LightNovel", "lightnovel", "Light Novels", "light novels"]:
-                    lib_type_str = "Book"
-                elif raw_type in [4, "4", "Image", "image", "Images", "images"]:
-                    lib_type_str = "Manga"
-                else:
-                    lib_type_str = "Manga"
-                lib_id_to_type[lib['id']] = lib_type_str
+                lib_id_to_type[lib['id']] = self._normalize_library_type(raw_type)
                 
-            all_series = self.get_all_series()
-            for s in all_series:
-                s_id = s['id']
-                l_id = s.get('libraryId')
-                self._series_lib_type_cache[int(s_id)] = lib_id_to_type.get(l_id, "Manga")
+            # 2. On interroge Kavita uniquement sur cette série pour connaître son libraryId (Rapide)
+            res = requests.get(f"{self.url}/api/Series/{series_id}", headers=self.headers, timeout=10)
+            if res.status_code == 200:
+                s_data = res.json()
+                l_id = s_data.get('libraryId')
+                lib_type = lib_id_to_type.get(l_id, "Manga")
                 
-            return self._series_lib_type_cache.get(int(series_id), "Manga")
+                # Sauvegarde temporaire pour ce traitement (sera purgé au prochain batch global)
+                self._series_lib_type_cache[int(series_id)] = lib_type
+                return lib_type
+                
         except Exception as e:
-            print(f"[Erreur Library Type for Series] {e}")
-            return "Manga"
+            logging.error(f"[Erreur Library Type for Series] {e}")
+            
+        return "Manga"
 
     def get_series_metadata(self, series_id):
         if not self.token and not self.authenticate(): 
             return None
         try:
-            res = requests.get(f"{self.url}/api/Series/metadata?seriesId={series_id}", headers=self.headers, timeout=10)
-            return res.json() if res.status_code == 200 else None
-        except Exception as e:
-            print(f"[Erreur Metadata] {e}")
+            res = requests.get(f"{self.url}/api/Series/metadata?seriesId={series_id}", headers=self.headers, timeout=25)
+            if res.status_code == 200:
+                data = res.json()
+                # Sécurité : Si Kavita renvoie une liste [{...}], on extrait le dictionnaire principal !
+                if isinstance(data, list) and len(data) > 0:
+                    return data[0]
+                elif isinstance(data, dict):
+                    return data
             return None
-
+        except Exception as e:
+            logging.error(f"[Erreur Metadata] {e}")
+            return None
+            
     def update_series_metadata(self, metadata):
         if not self.token and not self.authenticate(): 
             return False, "Non authentifié"
         try:
-            # On encapsule les métadonnées dans la clé 'seriesMetadata' comme exigé par la doc
             payload = {"seriesMetadata": metadata}
-            
-            print(f"[DEBUG] Envoi encapsulé vers /api/Series/metadata : {payload}")
+            logging.debug(f"[DEBUG] Envoi encapsulé vers /api/Series/metadata : {payload}")
             
             res = requests.post(
                 f"{self.url}/api/Series/metadata", 
                 json=payload, 
                 headers=self.headers, 
-                timeout=10
+                timeout=35
             )
             
             if res.status_code != 200:
-                print(f"[DEBUG] Erreur Kavita : {res.text}")
+                logging.error(f"[DEBUG] Erreur Kavita : {res.text}")
                 return False, f"Code {res.status_code} : {res.text}"
                 
             return True, "Succès"
         except Exception as e:
-            print(f"[Erreur Update] {e}")
+            logging.error(f"[Erreur Update] {e}")
             return False, str(e)
-            
+
     def update_series_summary(self, series_id, summary_text):
         url = f"{self.url}/api/Series/update"
-        
         payload = {
             "id": int(series_id),
             "summary": summary_text,
             "summaryLocked": True
         }
-        
         try:
-            print(f"[DEBUG] Envoi minimaliste vers /api/Series/update : {payload}")
-            res = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            logging.info(f"[DEBUG] Envoi minimaliste vers /api/Series/update : {payload}")
+            res = requests.post(url, json=payload, headers=self.headers, timeout=30)
             res.raise_for_status()
             return True, "Succès"
         except Exception as e:
-            print(f"[Erreur Update Summary] {e}")
+            logging.error(f"[Erreur Update Summary] {e}")
             return False, str(e)
 
     def upload_series_cover(self, series_id, cover_url):
@@ -203,30 +206,31 @@ class KavitaAPI:
             return False, "URL de couverture invalide"
             
         try:
-            print(f"[DEBUG] Téléchargement de la couverture depuis : {cover_url}")
+            logging.debug(f"[DEBUG] Téléchargement de la couverture depuis : {cover_url}")
             
-            referer = "https://kitsu.io/"
-            user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+            from scrapers import ScraperRegistry
+            from urllib.parse import urlparse
             
-            if "comicvine" in cover_url or "gamespot" in cover_url:
-                referer = "https://comicvine.gamespot.com/"
-                # CORRECTION : Utiliser un agent navigateur pour éviter le 403 sur le CDN
-                user_agent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-                
+            parsed = urlparse(cover_url)
+            domain = parsed.netloc.lower().split(':')[0]
+            
             headers = {
-                "Referer": referer,
-                "User-Agent": user_agent
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
             
-            img_res = cffi_requests.get(cover_url, headers=headers, impersonate="safari15_5", timeout=15)
+            for scraper in ScraperRegistry.get_all():
+                if any(domain == d or domain.endswith('.' + d) for d in scraper.proxy_domains):
+                    if getattr(scraper, 'proxy_referer', None):
+                        headers["Referer"] = scraper.proxy_referer
+                    break
+            
+            img_res = cffi_requests.get(cover_url, headers=headers, impersonate="chrome110", timeout=15)
             
             if img_res.status_code != 200:
                 return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
             
-            # Convertit l'image en base64
             img_base64 = base64.b64encode(img_res.content).decode('utf-8')
             
-            # Envoi de la couverture à l'API Kavita
             upload_url = f"{self.url}/api/Upload/series"
             payload = {
                 "id": int(series_id),
@@ -236,15 +240,15 @@ class KavitaAPI:
             res = requests.post(upload_url, json=payload, headers=self.headers, timeout=15)
             
             if res.status_code != 200:
-                print(f"[DEBUG] Erreur Upload Cover Kavita : {res.text}")
+                logging.error(f"[DEBUG] Erreur Upload Cover Kavita : {res.text}")
                 return False, f"Code {res.status_code} : {res.text}"
                 
             return True, "Couverture mise à jour avec succès"
             
         except Exception as e:
-            print(f"[Erreur Upload Cover] {e}")
+            logging.error(f"[Erreur Upload Cover] {e}")
             return False, str(e)
-            
+
     def update_series_external_ids(self, series_id, anilist_id=None, mal_id=None, mangabaka_id=None):
         if not self.token and not self.authenticate(): 
             return False, "Non authentifié"
@@ -260,14 +264,77 @@ class KavitaAPI:
             
         try:
             url = f"{self.url}/api/Series/update"
-            print(f"[DEBUG] Envoi des IDs externes vers {url} : {payload}")
-            res = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            logging.info(f"[DEBUG] Envoi des IDs externes vers {url} : {payload}")
+            res = requests.post(url, json=payload, headers=self.headers, timeout=30)
             
             if res.status_code == 200:
                 return True, "Succès"
             else:
-                print(f"[DEBUG] Erreur Update IDs : {res.text}")
+                logging.error(f"[DEBUG] Erreur Update IDs : {res.text}")
                 return False, f"Code {res.status_code} : {res.text}"
         except Exception as e:
-            print(f"[Erreur Update IDs] {e}")
+            logging.error(f"[Erreur Update IDs] {e}")
             return False, str(e)
+
+    def get_series_isbn(self, series_id):
+        """Récupère le premier ISBN disponible parmi les volumes/chapitres de la série."""
+        if not self.token and not self.authenticate(): 
+            return None
+        try:
+            res = requests.get(f"{self.url}/api/Series/volumes?seriesId={series_id}", headers=self.headers, timeout=20)
+            if res.status_code == 200:
+                volumes = res.json()
+                for vol in volumes:
+                    raw_isbn = vol.get('isbn')
+                    if raw_isbn:
+                        return str(raw_isbn).replace('-', '').replace(' ', '').strip()
+                        
+                    for chap in vol.get('chapters', []):
+                        raw_chap_isbn = chap.get('isbn')
+                        if raw_chap_isbn:
+                            return str(raw_chap_isbn).replace('-', '').replace(' ', '').strip()
+        except Exception as e:
+            logging.error(f"[Erreur ISBN] {e}")
+        return None
+
+    def get_series_deep_metadata(self, series_id):
+        """
+        Récupère l'ensemble des métadonnées existantes dans Kavita 
+        (ISBN, auteurs existants, etc.) de manière sécurisée contre les listes.
+        """
+        existing = {
+            'isbn': self.get_series_isbn(series_id),
+            'authors': [],
+            'publisher': None,
+            'year': None,
+            'genres': [],
+            'localized_name': None
+        }
+        
+        meta = self.get_series_metadata(series_id)
+        if isinstance(meta, list) and len(meta) > 0:
+            meta = meta[0]
+
+        if meta and isinstance(meta, dict):
+            if meta.get('writers') and isinstance(meta.get('writers'), list):
+                existing['authors'] = [w.get('name') for w in meta.get('writers', []) if isinstance(w, dict) and w.get('name')]
+                
+            if meta.get('publisher'):
+                pub = meta.get('publisher')
+                if isinstance(pub, dict):
+                    existing['publisher'] = pub.get('name')
+                elif isinstance(pub, list) and len(pub) > 0 and isinstance(pub[0], dict):
+                    existing['publisher'] = pub[0].get('name')
+                elif isinstance(pub, str):
+                    existing['publisher'] = pub
+                    
+            if meta.get('releaseYear'):
+                existing['year'] = meta.get('releaseYear')
+                
+            if meta.get('genres') and isinstance(meta.get('genres'), list):
+                existing['genres'] = [g.get('title') for g in meta.get('genres', []) if isinstance(g, dict) and g.get('title')]
+                
+            if meta.get('localizedName'):
+                existing['localized_name'] = meta.get('localizedName')
+                
+        return existing
