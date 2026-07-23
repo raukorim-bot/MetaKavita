@@ -1,11 +1,31 @@
 import logging
+import time
 from scrapers import ScraperRegistry
 from config_manager import load_config
 from translations import translations
 
 ALLOWED_PROXY_DOMAINS = ScraperRegistry.get_all_proxy_domains()
 
-def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO"):
+# 🎯 DÉCTIONNAIRE D'HORODATAGE GLOBAL (Mémoire des derniers appels par scraper)
+LAST_REQUEST_TIMES = {}
+
+def throttle_provider(scraper):
+    """
+    Attend uniquement le temps strictement nécessaire pour respecter le rate_limit 
+    du scraper ciblé. Si l'API était inactive, délai = 0.0s !
+    """
+    now = time.time()
+    last_call = LAST_REQUEST_TIMES.get(scraper.id, 0.0)
+    elapsed = now - last_call
+    required_delay = getattr(scraper, 'rate_limit', 1.0)
+    
+    if elapsed < required_delay:
+        sleep_needed = required_delay - elapsed
+        time.sleep(sleep_needed)
+        
+    LAST_REQUEST_TIMES[scraper.id] = time.time()
+
+def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO", existing_metadata=None):
     config = load_config()
     ui_lang = config.get('UI_LANG', 'fr')
     t = translations.get(ui_lang, translations['fr'])
@@ -17,6 +37,8 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     accumulated_ids = {'anilist_id': None, 'mal_id': None, 'mangabaka_id': None}
     accumulated_links = set()
     
+    current_existing = existing_metadata.copy() if existing_metadata else {}
+
     def has_useful_data(d):
         return bool(d.get('summary') or d.get('genres') or d.get('cover_url') or d.get('staff') or d.get('year'))
 
@@ -26,15 +48,12 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
             continue
             
         if library_type not in scraper.supported_types and "Manga" not in scraper.supported_types:
-            if is_forced_id and forced_provider == p:
+            if forced_provider == p or is_forced_id:
                 msg = t.get('log_scraper_type_bypass', "⚠️ [Scraper {0}] Forçage du type '{1}'")
                 logging.warning(msg.format(p, library_type))
             else:
                 continue
                 
-        # =========================================================
-        # --- LOGIQUE CHIRURGICALE (URL, ID ou TITRE) ---
-        # =========================================================
         is_id_search = False
         provider_query = query
         
@@ -50,9 +69,6 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                     logging.info(msg_skip.format(p))
                     continue
             else:
-                # C'est un ID brut (ex: 86865 ou slug).
-                # Comme la liste des providers a DÉJÀ été filtrée par app.py pour ne garder 
-                # que ceux qui gèrent les IDs, on envoie cet ID à tout le monde !
                 provider_query = raw_input
                 is_id_search = True
         else:
@@ -62,44 +78,23 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         if not provider_query:
             continue
             
-        # --- EXÉCUTION DU SCRAPING ---
+        # ⚡ REGULATION DYNAMIQUE : On n'attend QUE si l'API de CE scraper a été appelée trop récemment !
+        throttle_provider(scraper)
+
         try:
-            data = scraper.fetch(provider_query, library_type=library_type, is_id=is_id_search)
+            data = scraper.fetch(provider_query, library_type=library_type, is_id=is_id_search, existing_metadata=current_existing)
         except Exception as e:
             logging.error(f"❌ [Scraper {p}] Erreur lors de la récupération pour '{provider_query}': {e}")
             data = None
             
-        # --- TRAITEMENT DES RÉSULTATS ---
         if data and has_useful_data(data):
-            
-            # =========================================================
-            # --- VÉRIFICATION INTELLIGENTE (SMART ID MATCHING) ---
-            # =========================================================
-            # Si on a cherché par ID brut et qu'on est en mode AUTO, on vérifie que le résultat correspond bien à notre manga !
-            if is_id_search and forced_provider == 'AUTO' and not str(query).startswith("http"):
-                from scrapers.utils import calculate_similarity
-                
-                # On utilise list() pour créer une copie et ne pas modifier le dict d'origine avec l'append
-                fetched_titles = list(data.get('alternative_titles', []))
-                if data.get('title'):
-                    fetched_titles.append(data['title'])
-                    
-                match_found = False
-                for fetched_title in fetched_titles:
-                    if not fetched_title: continue
-                    similarity = calculate_similarity(fallback_query, fetched_title)
-                    if similarity >= 0.50:  # Seuil de 50%
-                        match_found = True
-                        logging.info(f"🎯 [Smart ID] Match validé avec {p} (Score: {int(similarity*100)}%) sur '{fetched_title}'")
-                        break
-                        
-                if not match_found:
-                    logging.warning(f"⏭️ [Smart ID] L'ID {provider_query} sur {p} renvoie une œuvre différente. On ignore et on teste le suivant.")
-                    continue # On rejette ce scraper et on passe au suivant de la cascade !
-            
-            # ---------------------------------------------------------
             used_providers.append(p)
             
+            if data.get('isbn') and not current_existing.get('isbn'):
+                current_existing['isbn'] = data['isbn']
+            if data.get('staff') and not current_existing.get('authors'):
+                current_existing['authors'] = [s['node']['name']['full'] for s in data['staff'] if isinstance(s, dict) and s.get('node', {}).get('name', {}).get('full')]
+
             for id_key in ['anilist_id', 'mal_id', 'mangabaka_id']:
                 if data.get(id_key) and not accumulated_ids[id_key]:
                     accumulated_ids[id_key] = data[id_key]
@@ -133,7 +128,6 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                     if filled_something:
                         master_data['_fusion_providers'] = master_data.get('_fusion_providers', []) + [p]
 
-    # --- RETOUR FINAL ---
     if base_provider_set:
         for id_key, id_val in accumulated_ids.items():
             if id_val: master_data[id_key] = id_val

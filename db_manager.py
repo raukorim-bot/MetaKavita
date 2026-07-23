@@ -56,9 +56,10 @@ def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO
     conn.close()
 
 def reset_errors():
+    """Réinitialise les statuts NOT_FOUND et IGNORED en PENDING."""
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    c.execute("UPDATE series_cache SET status = 'PENDING' WHERE status = 'NOT_FOUND'")
+    c.execute("UPDATE series_cache SET status = 'PENDING' WHERE status IN ('NOT_FOUND', 'IGNORED')")
     conn.commit()
     conn.close()
 

@@ -49,7 +49,7 @@ function togglePanel(id) {
     panel.style.display = (panel.style.display === 'block') ? 'none' : 'block';
 }
 
-// NOUVEAU : Fonction de déploiement/repli global de tous les panneaux d'options
+// Fonction de déploiement/repli global de tous les panneaux d'options
 function toggleAllOverridePanels() {
     allPanelsExpanded = !allPanelsExpanded;
     const targetDisplay = allPanelsExpanded ? 'block' : 'none';
@@ -71,7 +71,6 @@ document.addEventListener('keydown', (e) => {
 });
 
 document.addEventListener('DOMContentLoaded', () => {
-    // Restauration des filtres mémorisés dans le localStorage
     const savedStatus = localStorage.getItem('filter_status');
     const savedHideIgnored = localStorage.getItem('filter_hide_ignored');
     const savedSearch = localStorage.getItem('filter_search');
@@ -90,7 +89,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (searchInput) searchInput.value = savedSearch;
     }
     
-    // Si aucune bibliothèque n'est présente dans l'URL mais qu'une était mémorisée, on la charge
     const urlParams = new URLSearchParams(window.location.search);
     if (!urlParams.has('library_id') && savedLibrary) {
         const libSelector = document.getElementById('lib_selector');
@@ -116,7 +114,6 @@ function saveOverride(seriesId, btn) {
     const providerSelect = document.getElementById('provider-' + seriesId);
     const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
     
-    // NOUVEAU : Les 12 champs exhaustifs de l'architecture
     const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
     const activeFields = fields.filter(f => {
         const cb = document.getElementById(`field-${f}-${seriesId}`);
@@ -137,18 +134,15 @@ function saveOverride(seriesId, btn) {
     });
 }
 
-// Recherche rapide d'ID (AniList Direct Lookup)
 function lookupAniListId(seriesName) {
     const url = `https://anilist.co/search/manga?search=${encodeURIComponent(seriesName)}`;
     window.open(url, '_blank');
 }
 
-// SAUVEGARDE GLOBALE
 async function saveAllOverrides(btn) {
     const panels = document.querySelectorAll('.override-panel');
     const originalText = btn.innerHTML;
     
-    // Feedback visuel du bouton global
     btn.classList.add('btn-saving');
     btn.innerHTML = "⏳ " + window.AppTranslations.saving_progress;
     btn.disabled = true;
@@ -158,12 +152,11 @@ async function saveAllOverrides(btn) {
             const saveBtn = panel.querySelector('button.btn-success');
             if(saveBtn) {
                 saveBtn.click();
-                await new Promise(r => setTimeout(r, 250)); // Petit délai pour ne pas saturer le serveur
+                await new Promise(r => setTimeout(r, 250));
             }
         }
     }
     
-    // Restauration du bouton global
     btn.innerHTML = "✅ " + window.AppTranslations.save_done;
     btn.classList.remove('btn-saving');
     btn.classList.add('btn-success');
@@ -183,7 +176,6 @@ function filterSeries() {
     const searchInput = document.getElementById('searchInput');
     const searchQuery = searchInput ? searchInput.value.toLowerCase().trim() : '';
     
-    // Sauvegarde automatique de l'état des filtres
     localStorage.setItem('filter_status', filter);
     if (hideIgnoredCb) localStorage.setItem('filter_hide_ignored', hideIgnored ? 'true' : 'false');
     if (searchInput) localStorage.setItem('filter_search', searchQuery);
@@ -436,7 +428,8 @@ function saveConfig() {
     const smartCompletion = document.getElementById('sidebar_smart_completion');
     const autoCover = document.getElementById('sidebar_auto_cover');
     const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
-    
+    const resetContext = document.getElementById('sidebar_reset_context');
+    if (resetContext) formData.append('RESET_CONTEXT_ON_FORCE', resetContext.checked ? 'true' : 'false');
     if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
     if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
@@ -466,7 +459,7 @@ function saveConfig() {
     });
 }
 
-// --- AMNISTIE DES ERREURS (AJAX) ---
+// --- AMNISTIE DES ERREURS ET DES IGNORÉS (AJAX) ---
 function resetErrors(btn) {
     const originalText = btn.innerText;
     btn.innerText = "⏳...";
@@ -478,12 +471,20 @@ function resetErrors(btn) {
             btn.innerText = "✅ OK";
             setTimeout(() => { btn.innerText = originalText; }, 2000);
             
-            document.querySelectorAll('.series-item[data-status="NOT_FOUND"]').forEach(item => {
+            // Remise à jour visuelle des éléments NOT_FOUND et IGNORED en PENDING
+            document.querySelectorAll('.series-item[data-status="NOT_FOUND"], .series-item[data-status="IGNORED"]').forEach(item => {
                 item.dataset.status = 'PENDING';
-                const badge = item.querySelector('.badge-notfound');
+                
+                const badge = item.querySelector('.badge');
                 if (badge) {
                     badge.className = 'badge badge-pending';
                     badge.innerText = window.AppTranslations.filter_pending;
+                }
+                
+                const ignoreBtn = item.querySelector('.series-actions .btn-icon');
+                if (ignoreBtn) {
+                    ignoreBtn.innerText = '🚫';
+                    ignoreBtn.title = window.AppTranslations.ignore_btn;
                 }
             });
             filterSeries();
@@ -636,7 +637,7 @@ async function ignoreSelection() {
     }, 1000);
 }
 
-// --- MODAL COUVERTURES AVEC RECHERCHE MANUELLE ---
+// --- MODAL COUVERTURES AVEC WEBSOCKET STREAMING (PROGRESSIVE LOADING) ---
 function openCoverModal(seriesId, seriesName) {
     currentCoverModalSeriesId = seriesId;
     currentCoverModalSeriesName = seriesName;
@@ -647,9 +648,22 @@ function openCoverModal(seriesId, seriesName) {
     if (modalSearchInput) modalSearchInput.value = seriesName;
     
     document.getElementById('coverModal').style.display = 'flex';
-    document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_loading}</div>`;
+    document.getElementById('coversGrid').innerHTML = `
+        <div class="stream-status-bar" id="coverStreamStatus" style="grid-column: 1 / -1;">
+            <span class="stream-spinner"></span>
+            <span>${window.AppTranslations.cover_streaming_start || 'Recherche en direct...'}</span>
+        </div>`;
     
-    fetchCovers(seriesId, seriesName);
+    triggerCoverStream(seriesId, seriesName);
+}
+
+function triggerCoverStream(seriesId, query) {
+    if (typeof socket !== 'undefined' && socket.connected) {
+        socket.emit('fetch_covers_stream', { series_id: seriesId, query: query });
+    } else {
+        // Fallback HTTP classique si le WebSocket est déconnecté
+        fetchCovers(seriesId, query);
+    }
 }
 
 function fetchCovers(seriesId, query) {
@@ -659,11 +673,9 @@ function fetchCovers(seriesId, query) {
         if(data.success && data.covers.length > 0) {
             let html = '';
             data.covers.forEach(c => {
-                let displayUrl = (c.provider === 'Kitsu' || c.provider.startsWith('ComicVine')) ? getRootPath() + '/api/proxy-image?url=' + encodeURIComponent(c.url) : c.url;
-                
                 html += `
-                <div class="cover-item" onclick="applyCover('${seriesId}', '${c.url}')" title="${c.title}">
-                    <img src="${displayUrl}" alt="Cover" loading="lazy">
+                <div class="cover-item" data-url="${c.url}" onclick="applyCover('${seriesId}', '${c.url}')" title="${c.title}">
+                    <img src="${c.display_url}" alt="Cover" loading="lazy">
                     <div class="cover-title" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 8px;" title="${c.title}">${c.title}</div>
                     <div class="cover-provider" style="font-size: 11px; color: var(--primary); margin-top: 2px;">${c.provider}</div>
                 </div>`;
@@ -683,8 +695,12 @@ function triggerManualCoverSearch() {
     if (modalSearchInput && currentCoverModalSeriesId) {
         const query = modalSearchInput.value.trim();
         if (query) {
-            document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_loading}</div>`;
-            fetchCovers(currentCoverModalSeriesId, query);
+            document.getElementById('coversGrid').innerHTML = `
+                <div class="stream-status-bar" id="coverStreamStatus" style="grid-column: 1 / -1;">
+                    <span class="stream-spinner"></span>
+                    <span>Recherche en direct pour "${query}"...</span>
+                </div>`;
+            triggerCoverStream(currentCoverModalSeriesId, query);
         }
     }
 }
@@ -711,6 +727,49 @@ function applyCover(seriesId, coverUrl) {
         } else {
             alert("Erreur lors de l'envoi de la couverture : " + data.msg);
             closeCoverModal();
+        }
+    });
+}
+
+// --- ÉCOUTE DES FLUX DE COUVERTURES EN DIRECT (SOCKET.IO) ---
+if (typeof socket !== 'undefined') {
+    socket.on('cover_stream_data', function(data) {
+        if (parseInt(currentCoverModalSeriesId) !== parseInt(data.series_id)) return;
+
+        const grid = document.getElementById('coversGrid');
+        if (!grid) return;
+
+        data.covers.forEach(c => {
+            if (grid.querySelector(`div[data-url="${c.url}"]`)) return;
+
+            const coverDiv = document.createElement('div');
+            coverDiv.className = 'cover-item';
+            coverDiv.dataset.url = c.url;
+            coverDiv.title = c.title;
+            coverDiv.onclick = () => applyCover(data.series_id, c.url);
+
+            coverDiv.innerHTML = `
+                <img src="${c.display_url}" alt="Cover" loading="lazy">
+                <div class="cover-title" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 8px;" title="${c.title}">${c.title}</div>
+                <div class="cover-provider" style="font-size: 11px; color: var(--primary); margin-top: 2px;">${c.provider}</div>
+            `;
+
+            grid.appendChild(coverDiv);
+        });
+    });
+
+    socket.on('cover_stream_complete', function(data) {
+        if (parseInt(currentCoverModalSeriesId) !== parseInt(data.series_id)) return;
+        
+        const statusStatus = document.getElementById('coverStreamStatus');
+        if (statusStatus) {
+            statusStatus.remove();
+        }
+
+        const grid = document.getElementById('coversGrid');
+        if (grid && grid.querySelectorAll('.cover-item').length === 0) {
+            const noImgMsg = window.AppTranslations.cover_no_images_found || '❌ Aucune image trouvée.';
+            grid.innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">${noImgMsg}</div>`;
         }
     });
 }
@@ -751,6 +810,7 @@ function handleProviderChange(changedSelect) {
 
     saveConfig();
 }
+
 // --- REGÉNÉRATION DU JETON WEBHOOK (AJAX) ---
 function regenerateWebhookToken(btn) {
     if (!confirm(window.AppTranslations.regen_webhook_confirm || "Régénérer le jeton Webhook ?")) {
@@ -781,3 +841,52 @@ function regenerateWebhookToken(btn) {
         btn.innerText = originalText;
     });
 }
+// --- GESTION DYNAMIQUE DE LA MODAL CHANGELOG ---
+function checkChangelogPopup() {
+    const currentVersion = window.APP_VERSION || "1.5.5";
+    const lastSeenVersion = localStorage.getItem('last_seen_version');
+    
+    if (lastSeenVersion !== currentVersion) {
+        openChangelogModal(false);
+    }
+}
+
+function openChangelogModal(forceOpen = false) {
+    const modal = document.getElementById('changelogModal');
+    const body = document.getElementById('changelogModalBody');
+    if (!modal || !body) return;
+
+    // Affiche un loader temporaire pendant la requête
+    body.innerHTML = `<div class="loader-spinner">⏳ Chargement des nouveautés...</div>`;
+    modal.style.display = 'flex';
+
+    // Récupération dynamique depuis CHANGELOG.md via l'API
+    fetch(getRootPath() + '/api/changelog')
+        .then(res => res.json())
+        .then(data => {
+            if (data.success && data.changelog) {
+                body.innerHTML = data.changelog;
+                if (!forceOpen) {
+                    localStorage.setItem('last_seen_version', data.version);
+                }
+            } else {
+                body.innerHTML = `<p>Version ${window.APP_VERSION} active.</p>`;
+            }
+        })
+        .catch(() => {
+            body.innerHTML = `<p>Version ${window.APP_VERSION} active.</p>`;
+        });
+}
+
+function closeChangelogModal() {
+    const modal = document.getElementById('changelogModal');
+    if (modal) modal.style.display = 'none';
+    if (window.APP_VERSION) {
+        localStorage.setItem('last_seen_version', window.APP_VERSION);
+    }
+}
+
+// Déclencheur au chargement de la page
+document.addEventListener('DOMContentLoaded', () => {
+    setTimeout(checkChangelogPopup, 600);
+});

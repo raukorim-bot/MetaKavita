@@ -2,9 +2,9 @@ import requests
 import logging
 import unicodedata
 import difflib
+from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title
-from typing import Optional
 
 def normalize_str(s):
     if not s: return ""
@@ -18,18 +18,32 @@ class KitsuScraper(BaseScraper):
     proxy_domains = ["kitsu.io", "media.kitsu.app", "media.kitsu.io"]
     has_direct_id_support = True
 
+    translations = {
+        "fr": {
+            "direct_id": "[Kitsu] Requête directe par ID/Slug : '{0}'",
+            "search_title": "[Kitsu] Recherche par titre : '{0}'",
+            "err": "[Erreur Kitsu] {0}",
+            "covers_err": "[Covers] Erreur Kitsu : {0}"
+        },
+        "en": {
+            "direct_id": "[Kitsu] Direct request by ID/Slug: '{0}'",
+            "search_title": "[Kitsu] Title search: '{0}'",
+            "err": "[Kitsu Error] {0}",
+            "covers_err": "[Covers] Kitsu error: {0}"
+        }
+    }
+
     def extract_id_from_url(self, url: str) -> Optional[str]:
-        """Extrait le slug (ex: attack-on-titan) depuis l'URL Kitsu"""
         if "kitsu.io/manga/" in url or "kitsu.app/manga/" in url:
             return url.split('/manga/')[-1].split('/')[0].split('?')[0]
         return None
 
-    def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False):
+    def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         headers = {"Accept": "application/vnd.api+json"}
         
         try:
             if is_id:
-                logging.info(f"[Kitsu] Requête directe par ID/Slug : '{query}'")
+                logging.info(self.t("direct_id").format(query))
                 if str(query).isdigit():
                     url = f"https://kitsu.io/api/edge/manga/{query}"
                     params = {"include": "categories"}
@@ -41,7 +55,6 @@ class KitsuScraper(BaseScraper):
                 if res.status_code != 200: return None
                 
                 json_res = res.json()
-                
                 if isinstance(json_res.get('data'), list):
                     if not json_res['data']: return None
                     best_match = json_res['data'][0]
@@ -52,7 +65,7 @@ class KitsuScraper(BaseScraper):
 
             else:
                 clean = clean_title(query, library_type=library_type)
-                logging.info(f"[Kitsu] Recherche par titre : '{clean}'")
+                logging.info(self.t("search_title").format(clean))
                 url = "https://kitsu.io/api/edge/manga"
                 params = {"filter[text]": clean, "page[limit]": 5, "include": "categories"}
 
@@ -112,13 +125,12 @@ class KitsuScraper(BaseScraper):
 
             cover_url = attrs.get('posterImage', {}).get('original') or attrs.get('posterImage', {}).get('large')
 
-            # Protection contre les dictionnaires foireux
             alt_titles = []
             if isinstance(attrs.get('titles'), dict):
                 alt_titles = [t for t in attrs.get('titles').values() if t]
 
             return {
-                'title': attrs.get('canonicalTitle', ''), # 👈 Capital pour le Smart Match
+                'title': attrs.get('canonicalTitle', ''),
                 'alternative_titles': alt_titles,
                 'summary': attrs.get('synopsis', ''),
                 'cover_url': cover_url,
@@ -133,10 +145,10 @@ class KitsuScraper(BaseScraper):
                 'url': f"https://kitsu.io/manga/{best_match.get('id')}"
             }
         except Exception as e:
-            logging.error(f"[Erreur Kitsu] {e}")
+            logging.error(self.t("err").format(e))
             return None
 
-    def fetch_covers(self, query: str, library_type: str = "Manga"):
+    def fetch_covers(self, query: str, library_type: str = "Manga") -> List[Dict[str, str]]:
         covers = []
         clean_sq = clean_title(query, library_type=library_type)
         try:
@@ -153,5 +165,5 @@ class KitsuScraper(BaseScraper):
                         title = attrs.get('canonicalTitle', 'Inconnu')
                         covers.append({"provider": "Kitsu", "title": title, "url": cover_url})
         except Exception as e:
-            logging.error(f"[Covers] Erreur Kitsu : {e}")
+            logging.error(self.t("covers_err").format(e))
         return covers

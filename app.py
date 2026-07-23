@@ -8,11 +8,13 @@ import queue
 import io
 import os
 import secrets
-from werkzeug.middleware.proxy_fix import ProxyFix  # 👈 L'IMPORT QUI MANQUAIT !
+import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, request, render_template, Response, jsonify, session, redirect, url_for
 from flask_socketio import SocketIO
 from flask_socketio import disconnect
-from urllib.parse import urlparse
+from urllib.parse import urlparse, quote
 from config_manager import load_config, save_config
 from kavita_api import KavitaAPI
 from translator import translate_text
@@ -24,7 +26,7 @@ from scrapers import ScraperRegistry
 app = Flask(__name__)
 app.config['SECRET_KEY'] = load_config().get('SECRET_KEY', 'kavita-secret-key')
 
-# Initialisation SocketIO sécurisée (Same-Origin par défaut, pas de '*')
+# Initialisation SocketIO sécurisée (Same-Origin par défaut)
 socketio = SocketIO(app)
 
 # --- SUPPORT REVERSE PROXY & SUBPATH (TICKET C17) ---
@@ -41,10 +43,8 @@ if root_path:
 
         def __call__(self, environ, start_response):
             path_info = environ.get('PATH_INFO', '')
-            # On ne modifie SCRIPT_NAME que si l'URL commence effectivement par le sous-chemin
             if path_info.startswith(self.script_name):
                 environ['SCRIPT_NAME'] = self.script_name
-                # Garantit que PATH_INFO commence toujours par '/' et n'est jamais vide
                 environ['PATH_INFO'] = path_info[len(self.script_name):] or '/'
             return self.wsgi_app(environ, start_response)
 
@@ -54,7 +54,16 @@ init_db()
 
 class WebSocketLogHandler(logging.Handler):
     def emit(self, record):
+        # On masque les logs verbeux de DEBUG pour ne pas polluer la console Web UI
+        if record.levelno < logging.INFO:
+            return
+            
         log_entry = self.format(record)
+        
+        # Ignorer les lignes contenant [DEBUG] dans l'interface Web
+        if '[DEBUG]' in log_entry:
+            return
+            
         socketio.emit('log_update', {'data': log_entry})
 
 ws_handler = WebSocketLogHandler()
@@ -143,18 +152,8 @@ def worker():
         remaining = sync_queue.qsize()
         logging.info(t.get('log_worker_start').format(series_name, remaining))
         
+        # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
         success, msg, used_providers = process_series_logic(series_id, series_name, force_update)
-        
-        if used_providers:
-            from scrapers import ScraperRegistry
-            delay = 1.5
-            if len(used_providers) > 1:
-                delay = 2.5
-            else:
-                scraper = ScraperRegistry.get(used_providers[0])
-                if scraper:
-                    delay = scraper.rate_limit
-            time.sleep(delay)
         
         if sync_queue.empty():
             logging.info(t.get('log_batch_finished'))
@@ -305,6 +304,32 @@ def process_series_logic(series_id, series_name, force_update=False):
         safe_providers_log = [str(p) for p in providers_list if p is not None]
         logging.info(t.get('log_scraping').format(series_name, " > ".join(safe_providers_log), search_query))
         
+        # --- Détermination du type de bibliothèque ---
+        library_type = kavita.get_library_type_for_series(series_id)
+        logging.info(t.get('log_lib_type_detected', "[{0}] 📂 Type de bibliothèque détecté : {1}").format(series_name, library_type))
+
+        # ... (code inchangé) ...
+
+        # --- DÉTECTION DES MÉTADONNÉES PROFONDES KAVITA (ISBN & AUTEURS) ---
+        reset_context_on_force = config.get('RESET_CONTEXT_ON_FORCE', False)
+        
+        if force_update and reset_context_on_force:
+            logging.info(t.get('log_force_reset_context', "[{0}] 🔄 Mode forcé avec réinitialisation du contexte.").format(series_name))
+            existing_metadata = {
+                'isbn': kavita.get_series_isbn(series_id),
+                'authors': [],
+                'publisher': None,
+                'year': None,
+                'genres': [],
+                'localized_name': None
+            }
+        else:
+            existing_metadata = kavita.get_series_deep_metadata(series_id)
+            if existing_metadata.get('isbn'):
+                logging.info(t.get('log_isbn_detected', "[{0}] 📑 ISBN détecté dans Kavita : {1}").format(series_name, existing_metadata['isbn']))
+            if existing_metadata.get('authors'):
+                logging.info(t.get('log_authors_detected', "[{0}] ✍️ Auteur(s) détecté(s) dans Kavita : {1}").format(series_name, ', '.join(existing_metadata['authors'])))
+                
         # --- APPEL DU SCRAPER ---
         from metadata_fetcher import fetch_metadata
         provider_data, used_providers = fetch_metadata(
@@ -314,7 +339,8 @@ def process_series_logic(series_id, series_name, force_update=False):
             fallback_query=fallback_query,
             library_type=library_type,
             is_forced_id=is_forced_id,
-            forced_provider=forced_provider
+            forced_provider=forced_provider,
+            existing_metadata=existing_metadata
         )
 
         if not provider_data:
@@ -565,8 +591,13 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     if safe_config.get('KAVITA_API_KEY'): safe_config['KAVITA_API_KEY'] = '********'
     if safe_config.get('DEEPL_API_KEY'): safe_config['DEEPL_API_KEY'] = '********'
     if safe_config.get('AZURE_API_KEY'): safe_config['AZURE_API_KEY'] = '********'
-    if safe_config.get('COMICVINE_API_KEY'): safe_config['COMICVINE_API_KEY'] = '********'
-    if safe_config.get('GOOGLEBOOKS_API_KEY'): safe_config['GOOGLEBOOKS_API_KEY'] = '********'
+    from scrapers import ScraperRegistry
+    
+    scrapers_with_keys = [s for s in ScraperRegistry.get_all() if getattr(s, 'needs_api_key', False)]
+    for s in scrapers_with_keys:
+        key_name = f"{s.id}_API_KEY"
+        if safe_config.get(key_name):
+            safe_config[key_name] = '********'
     
     from scrapers import ScraperRegistry
     
@@ -579,13 +610,14 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         for s in ScraperRegistry.get_all() if getattr(s, 'has_direct_id_support', False)
     ]
             
-    return render_template('index.html', config=safe_config, msg=msg, error_msg=error_msg, 
+    return render_template('index.html', config=safe_config, app_version=APP_VERSION, msg=msg, error_msg=error_msg, 
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib, 
                            t=t, stats=stats, 
                            manga_providers=manga_providers,
                            comic_providers=comic_providers,
                            book_providers=book_providers,
-                           magic_scrapers=magic_scrapers)
+                           magic_scrapers=magic_scrapers,
+                           scrapers_with_keys=scrapers_with_keys)
                            
 @app.route('/', methods=['GET'])
 def index():
@@ -614,17 +646,15 @@ def save_config_ajax():
     elif not azure_key:
         config['AZURE_API_KEY'] = ''
         
-    cv_key = request.form.get('COMICVINE_API_KEY', '').strip()
-    if cv_key and cv_key != '********':
-        config['COMICVINE_API_KEY'] = cv_key
-    elif not cv_key:
-        config['COMICVINE_API_KEY'] = ''
-        
-    gb_key = request.form.get('GOOGLEBOOKS_API_KEY', '').strip() 
-    if gb_key and gb_key != '********':                           
-        config['GOOGLEBOOKS_API_KEY'] = gb_key    
-    elif not gb_key:                           
-        config['GOOGLEBOOKS_API_KEY'] = ''
+    from scrapers import ScraperRegistry
+    for s in ScraperRegistry.get_all():
+        if getattr(s, 'needs_api_key', False):
+            key_name = f"{s.id}_API_KEY"
+            val = request.form.get(key_name, '').strip()
+            if val and val != '********':
+                config[key_name] = val
+            elif not val:
+                config[key_name] = ''
         
     config['AZURE_REGION'] = request.form.get('AZURE_REGION', '').strip()
     
@@ -644,6 +674,8 @@ def save_config_ajax():
     config['BOOK_PROVIDER_3'] = request.form.get('BOOK_PROVIDER_3', 'NONE').strip()
     
     config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
+    
+    config['RESET_CONTEXT_ON_FORCE'] = request.form.get('RESET_CONTEXT_ON_FORCE') == 'true'
     
     try:
         config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))
@@ -697,24 +729,27 @@ def batch_sync():
     if not kavita.authenticate():
         return jsonify(success=False, msg=t.get('err_kavita', "Connexion échouée."))
         
-    if not selected_ids:
-        all_series = kavita.get_all_series(library_id=lib_id)
-    else:
-        all_series = kavita.get_all_series(library_id=lib_id)
-        all_series = [s for s in all_series if str(s['id']) in selected_ids]
-        
+    all_series = kavita.get_all_series(library_id=lib_id)
     cached = get_all_cached_data()
-    series_to_process = [
-        s for s in all_series 
-        if cached.get(s['id'], {}).get('status') != 'IGNORED'
-    ]
+
+    if not selected_ids:
+        # Si aucune case n'est cochée (batch global), on exclut les ignorés
+        series_to_process = [
+            s for s in all_series 
+            if cached.get(s['id'], {}).get('status') != 'IGNORED'
+        ]
+    else:
+        # Si l'utilisateur a COCHÉ des séries spécifiques, ON LES TRAITE TOUTES,
+        # même si elles étaient marquées comme IGNORED !
+        series_to_process = [s for s in all_series if str(s['id']) in selected_ids]
     
     if not series_to_process:
         return jsonify(success=False, msg=t.get('err_no_sel_or_empty', "Aucune série à traiter."))
         
     current_size = sync_queue.qsize()
     total_after_add = current_size + len(series_to_process)
-    logging.info(t.get('log_batch_added').format(len(series_to_process), total_after_add))
+    log_msg = t.get('log_batch_added', "🚀 {0} série(s) ajoutée(s) (Total : {1})")
+    logging.info(log_msg.format(len(series_to_process), total_after_add))
     
     for s in series_to_process:
         sync_queue.put((s['id'], s['name'], force_update))
@@ -762,7 +797,6 @@ def webhook():
     series_id = payload.get("seriesId") or payload.get("SeriesId") or payload.get("series_id")
     series_name = payload.get("name") or payload.get("Name") or payload.get("series_name")
     
-    # NOUVEAU : Prise en charge du paramètre force / force_update (JSON ou URL)
     force_param = payload.get("force") or payload.get("force_update") or payload.get("forceUpdate") or request.args.get('force')
     force_update = str(force_param).lower() in ['true', '1', 'yes'] if force_param is not None else False
     
@@ -813,47 +847,51 @@ def toggle_ignore():
 
 @app.route('/api/proxy-image')
 def proxy_image():
-    from scrapers import ALLOWED_PROXY_DOMAINS
+    from scrapers import ScraperRegistry
     img_url = request.args.get('url')
     if not img_url: return "Missing URL", 400
-    
-    config = load_config()
-    t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
 
     try:
         parsed = urlparse(img_url)
         domain = parsed.netloc.lower().split(':')[0]
         
-        is_safe = any(domain == d or domain.endswith('.' + d) for d in ALLOWED_PROXY_DOMAINS)
+        # Récupération dynamique en direct auprès du registre
+        allowed_domains = ScraperRegistry.get_all_proxy_domains()
+        is_safe = any(domain == d or domain.endswith('.' + d) for d in allowed_domains)
         
         if not is_safe:
-            logging.warning(t.get('log_proxy_ssrf').format(domain))
+            print(f"[Proxy] Domaine non autorisé : {domain}")
             return "Domain not allowed", 403
-    except Exception:
+    except Exception as e:
+        print(f"[Proxy] URL invalide : {e}")
         return "Invalid URL", 400
 
     try:
-        from curl_cffi import requests as cffi_requests
         from flask import send_file
         import io
+        import requests
         
-        referer = "https://kitsu.io/"
-        if "comicvine" in img_url or "gamespot" in img_url:
-            referer = "https://comicvine.gamespot.com/"
-            
         headers = {
-            "Referer": referer,
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
-        res = cffi_requests.get(img_url, headers=headers, impersonate="safari15_5", timeout=10)
+        
+        # Récupération dynamique du Referer auprès du scraper propriétaire du domaine
+        for scraper in ScraperRegistry.get_all():
+            if any(domain == d or domain.endswith('.' + d) for d in scraper.proxy_domains):
+                if getattr(scraper, 'proxy_referer', None):
+                    headers["Referer"] = scraper.proxy_referer
+                break
+
+        res = requests.get(img_url, headers=headers, timeout=12)
         
         if res.status_code == 200:
-            return send_file(io.BytesIO(res.content), mimetype='image/jpeg')
+            content_type = res.headers.get('Content-Type', 'image/jpeg')
+            return send_file(io.BytesIO(res.content), mimetype=content_type)
         else:
-            print(f"[Proxy] Erreur téléchargement (Code {res.status_code}) : {img_url}")
+            print(f"[Proxy] Échec HTTP {res.status_code} pour : {img_url}")
             
     except Exception as e:
-        print(f"[Proxy] Crash interne : {e}")
+        print(f"[Proxy] Erreur interne : {e}")
         
     return "Error", 500
 
@@ -869,19 +907,38 @@ def get_series_covers(series_id):
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
     
     library_type = kavita.get_library_type_for_series(series_id)
-    covers = []
     target_scrapers = ScraperRegistry.get_by_type(library_type)
     
     if not target_scrapers:
         target_scrapers = ScraperRegistry.get_by_type("Manga")
 
-    for scraper in target_scrapers:
+    script_root = request.script_root or ""
+    covers = []
+
+    def fetch_single_scraper(scraper):
+        """Fonction exécutée en parallèle pour chaque scraper."""
         try:
-            scraper_covers = scraper.fetch_covers(search_query, library_type=library_type)
-            if scraper_covers:
-                covers.extend(scraper_covers)
+            s_covers = scraper.fetch_covers(search_query, library_type=library_type)
+            results = []
+            if s_covers:
+                for c in s_covers:
+                    if getattr(scraper, 'requires_proxy', False):
+                        c['display_url'] = f"{script_root}/api/proxy-image?url={quote(c['url'])}"
+                    else:
+                        c['display_url'] = c['url']
+                    results.append(c)
+            return results
         except Exception as e:
             logging.error(f"[Covers] Erreur sur le scraper {scraper.id} : {e}")
+            return []
+
+    # Lancement en parallèle de tous les scrapers disponibles
+    with ThreadPoolExecutor(max_workers=min(len(target_scrapers), 8)) as executor:
+        futures = [executor.submit(fetch_single_scraper, scraper) for scraper in target_scrapers]
+        for future in as_completed(futures):
+            res = future.result()
+            if res:
+                covers.extend(res)
 
     return jsonify({"success": True, "covers": covers[:20]})
     
@@ -896,3 +953,169 @@ def apply_series_cover(series_id):
 
 if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5010, allow_unsafe_werkzeug=True, debug=False)
+    
+@socketio.on('fetch_covers_stream')
+def handle_fetch_covers_stream(data):
+    """Sert les couvertures en streaming direct (flush immédiat Eventlet)."""
+    from scrapers import ScraperRegistry
+    from urllib.parse import quote
+
+    series_id = data.get('series_id')
+    query = data.get('query')
+    if not series_id or not query: return
+
+    cache_data = get_all_cached_data().get(int(series_id), {})
+    search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or query
+
+    config = load_config()
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    library_type = kavita.get_library_type_for_series(series_id)
+    
+    target_scrapers = ScraperRegistry.get_by_type(library_type) or ScraperRegistry.get_by_type("Manga")
+    script_root = request.script_root or ""
+
+    total_scrapers = len(target_scrapers)
+    finished_counter = [0]
+
+    def process_and_emit_covers(scraper):
+        try:
+            s_covers = scraper.fetch_covers(search_query, library_type=library_type)
+            if s_covers:
+                results = []
+                for c in s_covers:
+                    if getattr(scraper, 'requires_proxy', False):
+                        c['display_url'] = f"{script_root}/api/proxy-image?url={quote(c['url'])}"
+                    else:
+                        c['display_url'] = c['url']
+                    results.append(c)
+                
+                # Émission vers le client web
+                socketio.emit('cover_stream_data', {
+                    'series_id': int(series_id),
+                    'provider': scraper.display_name,
+                    'covers': results
+                })
+                # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket sur le réseau
+                socketio.sleep(0)
+        except Exception as e:
+            logging.error(f"[Covers Stream] Erreur sur {scraper.id} : {e}")
+        finally:
+            finished_counter[0] += 1
+            if finished_counter[0] >= total_scrapers:
+                socketio.emit('cover_stream_complete', {'series_id': int(series_id)})
+                socketio.sleep(0)
+
+    for scraper in target_scrapers:
+        socketio.start_background_task(process_and_emit_covers, scraper)
+        
+def get_app_version() -> str:
+    """Extrait automatiquement le numéro de la version la plus récente dans CHANGELOG.md."""
+    # Dédoublonnage des chemins d'accès possibles
+    possible_paths = list(dict.fromkeys([
+        os.path.abspath(os.path.join(os.path.dirname(__file__), "CHANGELOG.md")),
+        os.path.abspath(os.path.join(os.getcwd(), "CHANGELOG.md")),
+        "CHANGELOG.md"
+    ]))
+    
+    for p in possible_paths:
+        if os.path.exists(p):
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    content = f.read(4096)
+                    # Expression plus souple qui accepte les numéros SemVer et les suffixes (ex: 1.5.5-rc1)
+                    match = re.search(r'##\s*\[([^\]]+)\]', content)
+                    if match:
+                        return match.group(1).strip()
+            except Exception as e:
+                logging.error(f"[App Version Parser] Erreur lors de la lecture de {p} : {e}")
+                
+    return "1.0.0"
+
+# Extraction dynamique du numéro de version courant au démarrage
+APP_VERSION = get_app_version()
+
+@app.context_processor
+def inject_globals():
+    return {
+        'app_version': APP_VERSION
+    }
+
+def get_full_changelog_html():
+    """Lit l'intégralité de CHANGELOG.md et le convertit proprement en HTML."""
+    possible_paths = [
+        os.path.join(os.path.dirname(__file__), "CHANGELOG.md"),
+        os.path.join(os.getcwd(), "CHANGELOG.md"),
+        "CHANGELOG.md"
+    ]
+    
+    changelog_path = None
+    for p in possible_paths:
+        if os.path.exists(p):
+            changelog_path = p
+            break
+            
+    if not changelog_path:
+        return f"<p style='color: var(--text-muted);'>Fichier CHANGELOG.md non trouvé (Version v{APP_VERSION}).</p>"
+
+    try:
+        with open(changelog_path, "r", encoding="utf-8") as f:
+            content = f.read().replace('\r\n', '\n')
+
+        html = []
+        in_list = False
+
+        for line in content.split("\n"):
+            line_str = line.strip()
+            if not line_str:
+                if in_list:
+                    html.append("</ul>")
+                    in_list = False
+                continue
+
+            if line_str.startswith("# "):
+                if in_list: html.append("</ul>"); in_list = False
+                title_text = line_str[2:].strip()
+                html.append(f"<h2 style='color: var(--primary); margin-top: 10px; margin-bottom: 10px; border-bottom: 2px solid var(--border-color); padding-bottom: 5px; font-size: 18px;'>{title_text}</h2>")
+            elif line_str.startswith("## "):
+                if in_list: html.append("</ul>"); in_list = False
+                version_text = line_str[3:].strip()
+                html.append(f"<h3 style='color: var(--accent); margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; font-size: 15px;'>{version_text}</h3>")
+            elif line_str.startswith("### "):
+                if in_list: html.append("</ul>"); in_list = False
+                subtitle_text = line_str[4:].strip()
+                html.append(f"<h4 style='color: var(--text-main); margin-top: 12px; margin-bottom: 6px; font-size: 13px;'>{subtitle_text}</h4>")
+            elif line_str.startswith("* ") or line_str.startswith("- "):
+                if not in_list:
+                    html.append("<ul style='padding-left: 20px; margin: 5px 0 15px 0;'>")
+                    in_list = True
+                item_text = line_str[2:].strip()
+                item_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item_text)
+                item_text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', item_text)
+                item_text = re.sub(r'`(.*?)`', r'<code style="background: var(--bg-input); padding: 2px 5px; border-radius: 4px; font-size: 11px;">\1</code>', item_text)
+                html.append(f"<li style='margin-bottom: 6px;'>{item_text}</li>")
+            elif line_str in ["FR", "EN"]:
+                if in_list: html.append("</ul>"); in_list = False
+                html.append(f"<div style='font-weight: bold; color: var(--warning); margin-top: 10px;'>{line_str}</div>")
+            else:
+                if in_list: html.append("</ul>"); in_list = False
+                line_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line_str)
+                line_text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line_text)
+                html.append(f"<p style='margin: 4px 0;'>{line_text}</p>")
+
+        if in_list:
+            html.append("</ul>")
+
+        return "".join(html)
+
+    except Exception as e:
+        logging.error(f"[Changelog Parser] Erreur : {e}")
+        return f"<p>Version {APP_VERSION} activée.</p>"
+
+@app.route('/api/changelog', methods=['GET'])
+def get_changelog_api():
+    """Endpoint renvoyant l'intégralité du changelog et le numéro de version courante."""
+    return jsonify({
+        "success": True,
+        "version": APP_VERSION,
+        "changelog": get_full_changelog_html()
+    })

@@ -1,3 +1,5 @@
+# Dans config_manager.py
+
 import json
 import os
 import secrets
@@ -21,15 +23,13 @@ def load_config():
         "PROVIDER_1": "MANGABAKA", 
         "PROVIDER_2": "KITSU", 
         "PROVIDER_3": "ANILIST",
-        "COMICVINE_API_KEY": "",
-        "GOOGLEBOOKS_API_KEY": "",
         "SMART_COMPLETION": False,
         "AUTO_SYNC_INTERVAL": 0, 
         "AUTO_COVER": False,
         "AUTO_READING_DIR": False,
         "ADMIN_PASSWORD": "", 
-        "SECRET_KEY": "",     # 👈 Initialisé à vide pour forcer la détection
-        "WEBHOOK_TOKEN": ""   # 👈 Initialisé à vide pour forcer la détection
+        "SECRET_KEY": "",
+        "WEBHOOK_TOKEN": ""
     }
     
     file_config = {}
@@ -37,7 +37,7 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 file_config = json.load(f)
-                config.update(file_config)
+                config.update(file_config) # 👈 Charge magiquement TOUTES les clés API des scrapers
         except json.JSONDecodeError:
             pass
             
@@ -52,21 +52,20 @@ def load_config():
     if needs_save:
         save_config(config)
 
-    if "ADMIN_PASSWORD" in file_config:
-        config["ADMIN_PASSWORD"] = file_config["ADMIN_PASSWORD"]
-    else:
-        config["ADMIN_PASSWORD"] = os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", ""))
+    config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", "")))
 
+    # On a retiré les clés des scrapers d'ici !
     for key in [
         "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION", 
-        "TARGET_LANG", "UI_LANG", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3", "COMICVINE_API_KEY",
-        "GOOGLEBOOKS_API_KEY"
+        "TARGET_LANG", "UI_LANG", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3"
     ]:
-        if key in file_config:
-            config[key] = file_config[key]
-        else:
-            config[key] = os.getenv(key, config.get(key, ""))
+        config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
             
+    # 👈 NOUVEAU : Récupération dynamique depuis Docker / OS des clés API (ex: HARDCOVER_API_KEY)
+    for env_key, env_val in os.environ.items():
+        if env_key.endswith("_API_KEY") and env_key not in config:
+            config[env_key] = env_val
+
     if "AUTO_SYNC_INTERVAL" in file_config:
         config["AUTO_SYNC_INTERVAL"] = file_config["AUTO_SYNC_INTERVAL"]
     else:
@@ -76,10 +75,7 @@ def load_config():
             config["AUTO_SYNC_INTERVAL"] = 0
             
     for bool_key in ["AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION"]:
-        if bool_key in file_config:
-            config[bool_key] = file_config[bool_key]
-        else:
-            config[bool_key] = str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true"
+        config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
             
     return config
 

@@ -5,11 +5,14 @@ import re
 import unicodedata
 import difflib
 from bs4 import BeautifulSoup
+from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title
 from config_manager import load_config
-from translations import translations
-from typing import Optional
+
+PRIMARY_PUBLISHERS = ["dc comics", "marvel", "image", "dark horse", "vertigo", "dargaud", "dupuis", "casterman", "le lombard", "glénat", "delcourt", "urban comics", "hachette", "boom! studios", "dynamite", "idw", "titan books", "fantagraphics"]
+
+FOREIGN_KEYWORDS = ["verlag", "brasil", "novaro", "ediciones", "zinco", "ecc", "vid", "interpresse"]
 
 def normalize_str(s):
     if not s: return ""
@@ -49,9 +52,26 @@ class ComicVineScraper(BaseScraper):
     id = "COMICVINE"
     display_name = "ComicVine (Ultime BD/Comics)"
     supported_types = {"Comic"}
-    rate_limit = 1.5
+    rate_limit = 1.2
     proxy_domains = ["comicvine.gamespot.com", "gamespot.com"]
     has_direct_id_support = True
+    requires_proxy = True
+    needs_api_key = True
+    
+    translations = {
+        "fr": {
+            "err_missing": "❌ Clé API ComicVine manquante. Veuillez la configurer dans les paramètres.",
+            "direct_id": "🎯 [ComicVine] Requête directe par ID : '{0}'",
+            "search_vol": "🔍 [ComicVine] Recherche de Volume pour '{0}'...",
+            "err_search": "[ComicVine] Erreur recherche : {0}"
+        },
+        "en": {
+            "err_missing": "❌ ComicVine API Key is missing. Please configure it in settings.",
+            "direct_id": "🎯 [ComicVine] Direct request by ID: '{0}'",
+            "search_vol": "🔍 [ComicVine] Volume Search for '{0}'...",
+            "err_search": "[ComicVine] Search error: {0}"
+        }
+    }
 
     def extract_id_from_url(self, url: str) -> Optional[str]:
         if "comicvine.gamespot.com" in url:
@@ -60,17 +80,49 @@ class ComicVineScraper(BaseScraper):
                 return match.group(1)
         return None
 
-    def fetch(self, query: str, library_type: str = "Comic", is_id: bool = False):
+    def _evaluate_volume_candidates(self, volume_results: list, query_base: str) -> Optional[dict]:
+        if not volume_results: return None
+        
+        norm_query = normalize_str(query_base)
+        candidates = []
+
+        for vol in volume_results:
+            vol_title = vol.get("name", "")
+            sim = calculate_similarity(vol_title, query_base)
+            
+            if sim >= 0.65:
+                issues_cnt = vol.get("count_of_issues", 0) or 0
+                pub_dict = vol.get("publisher") or {}
+                pub_name = str(pub_dict.get("name", "") if isinstance(pub_dict, dict) else "").lower()
+                
+                score = (sim * 100.0) + (issues_cnt * 1.5)
+                
+                if normalize_str(vol_title) == norm_query:
+                    score += 150.0
+                    
+                if any(op in pub_name for op in PRIMARY_PUBLISHERS):
+                    score += 300.0
+                    
+                if any(fk in pub_name for fk in FOREIGN_KEYWORDS):
+                    score -= 400.0
+
+                candidates.append((score, vol))
+
+        if candidates:
+            candidates.sort(key=lambda x: x[0], reverse=True)
+            return candidates[0][1]
+
+        return None
+
+    def fetch(self, query: str, library_type: str = "Comic", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         config = load_config()
-        ui_lang = config.get('UI_LANG', 'fr')
-        t = translations.get(ui_lang, translations['fr'])
         api_key = config.get("COMICVINE_API_KEY", "").strip()
         
         if not api_key:
-            logging.error(t.get("err_comicvine_missing", "❌ Clé API ComicVine manquante."))
+            logging.error(self.t("err_missing"))
             return None
             
-        headers = {"User-Agent": "MetaKavita-Metadata-Fetcher/1.0", "Accept": "application/json"}
+        headers = {"User-Agent": "MetaKavita-Fetcher/1.5", "Accept": "application/json"}
         
         volume_id = None
         volume_name = None
@@ -82,98 +134,119 @@ class ComicVineScraper(BaseScraper):
         staff_credits = []
 
         if is_id:
-            logging.info(f"🎯 [ComicVine] Requête directe par ID : '{query}'")
+            logging.info(self.t("direct_id").format(query))
             if str(query).startswith("4050-"):
                 volume_id = str(query).split("-")[1]
             elif str(query).startswith("4000-"):
                 issue_id = str(query).split("-")[1]
             else:
-                volume_id = str(query) # Fallback si c'est juste un chiffre
+                volume_id = str(query)
         else:
             cleaned_query = clean_title(query, library_type=library_type)
-            logging.info(f"🔍 [ComicVine] Recherche de Volume pour '{cleaned_query}'...")
-            url = "https://comicvine.gamespot.com/api/search/"
-            params = {"api_key": api_key, "format": "json", "resources": "volume", "query": cleaned_query, "limit": 5}
-            
-            volume_results = []
-            try:
-                res = requests.get(url, params=params, headers=headers, timeout=15)
-                if res.status_code not in [401, 403]:
-                    res.raise_for_status()
-                    res_json = res.json()
-                    # status_code == 1 signifie OK chez ComicVine
-                    if res_json.get("status_code") == 1: 
-                        volume_results = res_json.get("results", [])
-            except Exception as e:
-                logging.error(f"[ComicVine] Erreur recherche : {e}")
-            
-            if volume_results:
-                first_vol = volume_results[0]
-                vol_title = first_vol.get("name", "")
-                vol_similarity = calculate_similarity(vol_title, cleaned_query)
-                if vol_similarity >= 0.85:
-                    matched_volume = first_vol
-                    volume_id = matched_volume.get("id")
-                    volume_name = matched_volume.get("name")
 
+            logging.info(self.t("search_vol").format(cleaned_query))
+            url_volumes = "https://comicvine.gamespot.com/api/volumes/"
+            
+            # 🎯 PASSE 1 : Recherche avec le titre complet (Essentiel pour 'Y: The Last Man')
+            params_vol = {
+                "api_key": api_key,
+                "format": "json",
+                "filter": f"name:{cleaned_query}",
+                "limit": 20,
+                "field_list": "id,name,start_year,count_of_issues,publisher,deck,description,first_issue,image,site_detail_url"
+            }
+
+            try:
+                res_v = requests.get(url_volumes, params=params_vol, headers=headers, timeout=12)
+                if res_v.status_code == 200:
+                    vol_results = res_v.json().get("results", [])
+                    matched_volume = self._evaluate_volume_candidates(vol_results, cleaned_query)
+            except Exception as e:
+                logging.error(self.t("err_search").format(e))
+
+            # 🎯 PASSE 2 : Si pas de résultat et présence d'un deux-points, recherche sans le sous-titre
+            if not matched_volume and ":" in cleaned_query:
+                base_q = cleaned_query.split(":")[0].strip()
+                params_vol["filter"] = f"name:{base_q}"
+                try:
+                    res_v = requests.get(url_volumes, params=params_vol, headers=headers, timeout=12)
+                    if res_v.status_code == 200:
+                        vol_results = res_v.json().get("results", [])
+                        matched_volume = self._evaluate_volume_candidates(vol_results, base_q)
+                except Exception: pass
+
+            # 🎯 PASSE 3 : Fallback via /search/
             if not matched_volume:
-                issue_params = {"api_key": api_key, "format": "json", "resources": "issue", "query": cleaned_query, "limit": 5}
+                url_search = "https://comicvine.gamespot.com/api/search/"
+                params_search = {
+                    "api_key": api_key,
+                    "format": "json",
+                    "resources": "volume",
+                    "query": cleaned_query,
+                    "limit": 20,
+                    "field_list": "id,name,start_year,count_of_issues,publisher,deck,description,first_issue,image,site_detail_url"
+                }
+                try:
+                    res_s = requests.get(url_search, params=params_search, headers=headers, timeout=12)
+                    if res_s.status_code == 200:
+                        s_results = res_s.json().get("results", [])
+                        matched_volume = self._evaluate_volume_candidates(s_results, cleaned_query)
+                except Exception as e:
+                    logging.error(self.t("err_search").format(e))
+
+            if matched_volume:
+                volume_id = matched_volume.get("id")
+                volume_name = matched_volume.get("name")
+
+            # 🎯 PASSE 4 : Recherche par Issue (Album / Arc)
+            if not matched_volume:
+                url_search = "https://comicvine.gamespot.com/api/search/"
+                issue_params = {
+                    "api_key": api_key, 
+                    "format": "json", 
+                    "resources": "issue", 
+                    "query": cleaned_query, 
+                    "limit": 5,
+                    "field_list": "id,name,issue_number,description,deck,image,volume,person_credits"
+                }
                 time.sleep(1.0)
                 try:
-                    res_issue = requests.get(url, params=issue_params, headers=headers, timeout=15)
+                    res_issue = requests.get(url_search, params=issue_params, headers=headers, timeout=12)
                     if res_issue.status_code == 200:
                         res_issue_json = res_issue.json()
                         if res_issue_json.get("status_code") == 1:
                             issue_results = res_issue_json.get("results", [])
                             if issue_results:
                                 matched_issue = issue_results[0]
-                                issue_title = matched_issue.get("name") or ""
-                                issue_similarity = calculate_similarity(issue_title, cleaned_query)
-                                norm_query = normalize_str(cleaned_query)
-                                norm_issue = normalize_str(issue_title)
-                                is_substring = (norm_query in norm_issue or norm_issue in norm_query) if (norm_query and norm_issue) else False
-                                
-                                if issue_similarity >= 0.75 or (is_substring and len(norm_query) >= 4 and len(norm_issue) >= 4):
-                                    issue_id = matched_issue.get("id")
-                                    issue_name = matched_issue.get("name") or f"Issue #{matched_issue.get('issue_number')}"
-                                    raw_issue_desc = matched_issue.get("description") or matched_issue.get("deck") or ""
-                                    if raw_issue_desc:
-                                        soup_issue = BeautifulSoup(raw_issue_desc, "html.parser")
-                                        issue_summary = clean_comicvine_html(soup_issue).get_text().strip()
-                                    img_dict = matched_issue.get("image")
-                                    if isinstance(img_dict, dict):
-                                        issue_cover = img_dict.get("original_url") or img_dict.get("super_url")
-                                    parent_vol = matched_issue.get("volume")
-                                    if isinstance(parent_vol, dict):
-                                        volume_id = parent_vol.get("id")
-                                        volume_name = parent_vol.get("name")
-                except Exception as e: pass
+                                issue_id = matched_issue.get("id")
+                                issue_name = matched_issue.get("name") or f"Issue #{matched_issue.get('issue_number')}"
+                                parent_vol = matched_issue.get("volume")
+                                if isinstance(parent_vol, dict):
+                                    volume_id = parent_vol.get("id")
+                                    volume_name = parent_vol.get("name")
+                except Exception: pass
 
         if not volume_id and not issue_id: 
             return None
-            
-        # --- RÉCUPÉRATION ISSUE ---
+
+        # Récupération détaillée de l'Issue si présente
         if issue_id:
             time.sleep(1.0)
             try:
-                issue_res = requests.get(f"https://comicvine.gamespot.com/api/issue/4000-{issue_id}/", params={"api_key": api_key, "format": "json"}, headers=headers, timeout=15)
+                issue_res = requests.get(
+                    f"https://comicvine.gamespot.com/api/issue/4000-{issue_id}/", 
+                    params={"api_key": api_key, "format": "json", "field_list": "id,name,description,deck,image,person_credits,volume"}, 
+                    headers=headers, timeout=15
+                )
                 if issue_res.status_code == 200:
                     issue_detail = issue_res.json().get("results", {})
-                    if issue_detail:
-                        if not issue_name:
-                            issue_name = issue_detail.get("name") or f"Issue #{issue_detail.get('issue_number')}"
-                            
+                    if issue_detail and isinstance(issue_detail, dict):
                         raw_issue_desc = issue_detail.get("description") or issue_detail.get("deck") or ""
                         if raw_issue_desc:
                             soup_issue = BeautifulSoup(raw_issue_desc, "html.parser")
                             issue_summary = clean_comicvine_html(soup_issue).get_text().strip()
                         img_dict = issue_detail.get("image")
                         if isinstance(img_dict, dict): issue_cover = img_dict.get("original_url") or img_dict.get("super_url")
-                        
-                        parent_vol = issue_detail.get("volume")
-                        if isinstance(parent_vol, dict) and not volume_id:
-                            volume_id = parent_vol.get("id")
-                            volume_name = parent_vol.get("name")
                         
                         for person in issue_detail.get("person_credits", []):
                             p_name = person.get("name")
@@ -183,14 +256,9 @@ class ComicVineScraper(BaseScraper):
                             if any(r in p_role for r in ["writer", "plotter", "scripter"]): mapped_role = "Story"
                             elif any(r in p_role for r in ["penciller", "artist"]): mapped_role = "Art"
                             elif any(r in p_role for r in ["colorist"]): mapped_role = "Color"
-                            elif any(r in p_role for r in ["letterer"]): mapped_role = "Translator"
-                            elif any(r in p_role for r in ["cover"]): mapped_role = "Cover"
-                            elif any(r in p_role for r in ["editor"]): mapped_role = "Editor"
                             if mapped_role: staff_credits.append({"role": mapped_role, "node": {"name": {"full": p_name}}})
             except Exception: pass
 
-        # --- RÉCUPÉRATION VOLUME ---
-        time.sleep(1.0)
         volume_summary = ""
         volume_cover = None
         publisher_name = None
@@ -199,13 +267,17 @@ class ComicVineScraper(BaseScraper):
         site_url = f"https://comicvine.gamespot.com/volume/4050-{volume_id}/" if volume_id else ""
         
         if volume_id:
+            time.sleep(1.0)
             try:
-                detail_res = requests.get(f"https://comicvine.gamespot.com/api/volume/4050-{volume_id}/", params={"api_key": api_key, "format": "json"}, headers=headers, timeout=15)
+                detail_res = requests.get(
+                    f"https://comicvine.gamespot.com/api/volume/4050-{volume_id}/", 
+                    params={"api_key": api_key, "format": "json", "field_list": "id,name,deck,description,image,start_year,publisher,first_issue,site_detail_url"}, 
+                    headers=headers, timeout=15
+                )
                 if detail_res.status_code == 200:
                     volume_detail = detail_res.json().get("results", {})
-                    if volume_detail:
-                        if not volume_name:
-                            volume_name = volume_detail.get("name")
+                    if volume_detail and isinstance(volume_detail, dict):
+                        if not volume_name: volume_name = volume_detail.get("name")
                             
                         raw_vol_desc = volume_detail.get("description") or volume_detail.get("deck") or ""
                         if raw_vol_desc:
@@ -224,12 +296,44 @@ class ComicVineScraper(BaseScraper):
                         pub_dict = volume_detail.get("publisher")
                         if isinstance(pub_dict, dict): publisher_name = pub_dict.get("name")
                         if publisher_name: tags.append(publisher_name)
+
+                        # 🎯 ENRICHISSEMENT ISSUE #1 : Si le résumé du Volume fait < 150 caractères OU si le Staff est vide
+                        first_issue = (volume_detail.get("first_issue") or {})
+                        first_issue_id = first_issue.get("id")
                         
-                        for char in volume_detail.get("characters", [])[:5]:
-                            if char.get("name"): tags.append(char.get("name"))
-                        for con in volume_detail.get("concepts", [])[:5]:
-                            if con.get("name") and con.get("name") not in tags: tags.append(con.get("name"))
-                        site_url = volume_detail.get("site_detail_url") or site_url
+                        if first_issue_id and (not staff_credits or len(volume_summary) < 150):
+                            time.sleep(1.0)
+                            try:
+                                f_res = requests.get(
+                                    f"https://comicvine.gamespot.com/api/issue/4000-{first_issue_id}/", 
+                                    params={"api_key": api_key, "format": "json", "field_list": "description,deck,person_credits"}, 
+                                    headers=headers, timeout=10
+                                )
+                                if f_res.status_code == 200:
+                                    f_detail = f_res.json().get("results", {})
+                                    if isinstance(f_detail, dict):
+                                        # Résumé enrichi via Tome #1
+                                        if len(volume_summary) < 150:
+                                            f_desc = f_detail.get("description") or f_detail.get("deck") or ""
+                                            if f_desc:
+                                                f_soup = BeautifulSoup(f_desc, "html.parser")
+                                                issue_1_text = clean_comicvine_html(f_soup).get_text().strip()
+                                                if issue_1_text:
+                                                    volume_summary = f"{volume_summary}\n\n📖 [Synopsis] : {issue_1_text}".strip()
+
+                                        # Staff enrichi via Tome #1
+                                        if not staff_credits:
+                                            for person in f_detail.get("person_credits", []):
+                                                p_name = person.get("name")
+                                                p_role = person.get("role", "").lower()
+                                                if not p_name: continue
+                                                mapped_role = None
+                                                if any(r in p_role for r in ["writer", "plotter", "scripter"]): mapped_role = "Story"
+                                                elif any(r in p_role for r in ["penciller", "artist"]): mapped_role = "Art"
+                                                elif any(r in p_role for r in ["colorist"]): mapped_role = "Color"
+                                                if mapped_role: staff_credits.append({"role": mapped_role, "node": {"name": {"full": p_name}}})
+                            except Exception: pass
+
             except Exception: pass
 
         final_cover = issue_cover if issue_cover else volume_cover
@@ -258,32 +362,21 @@ class ComicVineScraper(BaseScraper):
             'url': site_url
         }
 
-    def fetch_covers(self, query: str, library_type: str = "Comic"):
+    def fetch_covers(self, query: str, library_type: str = "Comic") -> List[Dict[str, str]]:
         covers = []
         clean_sq = clean_title(query, library_type=library_type)
         config = load_config()
         cv_key = config.get("COMICVINE_API_KEY", "").strip()
         if not cv_key: return covers
-        headers = {"User-Agent": "MetaKavita-Metadata-Fetcher/1.0", "Accept": "application/json"}
-        url = "https://comicvine.gamespot.com/api/search/"
+        headers = {"User-Agent": "MetaKavita-Metadata-Fetcher/1.5", "Accept": "application/json"}
+        url = "https://comicvine.gamespot.com/api/volumes/"
         try:
-            params = {"api_key": cv_key, "format": "json", "resources": "volume", "query": clean_sq, "limit": 4}
+            params = {"api_key": cv_key, "format": "json", "filter": f"name:{clean_sq}", "limit": 4, "field_list": "name,image"}
             res = requests.get(url, params=params, headers=headers, timeout=10)
             if res.status_code == 200:
                 for v in res.json().get('results', []):
                     img_dict = v.get('image') or {}
                     cover_url = img_dict.get('original_url') or img_dict.get('super_url')
                     if cover_url: covers.append({"provider": "ComicVine (Série)", "title": v.get('name', 'Inconnu'), "url": cover_url})
-            
-            params["resources"] = "issue"
-            res_issue = requests.get(url, params=params, headers=headers, timeout=10)
-            if res_issue.status_code == 200:
-                for i in res_issue.json().get('results', []):
-                    img_dict = i.get('image') or {}
-                    cover_url = img_dict.get('original_url') or img_dict.get('super_url')
-                    if cover_url:
-                        issue_num = i.get('issue_number') or ''
-                        title = f"{i.get('name', 'Inconnu')} (n°{issue_num})" if issue_num else i.get('name', 'Inconnu')
-                        covers.append({"provider": "ComicVine (Album)", "title": title, "url": cover_url})
         except Exception: pass
         return covers
