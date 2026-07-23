@@ -2,6 +2,18 @@
 
 # Changelog
 
+## [1.5.6] - 2026-07-24 (The Permanent Cover Upload & Auto-Lock Hotfix)
+
+EN
+### 🐛 Bug Fixes & Cover Protection
+* **Kavita Cover Upload Data URI Fix (`kavita_api.py`)**: Formatted Base64 cover payloads with the full Data URI scheme (`data:image/jpeg;base64,...`). This ensures Kavita's C# backend writes the cover image physically to disk instead of temporarily holding it in RAM cache, fixing the 2-minute cover revert bug.
+* **Manual Cover Auto-Lock (`app.py`)**: Selecting a cover manually from the Cover Modal now automatically removes the `cover` field from `targeted_fields` in `cache.db`, permanently protecting manual selections from future automated batch runs or auto-syncs.
+
+FR
+### 🐛 Correctifs & Protection des Couvertures
+* **Correction de l'Envoi des Couvertures Kavita (`kavita_api.py`)** : Formatage du payload Base64 avec le schéma Data URI complet (`data:image/jpeg;base64,...`). Garantit que Kavita enregistre l'image physiquement sur le disque dur au lieu de la garder temporairement en RAM (résolution du bug où l'image s'annulait au bout de 2 minutes).
+* **Auto-Verrouillage des Couvertures Manuel (`app.py`)** : Choisir une couverture dans la modal décoche automatiquement le champ `Couverture` dans les Champs Ciblés pour la série, la protégeant définitivement des futurs batchs automatiques.
+
 ## [1.5.5] - 2026-07-23 (The Deep Extraction, High-Speed Engine & Scoring Precision Update)
 
 EN
@@ -65,7 +77,7 @@ FR
   * **Bédéthèque** : Correction de la méthode `fetch()` écrasée par erreur.
   * **MangaBaka** : Sécurisation contre les clés `null` dans l'API JSON.
   * **Cache Kavita** : Purge automatique du cache au lancement des batchs pour reconnaître les changements de types de bibliothèques (ID 5 `Comic Flexible`) sans redémarrer Docker.
-  
+
 ## [1.5.4] - 2026-07-22 (The "Smart Override" & Network Flexibility Update)
 
 EN
