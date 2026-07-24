@@ -214,33 +214,31 @@ class KavitaAPI:
             parsed = urlparse(cover_url)
             domain = parsed.netloc.lower().split(':')[0]
             
-            # En-têtes spécifiques pour le téléchargement de l'image externe
-            download_headers = {
+            headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
             
             for scraper in ScraperRegistry.get_all():
                 if any(domain == d or domain.endswith('.' + d) for d in scraper.proxy_domains):
                     if getattr(scraper, 'proxy_referer', None):
-                        download_headers["Referer"] = scraper.proxy_referer
+                        headers["Referer"] = scraper.proxy_referer
                     break
             
-            img_res = cffi_requests.get(cover_url, headers=download_headers, impersonate="chrome110", timeout=15)
+            # Téléchargement de l'image depuis la source
+            img_res = cffi_requests.get(cover_url, headers=headers, impersonate="chrome110", timeout=15)
             
             if img_res.status_code != 200:
                 return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
-
-            # 🎯 FIX 1 : Extraction du Base64 BRUT sans préfixe 'data:image/...;base64,'
-            # Kavita exige du Base64 pur pour écrire l'image sur le disque !
-            raw_base64 = base64.b64encode(img_res.content).decode('utf-8')
+            
+            # 🎯 VRAI CORRECTIF : Encodage en Base64 PUR (SANS aucun préfixe)
+            img_base64 = base64.b64encode(img_res.content).decode('utf-8')
             
             upload_url = f"{self.url}/api/Upload/series"
             payload = {
                 "id": int(series_id),
-                "url": raw_base64
+                "url": img_base64  # <-- Seulement la chaîne pure, Kavita s'occupe du reste !
             }
             
-            # 🎯 FIX 2 : Utilisation des en-têtes d'authentification Kavita (self.headers)
             res = requests.post(upload_url, json=payload, headers=self.headers, timeout=35)
             
             if res.status_code != 200:
