@@ -4,11 +4,11 @@
 
 EN
 ### 🐛 Bug Fixes
-* **Kavita Cover Upload Data URI Fix (`kavita_api.py`)**: Formatted Base64 cover payloads with the full Data URI scheme (`data:image/jpeg;base64,...`). This ensures Kavita writes cover images physically to disk instead of temporarily holding them in RAM cache, resolving the issue where cover uploads reverted after 2 minutes.
+* **Pure Base64 Cover Payload (`kavita_api.py`)**: Fixed a critical bug (the "Phantom Cover" syndrome) where Kavita silently rejected image payloads, resulting in deleted covers upon hard browser refreshes. Removed the `Data URI` prefix (`data:image/jpeg;base64,...`) and reverted to pure Base64 strings, which allows Kavita's C# engine to correctly write and save the images permanently to the disk.
 
 FR
 ### 🐛 Correctifs
-* **Correction de l'Envoi des Couvertures Kavita (`kavita_api.py`)** : Formatage du payload Base64 avec le schéma Data URI complet (`data:image/jpeg;base64,...`). Garantit que Kavita enregistre l'image physiquement sur le disque dur au lieu de la garder temporairement en RAM (résolution du bug où l'image s'annulait au bout de 2 minutes).
+* **Payload Base64 Pur (`kavita_api.py`)** : Résolution du bug critique des "couvertures fantômes" où Kavita rejetait silencieusement les images et finissait par les effacer du disque dur. Le payload a été corrigé pour envoyer une chaîne Base64 pure (sans préfixe *Data URI*), ce qui permet au moteur C# de Kavita de lire les octets et d'enregistrer l'image de manière permanente.
 
 ## [1.5.5] - 2026-07-23 (The Deep Extraction, High-Speed Engine & Scoring Precision Update)
 

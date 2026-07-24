@@ -955,6 +955,7 @@ if __name__ == '__main__':
     socketio.run(app, host='0.0.0.0', port=5010, allow_unsafe_werkzeug=True, debug=False)
     
 @socketio.on('fetch_covers_stream')
+
 def handle_fetch_covers_stream(data):
     """Sert les couvertures en streaming direct (flush immédiat Eventlet)."""
     from scrapers import ScraperRegistry
