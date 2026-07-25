@@ -6,10 +6,15 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import json
 from curl_cffi import requests
+from config_manager import load_config
 
 # --- CONFIGURATION ---
-# Colle ton jeton ici (avec ou sans le "Bearer ", le script gère)
-API_TOKEN = "Bearer eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJIYXJkY292ZXIiLCJ2ZXJzaW9uIjoiOCIsImp0aSI6IjdjNDY1NzhhLWI0NjUtNDA5YS1hOTk5LTJiY2I2MDEzZjM1MiIsImFwcGxpY2F0aW9uSWQiOjIsInN1YiI6IjEzNDE4NiIsImF1ZCI6IjEiLCJpZCI6IjEzNDE4NiIsImxvZ2dlZEluIjp0cnVlLCJpYXQiOjE3ODQ4MDE2NzEsImV4cCI6MTgxNjMzNzY3MSwiaHR0cHM6Ly9oYXN1cmEuaW8vand0L2NsYWltcyI6eyJ4LWhhc3VyYS1hbGxvd2VkLXJvbGVzIjpbInVzZXIiXSwieC1oYXN1cmEtZGVmYXVsdC1yb2xlIjoidXNlciIsIngtaGFzdXJhLXJvbGUiOiJ1c2VyIiwiWC1oYXN1cmEtdXNlci1pZCI6IjEzNDE4NiJ9LCJ1c2VyIjp7ImlkIjoxMzQxODZ9fQ.JCWyUflSp9oc9sno9jBE3OLV4jJWFNK7jXVwsDQunIQ" 
+# ⚠️ Ne JAMAIS coller de jeton en dur ici (voir CODE_REVIEW.md section 0 : un
+# ancien jeton personnel Hardcover a fui dans ce fichier puis a été révoqué).
+# Le jeton est lu depuis data/config.json (clé déjà utilisée par
+# scrapers/hardcover.py) ou, à défaut, depuis la variable d'environnement
+# HARDCOVER_API_KEY.
+API_TOKEN = load_config().get("HARDCOVER_API_KEY", "").strip() or os.getenv("HARDCOVER_API_KEY", "").strip()
 
 # Le titre du livre que tu cherches
 SEARCH_QUERY = "Choses dites"
@@ -71,7 +76,8 @@ def run_test():
         print(f"\n💥 CRASH EXCEPTION : {e}")
 
 if __name__ == "__main__":
-    if API_TOKEN == "eyJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJI...":
-        print("⚠️ N'oublie pas de remplacer la variable API_TOKEN par ton vrai jeton dans le script !")
+    if not API_TOKEN:
+        print("❌ ERREUR : Clé HARDCOVER_API_KEY manquante. Configurez-la dans data/config.json")
+        print("   (via l'UI MetaKavita) ou exportez-la en variable d'environnement HARDCOVER_API_KEY.")
     else:
         run_test()
