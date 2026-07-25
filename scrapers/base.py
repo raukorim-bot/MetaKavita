@@ -10,7 +10,7 @@ class BaseScraper(ABC):
     has_direct_id_support: bool = False
     requires_proxy: bool = False
     proxy_referer: str = ""
-    eeds_api_key: bool = False
+    needs_api_key: bool = False
     translations: Dict[str, Dict[str, str]] = {}
     
 

@@ -1,9 +1,13 @@
 import logging
-import requests
 import re
 from typing import Dict, Any, List, Optional
+
+# Remplacement de 'requests' classique par 'curl_cffi' pour passer Cloudflare
+from curl_cffi import requests
+
 from .base import BaseScraper
 from .utils import clean_title, calculate_similarity, normalize_str
+from config_manager import load_config
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
 
@@ -56,7 +60,7 @@ class MangaUpdatesScraper(BaseScraper):
             if match_path: return match_path.group(1)
         return None
 
-    def _parse_series_record(self, record: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    def _parse_series_record(self, record: Dict[str, Any], pub_pref: str = "LOCALIZED") -> Optional[Dict[str, Any]]:
         if not record or not isinstance(record, dict): return None
 
         series_id = record.get("series_id")
@@ -108,6 +112,36 @@ class MangaUpdatesScraper(BaseScraper):
         for cat in (record.get("categories") or [])[:10]:
             if isinstance(cat, dict) and cat.get("category"): tags.append(cat["category"])
 
+        # --- GESTION DE L'ÉDITEUR (PUBLISHER) ---
+        publisher = None
+        orig_pub = None
+        loc_pub = None
+        
+        publishers_list = record.get("publishers") or []
+        for pub in publishers_list:
+            if isinstance(pub, dict) and pub.get("publisher_name"):
+                p_name = pub.get("publisher_name").strip()
+                p_type = str(pub.get("type", "")).lower()
+                
+                # S'il s'agit de l'éditeur d'origine
+                if "original" in p_type or "japanese" in p_type:
+                    if not orig_pub:  # On ne garde que le PREMIER
+                        orig_pub = p_name
+                # Sinon, c'est forcément une édition localisée
+                else:
+                    if not loc_pub:   # On ne garde que le PREMIER
+                        loc_pub = p_name
+
+        # Définition selon la préférence
+        if pub_pref == "ORIGINAL":
+            publisher = orig_pub or loc_pub
+        else:
+            publisher = loc_pub or orig_pub
+
+        # Secours absolu
+        if not publisher and publishers_list and isinstance(publishers_list[0], dict):
+            publisher = publishers_list[0].get("publisher_name")
+
         site_url = record.get("url") or f"https://www.mangaupdates.com/series.html?id={series_id}"
 
         return {
@@ -120,7 +154,7 @@ class MangaUpdatesScraper(BaseScraper):
             'year': year,
             'status': status,
             'staff': staff,
-            'publisher': None,
+            'publisher': publisher,
             'age_rating': 'safe',
             'format': format_type,
             'url': site_url
@@ -133,13 +167,22 @@ class MangaUpdatesScraper(BaseScraper):
             "Accept": "application/json"
         }
 
+        # --- Détermination du paramètre Publisher (Local vs Global) ---
+        config = load_config()
+        pub_pref = "LOCALIZED"
+        if existing_metadata and existing_metadata.get('publisher_pref') and existing_metadata.get('publisher_pref') != 'GLOBAL':
+            pub_pref = existing_metadata.get('publisher_pref')
+        else:
+            pub_pref = config.get("PUBLISHER_PREFERENCE", "LOCALIZED")
+
         try:
             if is_id:
                 logging.info(self.t("direct_id").format(query))
                 url = f"https://api.mangaupdates.com/v1/series/{query}"
-                res = requests.get(url, headers=headers, timeout=12)
+                # Ajout de impersonate="chrome110" pour passer Cloudflare
+                res = requests.get(url, headers=headers, timeout=12, impersonate="chrome110")
                 if res.status_code == 200:
-                    return self._parse_series_record(res.json())
+                    return self._parse_series_record(res.json(), pub_pref)
                 return None
 
             cleaned = clean_title(query, library_type=library_type)
@@ -149,7 +192,8 @@ class MangaUpdatesScraper(BaseScraper):
             search_url = "https://api.mangaupdates.com/v1/series/search"
             payload = {"search": cleaned, "perpage": 5, "page": 1}
 
-            res = requests.post(search_url, json=payload, headers=headers, timeout=12)
+            # Ajout de impersonate="chrome110" pour passer Cloudflare
+            res = requests.post(search_url, json=payload, headers=headers, timeout=12, impersonate="chrome110")
             if res.status_code != 200: return None
 
             results = res.json().get("results", []) or []
@@ -207,9 +251,10 @@ class MangaUpdatesScraper(BaseScraper):
 
             logging.info(self.t("matched").format(best_match_id, int(best_score*100)))
 
-            detail_res = requests.get(f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12)
+            # Ajout de impersonate="chrome110" pour passer Cloudflare
+            detail_res = requests.get(f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12, impersonate="chrome110")
             if detail_res.status_code == 200:
-                return self._parse_series_record(detail_res.json())
+                return self._parse_series_record(detail_res.json(), pub_pref)
 
             return None
 
@@ -231,7 +276,9 @@ class MangaUpdatesScraper(BaseScraper):
         try:
             search_url = "https://api.mangaupdates.com/v1/series/search"
             payload = {"search": cleaned, "perpage": 5, "page": 1}
-            res = requests.post(search_url, json=payload, headers=headers, timeout=10)
+            
+            # Ajout de impersonate="chrome110" pour passer Cloudflare
+            res = requests.post(search_url, json=payload, headers=headers, timeout=10, impersonate="chrome110")
 
             if res.status_code == 200:
                 results = res.json().get("results", []) or []

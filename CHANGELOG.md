@@ -1,4 +1,52 @@
-# Changelog
+## [1.5.7] - 2026-07-25 (The Community Scrapers, Publisher QoS & Kavita OpenAPI Compliance Update)
+
+EN
+### ✨ New Features & QoS
+* **Community Scrapers Sideloading (`data/scrapers/`)**: MetaKavita now dynamically loads and integrates external Python scrapers dropped directly into the user-mapped `data/scrapers/` folder without rebuilding the Docker image. Custom scrapers automatically benefit from UI API Key generation and SSRF protection.
+* **Publisher Localization Preference**: Added a global setting and an elegant per-series segmented toggle (`Auto` | `VF/VA` | `VO`) to let users prioritize Localized/Translated publishers (e.g., *Viz Media*, *Glénat*) or Original publishers (e.g., *Shueisha*, *Kodansha*).
+* **Title Translation Fallback (Experimental)**: Added an optional safety net that automatically translates unfound localized titles to English to perform a second search pass.
+
+### 🦸 Scraper Enhancements
+* **MangaUpdates & MangaBaka Overhaul**: Upgraded parsers to actively categorize and extract both original and licensed publishers. Replaced standard `requests` in MangaUpdates with `curl_cffi` (`impersonate="chrome110"`) to seamlessly bypass Cloudflare anti-bot blocks.
+
+### 🐛 Critical Bug Fixes & Kavita OpenAPI Deep Compliance
+* **Kavita `publishers` Schema Mismatch Fix (`app.py`, `kavita_api.py`)**: Corrected the publisher payload key to plural `publishers` expecting an array of `PersonDto` objects (`[{"id": 0, "name": "Publisher"}]`), resolving an issue where Kavita silently discarded incoming publishers.
+* **C# Lock Guard 2-Pass Transaction Protocol (`kavita_api.py`)**: Implemented an automated 2-pass sequence (`*Locked: False` ➔ write ➔ `*Locked: True`) across all metadata updates. This forces Kavita's C# backend to overwrite fields previously locked in its SQLite database without returning silent false-positives.
+* **Plural Staff Lock Keys Standardized (`app.py`)**: Corrected all staff lock property names to match Kavita's C# singular OpenAPI spec (`writerLocked`, `characterLocked`, `publisherLocked`, etc.), ensuring authors and characters remain permanently locked after sync.
+* **Permanent Cover Upload & C# Filename Binding (`kavita_api.py`)**: Fixed an HTTP 500 (`Invalid Filename`) exception on `POST /api/Upload/series` by passing `fileName` with dynamic extension detection (`.jpg`, `.png`, `.webp`) and `lockCover: True` alongside pure Base64 payloads.
+* **Endpoint & Payload Separation (`app.py`, `kavita_api.py`)**: Strictly routed `summary` to `POST /api/Series/metadata` and `localizedName`/`format` to `POST /api/Series/update`. Prevents `localizedName` from collapsing to `null` and fixes third-party plugin crashes (e.g., KOReader Kamare extension).
+* **Per-Series Publisher Preference Persistence (`app.py`)**: Fixed an issue where the `/save-override` endpoint failed to forward `publisher_pref` to `save_forced_overrides()`, which previously reset per-series choices back to `GLOBAL` in `cache.db`.
+* **MangaBaka "Completed" Status Mapping (`scrapers/mangabaka.py`)**: Normalized MangaBaka's raw `completed` status to `FINISHED` so completed series no longer stay marked as "Ongoing".
+
+### 🛠️ System, Code Health & Documentation
+* **GET-Only System Fields Sanitization (`kavita_api.py`)**: Centralized sanitization in `update_series_metadata()` to strip computed/read-only properties (`totalCount`, `maxCount`, `pages`, `wordCount`) and prevent Entity Framework Core state-concurrency exceptions.
+* **Bulletproof SQLite Schema Migrations (`db_manager.py`)**: Rewrote database initialization (`_ensure_schema`) to gracefully handle column additions one by one, preventing `sqlite3.OperationalError` crashes on container updates.
+* **`BaseScraper` Attribute Typo (`scrapers/base.py`)**: Fixed a typo (`eeds_api_key` instead of `needs_api_key`) on the base class' default attribute.
+* **Custom Scraper Guide**: Added `CUSTOM_SCRAPERS.md` containing strict architecture rules and ready-to-use AI prompts ("Vibecoding") to build custom providers easily.
+
+FR
+### ✨ Nouvelles Fonctionnalités & QoS
+* **Scrapers Communautaires Personnalisés (`data/scrapers/`)** : MetaKavita charge désormais dynamiquement les scripts Python déposés dans le volume utilisateur `data/scrapers/`. Permet d'ajouter des sites à la volée sans recompiler l'image Docker.
+* **Préférence d'Éditeur (VF/VA vs VO)** : Ajout d'une option globale et d'un interrupteur par série (`Auto` | `VF/VA` | `VO`) permettant de prioriser l'éditeur localisé (ex: *Glénat*, *Kurokawa*) ou l'éditeur d'origine (ex: *Shueisha*, *Kodansha*).
+* **Titre de Secours (Traduction Fallback Expérimentale)** : Ajout d'un filet de sécurité désactivable traduisant automatiquement un titre non-trouvé vers l'anglais pour relancer une seconde recherche sur les API internationales.
+
+### 🦸 Améliorations Scrapers
+* **MangaUpdates & MangaBaka** : Mise à jour des parseurs pour extraire, catégoriser et trier les éditeurs traduits et originaux. Intégration de `curl_cffi` (`impersonate="chrome110"`) sur MangaUpdates pour contourner les blocages anti-bot Cloudflare.
+
+### 🐛 Correctifs Critiques & Conformité OpenAPI Kavita
+* **Correction du Schéma `publishers` (`app.py`, `kavita_api.py`)** : Correction du nom de variable pour utiliser `publishers` au pluriel avec un tableau de `PersonDto` (`[{"id": 0, "name": "Éditeur"}]`), résolvant le problème où Kavita rejetait silencieusement la maison d'édition.
+* **Protocole C# Lock Guard à 2 Passages (`kavita_api.py`)** : Implémentation d'une séquence automatique en 2 temps (`*Locked: False` ➔ écriture ➔ `*Locked: True`) sur toutes les mises à jour. Force le serveur C# de Kavita à écraser les champs déjà verrouillés en base de données sans faire de faux-positifs.
+* **Normalisation des Verrous au Singulier (`app.py`)** : Alignement de tous les verrous du staff sur le schéma OpenAPI de Kavita (`writerLocked`, `characterLocked`, `publisherLocked`, etc.), garantissant que les auteurs restent définitivement verrouillés après synchronisation.
+* **Upload de Couverture Permanent & Fix Erreur 500 (`kavita_api.py`)** : Résolution de l'exception HTTP 500 (`Invalid Filename`) sur `POST /api/Upload/series` grâce à l'envoi conjoint de `fileName` (avec extension dynamique `.jpg`, `.png`, `.webp`) et `lockCover: True` en Base64 pur.
+* **Séparation Stricte des Endpoints (`app.py`, `kavita_api.py`)** : Routage du résumé vers `POST /api/Series/metadata` et des généralités (`localizedName`, `format`) vers `POST /api/Series/update`. Empêche la corruption du titre alternatif à `null` et résout les crashs d'extensions tierces (comme Kamare sur KOReader).
+* **Persistance de la Préférence d'Éditeur par Série (`app.py`)** : Résolution du bug où l'endpoint `/save-override` ne transmettait pas la préférence d'éditeur par série à `save_forced_overrides()`, ce qui la réinitialisait à `GLOBAL` dans `cache.db`.
+* **Mappage du Statut "Terminé" MangaBaka (`scrapers/mangabaka.py`)** : Normalisation du statut brut `completed` de MangaBaka vers le statut interne `FINISHED` (les séries terminées ne restent plus bloquées en "En cours").
+
+### 🛠️ Système, Qualité du Code & Documentation
+* **Purge des Clés Système Kavita (`kavita_api.py`)** : Suppression systématique des propriétés calculées (`totalCount`, `maxCount`, `pages`, `wordCount`) avant l'envoi des métadonnées pour éviter les exceptions Entity Framework Core.
+* **Migrations SQLite Sécurisées (`db_manager.py`)** : Initialisation robuste (`_ensure_schema`) ajoutant les colonnes manquantes une par une pour empêcher les crashs HTTP 500 lors des mises à jour du conteneur.
+* **Typo d'Attribut `BaseScraper` (`scrapers/base.py`)** : Correction de `eeds_api_key` en `needs_api_key`.
+* **Guide Scrapers Communautaires** : Ajout du fichier `CUSTOM_SCRAPERS.md` contenant les règles d'architecture et les prompts IA (Vibecoding) pour créer facilement de nouveaux scrapers.
 
 ## [1.5.6] - 2026-07-24 (The Permanent Cover Upload Hotfix)
 
