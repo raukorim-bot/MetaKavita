@@ -1,13 +1,16 @@
 # MetaKavita
 
-MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance.
+MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance. 
+
+MetaKavita also features a **Plug & Play Community Scraper** architecture, allowing you to load custom Python scrapers on the fly without rebuilding the Docker image!
 
 ---
 
 ## Sommaire / Table of Contents
 1. [🇺🇸 English Documentation](#-english-documentation)
-   * [User Interface & Ergonomics](#-user-interface--ergonomics)
+   * [User Interface & Ergonomics](#-user-interface--ergonomics-v159)
    * [Enriched Metadata Fields](#-enriched-metadata-fields)
+   * [Custom Community Scrapers (Plug & Play)](#-custom-community-scrapers-plug--play)
    * [Quality, Reliability & Benchmarking](#-quality-reliability--engine-benchmarking)
    * [Installation (Zero-Effort & Source)](#-installation)
    * [Configuration Variables](#-configuration-variables)
@@ -16,8 +19,9 @@ MetaKavita is an automated metadata enricher and manager for [Kavita](https://ka
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks)
    * [Security Disclaimer & Best Practices](#-security-disclaimer--deployment-best-practices)
 2. [🇫🇷 Documentation Française](#-documentation-française)
-   * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie)
+   * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie-v159)
    * [Métadonnées Enrichies](#-métadonnées-enrichies)
+   * [Scrapers Communautaires Personnalisés](#-scrapers-communautaires-personnalisés-plug--play)
    * [Assurance Qualité & Benchmarks Moteur](#-assurance-qualité--benchmarks-moteur)
    * [Installation (Zéro-Effort & Sources)](#-installation-1)
    * [Variables de Configuration](#-variables-de-configuration)
@@ -25,57 +29,40 @@ MetaKavita is an automated metadata enricher and manager for [Kavita](https://ka
    * [Reverse Proxy & Hébergement en Sous-dossier](#-reverse-proxy--hébergement-en-sous-dossier)
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks-1)
    * [Avertissement de Sécurité & Bonnes Pratiques](#-avertissement-de-sécurité--bonnes-pratiques)
-3. [⚠️ Notes & Tech Stack](#-notes--tech-stack)
+3. [⚠️ Notes, Tech Stack & Full Documentation](#-notes-tech-stack--full-documentation)
 
 ---
 
 ## 🇺🇸 English Documentation
 
-### 🎨 User Interface & Ergonomics (V1.5.5)
+### 🎨 User Interface & Ergonomics (V1.5.9)
 
 MetaKavita has been completely redesigned and heavily refined to separate background configuration from daily operational strategy, offering a zero-reload AJAX experience.
 
 #### 1. Main Dashboard & Workspace Persistence
 The interface uses a 100% AJAX layout with zero page reloads. The left sidebar handles active strategic options, while the main panel presents your library. Thanks to local storage persistence, the dashboard automatically remembers your selected library, status filter, hide ignored state, and search query between sessions.
 
-![MetaKavita Main Dashboard](./assets/dashboard.png)
-
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
 Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. API Keys for metadata providers are neatly grouped in a dedicated section directly under the Kavita connection settings.
 The left sidebar contains only the **Scraping Options** card for quick tactical switches (Smart Completion, Auto-Covers, Auto-Reading Direction, Force Update, Context Reset) and the download button for your error reports.
-
-![Global Configuration Modal](./assets/config_modal.png)
-![Scraping Options Card](./assets/scraping_options.png)
 
 #### 3. Unified Filtering & Central Toolbar
 The Library Selector, Search bar, and Status Filter are consolidated into a single horizontal toolbar. This puts all target controls on one cohesive line.
 To the right, the **Expand/Collapse All** (`📐`) button allows you to toggle open all individual overrides panels for fast mass editing, next to the **Save All Overrides** button.
 
-![Central Toolbar](./assets/toolbar.png)
-
-#### 4. The "Magic Input", Deep Extraction & Granular Scraping
+#### 4. The "Magic Input", Deep Extraction & Advanced Overrides
 Each series has an advanced Options panel and relies on a powerful underlying scraping engine:
-*   **Deep Kavita Extraction & Smart Scoring**: Before querying the web, MetaKavita silently reads your existing Kavita metadata (like an embedded ISBN or an existing author). It uses this context in its unified scoring matrix (which favors Volume 1 for novels) to guarantee exact matches, anchor searches, and eliminate false positives.
-*   **The "Magic Input" (Smart URL/ID Routing & Provider Forcing)**: Paste a direct URL (e.g., `https://kitsu.io/manga/attack-on-titan` or a Manga-News link), a slug, or a raw ID into this field. MetaKavita will auto-detect the provider, bypass the standard search cascade, and scrape that exact page! **Alternatively, selecting any provider from the dropdown while leaving the ID input box empty forces that specific scraper to perform a title search using your "Alternative Title" (or series name), bypassing library type restrictions.**
+*   **Deep Kavita Extraction**: Before querying the web, MetaKavita silently reads your existing Kavita metadata (like an embedded ISBN or an existing author). It uses this context in its unified scoring matrix to guarantee exact matches.
+*   **The "Magic Input" (Smart URL/ID Routing)**: Paste a direct URL (e.g., `https://kitsu.io/manga/attack-on-titan` or a Manga-News link) or a raw ID into this field. MetaKavita will auto-detect the provider, bypass the standard search cascade, and scrape that exact page!
+*   **Publisher Preference Toggle**: A dedicated segmented control allows you to force a specific publisher preference (`Auto` | `VF/VA` | `VO`) per series, overriding the global configuration.
 *   **Granular Scraping (Targeted Fields)**: Click the "⚙️ Targeted Fields" details menu to individually uncheck specific metadata fields (Summary, Cover, Authors, Tags, Publisher, etc.) you don't want MetaKavita to overwrite.
-*   **Context Reset on Force Update**: When forcing an update on a mismatched series, a new sidebar toggle allows you to wipe the existing Kavita context to break negative feedback loops and start fresh.
-
-![Override & Advanced Panel](./assets/override_panel.png)
+*   **Context Reset on Force Update**: When forcing an update on a mismatched series, a sidebar toggle allows you to completely wipe the existing Kavita context (including the existing ISBN) to break negative feedback loops and start fresh.
 
 #### 5. Live WebSocket Cover Streaming (*Progressive Loading*)
-Manual cover searches stream image results live over WebSockets (`Socket.IO`) as each provider responds, rather than blocking until all scrapers finish. Each cover card smoothly fades into the grid in real-time, accompanied by a status bar.
-
-![Cover Selection Modal](./assets/cover_modal.png)
+Manual cover searches stream image results live over WebSockets (`Socket.IO`) as each provider responds, rather than blocking until all scrapers finish. Selecting a cover manually automatically unchecks the global `AUTO_COVER` field for that series to permanently lock your choice and protect it against background sync overwrites.
 
 #### 6. Live Processing Tracker & WS Logs
 During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. Badge statuses update dynamically on completion. The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
-
-![Live Logs Card](./assets/terminal.png)
-
-#### 7. Global Authentication
-The entire application can be locked behind a secure login screen with Timing-Attack immunity and brute-force delays.
-
-![Active Lock Screen](./assets/login.png)
 
 ---
 
@@ -99,7 +86,7 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 | | Translators | Translation credits / Localization groups |
 | | Cover Artists | Original cover artists |
 | | Editors, Letterers, Inkers | Extended staff roles mapping |
-| | Publisher | Official licensing publisher (*Pika*, *Glénat*, *Kodansha*, *Kurokawa*...) |
+| | Publisher | Official licensing publisher OR Original Publisher (based on user preference) |
 | **Classifications** | Reading Direction (Format) | Automatically set to Left-to-Right, Right-to-Left, or Vertical |
 | | Age Rating | Maps to native ratings: Safe, Suggestive, Erotica, Pornographic |
 | **External IDs** | External Platform IDs | Saves `AniListId`, `MalId`, and `MangaBakaId` |
@@ -107,14 +94,25 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 
 ---
 
+### 🔌 Custom Community Scrapers (Plug & Play)
+
+MetaKavita V1.5.7 introduces an **Auto-Discovery Registry** for user-created scrapers.
+You no longer need to modify the core code or rebuild the Docker image to add a new metadata source:
+
+1. Drop any valid Python scraper file (e.g., `my_custom_site.py`) directly into your `data/scrapers/` folder.
+2. Restart your MetaKavita container (`docker restart metakavita`).
+3. The custom scraper will dynamically integrate into the UI dropdowns, automatically generate API key inputs in the Settings Modal if required, and benefit from the built-in SSRF Image Proxy protection!
+
+> 💡 **Developers**: Please read the `CUSTOM_SCRAPERS.md` file for strict integration contracts and AI Prompts ("Vibecoding") to generate custom scrapers effortlessly.
+
+---
+
 ### 🧪 Quality, Reliability & Engine Benchmarking
 
-MetaKavita v1.5.5 undergoes rigorous automated stress testing across all metadata providers (Manga, Comic, Book) and core engine algorithms to ensure zero-crash operations, high-precision matching, and optimal performance:
-
-*   **100% Core Scoring Matrix Accuracy**: Evaluated across 20 complex edge cases including Roman volume numerals (`Tome II` -> `Tome 2`), sub-volume subtitle matching, spin-off penalties (`-35%`), guidebook noise filtering (`-50%`), and author mismatch anti-homonym protections (`-50%`).
-*   **56-Query Multi-Provider Stress Test**: Audited across all 12 active scrapers with **0 Python crashes**. Achieved 100% Webtoon reading direction detection, non-destructive regex handling for numeric titles (*20th Century Boys*), and French licensing publisher extraction (*Kurokawa*, *Panini*, *Ki-oon*, *Kbooks*, *Dargaud*).
-*   **ComicVine Structured Search & Issue #1 Fallback**: Refactored ComicVine scraper utilizing structured `/volumes/?filter=name:` search with primary publisher prioritization (*DC Comics*, *Marvel*, *Image*, *Dargaud*) and Issue #1 plot synopsis/staff fallback (boosting empty volume stubs from 39 characters to 3,500+ character summaries).
-*   **High-Speed Per-Provider Rate Limiter**: Replaced arbitrary fixed sleep delays with dynamic timestamp tracking (`LAST_REQUEST_TIMES`). Idle APIs respond instantly with zero artificial delay, executing 3-provider Smart Fusions in ~1.6 seconds without triggering HTTP 429 rate limits.
+*   **100% Core Scoring Matrix Accuracy**: Evaluated across 20 complex edge cases including Roman volume numerals (`Tome II` -> `Tome 2`), sub-volume subtitle matching, spin-off penalties (`-35%`), guidebook noise filtering (`-50%`), and strict Anti-Homonym Author mismatch protections.
+*   **Pure Base64 Payload Delivery**: Cover uploads use pure Base64 byte strings ensuring that Kavita's C# engine flawlessly writes and saves images permanently to the disk, completely eradicating the "Phantom Cover" syndrome.
+*   **High-Speed Per-Provider Rate Limiter**: Uses dynamic timestamp tracking (`LAST_REQUEST_TIMES`). Idle APIs respond instantly with zero artificial delay, executing 3-provider Smart Fusions in ~1.6 seconds without triggering HTTP 429 rate limits.
+*   **Hardened Kavita API Compliance (v1.5.8+)**: All partial updates now perform a GET-merge-POST cycle before writing to Kavita, guaranteeing that untouched fields (like alternate titles) are never silently nulled out or unlocked by the server. This also resolved a real-world crash in third-party OPDS clients (e.g. KOReader's Kamare plugin) that were choking on unexpected `null` values previously introduced by partial payloads.
 
 ---
 
@@ -165,11 +163,9 @@ docker compose up -d --build
 | `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
 | `AZURE_REGION` | Microsoft Azure Translator API Region (e.g. `francecentral`). | *(Empty)* |
 | `DEEPL_API_KEY` | Your DeepL Translation API Key (Fallback Translation Engine). | *(Empty)* |
-| `COMICVINE_API_KEY`| Your ComicVine API Key (Required for Comics/BDs). | *(Empty)* |
-| `GOOGLEBOOKS_API_KEY`| Google Books API Key (Optional, prevents HTTP 429 limit). | *(Empty)* |
-| `HARDCOVER_API_KEY`| Hardcover API Key (Optional, required for Hardcover GraphQL search). | *(Empty)* |
 | `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! | `FR` |
 | `UI_LANG` | Dashboard interface language (`fr` or `en`). | `fr` |
+| `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
 | `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`). | `MANGABAKA` |
 | `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
 | `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
@@ -180,6 +176,7 @@ docker compose up -d --build
 | `BOOK_PROVIDER_2` | Fallback book source 1. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Fallback book source 2. | `NONE` |
 | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
+| `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
 | `AUTO_READING_DIR` | Auto-detect and set Manga/Webtoon reading direction. | `false` |
@@ -240,7 +237,7 @@ MetaKavita is designed primarily as an **internal management tool (backoffice)**
 Although designed for internal management, several security hardening controls are built into the application to mitigate common risks:
 * **Authentication**: Password locking with timing-attack prevention (`secrets.compare_digest`) and artificial anti-brute-force delays.
 * **Session Security**: Hardened `HttpOnly` and `SameSite=Lax` session cookies.
-* **Proxy Restrictions**: Strict domain whitelisting on the `/api/proxy-image` endpoint to prevent SSRF (Server-Side Request Forgery) exploits.
+* **Proxy Restrictions**: Strict dynamic domain whitelisting on the `/api/proxy-image` endpoint to prevent SSRF (Server-Side Request Forgery) exploits.
 * **Token Protection**: Webhooks require a cryptographically generated authorization token (`WEBHOOK_TOKEN`) with on-demand UI token rotation.
 * **Credential Masking**: API keys are censored in the HTML DOM to protect sensitive values.
 
@@ -255,11 +252,13 @@ The presence of built-in security features **does not guarantee absolute immunit
 
 > **Disclaimer**: MetaKavita is provided "as-is" without warranty of any kind. The maintainers assume no liability for data loss, unauthorized access, or security incidents resulting from public exposure or network misconfiguration.
 
+<br><br>
+
 ---
 
 ## 🇫🇷 Documentation Française
 
-### 🎨 Interface Utilisateur & Ergonomie (V1.5.5)
+### 🎨 Interface Utilisateur & Ergonomie (V1.5.9)
 
 MetaKavita a été entièrement repensé et peaufiné pour séparer la configuration technique de la stratégie de scraping opérationnelle, tout en offrant une navigation fluide sans rechargements de page (AJAX).
 
@@ -272,38 +271,24 @@ L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la 
 Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement. Les clés d'API des fournisseurs sont proprement regroupées dans un bloc dédié sous la connexion Kavita.
 La barre latérale ne contient plus que la carte **Options de Scraping** (Fusion intelligente, Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte) et l'export des erreurs.
 
-![Modal de Configuration Globale](./assets/config_modal.png)
-![Options de Scraping](./assets/scraping_options.png)
-
 #### 3. Filtrage Unifié & Toolbar Centrale
 Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut sont regroupés dans une seule barre d'outils centrale. Toutes les commandes de ciblage se situent ainsi sur une même ligne horizontale cohérente.
 À droite, le bouton **Déplier/Replier tout** (`📐`) permet de basculer l'affichage de tous les panneaux individuels pour des corrections rapides, aux côtés du bouton de sauvegarde globale.
 
-![Barre d'outils centrale](./assets/toolbar.png)
-
-#### 4. Le "Champ Magique", Extraction Profonde & Scraping Granulaire
+#### 4. Le "Champ Magique", Extraction Profonde & Forçages Avancés
 Chaque série dispose d'un volet d'options avancées reposant sur un puissant moteur de scraping :
-*   **Extraction Profonde & Scoring Intelligent** : Avant d'interroger le web, MetaKavita lit silencieusement vos métadonnées Kavita actuelles (comme un ISBN embarqué ou un auteur existant). Il utilise ce contexte dans sa matrice d'évaluation mathématique (qui favorise notamment les Tomes 1 pour les romans) afin de garantir un match parfait et d'éliminer les faux positifs d'homonymes.
-*   **Le "Champ Magique" (Routage URL & Forçage de Fournisseur)** : Collez une URL directe (ex: `https://mangabaka.org/1234` ou une fiche Manga-News), un slug ou un ID pur dans ce champ. MetaKavita détectera automatiquement le site, contournera la recherche habituelle, et ciblera cette page exacte ! **De plus, si vous sélectionnez un fournisseur dans le menu déroulant tout en laissant la case ID vide, MetaKavita forcera ce fournisseur à effectuer une recherche par titre sur le "Titre Alternatif" (ou le nom de la série), peu importe le type de bibliothèque.**
+*   **Extraction Profonde Kavita** : Avant d'interroger le web, MetaKavita lit silencieusement vos métadonnées Kavita actuelles (ISBN, auteurs existants). Il utilise ce contexte dans sa matrice d'évaluation mathématique pour garantir des correspondances parfaites et éliminer les faux positifs.
+*   **Le "Champ Magique" (Routage URL & ID)** : Collez une URL directe (ex: `https://mangabaka.org/1234` ou une fiche Manga-News), un slug ou un ID pur dans ce champ. MetaKavita détectera automatiquement le site, contournera la cascade habituelle, et ciblera cette page exacte !
+*   **Préférence d'Éditeur (VF/VA vs VO)** : Un interrupteur (pilule) permet d'imposer individuellement à une série la recherche de son éditeur localisé/traduit ou d'origine (Japonais).
 *   **Scraping Granulaire (Champs Ciblés)** : Cliquez sur le menu "⚙️ Champs Ciblés" pour décocher individuellement n'importe quelle métadonnée (Résumé, Couvertures, Auteurs, Éditeur, etc.) que vous souhaitez figer et protéger des modifications de MetaKavita.
-*   **Purge du Contexte (Force Update)** : Lors d'une mise à jour forcée, une nouvelle option permet d'effacer le contexte actuel de Kavita pour briser les boucles de rétroaction négatives et repartir d'une page blanche.
-
-![Options avancées de séries](./assets/override_panel.png)
+*   **Purge absolue du Contexte (Force Update)** : Lors d'une mise à jour forcée, l'option "Effacer le contexte" permet de purger totalement l'ISBN et les auteurs existants de Kavita pour briser les boucles de faux-positifs et repartir d'une page blanche.
 
 #### 5. Streaming de Couvertures en Temps Réel (*Progressive Loading*)
-La recherche manuelle d'images envoie désormais les cartes de couvertures en direct au fil de l'eau via WebSockets (`Socket.IO`) dès qu'un provider répond. Chaque carte apparaît avec une animation fluide accompagnée d'un bandeau d'état.
-
-![Modal de choix des couvertures](./assets/cover_modal.png)
+La recherche manuelle d'images envoie les cartes de couvertures en direct au fil de l'eau via WebSockets (`Socket.IO`) dès qu'un provider répond. 
+> 🔒 **Verrouillage Anti-Écrasement :** Appliquer une couverture manuelle depuis cette fenêtre décoche automatiquement l'option "Couverture" de l'œuvre. Cela fige votre choix définitivement et empêche l'Auto-Sync de l'écraser plus tard.
 
 #### 6. Suivi Live & Logs WebSockets
 Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Les badges de statut se mettent à jour dynamiquement. La console affiche en temps réel des logs épurés et lisibles envoyés via WebSockets.
-
-![Terminal de logs](./assets/terminal.png)
-
-#### 7. Authentification Globale
-L'application peut être verrouillée par un écran de connexion sécurisé contre les attaques temporelles et par force brute.
-
-![Écran de verrouillage](./assets/login.png)
 
 ---
 
@@ -327,7 +312,7 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 | | Traducteurs | Groupes de scantrad / Traducteurs officiels |
 | | Dessinateurs de couverture | Artistes des couvertures originales |
 | | Éditeurs, Encreurs, Lettreurs | Rôles avancés extraits selon disponibilité des sources |
-| | Éditeur (Publisher) | Maison d'édition officielle licenciée (*Pika*, *Glénat*, *Soleil*, *Kurokawa*...) |
+| | Éditeur (Publisher) | Maison d'édition licenciée VF/VA OU Maison d'origine japonaise (selon le choix utilisateur) |
 | **Classifications** | Sens de lecture (Format) | Configuré automatiquement en Gauche-à-Droite, Droite-à-Gauche ou Vertical |
 | | Classification d'Âge | Mappage natif : Sûr (Safe), Suggestif, Érotique, Pornographique |
 | **ID & Liens** | Identifiants Plateformes | Renseigne directement `AniListId`, `MalId` et `MangaBakaId` |
@@ -335,14 +320,25 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 
 ---
 
+### 🔌 Scrapers Communautaires Personnalisés (Plug & Play)
+
+MetaKavita V1.5.7 inaugure un système d'**Auto-Découverte** pour vos propres fournisseurs de données (Scrapers).
+Il n'est plus nécessaire de modifier le code source ou de recompiler l'image Docker pour ajouter un nouveau site !
+
+1. Glissez n'importe quel fichier de scraper Python valide (ex: `mon_site_perso.py`) directement dans votre dossier `data/scrapers/`.
+2. Redémarrez votre conteneur MetaKavita (`docker restart metakavita`).
+3. Votre scraper personnalisé sera automatiquement détecté, s'ajoutera à l'interface graphique, générera ses champs de clé API dans la configuration, et bénéficiera de la protection SSRF du Proxy d'images natif !
+
+> 💡 **Développeurs** : Veuillez lire le fichier `CUSTOM_SCRAPERS.md` à la racine du projet pour connaître le contrat technique et récupérer nos Prompts IA ("Vibecoding") pour générer vos scrapers en 5 minutes.
+
+---
+
 ### 🧪 Assurance Qualité & Benchmarks Moteur
 
-MetaKavita v1.5.5 fait l'objet de tests de charge et de bancs d'essai rigoureux sur l'ensemble de ses scrapers (Manga, Comic, Livre) et sur son moteur principal pour garantir une stabilité à 100% et une précision chirurgicale :
-
-*   **Précision de Scoring de 100%** : Évaluée sur 20 cas limites complexes incluant les chiffres romains (`Tome II` -> `Tome 2`), les sous-titres d'albums, le filtrage anti-spin-off (`-35%`), l'exclusion des artbooks/guidebooks (`-50%`) et la protection anti-homonymes d'auteurs (`-50%`).
-*   **Stress-Test de 56 Requêtes API** : Audité sur les 12 scrapers actifs sans **aucun crash Python**. Détection à 100% du sens de lecture Webtoon, préservation des titres chiffrés (*20th Century Boys*) et extraction d'éditeurs VF (*Kurokawa*, *Panini*, *Ki-oon*, *Kbooks*, *Dargaud*).
-*   **Refonte ComicVine & Fallback Tome #1** : Utilisation de l'endpoint structuré `/volumes/?filter=name:` avec priorisation des éditeurs majeurs (*DC Comics*, *Marvel*, *Dargaud*) et récupération automatique du synopsis et du staff sur le Tome #1 (propulsant les fiches de 39 à plus de 3 500 caractères).
+*   **Précision de Scoring de 100%** : Évaluée sur 20 cas limites complexes incluant les chiffres romains (`Tome II` -> `Tome 2`), les sous-titres d'albums, le filtrage anti-spin-off (`-35%`), l'exclusion des artbooks/guidebooks (`-50%`) et la purge d'ISBN pour contrer les faux-positifs.
+*   **Payload Base64 Pur** : Résolution définitive du "Syndrome de la couverture fantôme". Les requêtes n'utilisent plus le *Data URI* mais une chaîne Base64 pure afin que le moteur C# de Kavita écrive physiquement et de manière permanente les images sur le disque dur.
 *   **Throttling Dynamique Haute Performance** : Remplacement des pauses fixes par un régulateur par horodatage (`LAST_REQUEST_TIMES`), exécutant des Smart Fusions de 3 fournisseurs en ~1,6 seconde sans jamais subir de blocage HTTP 429.
+*   **Conformité Renforcée avec l'API Kavita (v1.5.8+)** : Chaque mise à jour partielle effectue désormais un cycle GET-fusion-POST avant l'écriture, garantissant que les champs non modifiés (ex: titres alternatifs) ne soient jamais silencieusement effacés ou déverrouillés par le serveur. Ce correctif a également résolu un plantage réel constaté sur des lecteurs OPDS tiers (ex: l'extension Kamare de KOReader), qui recevaient des valeurs `null` inattendues suite à d'anciens envois partiels.
 
 ---
 
@@ -393,11 +389,9 @@ docker compose up -d --build
 | `AZURE_API_KEY` | Ta clé d'API Microsoft Azure Translator (Moteur principal). | *(Vide)* |
 | `AZURE_REGION` | Ta région Azure Translator (ex: `francecentral`). | *(Vide)* |
 | `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction (Repli de secours). | *(Vide)* |
-| `COMICVINE_API_KEY`| Ta clé API ComicVine (Obligatoire pour les BDs/Comics). | *(Vide)* |
-| `GOOGLEBOOKS_API_KEY`| Ta clé API Google Books (Optionnelle, évite l'erreur HTTP 429). | *(Vide)* |
-| `HARDCOVER_API_KEY`| Ta clé API Hardcover (Optionnelle, requise pour la recherche GraphQL). | *(Vide)* |
 | `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`...). Modifie dynamiquement la langue de recherche Google Books ! | `FR` |
 | `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). | `fr` |
+| `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
 | `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`). | `MANGABAKA` |
 | `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
 | `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
@@ -408,6 +402,7 @@ docker compose up -d --build
 | `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
+| `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
 | `AUTO_READING_DIR` | Configurer automatiquement le sens de lecture. | `false` |
@@ -468,7 +463,7 @@ MetaKavita est conçu en priorité comme un **outil de gestion interne (backoffi
 Bien que pensé pour un usage privé, plusieurs mécanismes de protection sont intégrés à l'application pour limiter les risques :
 * **Authentification** : Verrouillage par mot de passe protégé contre les attaques temporelles (`secrets.compare_digest`) et ralentissement anti-force brute.
 * **Sécurité des Sessions** : Cookies de session configurés avec les attributs `HttpOnly` et `SameSite=Lax`.
-* **Protection Proxy** : Liste blanche de domaines sur l'endpoint `/api/proxy-image` pour prévenir les vulnérabilités SSRF (Server-Side Request Forgery).
+* **Protection Proxy** : Liste blanche dynamique de domaines sur l'endpoint `/api/proxy-image` pour prévenir les vulnérabilités SSRF (Server-Side Request Forgery).
 * **Protection Webhook** : Authentification des appels webhook exigeant un jeton cryptographique (`WEBHOOK_TOKEN`) réinitialisable à la demande.
 * **Masquage des Identifiants** : Censure des clés API dans l'interface web.
 
@@ -485,7 +480,15 @@ L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vo
 
 ---
 
-## ⚠️ Notes & Tech Stack
+## ⚠️ Notes, Tech Stack & Full Documentation
 
-*   **Security First :** `SECRET_KEY` and `WEBHOOK_TOKEN` are cryptographically generated on first launch. Keep them private.
+*   **Security First / Sécurité d'abord :** `SECRET_KEY` and `WEBHOOK_TOKEN` are cryptographically generated on first launch. Keep them private. *(Générés de façon cryptographique au premier démarrage — gardez-les secrets.)*
 *   **Tech Stack :** Python 3.11, Flask, Gunicorn (Eventlet WSGI), Flask-SocketIO, Curl-Cffi, BeautifulSoup4, Regex.
+
+### 📖 Full Documentation / Documentation Complète
+This README covers everyday usage. For deeper dives, check these files at the project root *(Ce README couvre l'usage courant ; pour aller plus loin, consultez ces fichiers à la racine du projet)* :
+* [`CHANGELOG.md`](./CHANGELOG.md) — Full bilingual (EN/FR) version-by-version release history. The topmost entry always reflects the version currently displayed in the app footer. *(Historique complet et bilingue de chaque version ; la première entrée reflète toujours la version affichée dans l'application.)*
+* [`ROADMAP.md`](./ROADMAP.md) — Bilingual short-form log of every shipped feature (`Cxx`) and bug fix (`BFxx`), plus the backlog of planned features. *(Journal court et bilingue de chaque fonctionnalité et correctif, ainsi que les fonctionnalités prévues.)*
+* [`DEVELOPER.md`](./DEVELOPER.md) — Architecture deep-dive (throttling, WebSockets, scraper registry, scoring matrix) and a **Contribution Workflow** section documenting critical pitfalls to avoid when modifying the codebase. *(Analyse approfondie de l'architecture et guide de contribution listant les pièges critiques à éviter.)*
+* [`kavita_api.md`](./kavita_api.md) — Internal technical specification of Kavita's REST API quirks (Lock Guard, 2-pass update protocol, DTO contracts) used by `kavita_api.py`. *(Spécification technique interne des particularités de l'API Kavita.)*
+* [`CUSTOM_SCRAPERS.md`](./CUSTOM_SCRAPERS.md) — Strict integration contract and ready-to-use AI prompts ("Vibecoding") to build your own community scrapers. *(Contrat d'intégration strict et Prompts IA prêts à l'emploi pour créer vos propres scrapers.)*

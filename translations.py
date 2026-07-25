@@ -43,6 +43,12 @@ translations = {
         "auto_cover": "Remplacer automatiquement les couvertures :",
         "auto_reading_dir": "Adapter le sens de lecture (Manga/Webtoon) :",
         "force_update": "⚠️ Forcer la mise à jour (Écrasera les existantes)",
+        "pub_pref": "Préférence d'Éditeur :",
+        "pub_localized": "Localisé (Traduit / VF / VA)",
+        "pub_original": "Original (Japonais / Coréen)",
+        "title_fallback_opt": "⚠️ Traduction de secours du titre (Expérimental)",
+        "title_fallback_desc": "Si une œuvre est introuvable avec son nom localisé (ex: 'L\\'Attaque des Titans'), traduit automatiquement le titre en anglais pour lancer une 2ème recherche. Baisse fortement la précision (risque de faux-positifs), mais permet de débloquer les gros batchs sur les API étrangères.",
+        "log_title_fallback": "🔄 [Fallback] Aucun résultat pour '{0}'. Traduction automatique tentée : '{1}'",
 
         # --- 3. BOUTONS & ACTIONS ---
         "save_settings": "Sauvegarder les paramètres",
@@ -258,6 +264,12 @@ translations = {
         "auto_reading_dir": "Auto-set reading direction (Manga/Webtoon):",
         "force_update": "⚠️ Force Update (Overwrite existing)",
         "reset_context_on_force": "Reset Kavita context on forced update",
+        "pub_pref": "Publisher Preference:",
+        "pub_localized": "Localized (Translated / English)",
+        "pub_original": "Original (Japanese / Korean)",
+        "title_fallback_opt": "⚠️ Title Translation Fallback (Experimental)",
+        "title_fallback_desc": "If a series is completely not found using its localized name, automatically translates the title to English and performs a 2nd pass. Heavily reduces match accuracy (risk of false positives) but helps yield results during massive blind batches.",
+        "log_title_fallback": "🔄 [Fallback] No result for '{0}'. Attempting automatic English translation: '{1}'",
         
         # --- 3. BOUTONS & ACTIONS ---
         "save_settings": "Save Settings",

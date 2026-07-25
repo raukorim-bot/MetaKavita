@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title, score_candidate
+from config_manager import load_config
 
 class MangaBakaScraper(BaseScraper):
     id = "MANGABAKA"
@@ -36,6 +37,14 @@ class MangaBakaScraper(BaseScraper):
         base_url = "https://api.mangabaka.org/v2/series"
         search_url = "https://api.mangabaka.org/v2/series/search"
         
+        # --- Détermination du paramètre Publisher (Local vs Global) ---
+        config = load_config()
+        pub_pref = "LOCALIZED"
+        if existing_metadata and existing_metadata.get('publisher_pref') and existing_metadata.get('publisher_pref') != 'GLOBAL':
+            pub_pref = existing_metadata.get('publisher_pref')
+        else:
+            pub_pref = config.get("PUBLISHER_PREFERENCE", "LOCALIZED")
+        
         try:
             if is_id:
                 logging.info(self.t("direct_id").format(query))
@@ -43,7 +52,7 @@ class MangaBakaScraper(BaseScraper):
                 if res.status_code != 200: return None
                 json_res = res.json()
                 raw_data = json_res.get('data') if 'data' in json_res else json_res
-                return self._build_candidate(raw_data) if raw_data else None
+                return self._build_candidate(raw_data, pub_pref) if raw_data else None
 
             else:
                 clean = clean_title(query, library_type=library_type)
@@ -60,7 +69,7 @@ class MangaBakaScraper(BaseScraper):
                 best_score = -1.0
 
                 for item in results:
-                    candidate = self._build_candidate(item)
+                    candidate = self._build_candidate(item, pub_pref)
                     if not candidate: continue
 
                     score = score_candidate(candidate, clean, existing_metadata)
@@ -77,7 +86,7 @@ class MangaBakaScraper(BaseScraper):
             logging.error(self.t("err").format(e))
             return None
 
-    def _build_candidate(self, data: dict) -> Optional[dict]:
+    def _build_candidate(self, data: dict, pub_pref: str = "LOCALIZED") -> Optional[dict]:
         if not data or not isinstance(data, dict):
             return None
 
@@ -89,7 +98,6 @@ class MangaBakaScraper(BaseScraper):
             cover_url = cover_data
 
         staff = []
-        # Sécurisation contre les valeurs 'null' envoyées par l'API MangaBaka
         for author in (data.get('authors') or []):
             if isinstance(author, dict): author = author.get('name', '')
             if author and isinstance(author, str):
@@ -140,6 +148,53 @@ class MangaBakaScraper(BaseScraper):
                     format_type = "webtoon"
         except Exception: pass
 
+        # --- GESTION DE L'ÉDITEUR ---
+        publisher = None
+        orig_pub = None
+        loc_pub = None
+        
+        publishers_list = data.get("publishers") or []
+        for pub in publishers_list:
+            if isinstance(pub, dict) and pub.get("name"):
+                p_name = pub.get("name").strip()
+                p_type = str(pub.get("type", "")).lower()
+                
+                # Si c'est l'original, on garde le PREMIER trouvé
+                if "original" in p_type or "ja" in p_type:
+                    if not orig_pub:
+                        orig_pub = p_name
+                # Sinon, c'est une édition localisée, on garde la PREMIÈRE trouvée
+                else:
+                    if not loc_pub:
+                        loc_pub = p_name
+            elif isinstance(pub, str):
+                if not orig_pub:
+                    orig_pub = pub
+
+        if pub_pref == "ORIGINAL":
+            publisher = orig_pub or loc_pub
+        else:
+            publisher = loc_pub or orig_pub
+            
+        # Secours absolu : on prend le premier de la liste si nos filtres échouent
+        if not publisher and publishers_list and isinstance(publishers_list[0], dict):
+            publisher = publishers_list[0].get("name")
+
+        # Normalisation du statut brut MangaBaka ('cancelled', 'completed', 'hiatus',
+        # 'releasing', 'unknown', 'upcoming') vers le contrat interne MetaKavita
+        # ('RELEASING', 'FINISHED', 'HIATUS', 'CANCELLED'). Sans ce mapping, "completed"
+        # ne correspondait à aucune clé de status_map dans app.py (qui attend "FINISHED"),
+        # et les séries terminées scrapées via MangaBaka restaient silencieusement
+        # marquées "En cours" dans Kavita.
+        raw_mb_status = str(data.get('status', '')).lower()
+        status_map_mb = {
+            'completed': 'FINISHED',
+            'releasing': 'RELEASING',
+            'hiatus': 'HIATUS',
+            'cancelled': 'CANCELLED',
+        }
+        mb_status = status_map_mb.get(raw_mb_status)
+
         return {
             'title': fetched_title or (alt_titles[0] if alt_titles else ""),
             'summary': data.get('description', '') or '',
@@ -147,17 +202,18 @@ class MangaBakaScraper(BaseScraper):
             'genres': genres_list,
             'tags': tags_list[:15],
             'year': year,
-            'status': str(data.get('status')).upper() if data.get('status') else None,
+            'status': mb_status,
             'staff': staff,
             'characters': [],
             'alternative_titles': alt_titles,
+            'publisher': publisher,
             'mangabaka_id': data.get('id'),
             'anilist_id': anilist_id,
             'mal_id': mal_id,
             'links': data.get('links') or [],
             'format': format_type
         }
-
+    
     def fetch_covers(self, query: str, library_type: str = "Manga") -> List[Dict[str, str]]:
         covers = []
         clean_sq = clean_title(query, library_type=library_type)

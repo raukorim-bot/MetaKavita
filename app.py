@@ -321,10 +321,12 @@ def process_series_logic(series_id, series_name, force_update=False):
                 'publisher': None,
                 'year': None,
                 'genres': [],
-                'localized_name': None
+                'localized_name': None,
+                'publisher_pref': cache_data.get('publisher_pref', 'GLOBAL')
             }
         else:
             existing_metadata = kavita.get_series_deep_metadata(series_id)
+            existing_metadata['publisher_pref'] = cache_data.get('publisher_pref', 'GLOBAL')
             if existing_metadata.get('isbn'):
                 logging.info(t.get('log_isbn_detected', "[{0}] 📑 ISBN détecté dans Kavita : {1}").format(series_name, existing_metadata['isbn']))
             if existing_metadata.get('authors'):
@@ -360,10 +362,13 @@ def process_series_logic(series_id, series_name, force_update=False):
         logging.info(msg_found)
 
         # =========================================================
-        # --- APPLICATION FILTRÉE DES MÉTADONNÉES (TOUS LES CHAMPS)
+        # --- APPLICATION FILTRÉE DES MÉTADONNÉES
         # =========================================================
-        
-        # 1. Résumé
+        summary_to_update = None
+        localized_name_to_update = None
+        format_to_update = None
+
+        # 1. Résumé (Appartient à Series/metadata selon le Swagger de Kavita !)
         if 'summary' in active_fields and provider_data.get('summary') and (not metadata.get('summary') or force_update):
             target_lang = config.get('TARGET_LANG', 'FR')
             from translator import translate_text
@@ -394,18 +399,13 @@ def process_series_logic(series_id, series_name, force_update=False):
                 metadata['tagsLocked'] = True
             if provider_data.get('characters'): 
                 metadata['characters'] = [{"id": 0, "name": c['node']['name']['full']} for c in provider_data['characters']]
-                metadata['charactersLocked'] = True
+                metadata['characterLocked'] = True
 
-        # 6. Titres Alternatifs (Localized Name) - BLINDÉ CONTRE LES NONE
+        # 6. Titres Alternatifs (Localized Name - Va vers Series/update)
         if 'alt_titles' in active_fields and provider_data.get('alternative_titles'):
-            clean_titles = []
-            for alt in provider_data['alternative_titles']:
-                if alt is not None and str(alt).strip():
-                    clean_titles.append(str(alt).strip())
-            
+            clean_titles = [str(alt).strip() for alt in provider_data['alternative_titles'] if alt and str(alt).strip()]
             if clean_titles:
-                metadata['localizedName'] = " / ".join(clean_titles)
-                metadata['localizedNameLocked'] = True
+                localized_name_to_update = " / ".join(clean_titles)
 
         # 7. Auteurs et Staff
         if 'staff' in active_fields:
@@ -426,18 +426,18 @@ def process_series_logic(series_id, series_name, force_update=False):
                 elif 'letter' in role or 'lettrage' in role: letterers.append(entry)
                 elif 'ink' in role or 'encrage' in role: inkers.append(entry)
 
-            if writers: metadata['writers'] = writers; metadata['writersLocked'] = True
-            if pencillers: metadata['pencillers'] = pencillers; metadata['pencillersLocked'] = True
-            if colorists: metadata['colorists'] = colorists; metadata['coloristsLocked'] = True
-            if translators: metadata['translators'] = translators; metadata['translatorsLocked'] = True
-            if cover_artists: metadata['coverArtists'] = cover_artists; metadata['coverArtistsLocked'] = True
-            if editors: metadata['editors'] = editors; metadata['editorsLocked'] = True
-            if letterers: metadata['letterers'] = letterers; metadata['letterersLocked'] = True
-            if inkers: metadata['inkers'] = inkers; metadata['inkersLocked'] = True
+            if writers: metadata['writers'] = writers; metadata['writerLocked'] = True
+            if pencillers: metadata['pencillers'] = pencillers; metadata['pencillerLocked'] = True
+            if colorists: metadata['colorists'] = colorists; metadata['coloristLocked'] = True
+            if translators: metadata['translators'] = translators; metadata['translatorLocked'] = True
+            if cover_artists: metadata['coverArtists'] = cover_artists; metadata['coverArtistLocked'] = True
+            if editors: metadata['editors'] = editors; metadata['editorLocked'] = True
+            if letterers: metadata['letterers'] = letterers; metadata['lettererLocked'] = True
+            if inkers: metadata['inkers'] = inkers; metadata['inkerLocked'] = True
 
-        # 8. Éditeur (Maison d'édition)
+        # 8. Éditeur (Maison d'édition - 'publishers' au PLURIEL comme vu sur le Swagger)
         if 'publisher' in active_fields and provider_data.get('publisher'):
-            metadata['publisher'] = provider_data['publisher']
+            metadata['publishers'] = [{"id": 0, "name": provider_data['publisher']}]
             metadata['publisherLocked'] = True
                 
         # 9. Classification d'âge
@@ -453,40 +453,25 @@ def process_series_logic(series_id, series_name, force_update=False):
                 metadata['ageRating'] = mapped_rating
                 metadata['ageRatingLocked'] = True
 
-        # 10. Sens de lecture (Format)
+        # 10. Sens de lecture (Format - Va vers Series/update)
         if 'format' in active_fields and config.get('AUTO_READING_DIR') and provider_data.get('format'):
             fmt = str(provider_data['format']).upper()
-            mapped_format = None
-            direction_name = ""
-            if 'MANGA' in fmt or 'JP' in fmt:
-                mapped_format = 2
-                direction_name = "Droite à Gauche (Manga)"
-            elif 'WEBTOON' in fmt or 'MANHWA' in fmt or 'KR' in fmt:
-                mapped_format = 3
-                direction_name = "Vertical (Webtoon)"
-            elif 'COMIC' in fmt or 'BD' in fmt or 'US' in fmt or 'FR' in fmt or 'BOOK' in fmt:
-                mapped_format = 1
-                direction_name = "Gauche à Droite (Comic/BD/Roman)"
-                
-            if mapped_format is not None:
-                metadata['format'] = mapped_format
-                metadata['formatLocked'] = True
-                logging.info(f"[{series_name}] 🧭 Sens de lecture appliqué : {direction_name}")
+            # Enum Kavita : 1=Manga (RTL), 2=Comic/BD, 3=Novel, 4=Webtoon
+            if 'WEBTOON' in fmt or 'MANHWA' in fmt or 'KR' in fmt: format_to_update = 4
+            elif 'NOVEL' in fmt or 'LIGHT' in fmt or 'BOOK' in fmt: format_to_update = 3
+            elif 'COMIC' in fmt or 'BD' in fmt or 'US' in fmt or 'FR' in fmt: format_to_update = 2
+            elif 'MANGA' in fmt or 'JP' in fmt: format_to_update = 1
 
-        # 11. Liens externes & IDs Natifs - BLINDÉ CONTRE LES NONE
+        # 11. Liens externes & IDs Natifs
         if 'weblinks' in active_fields:
             a_id = provider_data.get('anilist_id')
             m_id = provider_data.get('mal_id')
             mb_id = provider_data.get('mangabaka_id')
             
             if a_id or m_id or mb_id:
-                id_success, id_msg = kavita.update_series_external_ids(series_id, a_id, m_id, mb_id)
-                if not id_success:
-                    logging.warning(f"[{series_name}] ⚠️ Impossible de sauvegarder les IDs externes : {id_msg}")
+                kavita.update_series_external_ids(series_id, a_id, m_id, mb_id)
 
             existing_links_raw = metadata.get('webLinks')
-            if not existing_links_raw: existing_links_raw = ''
-            
             links_list = [link.strip() for link in str(existing_links_raw).split(',')] if existing_links_raw else []
             
             def add_weblink(url):
@@ -502,7 +487,6 @@ def process_series_logic(series_id, series_name, force_update=False):
             safe_links = [str(l) for l in links_list if l is not None and str(l).strip()]
             if safe_links:
                 metadata['webLinks'] = ",".join(safe_links)
-                metadata['webLinksLocked'] = True
                 
         # 12. Langue de l'œuvre
         if config.get('TARGET_LANG'):
@@ -510,26 +494,45 @@ def process_series_logic(series_id, series_name, force_update=False):
             metadata['languageLocked'] = True
         
         # =========================================================
-        # --- ENVOI FINAL À KAVITA ---
+        # --- ENVOI FINAL À KAVITA
         # =========================================================
         metadata['seriesId'] = int(series_id)
-        metadata.pop('created', None)
-        metadata.pop('lastModified', None)
+        # Note : l'assainissement des champs système (created, lastModified, totalCount,
+        # maxCount, pages, wordCount) est désormais centralisé dans
+        # KavitaAPI.update_series_metadata() pour protéger tous les appelants (voir kavita_api.md).
 
         logging.info(t.get('log_sending').format(series_name))
+        
+        # 1. Envoi des Métadonnées (Auteurs, Tags, Publishers)
         success, msg = kavita.update_series_metadata(metadata)
         
+        # 2. Envoi des Champs Généraux (Titre alternatif & Format uniquement)
+        if localized_name_to_update or format_to_update:
+            kavita.update_series_general(
+                series_id, 
+                localized_name=localized_name_to_update, 
+                format_val=format_to_update
+            )
+
         if success:
             logging.info(t.get('log_success').format(series_name))
             
-            # 12. Upload de Couverture
-            if 'cover' in active_fields and config.get('AUTO_COVER') and provider_data.get('cover_url'):
+            # 3. Upload de Couverture (Format v1.4 fiable)
+            # Relecture fraîche de targeted_fields juste avant l'envoi : si l'utilisateur
+            # a appliqué une couverture manuelle pendant que ce traitement tournait,
+            # 'cover' a été retiré entre-temps par /update-cover et on ne doit pas l'écraser.
+            fresh_targeted_fields = get_all_cached_data().get(int(series_id), {}).get('targeted_fields', 'ALL') or 'ALL'
+            cover_still_targeted = fresh_targeted_fields == 'ALL' or 'cover' in fresh_targeted_fields.split(',')
+
+            if 'cover' in active_fields and cover_still_targeted and config.get('AUTO_COVER') and provider_data.get('cover_url'):
                 logging.info(t.get('log_cover_upload').format(series_name))
                 cover_success, cover_msg = kavita.upload_series_cover(series_id, provider_data['cover_url'])
                 if not cover_success:
                     logging.warning(t.get('log_cover_fail').format(series_name, cover_msg))
                 else:
                     logging.info(t.get('log_cover_success').format(series_name))
+            elif 'cover' in active_fields and not cover_still_targeted:
+                logging.info(f"[{series_name}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps.")
             
             update_status(series_id, 'COMPLETED')
             return True, "Succès", used_providers
@@ -586,7 +589,8 @@ def prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             s['alternative_title'] = item_cache.get('alternative_title') or ''
             s['targeted_fields'] = item_cache.get('targeted_fields') or 'ALL'
             s['forced_provider'] = item_cache.get('forced_provider') or 'AUTO'
-            
+            s['publisher_pref'] = item_cache.get('publisher_pref') or 'GLOBAL'
+
     safe_config = config.copy()
     if safe_config.get('KAVITA_API_KEY'): safe_config['KAVITA_API_KEY'] = '********'
     if safe_config.get('DEEPL_API_KEY'): safe_config['DEEPL_API_KEY'] = '********'
@@ -661,6 +665,10 @@ def save_config_ajax():
     config['TARGET_LANG'] = request.form.get('TARGET_LANG', 'FR').strip()
     config['UI_LANG'] = request.form.get('UI_LANG', 'fr').strip()
     
+    # --- NOUVEAU ---
+    config['PUBLISHER_PREFERENCE'] = request.form.get('PUBLISHER_PREFERENCE', 'LOCALIZED').strip()
+    # ---------------
+    
     config['PROVIDER_1'] = request.form.get('PROVIDER_1', 'MANGABAKA').strip()
     config['PROVIDER_2'] = request.form.get('PROVIDER_2', 'KITSU').strip()
     config['PROVIDER_3'] = request.form.get('PROVIDER_3', 'ANILIST').strip()
@@ -670,12 +678,16 @@ def save_config_ajax():
     config['COMIC_PROVIDER_3'] = request.form.get('COMIC_PROVIDER_3', 'NONE').strip()
     
     config['BOOK_PROVIDER_1'] = request.form.get('BOOK_PROVIDER_1', 'GOOGLEBOOKS').strip()
-    config['BOOK_PROVIDER_2'] = request.form.get('BOOK_PROVIDER_2', 'ANILIST').strip()
+    config['BOOK_PROVIDER_2'] = request.form.get('BOOK_PROVIDER_2', 'OPENLIBRARY').strip()
     config['BOOK_PROVIDER_3'] = request.form.get('BOOK_PROVIDER_3', 'NONE').strip()
     
     config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
-    
     config['RESET_CONTEXT_ON_FORCE'] = request.form.get('RESET_CONTEXT_ON_FORCE') == 'true'
+    
+    config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
+    config['RESET_CONTEXT_ON_FORCE'] = request.form.get('RESET_CONTEXT_ON_FORCE') == 'true'
+
+    config['TITLE_FALLBACK_TRANSLATION'] = request.form.get('TITLE_FALLBACK_TRANSLATION') == 'true'
     
     try:
         config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))
@@ -687,6 +699,9 @@ def save_config_ajax():
     
     save_config(config)
     return jsonify(success=True)
+    
+    save_config(config)
+    return jsonify(success=True)
 
 @app.route('/save-override', methods=['POST'])
 def save_override():
@@ -695,8 +710,9 @@ def save_override():
     alt_title = request.form.get('alternative_title', '').strip()
     forced_provider = request.form.get('forced_provider', 'AUTO').strip()
     targeted_fields = request.form.get('targeted_fields', 'ALL').strip()
-    
-    save_forced_overrides(int(series_id), forced_id, alt_title, forced_provider, targeted_fields)
+    publisher_pref = request.form.get('publisher_pref', 'GLOBAL').strip()
+
+    save_forced_overrides(int(series_id), forced_id, alt_title, forced_provider, targeted_fields, publisher_pref)
     return "OK", 200
 
 @app.route('/reset-errors', methods=['POST'])
@@ -949,6 +965,29 @@ def apply_series_cover(series_id):
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
     
     success, msg = kavita.upload_series_cover(series_id, cover_url)
+
+    if success:
+        # Protège le choix manuel : on retire 'cover' des champs ciblés de cette
+        # série pour qu'un futur scraping (webhook, auto-sync, force-sync, batch)
+        # ne réécrase pas silencieusement la couverture avec celle du fournisseur.
+        cache_data = get_all_cached_data().get(int(series_id), {})
+        forced_id = cache_data.get('forced_id', '') or ''
+        alt_title = cache_data.get('alternative_title', '') or ''
+        forced_provider = cache_data.get('forced_provider', 'AUTO') or 'AUTO'
+        publisher_pref = cache_data.get('publisher_pref', 'GLOBAL') or 'GLOBAL'
+
+        current_fields = cache_data.get('targeted_fields', 'ALL') or 'ALL'
+        if current_fields == 'ALL':
+            all_fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles']
+        else:
+            all_fields = current_fields.split(',')
+
+        remaining_fields = [f for f in all_fields if f != 'cover']
+        new_targeted_fields = ",".join(remaining_fields) if remaining_fields else "NONE"
+
+        save_forced_overrides(int(series_id), forced_id, alt_title, forced_provider, new_targeted_fields, publisher_pref)
+        logging.info(f"🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {series_id} (protégé contre les futurs scrapings automatiques).")
+
     return jsonify({"success": success, "msg": msg})
 
 if __name__ == '__main__':

@@ -255,7 +255,20 @@
                                                 <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_magic }}" style="flex: 1;">
                                             </div>
                                         </div>
-
+                                        <!-- CHAMP 3 : L'INTERRUPTEUR ÉDITEUR -->
+                                        <div>
+                                            <span class="input-hint" style="margin-bottom: 5px;">Éditeur (Publisher) :</span>
+                                            <div class="segmented-control">
+                                                <input type="radio" name="pubpref-{{ series.id }}" id="pub-global-{{ series.id }}" value="GLOBAL" {% if series.publisher_pref == 'GLOBAL' or not series.publisher_pref %}checked{% endif %}>
+                                                <label for="pub-global-{{ series.id }}" title="Suit la configuration générale">Auto</label>
+                                                
+                                                <input type="radio" name="pubpref-{{ series.id }}" id="pub-loc-{{ series.id }}" value="LOCALIZED" {% if series.publisher_pref == 'LOCALIZED' %}checked{% endif %}>
+                                                <label for="pub-loc-{{ series.id }}" title="Forcer l'éditeur traduit">VF/VA</label>
+                                                
+                                                <input type="radio" name="pubpref-{{ series.id }}" id="pub-orig-{{ series.id }}" value="ORIGINAL" {% if series.publisher_pref == 'ORIGINAL' %}checked{% endif %}>
+                                                <label for="pub-orig-{{ series.id }}" title="Forcer l'éditeur Japonais/Coréen">VO</label>
+                                            </div>
+                                        </div>
                                         <!-- BOUTON SAUVEGARDER -->
                                         <div style="padding-top: 20px;">
                                             <button type="button" class="btn-success" onclick="saveOverride('{{ series.id }}', this)">{{ t.save }}</button>
@@ -423,7 +436,23 @@
                                 </div>
                             </div>
                         </div>
-
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label>{{ t.pub_pref }}</label>
+                            <select name="PUBLISHER_PREFERENCE">
+                                <option value="LOCALIZED" {% if config.get('PUBLISHER_PREFERENCE', 'LOCALIZED') == 'LOCALIZED' %}selected{% endif %}>{{ t.pub_localized }}</option>
+                                <option value="ORIGINAL" {% if config.get('PUBLISHER_PREFERENCE') == 'ORIGINAL' %}selected{% endif %}>{{ t.pub_original }}</option>
+                            </select>
+                        </div>
+                        <!-- OPTION EXPÉRIMENTALE : TITRE DE SECOURS -->
+                        <div class="form-group" style="margin-top: 15px; padding: 12px; background: rgba(245, 158, 11, 0.05); border-radius: 6px; border: 1px dashed var(--warning);">
+                            <label class="checkbox-label" style="color: var(--warning); margin-bottom: 6px;">
+                                <input type="checkbox" id="config_title_fallback" value="true" {% if config.get('TITLE_FALLBACK_TRANSLATION') %}checked{% endif %}> 
+                                <strong>{{ t.title_fallback_opt }}</strong>
+                            </label>
+                            <p style="font-size: 11.5px; color: var(--text-muted); margin: 0; line-height: 1.4;">
+                                {{ t.title_fallback_desc }}
+                            </p>
+                        </div>
                         <!-- Section 4 : Planification -->
 						<div class="config-section">
 							<h4 class="config-section-title">{{ t.planning }}</h4>

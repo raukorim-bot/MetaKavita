@@ -4,6 +4,19 @@ import os
 DATA_DIR = "data"
 DB_FILE = os.path.join(DATA_DIR, "cache.db")
 
+def _ensure_schema(c):
+    """Vérifie et ajoute les colonnes manquantes une par une de manière sécurisée."""
+    columns = [
+        ("forced_provider", "TEXT DEFAULT 'AUTO'"),
+        ("targeted_fields", "TEXT DEFAULT 'ALL'"),
+        ("publisher_pref", "TEXT DEFAULT 'GLOBAL'")
+    ]
+    for col_name, col_type in columns:
+        try:
+            c.execute(f"ALTER TABLE series_cache ADD COLUMN {col_name} {col_type}")
+        except sqlite3.OperationalError:
+            pass # La colonne existe déjà, on passe à la suivante en silence
+
 def init_db():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
@@ -15,11 +28,7 @@ def init_db():
                   status TEXT, 
                   forced_id TEXT, 
                   alternative_title TEXT)''')
-    try:
-        c.execute("ALTER TABLE series_cache ADD COLUMN forced_provider TEXT DEFAULT 'AUTO'")
-        c.execute("ALTER TABLE series_cache ADD COLUMN targeted_fields TEXT DEFAULT 'ALL'")
-    except sqlite3.OperationalError:
-        pass # Les colonnes existent déjà
+    _ensure_schema(c)
     conn.commit()
     conn.close()
 
@@ -31,27 +40,24 @@ def update_status(series_id, status):
     conn.commit()
     conn.close()
 
-def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL"):
+def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL", publisher_pref="GLOBAL"):
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
     f_id = forced_id.strip() if forced_id else None
     a_title = alt_title.strip() if alt_title else None
     
-    try:
-        c.execute("ALTER TABLE series_cache ADD COLUMN forced_provider TEXT DEFAULT 'AUTO'")
-        c.execute("ALTER TABLE series_cache ADD COLUMN targeted_fields TEXT DEFAULT 'ALL'")
-    except sqlite3.OperationalError:
-        pass
+    _ensure_schema(c)
         
-    c.execute('''INSERT INTO series_cache (series_id, status, forced_id, alternative_title, forced_provider, targeted_fields) 
-                 VALUES (?, 'PENDING', ?, ?, ?, ?)
+    c.execute('''INSERT INTO series_cache (series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref) 
+                 VALUES (?, 'PENDING', ?, ?, ?, ?, ?)
                  ON CONFLICT(series_id) DO UPDATE SET 
                  forced_id=excluded.forced_id, 
                  alternative_title=excluded.alternative_title, 
                  forced_provider=excluded.forced_provider,
                  targeted_fields=excluded.targeted_fields,
+                 publisher_pref=excluded.publisher_pref,
                  status='PENDING' ''', 
-              (series_id, f_id, a_title, forced_provider, targeted_fields))
+              (series_id, f_id, a_title, forced_provider, targeted_fields, publisher_pref))
     conn.commit()
     conn.close()
 
@@ -68,13 +74,10 @@ def get_all_cached_data():
         init_db()
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    try:
-        c.execute("ALTER TABLE series_cache ADD COLUMN forced_provider TEXT DEFAULT 'AUTO'")
-        c.execute("ALTER TABLE series_cache ADD COLUMN targeted_fields TEXT DEFAULT 'ALL'")
-    except sqlite3.OperationalError:
-        pass
+    
+    _ensure_schema(c)
         
-    c.execute("SELECT series_id, status, forced_id, alternative_title, forced_provider, targeted_fields FROM series_cache")
+    c.execute("SELECT series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref FROM series_cache")
     rows = c.fetchall()
     conn.close()
     return {row[0]: {
@@ -82,7 +85,8 @@ def get_all_cached_data():
         'forced_id': row[2], 
         'alternative_title': row[3],
         'forced_provider': row[4],
-        'targeted_fields': row[5]
+        'targeted_fields': row[5],
+        'publisher_pref': row[6] if len(row) > 6 else 'GLOBAL'
     } for row in rows}
 
 def clean_orphaned_cache(active_ids):

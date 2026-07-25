@@ -20,6 +20,7 @@ def load_config():
         "AZURE_REGION": "", 
         "TARGET_LANG": "FR", 
         "UI_LANG": "fr", 
+        "PUBLISHER_PREFERENCE": "LOCALIZED", 
         "PROVIDER_1": "MANGABAKA", 
         "PROVIDER_2": "KITSU", 
         "PROVIDER_3": "ANILIST",
@@ -27,6 +28,7 @@ def load_config():
         "AUTO_SYNC_INTERVAL": 0, 
         "AUTO_COVER": False,
         "AUTO_READING_DIR": False,
+        "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
         "ADMIN_PASSWORD": "", 
         "SECRET_KEY": "",
         "WEBHOOK_TOKEN": ""
@@ -37,7 +39,7 @@ def load_config():
         try:
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 file_config = json.load(f)
-                config.update(file_config) # 👈 Charge magiquement TOUTES les clés API des scrapers
+                config.update(file_config)
         except json.JSONDecodeError:
             pass
             
@@ -54,14 +56,12 @@ def load_config():
 
     config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", "")))
 
-    # On a retiré les clés des scrapers d'ici !
     for key in [
         "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION", 
-        "TARGET_LANG", "UI_LANG", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3"
+        "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3"
     ]:
         config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
             
-    # 👈 NOUVEAU : Récupération dynamique depuis Docker / OS des clés API (ex: HARDCOVER_API_KEY)
     for env_key, env_val in os.environ.items():
         if env_key.endswith("_API_KEY") and env_key not in config:
             config[env_key] = env_val
@@ -74,7 +74,8 @@ def load_config():
         except ValueError:
             config["AUTO_SYNC_INTERVAL"] = 0
             
-    for bool_key in ["AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION"]:
+    # --- NOUVEAU : Ajout de la clé dans la boucle des booléens ---
+    for bool_key in ["AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "TITLE_FALLBACK_TRANSLATION"]:
         config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
             
     return config

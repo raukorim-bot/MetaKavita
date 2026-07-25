@@ -114,6 +114,10 @@ function saveOverride(seriesId, btn) {
     const providerSelect = document.getElementById('provider-' + seriesId);
     const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
     
+    // NOUVEAU : Récupération de l'interrupteur
+    const pubPrefInput = document.querySelector(`input[name="pubpref-${seriesId}"]:checked`);
+    const publisherPref = pubPrefInput ? pubPrefInput.value : 'GLOBAL';
+    
     const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
     const activeFields = fields.filter(f => {
         const cb = document.getElementById(`field-${f}-${seriesId}`);
@@ -125,7 +129,7 @@ function saveOverride(seriesId, btn) {
     fetch(getRootPath() + '/save-override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `series_id=${seriesId}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}`
+        body: `series_id=${seriesId}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}`
     }).then(r => {
         if(r.ok) {
             btn.innerText = "✅"; 
@@ -243,6 +247,10 @@ function syncSingle(id, name, btn) {
         const providerSelect = document.getElementById('provider-' + id);
         const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
         
+        // NOUVEAU : Récupération de l'interrupteur Éditeur
+        const pubPrefInput = document.querySelector(`input[name="pubpref-${id}"]:checked`);
+        const publisherPref = pubPrefInput ? pubPrefInput.value : 'GLOBAL';
+        
         const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
         const activeFields = fields.filter(f => {
             const cb = document.getElementById(`field-${f}-${id}`);
@@ -254,10 +262,11 @@ function syncSingle(id, name, btn) {
         let loading = btn.nextElementSibling;
         loading.style.display = 'inline-block';
         
+        // Envoi au serveur incluant le publisher_pref
         fetch(getRootPath() + '/save-override', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `series_id=${id}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}`
+            body: `series_id=${id}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}`
         }).then(() => proceedSyncSingle(id, name, btn, loading));
     } else {
         proceedSyncSingle(id, name, btn, null);
@@ -434,6 +443,9 @@ function saveConfig() {
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
     if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
     
+    const titleFallback = document.getElementById('config_title_fallback');
+    if (titleFallback) formData.append('TITLE_FALLBACK_TRANSLATION', titleFallback.checked ? 'true' : 'false');
+
     const btn = form.querySelector('.btn-primary');
     const originalText = btn ? btn.innerText : "";
     if (btn) btn.innerText = "⏳...";
