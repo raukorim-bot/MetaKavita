@@ -1,0 +1,17 @@
+	<!-- MODAL CHANGELOG DYNAMIQUE -->
+	<div id="changelogModal" class="modal-overlay" onclick="if(event.target===this) closeChangelogModal()">
+		<div class="modal-content" style="max-width: 550px;">
+			<div class="modal-header">
+				<h3 class="m-0">🎉 MetaKavita v{{ app_version }}</h3>
+				<button type="button" class="close-btn" onclick="closeChangelogModal()">&times;</button>
+			</div>
+			<div id="changelogModalBody" style="max-height: 60vh; overflow-y: auto; font-size: 13px; line-height: 1.6; padding-right: 5px;">
+				<!-- Contenu injecté dynamiquement via /api/changelog -->
+			</div>
+			<div class="modal-footer" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: flex-end;">
+				<button type="button" class="btn-primary" onclick="closeChangelogModal()" style="padding: 8px 20px;">
+					{{ t.get('changelog_btn_got_it', "J'ai compris !") }}
+				</button>
+			</div>
+		</div>
+	</div>

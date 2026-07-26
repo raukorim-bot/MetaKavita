@@ -1,0 +1,6 @@
+# Dépendances de développement/test uniquement.
+# Volontairement séparées de requirements.txt pour ne pas alourdir l'image
+# Docker de production (voir Dockerfile : seul requirements.txt y est installé).
+-r requirements.txt
+pytest==8.3.3
+pytest-mock==3.14.0

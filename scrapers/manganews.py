@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
 
@@ -32,6 +32,7 @@ class MangaNewsScraper(BaseScraper):
     proxy_domains = ["manga-news.com", "www.manga-news.com"]
     has_direct_id_support = True
     requires_proxy = False
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -210,7 +211,7 @@ class MangaNewsScraper(BaseScraper):
                 target_url = query if query.startswith('http') else f"https://www.manga-news.com/index.php/serie/{query}"
                 res = session.get(target_url, headers=headers, timeout=12)
                 if res.status_code == 200:
-                    return self._parse_html_page(res.text, target_url)
+                    return attach_match_score(self._parse_html_page(res.text, target_url), 1.0)
                 return None
 
             cleaned = clean_title(query, library_type=library_type)
@@ -228,8 +229,6 @@ class MangaNewsScraper(BaseScraper):
             if not result_links: return None
 
             query_keywords = extract_meaningful_words(cleaned)
-            best_url = None
-            best_score = -1.0
 
             candidates = {}
             for a in result_links:
@@ -247,31 +246,57 @@ class MangaNewsScraper(BaseScraper):
                 full_url = href if href.startswith('http') else f"https://www.manga-news.com{href}"
                 candidates[full_url] = cand_title
 
+            # Pré-filtre bon marché (texte de la page de résultats, sans requête HTTP en plus) :
+            # la liste de recherche Manga-News ne donne ni auteur ni staff (uniquement titre +
+            # URL), il faut la fiche détaillée pour ça. On classe donc d'abord les candidats par
+            # ressemblance de titre.
+            prefiltered = []
             for cand_url, cand_title in candidates.items():
                 item_score = calculate_similarity(cleaned, cand_title)
-                
                 if query_keywords:
                     cand_words = extract_meaningful_words(cand_title)
                     missing = query_keywords - cand_words
                     if missing:
                         item_score -= (0.25 * len(missing))
+                if item_score > 0.0:
+                    prefiltered.append((item_score, cand_url))
 
-                if item_score > best_score:
-                    best_score = item_score
-                    best_url = cand_url
+            if not prefiltered:
+                logging.warning(self.t("no_match").format(cleaned, 0))
+                return None
 
-            if not best_url or best_score < 0.45:
+            prefiltered.sort(key=lambda x: x[0], reverse=True)
+
+            # On ne récupère la fiche complète (staff inclus) que pour les 3 candidats les plus
+            # plausibles au pré-filtre, pas pour toute la liste : Manga-News est du scraping HTML
+            # protégé Cloudflare (curl_cffi) — multiplier les requêtes de fiche détaillée par le
+            # nombre de résultats de recherche augmenterait nettement la latence et le risque de
+            # blocage. 3 est un compromis entre la protection anti-homonyme (qui nécessite
+            # l'auteur, disponible uniquement sur la fiche détaillée) et la charge imposée au site.
+            best_candidate = None
+            best_score = -1.0
+
+            for _, cand_url in prefiltered[:3]:
+                time.sleep(self.rate_limit)
+                detail_res = session.get(cand_url, headers=headers, timeout=12)
+                if detail_res.status_code != 200:
+                    continue
+
+                candidate = self._parse_html_page(detail_res.text, cand_url)
+                if not candidate or not candidate.get("title"):
+                    continue
+
+                score = score_candidate(candidate, cleaned, existing_metadata)
+                if score > best_score:
+                    best_score = score
+                    best_candidate = candidate
+
+            if not best_candidate or best_score < MATCH_ACCEPT_THRESHOLD:
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 
-            logging.info(self.t("matched").format(best_url, int(best_score*100)))
-
-            time.sleep(self.rate_limit)
-            detail_res = session.get(best_url, headers=headers, timeout=12)
-            if detail_res.status_code == 200:
-                return self._parse_html_page(detail_res.text, best_url)
-
-            return None
+            logging.info(self.t("matched").format(best_candidate.get("title"), int(best_score*100)))
+            return attach_match_score(best_candidate, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

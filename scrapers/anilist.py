@@ -2,7 +2,7 @@ import requests
 import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 
 class AnilistScraper(BaseScraper):
     id = "ANILIST"
@@ -11,6 +11,7 @@ class AnilistScraper(BaseScraper):
     rate_limit = 1.0
     proxy_domains = ["anilist.co"]
     has_direct_id_support = True
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -72,7 +73,7 @@ class AnilistScraper(BaseScraper):
                 if response.status_code == 200:
                     data = response.json().get('data', {}).get('Media')
                     if data:
-                        return self._build_candidate(data)
+                        return attach_match_score(self._build_candidate(data), 1.0)
             except Exception as e:
                 logging.error(self.t("err").format(e))
             return None
@@ -112,8 +113,8 @@ class AnilistScraper(BaseScraper):
                             best_score = score
                             best_match = candidate
 
-                    if best_match and best_score >= 0.50:
-                        return best_match
+                    if best_match and best_score >= MATCH_ACCEPT_THRESHOLD:
+                        return attach_match_score(best_match, best_score)
 
             except Exception as e:
                 logging.error(self.t("err").format(e))

@@ -17,6 +17,7 @@ This guide is designed for developers and AI assistants wishing to understand, m
    * [9. AI-Powered Scraper Creation (Vibecoding)](#9-ai-powered-scraper-creation-vibecoding)
    * [10. Quality Benchmarking & Debugging Suite](#10-quality-benchmarking--debugging-suite)
    * [11. Critical Pitfalls & Contribution Workflow](#11-critical-pitfalls--contribution-workflow)
+   * [12. Modular Architecture (Post-Refactor Module Map)](#12-modular-architecture-post-refactor-module-map)
 2. [🇫🇷 Guide de Développement Français](#-guide-de-développement-français)
    * [1. Architecture Globale & Sécurité](#1-architecture-globale--sécurité-1)
    * [2. Moteur de Throttling & Régulation Dynamique](#2-moteur-de-throttling--régulation-dynamique-1)
@@ -29,6 +30,7 @@ This guide is designed for developers and AI assistants wishing to understand, m
    * [9. Création de Scrapers via IA (Vibecoding)](#9-création-de-scrapers-via-ia-vibecoding-1)
    * [10. Suite de Tests & Débogage Qualité](#10-suite-de-tests--débogage-qualité-1)
    * [11. Pièges Critiques & Flux de Contribution](#11-pièges-critiques--flux-de-contribution-1)
+   * [12. Architecture Modulaire (Plan des Modules Post-Refactor)](#12-architecture-modulaire-plan-des-modules-post-refactor-1)
 
 ---
 
@@ -51,9 +53,15 @@ Idle APIs respond instantly with zero artificial delay, executing 3-provider Sma
 
 ---
 
-### 3. Reverse Proxy & Subpath Architecture
+### 3. Reverse Proxy, Subpath & CORS Architecture
 MetaKavita natively supports deployment under custom URL subpaths (e.g. `https://domain.com/metakavita`).
 Reverse proxy headers (`X-Forwarded-Prefix`) are processed via Werkzeug's `ProxyFix`. In addition, if a user specifies an explicit subpath using the `ROOT_PATH` environment variable in Docker, a custom `ScriptNameStripper` WSGI middleware handles path rewriting. Client-side, `window.ROOT_PATH` dynamically prefixes all AJAX calls.
+
+**CORS whitelist (Docker env `CORS_ALLOWED_ORIGINS`)** — for self-host HTTPS domains (e.g. `https://….local.ltd`) where Same-Origin alone blocks Socket.IO / cross-origin AJAX. Comma-separated **explicit** origins only; empty = Same-Origin (no broad CORS). Applied to both Flask HTTP (`after_request` + OPTIONS preflight, with credentials) and `socketio.init_app(cors_allowed_origins=…)`. `*` is rejected. This does **not** replace reverse-proxy WebSocket upgrade (`Upgrade` / `Connection`) configuration — see `cors_config.py` and `app.py`.
+
+**`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — API calls always use `KAVITA_URL` (safe for Docker-internal hostnames like `http://kavita:5000`). Browser series links use `get_kavita_ui_url()` (`config_manager.py`), which prefers `KAVITA_EXTERNAL_URL` (public reverse-proxy URL) and falls back to `KAVITA_URL` when unset.
+
+**`KAVITA_HTTP_TIMEOUT`** — seconds for Kavita **write** POSTs (metadata 2-pass, series update 2-pass, cover upload). Default `60`. Env or `config.json`. If pass 1 (write) succeeds and pass 2 (re-lock) times out, `update_series_metadata` / `update_series_general` return soft success with a warning log.
 
 ---
 
@@ -92,9 +100,88 @@ Scrapers build candidate dictionaries and evaluate them using `score_candidate`:
 3.  **Anti-Spin-Off Filters**: Missing distinctive query words penalizes the score by `-35%`.
 4.  **Volume 1 Anchoring**: Grants `+0.10` bonus to Volume 1 while inflicting `-0.45` penalty to intermediate volumes.
 
+The score returned by `score_candidate()` is only useful relative to a shared acceptance
+threshold: `scrapers/utils.py::MATCH_ACCEPT_THRESHOLD` (currently `0.60`). It used to be a
+literal duplicated in every scraper file (`0.50` for most, `0.60` for Hardcover/OpenLibrary,
+even `0.45` for Manga-News/Shikimori) — `0.50` (and a fortiori `0.45`) was tested in real-world
+usage and produced too many false positives (homonyms/spin-offs wrongly accepted), so `0.60` is
+now the single validated value, centralized so every scraper stays in sync.
+
+**All 9 search-based scrapers now call `score_candidate()`.** `mangadex.py`, `mangaupdates.py`,
+`manganews.py` and `shikimori.py` used to implement their own title-only heuristic with no
+author cross-check at all — meaning the anti-homonym protection (category A) never applied to
+them. Each was migrated to build a *complete* candidate (including `staff`) before scoring:
+- `mangadex.py`: the search endpoint already returns author/artist via `includes[]=author,artist`,
+  so building the full candidate per search result costs zero extra HTTP calls. A MangaDex-specific
+  "oneshot" penalty (no equivalent in the shared matrix) is still applied as a local adjustment
+  on top of the `score_candidate()` result.
+- `mangaupdates.py`: the search endpoint's `record` has the same shape as the detail endpoint
+  (same `authors`/`associated`/`publishers` keys), so `_parse_series_record()` is reused directly
+  on search results — no extra HTTP call needed either.
+- `shikimori.py`: staff requires a 3rd HTTP call per candidate (`/roles`). To bound the cost, a
+  cheap title-only pre-filter (no extra request) runs first; `/roles` is only fetched for
+  candidates that clear it.
+- `manganews.py`: HTML search results carry no author at all (only title + URL); fetching the
+  detail page (which has staff) for every result would multiply requests against a
+  Cloudflare-protected site. Instead, the top **3** candidates by cheap title pre-filter get
+  their detail page fetched and scored via `score_candidate()` — a bounded compromise between
+  match accuracy and site load.
+
+See `tests/test_scraper_score_migration.py` for proof that each scraper's staff output is in the
+shape `score_candidate()` expects.
+
 #### C. Publisher Preference QoS
 Users can dictate whether they want Localized Publishers (*Viz Media*, *Glénat*) or Original Japanese Publishers (*Shueisha*). 
 This is handled via a global variable `PUBLISHER_PREFERENCE` and overridden individually per series using a Segmented UI Toggle. The value is injected directly into `existing_metadata['publisher_pref']` for scrapers to read during extraction.
+
+#### D. Smart Scoring: Score-Based Selection & Two-Wave Parallel Execution (`metadata_fetcher.py`)
+Controlled by the sidebar toggle `SMART_SCORING` (same Options card as `SMART_COMPLETION`).
+Default is **on**. When **off**, MetaKavita restores the classic sequential fallback: first useful
+provider in list order wins; Smart Completion (if enabled) fills gaps in that same list order,
+with no score comparison and no parallel wave.
+
+Before v1.6, `fetch_metadata()`'s cascade already queried **every** configured provider for every
+series (there was never an early exit after the first success) — but it blindly kept whichever
+provider happened to be **first** in the user's fallback list (`PROVIDER_1/2/3`) as the winner,
+even when a later provider had an objectively better match for that specific query. Subsequent
+providers only contributed via `SMART_COMPLETION` gap-filling, in raw list order.
+
+Two independent improvements were made on top of the unified scoring matrix (§6.B):
+
+1. **Score-based winner selection.** Every scraper that calls `score_candidate()` now attaches its
+   own winning score to the returned dict via `attach_match_score()` (key `_match_score`, see
+   `scrapers/utils.py`). Direct ID/URL lookups (`is_id=True`) attach `1.0` — an explicit
+   identifier lookup has no ambiguity to score. `fetch_metadata()` collects every accepted
+   candidate, then sorts them by score descending (ties broken by original fallback-list
+   position) before picking a winner. If `SMART_COMPLETION` is enabled, gap-filling now follows
+   this same score-descending order instead of the raw list order — the most trustworthy
+   candidate's fields win a "which value fills this gap" contest, not the one that merely
+   happened to run first. A candidate with no `_match_score` (e.g. a community scraper not yet
+   migrated to `score_candidate()`) is treated as "just barely accepted"
+   (`MATCH_ACCEPT_THRESHOLD`) rather than crashing the sort or being unfairly favored.
+2. **Two-wave execution.** Provider #1 still runs alone and sequentially first; whatever ISBN/
+   authors it finds are merged into `existing_metadata` and handed to the *remaining* providers,
+   which then run **in parallel** (`ThreadPoolExecutor`) against a frozen snapshot of that
+   enriched context. This is a deliberate compromise, not a naive "fire everything at t=0":
+   running everything in parallel from the start would lose the existing context-cascading
+   benefit (provider #1's ISBN/authors feeding `score_candidate()`'s ISBN Golden Rule and
+   anti-homonym penalty for providers #2/#3), which matters most on "cold" series with little or
+   no pre-existing Kavita metadata. Per-provider rate-limiting (`throttle_provider()`) is already
+   keyed by `scraper.id` with its own lock (see §3 below), so parallelizing *different* providers
+   never violates any individual provider's `rate_limit`. No scraper instance mutates `self`
+   during `fetch()`, so running distinct provider singletons concurrently is safe.
+
+Since call volume is unchanged (every configured provider was already being queried), this is
+purely a latency win (`max()` instead of `sum()` of the non-P1 providers' round-trips) plus a
+quality win (best match wins, not first match). See
+`tests/test_metadata_fetcher_smart_scoring.py` for the full regression suite, including a timing
+assertion proving providers #2+ actually overlap in wall-clock time.
+
+**Community scrapers:** `BaseScraper.uses_unified_scoring` defaults to `False` (opt-in). Declaring
+`uses_unified_scoring = True` is documentary — the pipeline never gates on it. Safety comes from
+`_safe_match_score()` in `metadata_fetcher.py`, which coerces/clamps any missing or malformed
+`_match_score` so a community scraper that forgets `attach_match_score()` (or returns garbage)
+cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 
 ---
 
@@ -109,7 +196,7 @@ This is handled via a global variable `PUBLISHER_PREFERENCE` and overridden indi
 | `HARDCOVER` | Hardcover (Exp) | Book, Comic | API Key required. Hasura GraphQL API & Typesense search. |
 | `KITSU` | Kitsu | Manga | JSON:API integration, no API key required. |
 | `MANGANEWS` | Manga-News | Manga | VF French catalog scraper, extracts HD webp covers. |
-| `MANGABAKA` | MangaBaka | Manga | Null-safe JSON parsing, Publisher Preference support. |
+| `MANGABAKA` | MangaBaka | Manga, Book | `schema=full`, `type` filter (novel for Book), Publisher Preference support. |
 | `MANGADEX` | MangaDex | Manga | Content rating filters (`erotica`), oneshot penalties. |
 | `MANGAUPDATES`| MangaUpdates | Manga | `hit_title` matching, Publisher Preference support. |
 | `OPENLIBRARY` | Open Library | Book, Comic | ISBN support, anti-429 retries, Google Disclaimer bypass. |
@@ -131,6 +218,8 @@ Please refer to the `CUSTOM_SCRAPERS.md` file located at the root of the project
 
 ### 10. Quality Benchmarking & Debugging Suite
 Developers can run standalone unit test scripts located at the project root (`debug_all_scrapers.py`, `debug_scoring_20.py`, `debug_manga_quality.py`) to validate engine features and API compliance without needing a running Kavita server. Cover uploads can be traced using `debug_cover.py`.
+
+Since the architecture refactor, there is also an automated **pytest** suite under `tests/` (see §12 below) that runs on every push/PR via `.github/workflows/tests.yml`. Unlike the `debug_*.py` scripts (interactive, opinion-based exploration scripts meant to be read and extended by a human), `tests/` is a fast, mocked, CI-enforced regression net targeted specifically at bugs that have already bitten this project once (`publisher_pref` disappearing, Kavita payload sanitization, MangaBaka status mapping) — it must stay green at all times. Run it locally with `pip install -r requirements-dev.txt && pytest`.
 
 ---
 
@@ -163,7 +252,24 @@ Use the standalone `debug_*.py` scripts at the project root to validate logic ch
 When fixing a bug, extend one of these scripts (or add a new one) to reproduce it first — it's the fastest way to confirm a fix is real without a full Docker rebuild and manual click-through in the Kavita UI.
 
 #### F. Documentation Is Part of the Change
-Every user-facing fix or feature must be reflected in **both** `CHANGELOG.md` (bilingual EN/FR, semantically versioned — the topmost `## [X.Y.Z]` header is parsed automatically by `app.py::get_app_version()` to drive the version number shown in the UI) and `ROADMAP.md` (bilingual short-form `BFxx`/`Cxx` entries). Keep the two in sync: every `BF`/`C` number referenced in `ROADMAP.md`'s "Latest Releases" section should correspond to a detailed entry in `CHANGELOG.md`, and the version range shown at the top of that section should always match the newest `CHANGELOG.md` entry.
+Every user-facing fix or feature must be reflected in **both** `CHANGELOG.md` (bilingual EN/FR, semantically versioned — the topmost `## [X.Y.Z]` header is parsed automatically by `services/changelog_service.py::get_app_version()` to drive the version number shown in the UI) and `ROADMAP.md` (bilingual short-form `BFxx`/`Cxx` entries). Keep the two in sync: every `BF`/`C` number referenced in `ROADMAP.md`'s "Latest Releases" section should correspond to a detailed entry in `CHANGELOG.md`, and the version range shown at the top of that section should always match the newest `CHANGELOG.md` entry.
+
+### 12. Modular Architecture (Post-Refactor Module Map)
+Starting with the architecture refactor, `app.py` is a thin ~130-line assembly point only: Flask/SocketIO instantiation, middlewares (`ProxyFix`, `ScriptNameStripper`), logging bootstrap, the global `require_login` gate, Blueprint registration, and starting the background workers. All business logic lives in dedicated modules:
+
+*   **`kavita_constants.py`**: single source of truth for Kavita enum mappings (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) and raw-provider-status normalization (`normalize_provider_status()`, used by `scrapers/mangabaka.py`). Add new enum mappings here, never inline in a route or scraper.
+*   **`models.py`**: `SeriesOverride` dataclass, the typed contract for per-series overrides (forced ID/provider, alternative title, targeted fields, publisher preference). Prefer `db_manager.save_series_override(SeriesOverride(...))` (named fields) over the legacy positional `save_forced_overrides(...)` wrapper in any new code — this is a direct, structural mitigation for the class of bug described in §11.C.
+*   **`extensions.py`**: the shared `socketio = SocketIO()` instance (created without an app, `init_app(app)`'d once in `app.py`). Import from here — never from `app.py` — in any module that needs to emit events or declare `@socketio.on(...)` handlers, to avoid circular imports.
+*   **`services/enrichment_engine.py`**: `enrich_series(series_id, series_name, force_update)`, the extracted former `process_series_logic()`. Pure orchestration logic — scraping, field mapping, Kavita calls — with zero dependency on Flask or `app.py`.
+*   **`services/background_tasks.py`**: the daemon workers (`sync_queue` consumer + periodic auto-sync poller) and `start_background_workers()`, called once from `app.py` at import time (unchanged single-worker-process behavior, required for Gunicorn `-w 1`).
+*   **`services/changelog_service.py`**: `get_app_version()` / `get_current_version()` (cached) / `get_full_changelog_html()`. Imported independently by both `app.py` (global template context) and `routes/misc.py` (`/api/changelog`) — importing from here instead of from each other avoids a circular import.
+*   **`routes/*.py`**: one Flask Blueprint per domain — `auth` (`/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, cover search/apply), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `misc` (`/api/proxy-image`, `/api/changelog`).
+*   **`sockets/handlers.py`**: the two Socket.IO event handlers (`connect`, `fetch_covers_stream`), registered by decorating the shared `extensions.socketio` instance; imported once for side effects from `app.py`.
+*   **`static/js/*.js`**: the former monolithic `script.js` is now 7 plain `<script>` files loaded in dependency order (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). No bundler and no `type="module"` on purpose: templates rely on inline `onclick="..."` handlers, which require every function to stay in the global scope.
+*   **`templates/partials/*.html`**: the former monolithic `index.html` is now a thin shell that `{% include %}`s six Jinja partials — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — one per self-contained UI region. Edit the relevant partial directly instead of scrolling through a single 600+ line template.
+*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10.
+
+⚠️ **Blueprint endpoint names changed.** Flask always prefixes a Blueprint route's endpoint with the Blueprint's name (e.g. the `login` view in `routes/auth.py`, registered on the `auth` Blueprint, becomes endpoint `auth.login` — there is no way to opt out of this prefixing). Every `url_for(...)` call and the `request.endpoint in [...]` whitelist in `app.py::require_login()` were updated accordingly (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **If you rename a Blueprint or move a route to a different Blueprint, grep for its old endpoint string across `app.py` and every `.html` template before assuming `url_for()` still resolves.**
 
 <br><br>
 
@@ -186,8 +292,14 @@ Les pauses fixes ont été remplacées par un **Régulateur Dynamique par Horoda
 
 ---
 
-### 3. Architecture Reverse Proxy & Sous-dossiers
+### 3. Architecture Reverse Proxy, Sous-dossiers & CORS
 Le système gère les sous-chemins (ex: `https://domaine.com/metakavita`) via `ProxyFix` pour récupérer les headers `X-Forwarded-Prefix` et un middleware `ScriptNameStripper`. Côté frontend, `window.ROOT_PATH` préfixe toutes les routes.
+
+**Whitelist CORS (env Docker `CORS_ALLOWED_ORIGINS`)** — pour les self-hosts HTTPS (ex: `https://….local.ltd`) où le Same-Origin seul bloque Socket.IO / AJAX cross-origin. Origins **explicites** séparées par des virgules ; vide = Same-Origin. Appliquée à Flask HTTP (`after_request` + preflight OPTIONS, avec credentials) et à `socketio.init_app(cors_allowed_origins=…)`. `*` est rejeté. Cela ne remplace **pas** la config reverse-proxy d'upgrade WebSocket (`Upgrade` / `Connection`) — voir `cors_config.py` et `app.py`.
+
+**`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — les appels API utilisent toujours `KAVITA_URL` (hostname Docker interne OK, ex: `http://kavita:5000`). Les liens série du navigateur passent par `get_kavita_ui_url()` (`config_manager.py`), qui préfère `KAVITA_EXTERNAL_URL` (URL publique / reverse proxy) et se rabat sur `KAVITA_URL` si elle est vide.
+
+**`KAVITA_HTTP_TIMEOUT`** — secondes pour les POST d'**écriture** Kavita (metadata 2-pass, update série 2-pass, upload couverture). Défaut `60`. Env ou `config.json`. Si le passage 1 (écriture) réussit et le passage 2 (re-lock) timeout, `update_series_metadata` / `update_series_general` renvoient un soft-success avec warning en log.
 
 ---
 
@@ -223,8 +335,93 @@ Les scrapers passent leurs résultats dans `score_candidate` :
 3.  **Filtres Spin-Offs** : Mots-clés manquants = `-35%`.
 4.  **Ancrage Tome 1** : Bonus de `+0.10` pour le T1, et pénalité de `-0.45` sur les tomes intermédiaires.
 
+Le score renvoyé par `score_candidate()` n'a de sens que comparé à un seuil d'acceptation
+partagé : `scrapers/utils.py::MATCH_ACCEPT_THRESHOLD` (actuellement `0.60`). Cette valeur était
+autrefois un literal dupliqué dans chaque fichier de scraper (`0.50` pour la plupart, `0.60`
+pour Hardcover/OpenLibrary, et même `0.45` pour Manga-News/Shikimori) — `0.50` (et a fortiori
+`0.45`) a été testé en usage réel et générait trop de faux positifs (homonymes/spin-offs
+acceptés à tort), donc `0.60` est désormais la seule valeur validée, centralisée pour que tous
+les scrapers restent synchronisés.
+
+**Les 9 scrapers basés sur une recherche appellent désormais `score_candidate()`.**
+`mangadex.py`, `mangaupdates.py`, `manganews.py` et `shikimori.py` implémentaient chacun leur
+propre heuristique titre-seul, sans comparaison d'auteur — la protection anti-homonyme
+(catégorie A) ne s'appliquait donc jamais à eux. Chacun a été migré pour construire un candidat
+*complet* (avec `staff`) avant scoring :
+- `mangadex.py` : l'endpoint de recherche renvoie déjà l'auteur/artiste via
+  `includes[]=author,artist`, donc construire le candidat complet par résultat de recherche ne
+  coûte aucune requête HTTP supplémentaire. Une pénalité "oneshot" spécifique à MangaDex (sans
+  équivalent dans la matrice partagée) reste appliquée en ajustement local par-dessus le score.
+- `mangaupdates.py` : le `record` renvoyé par l'endpoint de recherche a la même forme que celui
+  de l'endpoint de détail (mêmes clés `authors`/`associated`/`publishers`), donc
+  `_parse_series_record()` est réutilisée directement sur les résultats de recherche — là non
+  plus, aucune requête HTTP en plus.
+- `shikimori.py` : le staff nécessite un 3ᵉ appel HTTP par candidat (`/roles`). Pour borner le
+  coût, un pré-filtre bon marché par titre (sans requête supplémentaire) s'exécute d'abord ;
+  `/roles` n'est appelé que pour les candidats qui le passent.
+- `manganews.py` : les résultats de recherche HTML ne contiennent aucun auteur (juste titre +
+  URL) ; récupérer la fiche détaillée (qui a le staff) pour chaque résultat multiplierait les
+  requêtes contre un site protégé par Cloudflare. À la place, seuls les **3** meilleurs
+  candidats au pré-filtre de titre voient leur fiche détaillée récupérée et scorée via
+  `score_candidate()` — un compromis borné entre précision du matching et charge sur le site.
+
+Voir `tests/test_scraper_score_migration.py` pour la preuve que le staff produit par chaque
+scraper est bien dans la forme attendue par `score_candidate()`.
+
 #### C. Qualité de Service (QoS) : Éditeur
 L'utilisateur peut imposer la récupération de l'éditeur traduit (ex: *Kurokawa*) ou de l'éditeur d'origine (ex: *Shueisha*). Ce paramètre est injecté localement via l'interrupteur UI directement dans `existing_metadata['publisher_pref']`.
+
+#### D. Smart Scoring : sélection par score & exécution en deux vagues (`metadata_fetcher.py`)
+Pilotulé par l'interrupteur sidebar `SMART_SCORING` (même carte Options que `SMART_COMPLETION`).
+Activé **par défaut**. Quand il est **désactivé**, MetaKavita retrouve le fallback classique
+séquentiel : le premier provider utile de la liste gagne ; la Complétion intelligente (si
+activée) comble les trous dans cet ordre de liste, sans comparaison de scores ni vague parallèle.
+
+Avant la v1.6, la cascade de `fetch_metadata()` interrogeait déjà **tous** les providers
+configurés pour chaque série (il n'y a jamais eu de sortie anticipée après le premier succès) —
+mais elle retenait aveuglément comme vainqueur celui qui se trouvait **en premier** dans la liste
+de fallback de l'utilisateur (`PROVIDER_1/2/3`), même si un provider suivant avait objectivement
+un meilleur match pour cette requête précise. Les providers suivants n'intervenaient qu'en
+complétion (`SMART_COMPLETION`), dans l'ordre brut de la liste.
+
+Deux améliorations indépendantes ont été ajoutées par-dessus la matrice de scoring unifiée (§6.B) :
+
+1. **Sélection du vainqueur par score.** Chaque scraper qui appelle `score_candidate()` attache
+   désormais son propre score gagnant au dict retourné via `attach_match_score()` (clé
+   `_match_score`, voir `scrapers/utils.py`). Une résolution directe par ID/URL (`is_id=True`)
+   attache `1.0` — une recherche par identifiant explicite n'a par nature aucune ambiguïté à
+   scorer. `fetch_metadata()` collecte tous les candidats acceptés, puis les trie par score
+   décroissant (égalité → position d'origine dans la liste de fallback) avant de désigner un
+   vainqueur. Si `SMART_COMPLETION` est activé, le remplissage des champs manquants suit
+   désormais ce même ordre décroissant par score plutôt que l'ordre brut de la liste : c'est le
+   candidat le plus digne de confiance qui gagne le droit de combler un champ vide, pas celui qui
+   se trouvait juste être exécuté en premier. Un candidat sans `_match_score` (ex : scraper
+   communautaire non encore migré vers `score_candidate()`) est traité comme "juste accepté"
+   (`MATCH_ACCEPT_THRESHOLD`) plutôt que de faire planter le tri ou d'être injustement favorisé.
+2. **Exécution en deux vagues.** Le provider #1 tourne toujours seul et en premier, séquentiel ;
+   l'ISBN/les auteurs qu'il trouve sont fusionnés dans `existing_metadata` et transmis aux
+   providers **restants**, qui tournent ensuite **en parallèle** (`ThreadPoolExecutor`) contre un
+   instantané figé de ce contexte enrichi. C'est un compromis délibéré, pas un "tout en parallèle
+   dès t=0" naïf : paralléliser dès le départ perdrait le bénéfice existant de la cascade de
+   contexte (l'ISBN/les auteurs du provider #1 alimentant la règle d'or ISBN et la pénalité
+   anti-homonyme de `score_candidate()` pour les providers suivants), ce qui compte surtout sur
+   les séries "froides" (peu ou pas de métadonnées Kavita pré-existantes). Le rate-limiting par
+   provider (`throttle_provider()`) est déjà indexé par `scraper.id` avec son propre verrou
+   (voir §3 plus haut), donc paralléliser des providers *différents* ne viole jamais le
+   `rate_limit` individuel de chacun. Aucun scraper ne mute `self` pendant `fetch()`, donc
+   exécuter des instances de providers distinctes en concurrence est sûr.
+
+Le volume d'appels étant inchangé (tous les providers configurés étaient déjà interrogés), c'est
+un gain de latence pur (`max()` au lieu de `sum()` des temps de réponse des providers autres que
+P1) et un gain de qualité (le meilleur match gagne, pas le premier). Voir
+`tests/test_metadata_fetcher_smart_scoring.py` pour la suite de non-régression complète,
+incluant une assertion de timing prouvant que les providers #2+ se recouvrent bien dans le temps.
+
+**Scrapers communautaires :** `BaseScraper.uses_unified_scoring` vaut `False` par défaut (opt-in).
+Le déclarer à `True` est informatif — le pipeline ne bloque jamais dessus. La sécurité vient de
+`_safe_match_score()` dans `metadata_fetcher.py`, qui coerce/clamp toute valeur `_match_score`
+absente ou mal formée pour qu'un scraper communautaire qui oublie `attach_match_score()` (ou
+renvoie n'importe quoi) ne puisse pas faire planter l'enrichissement. Voir `CUSTOM_SCRAPERS.md` §4.
 
 ---
 
@@ -239,7 +436,7 @@ L'utilisateur peut imposer la récupération de l'éditeur traduit (ex: *Kurokaw
 | `HARDCOVER` | Hardcover (Exp) | API Key. GraphQL Hasura + Moteur Typesense. |
 | `KITSU` | Kitsu | JSON:API, rapide, sans clé requise. |
 | `MANGANEWS` | Manga-News | Catalogue VF, extrait l'éditeur FR et les visuels HD (webp). |
-| `MANGABAKA` | MangaBaka | Null-safe, support de la Préférence d'Éditeur. |
+| `MANGABAKA` | MangaBaka | Manga + Book ; `schema=full`, filtre `type`, Préférence d'Éditeur. |
 | `MANGADEX` | MangaDex | Filtres adultes (`erotica`), pénalités Oneshot. |
 | `MANGAUPDATES`| MangaUpdates | Scraping par `hit_title`, support de la Préférence d'Éditeur. |
 | `OPENLIBRARY` | Open Library | Clés Work (`OL...W`) & ISBNs, contournement Disclaimer Google Books. |
@@ -260,6 +457,8 @@ Pour permettre à la communauté de créer ses propres scrapers, veuillez vous r
 
 ### 10. Suite de Tests & Débogage Qualité
 Des scripts de tests unitaires autonomes (`debug_all_scrapers.py`, `debug_scoring_20.py`, `debug_manga_quality.py`) permettent d'auditer 20 cas limites de scoring mathématique et les performances sans nécessiter d'instance Kavita. L'envoi physique d'image peut être traqué via `debug_cover.py`.
+
+Depuis le refactor d'architecture, il existe également une suite **pytest** automatisée dans `tests/` (voir §12 ci-dessous), exécutée à chaque push/PR via `.github/workflows/tests.yml`. Contrairement aux scripts `debug_*.py` (scripts d'exploration interactifs, destinés à être lus et étendus par un humain), `tests/` est un filet de non-régression rapide, mocké et vérifié par CI, ciblé spécifiquement sur des bugs qui ont déjà touché ce projet une fois (disparition de `publisher_pref`, assainissement des payloads Kavita, mapping de statut MangaBaka) — il doit rester vert en permanence. Lancez-le localement avec `pip install -r requirements-dev.txt && pytest`.
 
 ---
 
@@ -292,4 +491,21 @@ Utilisez les scripts autonomes `debug_*.py` à la racine du projet pour valider 
 Lors de la correction d'un bug, étendez l'un de ces scripts (ou créez-en un nouveau) pour le reproduire d'abord — c'est le moyen le plus rapide de confirmer qu'un correctif fonctionne réellement, sans reconstruction Docker complète ni parcours manuel dans l'interface Kavita.
 
 #### F. La Documentation Fait Partie du Correctif
-Chaque correctif ou fonctionnalité visible par l'utilisateur doit être répercuté à la fois dans `CHANGELOG.md` (bilingue EN/FR, versionné sémantiquement — le premier en-tête `## [X.Y.Z]` est analysé automatiquement par `app.py::get_app_version()` pour piloter le numéro de version affiché dans l'UI) et dans `ROADMAP.md` (entrées courtes bilingues `BFxx`/`Cxx`). Gardez les deux synchronisés : chaque numéro `BF`/`C` référencé dans la section "Dernières Nouveautés" de `ROADMAP.md` doit correspondre à une entrée détaillée dans `CHANGELOG.md`, et la plage de versions affichée en haut de cette section doit toujours correspondre à la plus récente entrée de `CHANGELOG.md`.
+Chaque correctif ou fonctionnalité visible par l'utilisateur doit être répercuté à la fois dans `CHANGELOG.md` (bilingue EN/FR, versionné sémantiquement — le premier en-tête `## [X.Y.Z]` est analysé automatiquement par `services/changelog_service.py::get_app_version()` pour piloter le numéro de version affiché dans l'UI) et dans `ROADMAP.md` (entrées courtes bilingues `BFxx`/`Cxx`). Gardez les deux synchronisés : chaque numéro `BF`/`C` référencé dans la section "Dernières Nouveautés" de `ROADMAP.md` doit correspondre à une entrée détaillée dans `CHANGELOG.md`, et la plage de versions affichée en haut de cette section doit toujours correspondre à la plus récente entrée de `CHANGELOG.md`.
+
+### 12. Architecture Modulaire (Plan des Modules Post-Refactor)
+Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage d'environ 130 lignes : instanciation Flask/SocketIO, middlewares (`ProxyFix`, `ScriptNameStripper`), initialisation du logging, verrou global `require_login`, enregistrement des Blueprints, et démarrage des workers de fond. Toute la logique métier vit désormais dans des modules dédiés :
+
+*   **`kavita_constants.py`** : source unique de vérité pour les mappings d'énumération Kavita (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) et la normalisation des statuts bruts fournisseurs (`normalize_provider_status()`, utilisé par `scrapers/mangabaka.py`). Ajoutez tout nouveau mapping ici, jamais en ligne dans une route ou un scraper.
+*   **`models.py`** : la dataclass `SeriesOverride`, contrat typé des surcharges par série (ID/provider forcé, titre alternatif, champs ciblés, préférence d'éditeur). Préférez `db_manager.save_series_override(SeriesOverride(...))` (champs nommés) à l'ancien wrapper positionnel `save_forced_overrides(...)` dans tout nouveau code — c'est une mitigation structurelle directe de la classe de bug décrite au §11.C.
+*   **`extensions.py`** : l'instance partagée `socketio = SocketIO()` (créée sans app, `init_app(app)` appelé une seule fois dans `app.py`). Importez-la depuis ce module — jamais depuis `app.py` — dans tout module ayant besoin d'émettre des événements ou de déclarer des handlers `@socketio.on(...)`, pour éviter les imports circulaires.
+*   **`services/enrichment_engine.py`** : `enrich_series(series_id, series_name, force_update)`, extraction de l'ancien `process_series_logic()`. Logique d'orchestration pure (scraping, mapping des champs, appels Kavita) sans aucune dépendance vers Flask ni `app.py`.
+*   **`services/background_tasks.py`** : les workers démons (consommateur de `sync_queue` + polling d'auto-sync périodique) et `start_background_workers()`, appelé une seule fois par `app.py` au chargement du module (comportement inchangé, requis pour un déploiement Gunicorn à worker unique `-w 1`).
+*   **`services/changelog_service.py`** : `get_app_version()` / `get_current_version()` (mise en cache) / `get_full_changelog_html()`. Importé indépendamment par `app.py` (contexte global des templates) et par `routes/misc.py` (`/api/changelog`) — importer depuis ce module plutôt que l'un depuis l'autre évite un import circulaire.
+*   **`routes/*.py`** : un Blueprint Flask par domaine — `auth` (`/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, recherche/application de couverture), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `misc` (`/api/proxy-image`, `/api/changelog`).
+*   **`sockets/handlers.py`** : les deux handlers Socket.IO (`connect`, `fetch_covers_stream`), enregistrés en décorant l'instance partagée `extensions.socketio` ; importé une seule fois pour son effet de bord depuis `app.py`.
+*   **`static/js/*.js`** : l'ancien `script.js` monolithique est désormais découpé en 7 fichiers `<script>` classiques chargés dans l'ordre de dépendance (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). Volontairement sans bundler ni `type="module"` : les templates s'appuient sur des gestionnaires `onclick="..."` inline, qui exigent que chaque fonction reste en portée globale.
+*   **`templates/partials/*.html`** : l'ancien `index.html` monolithique est désormais une coquille légère qui `{% include %}` six partials Jinja — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — un par zone d'UI autonome. Modifiez directement le partial concerné plutôt que de faire défiler un template unique de 600+ lignes.
+*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10.
+
+⚠️ **Les noms d'endpoints des Blueprints ont changé.** Flask préfixe toujours l'endpoint d'une route de Blueprint par le nom du Blueprint (ex : la vue `login` de `routes/auth.py`, enregistrée sur le Blueprint `auth`, devient l'endpoint `auth.login` — impossible de désactiver ce préfixage). Chaque appel `url_for(...)` et la liste blanche `request.endpoint in [...]` de `app.py::require_login()` ont été mis à jour en conséquence (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **Si vous renommez un Blueprint ou déplacez une route vers un autre Blueprint, recherchez son ancien nom d'endpoint dans `app.py` et dans chaque template `.html` avant de supposer que `url_for()` fonctionne toujours.**

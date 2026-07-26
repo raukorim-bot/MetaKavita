@@ -5,7 +5,7 @@ import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 import logging
-from scrapers.utils import score_candidate
+from scrapers.utils import score_candidate, MATCH_ACCEPT_THRESHOLD
 
 # Désactivation des logs verbeux
 logging.basicConfig(level=logging.ERROR)
@@ -194,8 +194,11 @@ def run_suite():
         score = score_candidate(test["candidate"], test["query"], test["context"])
         score_pct = score * 100
         
-        # Le seuil standard de validation dans MetaKavita est >= 60% (0.60)
-        is_pass = score >= 0.60
+        # Seuil partagé par tous les scrapers (scrapers/utils.py::MATCH_ACCEPT_THRESHOLD).
+        # 0.50 a été testé en usage réel et générait trop de faux positifs : 0.60 est la
+        # valeur validée empiriquement, désormais centralisée pour éviter toute dérive
+        # d'un scraper à l'autre.
+        is_pass = score >= MATCH_ACCEPT_THRESHOLD
         expected_pass = test["target"] == "PASS"
         
         success = (is_pass == expected_pass)
@@ -207,8 +210,9 @@ def run_suite():
             failed_tests += 1
             status_symbol = "\033[91m[ÉCHEC]\033[0m"
 
+        threshold_pct = MATCH_ACCEPT_THRESHOLD * 100
         print(f"{status_symbol} {test['name']}")
-        print(f"   Score Obtenu : {score_pct:.1f}% | Attendu : {'>= 60%' if expected_pass else '< 60%'}")
+        print(f"   Score Obtenu : {score_pct:.1f}% | Attendu : {f'>= {threshold_pct:.0f}%' if expected_pass else f'< {threshold_pct:.0f}%'}")
         if not success:
             print(f"   ⚠️ \033[93mAnomalie détectée\033[0m : {test['explain']}")
         print()

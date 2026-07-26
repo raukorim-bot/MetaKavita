@@ -19,6 +19,55 @@ NOISE_KEYWORDS = {
     'illustration book', 'anthology', 'encyclopedia', 'encyclopedie'
 }
 
+# Seuil unique d'acceptation d'un candidat scoré par score_candidate() (0.0 à 1.0).
+# Historiquement chaque scraper codait sa propre valeur en dur (0.50 pour Anilist/
+# MangaBaka/GoogleBooks, 0.60 pour Hardcover/OpenLibrary) : 0.50 a été testé en usage
+# réel et générait trop de faux positifs (homonymes, spin-offs). 0.60 est la valeur
+# validée empiriquement et doit désormais être utilisée par TOUS les scrapers qui
+# passent par score_candidate(), via cette constante partagée plutôt qu'un literal
+# recopié dans chaque fichier.
+MATCH_ACCEPT_THRESHOLD = 0.60
+
+# Clé interne (préfixée par "_" comme "_provider_used"/"_fusion_providers") sous laquelle
+# chaque scraper attache le score de score_candidate() au dict qu'il retourne. Consommée
+# par metadata_fetcher.py pour le "Smart Scoring" : comparer objectivement les candidats
+# de plusieurs providers entre eux plutôt que de retenir aveuglément le premier de la
+# liste de fallback qui dépasse MATCH_ACCEPT_THRESHOLD (voir CODE_REVIEW.md / DEVELOPER.md).
+MATCH_SCORE_KEY = "_match_score"
+
+
+def attach_match_score(candidate: Optional[dict], score: float) -> Optional[dict]:
+    """
+    Attache le score de correspondance (0.0 à 1.0) au candidat retourné par fetch(),
+    sans changer le comportement existant du scraper pris isolément (la clé est ignorée
+    par tout code qui ne la lit pas explicitement). À utiliser sur CHAQUE `return` d'un
+    candidat accepté dans fetch(), y compris les correspondances par ID direct (is_id=True)
+    qui n'appellent pas score_candidate() : dans ce cas on attache 1.0, car une recherche
+    par identifiant explicite (URL/ID fourni par l'utilisateur ou déjà connu) ne comporte
+    par nature aucune ambiguïté à scorer — elle doit toujours l'emporter face à un simple
+    match par titre d'un autre provider.
+
+    Le score est coercé en float et clampé dans [0.0, 1.0] : un scraper communautaire qui
+    passerait une chaîne / un hors-bornes ne doit pas pouvoir injecter une valeur qui ferait
+    planter le tri Smart Scoring dans `metadata_fetcher.py` (voir aussi `_safe_match_score`
+    côté consommateur, filet de sécurité même si `attach_match_score` n'est pas utilisé).
+    """
+    if candidate is None:
+        return None
+    try:
+        if isinstance(score, bool):
+            raise TypeError("bool is not a valid match score")
+        numeric = float(score)
+        if numeric != numeric:  # NaN
+            numeric = MATCH_ACCEPT_THRESHOLD
+        else:
+            numeric = max(0.0, min(1.0, numeric))
+    except (TypeError, ValueError):
+        numeric = MATCH_ACCEPT_THRESHOLD
+    candidate[MATCH_SCORE_KEY] = numeric
+    return candidate
+
+
 def normalize_str(s):
     """Retire les accents, la ponctuation et met en minuscule pour la comparaison."""
     if not s: return ""

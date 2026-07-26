@@ -3,7 +3,7 @@ import re
 from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 from config_manager import load_config
 
 # --- OUTILS DE SCORING AVANCÉ ---
@@ -23,6 +23,7 @@ class HardcoverScraper(BaseScraper):
     has_direct_id_support = True
     requires_proxy = False
     needs_api_key = True 
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -142,7 +143,7 @@ class HardcoverScraper(BaseScraper):
                 if res.status_code == 200 and "data" in res.json():
                     books = res.json().get("data", {}).get("books", [])
                     if books and isinstance(books, list):
-                        return self._build_candidate(books[0])
+                        return attach_match_score(self._build_candidate(books[0]), 1.0)
                 return None
 
             # 3. RECHERCHE TEXTUELLE CLASSIQUE
@@ -180,8 +181,6 @@ class HardcoverScraper(BaseScraper):
                 return None
 
             # --- ÉVALUATION DES CANDIDATS VIA LE SCORE CENTRALISÉ ---
-            from .utils import score_candidate
-
             cleaned_query = clean_title(query, library_type=library_type) if not is_id else query
             best_match = None
             best_score = -1.0
@@ -198,12 +197,12 @@ class HardcoverScraper(BaseScraper):
                     best_score = score
                     best_match = candidate
 
-            if not best_match or best_score < 0.60:
+            if not best_match or best_score < MATCH_ACCEPT_THRESHOLD:
                 logging.warning(self.t("no_match").format(cleaned_query, int(best_score*100)))
                 return None
 
             logging.info(self.t("matched").format(best_match.get('title'), int(best_score*100)))
-            return best_match
+            return attach_match_score(best_match, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

@@ -38,7 +38,7 @@ elapsed = time.time() - start_time
 
 if result:
     print(f"\n✅ Terminé en {elapsed:.2f}s")
-    print(f"🏆 Fournisseur de base  : {result.get('_provider_used')}")
+    print(f"🏆 Fournisseur de base  : {result.get('_provider_used')} (score: {result.get('_match_score', 'N/A')})")
     fusion = result.get('_fusion_providers', [])
     print(f"🧩 Fournisseurs fusion : {', '.join(fusion) if fusion else 'Aucun (Base complète à 100%)'}")
     print(f"📌 Sources sollicitées : {', '.join(used_providers)}")

@@ -3,7 +3,7 @@ import requests
 import re
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
 
@@ -33,6 +33,7 @@ class ShikimoriScraper(BaseScraper):
     proxy_domains = ["shikimori.one", "shikimori.me"]
     has_direct_id_support = True
     requires_proxy = False
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -172,7 +173,7 @@ class ShikimoriScraper(BaseScraper):
                 url = f"https://shikimori.one/api/mangas/{query}"
                 res = requests.get(url, headers=headers, timeout=10)
                 if res.status_code == 200:
-                    return self._parse_shikimori_record(res.json(), headers)
+                    return attach_match_score(self._parse_shikimori_record(res.json(), headers), 1.0)
                 return None
 
             cleaned = clean_title(query, library_type=library_type)
@@ -188,55 +189,61 @@ class ShikimoriScraper(BaseScraper):
             items = res.json()
             if not isinstance(items, list) or not items: return None
 
-            query_keywords = extract_meaningful_words(cleaned)
-            best_match_detail = None
+            best_candidate = None
             best_score = -1.0
 
             for item in items:
                 item_id = item.get("id")
                 romaji_name = item.get("name", "")
-                
+
                 detail_res = requests.get(f"https://shikimori.one/api/mangas/{item_id}", headers=headers, timeout=10)
-                if detail_res.status_code == 200:
-                    detail_data = detail_res.json()
-                    
-                    titles_to_check = [romaji_name]
-                    eng = detail_data.get("english")
-                    if isinstance(eng, list): titles_to_check.extend(eng)
-                    elif isinstance(eng, str): titles_to_check.append(eng)
+                if detail_res.status_code != 200:
+                    continue
+                detail_data = detail_res.json()
 
-                    jap = detail_data.get("japanese")
-                    if isinstance(jap, list): titles_to_check.extend(jap)
-                    elif isinstance(jap, str): titles_to_check.append(jap)
+                # Pré-filtre bon marché (titre seul, sans requête HTTP en plus) : on ne
+                # déclenche l'appel /roles (staff, 3e requête par candidat) que pour les
+                # candidats ayant un minimum de ressemblance textuelle, pour ne pas payer le
+                # coût de score_candidate() sur des résultats manifestement hors-sujet.
+                titles_to_check = [romaji_name]
+                eng = detail_data.get("english")
+                if isinstance(eng, list): titles_to_check.extend(eng)
+                elif isinstance(eng, str): titles_to_check.append(eng)
 
-                    syns = detail_data.get("synonyms")
-                    if isinstance(syns, list): titles_to_check.extend(syns)
+                jap = detail_data.get("japanese")
+                if isinstance(jap, list): titles_to_check.extend(jap)
+                elif isinstance(jap, str): titles_to_check.append(jap)
 
-                    item_score = 0.0
-                    for t in titles_to_check:
-                        if not t: continue
-                        score = calculate_similarity(cleaned, str(t))
-                        if score > item_score: item_score = score
+                syns = detail_data.get("synonyms")
+                if isinstance(syns, list): titles_to_check.extend(syns)
 
-                    if item_score <= 0.0: continue
+                pre_filter_score = 0.0
+                for t in titles_to_check:
+                    if not t: continue
+                    s = calculate_similarity(cleaned, str(t))
+                    if s > pre_filter_score: pre_filter_score = s
 
-                    total_score = item_score
-                    if query_keywords:
-                        combined_text = " ".join([str(t) for t in titles_to_check if t])
-                        item_words = extract_meaningful_words(combined_text)
-                        missing = query_keywords - item_words
-                        if missing: total_score -= (0.25 * len(missing))
+                if pre_filter_score <= 0.0:
+                    continue
 
-                    if total_score > best_score:
-                        best_score = total_score
-                        best_match_detail = detail_data
+                # Candidat plausible : fiche complète (déclenche /roles pour le staff) puis
+                # évaluation avec la matrice unifiée (protection anti-homonyme par auteur).
+                candidate = self._parse_shikimori_record(detail_data, headers)
+                if not candidate or not candidate.get("title"):
+                    continue
 
-            if not best_match_detail or best_score < 0.45:
+                score = score_candidate(candidate, cleaned, existing_metadata)
+
+                if score > best_score:
+                    best_score = score
+                    best_candidate = candidate
+
+            if not best_candidate or best_score < MATCH_ACCEPT_THRESHOLD:
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 
-            logging.info(self.t("matched").format(best_match_detail.get('id'), int(best_score*100)))
-            return self._parse_shikimori_record(best_match_detail, headers)
+            logging.info(self.t("matched").format(best_candidate.get('mal_id'), int(best_score*100)))
+            return attach_match_score(best_candidate, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

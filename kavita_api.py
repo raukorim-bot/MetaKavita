@@ -4,6 +4,10 @@ import json
 import requests
 from curl_cffi import requests as cffi_requests
 
+from typing import Optional
+
+from config_manager import get_kavita_http_timeout
+
 
 class KavitaAPI:
     """
@@ -16,15 +20,24 @@ class KavitaAPI:
     # Permet de limiter les requêtes HTTP lors du traitement par lots
     _series_lib_type_cache = {}
 
-    def __init__(self, url: str, api_key: str):
+    def __init__(self, url: str, api_key: str, write_timeout: Optional[int] = None):
         """
         Initialise le client API avec l'URL du serveur et la clé API d'utilisateur.
         Nettoie l'URL pour éviter les doubles slashes.
+
+        `write_timeout` : timeout HTTP (s) pour les POST d'écriture. Si None, lit
+        `KAVITA_HTTP_TIMEOUT` via config_manager (défaut 60).
         """
         self.url = url.strip().rstrip('/') if url else ""
         self.api_key = api_key.strip() if api_key else ""
         self.token = None
         self.headers = {}
+        self._write_timeout_override = write_timeout
+
+    def _write_timeout(self) -> int:
+        if self._write_timeout_override is not None:
+            return int(self._write_timeout_override)
+        return get_kavita_http_timeout()
 
     def authenticate(self) -> bool:
         """
@@ -222,7 +235,13 @@ class KavitaAPI:
             logging.info("👉 [AUDIT KAVITA] Envoi METADATA (Étape 1 : UNLOCK & WRITE)")
             logging.info(f"   📦 Payload : {json.dumps(payload_unlock, ensure_ascii=False)}")
 
-            res_unlock = requests.post(f"{self.url}/api/Series/metadata", json=payload_unlock, headers=self.headers, timeout=35)
+            write_timeout = self._write_timeout()
+            res_unlock = requests.post(
+                f"{self.url}/api/Series/metadata",
+                json=payload_unlock,
+                headers=self.headers,
+                timeout=write_timeout,
+            )
             logging.info(f"   📥 Réponse Kavita (Code {res_unlock.status_code}) : {res_unlock.text}")
 
             if res_unlock.status_code != 200:
@@ -232,8 +251,33 @@ class KavitaAPI:
             payload_lock = {"seriesMetadata": metadata}
             logging.info("👉 [AUDIT KAVITA] Envoi METADATA (Étape 2 : RE-LOCK)")
 
-            res_lock = requests.post(f"{self.url}/api/Series/metadata", json=payload_lock, headers=self.headers, timeout=35)
-            logging.info(f"   📥 Réponse Kavita (Code {res_lock.status_code}) : {res_lock.text}")
+            try:
+                res_lock = requests.post(
+                    f"{self.url}/api/Series/metadata",
+                    json=payload_lock,
+                    headers=self.headers,
+                    timeout=write_timeout,
+                )
+                logging.info(f"   📥 Réponse Kavita (Code {res_lock.status_code}) : {res_lock.text}")
+                if res_lock.status_code != 200:
+                    logging.warning(
+                        "⚠️ [AUDIT KAVITA] Écriture metadata OK, mais RE-LOCK HTTP %s — "
+                        "métadonnées déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync. "
+                        "Réponse: %s",
+                        res_lock.status_code,
+                        res_lock.text,
+                    )
+                    return True, f"Succès (écriture OK ; re-lock HTTP {res_lock.status_code})"
+            except Exception as lock_err:
+                # Faux négatif classique sous charge (HDD / force-update) : l'étape 1 a déjà
+                # écrit les métadonnées ; un timeout sur le re-lock ne doit pas marquer
+                # la série en échec (cf. issue SqueezedByte).
+                logging.warning(
+                    "⚠️ [AUDIT KAVITA] Écriture metadata OK, mais RE-LOCK a échoué (%s) — "
+                    "métadonnées déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync.",
+                    lock_err,
+                )
+                return True, f"Succès (écriture OK ; re-lock échoué: {lock_err})"
 
             return True, "Succès"
         except Exception as e:
@@ -328,22 +372,39 @@ class KavitaAPI:
 
         try:
             url = f"{self.url}/api/Series/update"
+            write_timeout = self._write_timeout()
 
             # Passage 1 : Écriture en mode déverrouillé
             logging.info("👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 1 : UNLOCK & WRITE)")
             logging.info(f"   📦 Payload : {json.dumps(payload_unlock, ensure_ascii=False)}")
 
-            res_unlock = requests.post(url, json=payload_unlock, headers=self.headers, timeout=20)
+            res_unlock = requests.post(url, json=payload_unlock, headers=self.headers, timeout=write_timeout)
             logging.info(f"   📥 Réponse Kavita (Code {res_unlock.status_code}) : {res_unlock.text}")
+
+            if res_unlock.status_code != 200:
+                return False, f"Code {res_unlock.status_code} : {res_unlock.text}"
 
             # Passage 2 : Application du verrou de sécurité
             logging.info("👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 2 : RE-LOCK)")
-            res_lock = requests.post(url, json=payload_lock, headers=self.headers, timeout=20)
-            logging.info(f"   📥 Réponse Kavita (Code {res_lock.status_code}) : {res_lock.text}")
+            try:
+                res_lock = requests.post(url, json=payload_lock, headers=self.headers, timeout=write_timeout)
+                logging.info(f"   📥 Réponse Kavita (Code {res_lock.status_code}) : {res_lock.text}")
+                if res_lock.status_code != 200:
+                    logging.warning(
+                        "⚠️ [AUDIT KAVITA] Écriture générale OK, mais RE-LOCK HTTP %s — "
+                        "champs déjà persistés ; verrous éventuellement ouverts jusqu'au prochain sync.",
+                        res_lock.status_code,
+                    )
+                    return True, f"Succès (écriture OK ; re-lock HTTP {res_lock.status_code})"
+            except Exception as lock_err:
+                logging.warning(
+                    "⚠️ [AUDIT KAVITA] Écriture générale OK, mais RE-LOCK a échoué (%s) — "
+                    "champs déjà persistés ; verrous éventuellement ouverts jusqu'au prochain sync.",
+                    lock_err,
+                )
+                return True, f"Succès (écriture OK ; re-lock échoué: {lock_err})"
 
-            if res_unlock.status_code == 200:
-                return True, "Succès"
-            return False, f"Code {res_unlock.status_code} : {res_unlock.text}"
+            return True, "Succès"
         except Exception as e:
             logging.error(f"❌ [AUDIT KAVITA] Crash General : {e}")
             return False, str(e)
@@ -401,7 +462,7 @@ class KavitaAPI:
                 "lockCover": True
             }
             
-            res = requests.post(upload_url, json=payload, headers=self.headers, timeout=35)
+            res = requests.post(upload_url, json=payload, headers=self.headers, timeout=self._write_timeout())
             
             if res.status_code != 200:
                 logging.error(f"[DEBUG] Erreur Upload Cover Kavita : {res.text}")

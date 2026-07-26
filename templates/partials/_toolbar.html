@@ -1,0 +1,41 @@
+                    <div class="toolbar card">
+                        <div class="toolbar-left" style="flex-wrap: wrap; gap: 10px;">
+                            <h2 class="m-0">{{ t.series_avail }}</h2>
+                            <span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
+                            
+                            <!-- BARRE DE RECHERCHE -->
+                            <input type="text" id="searchInput" class="search-input" placeholder="{{ t.search_placeholder }}" onkeyup="filterSeries()">
+                            
+                            <!-- SÉLECTEUR DE BIBLIOTHÈQUE -->
+                            <select id="lib_selector" onchange="loadLibrary(this.value)" style="width: auto;">
+                                <option value="">{{ t.all_libs }}</option>
+                                {% for lib in libraries %}
+                                <option value="{{ lib.id }}" {% if selected_lib == lib.id|string %}selected{% endif %}>{{ lib.name }}</option>
+                                {% endfor %}
+                            </select>
+
+                            <!-- FILTRE DE STATUTS -->
+                            <select id="statusFilter" onchange="filterSeries()" style="width: auto;">
+                                <option value="ALL">{{ t.filter_all }}</option>
+                                <option value="PENDING">{{ t.filter_pending }}</option>
+                                <option value="COMPLETED">{{ t.filter_completed }}</option>
+                                <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
+                                <option value="IGNORED">{{ t.filter_ignored }}</option>
+                            </select>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="selectAll" onclick="toggleSelectAll()"> 
+                                {{ t.select_all }}
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="hideIgnoredCb" onclick="filterSeries()" checked> 
+                                {{ t.hide_ignored }}
+                            </label>
+                        </div>
+                        
+                        <!-- ACTIONS DE CONFIGURATION DE MASSE -->
+                        <div class="toolbar-right" style="display: flex; gap: 10px;">
+                            <button type="button" onclick="toggleAllOverridePanels()" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.toggle_all_overrides }}</button>
+                            <button type="button" onclick="saveAllOverrides(this)" class="btn-secondary" style="font-size: 13px; padding: 8px 12px;">{{ t.save_all }}</button>
+                        </div>
+                    </div>

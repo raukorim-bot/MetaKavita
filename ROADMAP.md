@@ -20,7 +20,6 @@
     - The user selects the exact match or skips, sending the decision back to resume the queue.
 - [ ] **C30. Francophone Book Scrapers:** Integrate dedicated French literature sources (Babelio, SensCritique) without requiring API keys.
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
-- [ ] **C32. Flask Blueprints Refactoring:** Modularize `app.py` into smaller domain routes (`routes/main.py`, `routes/api.py`, `routes/auth.py`).
 - [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
 - [ ] **C35. Native "Comic (Flexible)" Support:** Build a dedicated hybrid cascade for Kavita's Library Type ID 5. Currently, it defaults to Comic or Manga behavior, but it should inherently support querying Comic providers first, then gracefully falling back to Manga providers if no matches are found.
 - [ ] **C7. Playful Statistics Dashboard (B12):** Display fun metrics on the `/stats` page, such as estimated time saved, estimated DeepL Translation costs avoided, and provider usage charts.
@@ -30,8 +29,14 @@
 
 ---
 
-### ✨ Latest Releases (v1.5.6 to v1.5.9)
-- [x] **BF18. Per-Series Publisher Preference Never Saved (v1.5.9):** The `/save-override` endpoint read the per-series Publisher toggle (`Auto`/`VF/VA`/`VO`) but never forwarded it to the database, silently resetting it to `GLOBAL` on every save. The per-series preference is now correctly persisted and respected by the scrapers.
+### ✨ Latest Releases (v1.5.6 to v1.6.0)
+- [x] **C32. Flask Blueprints Refactoring (v1.6.0):** Modularized the former monolithic `app.py` into Blueprints under `routes/`, plus `services/`, `models.py`, and a thin composition root.
+- [x] **C45. Smart Scoring (v1.6.0):** Score-based provider winner selection + two-wave parallel execution (`SMART_SCORING` sidebar toggle), with community-scraper opt-in/`_safe_match_score` hardening.
+- [x] **C46. CORS Allowed Origins (v1.6.0):** Docker env `CORS_ALLOWED_ORIGINS` (CSV explicit origins) for Flask HTTP + Socket.IO behind Traefik/HTTPS self-hosts.
+- [x] **C48. KAVITA_EXTERNAL_URL (v1.6.0):** Separate public Kavita URL for browser UI links vs internal `KAVITA_URL` for Docker API calls (thanks LazyGeniusMan).
+- [x] **BF19. Kavita Write Timeout & False-Negative RE-LOCK (v1.6.0):** Configurable `KAVITA_HTTP_TIMEOUT` (default 60s) for write POSTs; metadata/general 2-pass treats write-OK + RE-LOCK timeout as soft success (issue SqueezedByte).
+- [x] **C47. MangaBaka Book/LN + API Hardening (v1.6.0):** Official MangaBaka Book support with `schema=full`, `type=novel` filter, and related parsing fixes (thanks LazyGeniusMan).
+- [x] **BF18. Per-Series Publisher Preference Never Saved (v1.6.0):** The `/save-override` endpoint read the per-series Publisher toggle (`Auto`/`VF/VA`/`VO`) but never forwarded it to the database, silently resetting it to `GLOBAL` on every save. The per-series preference is now correctly persisted and respected by the scrapers.
 - [x] **BF14. LocalizedName Corruption & KOReader/Kamare Crash Fix (v1.5.8):** `update_series_general()` now always fetches a series' full current state before writing, preventing Kavita from silently nulling `LocalizedName` and force-unlocking `NameLocked`/`SortNameLocked`/`LocalizedNameLocked` on partial updates (e.g. format-only). Root cause of a reported KOReader "Kamare" plugin crash.
 - [x] **BF15. Metadata System-Field Leak (v1.5.8):** Centralized sanitization of GET-only computed fields (`totalCount`, `maxCount`, `pages`, `wordCount`) inside `update_series_metadata()`, preventing them from being echoed back into `POST /api/Series/metadata` and risking EF Core concurrency exceptions.
 - [x] **BF16. MangaBaka "Completed" Status Mapping (v1.5.8):** Fixed MangaBaka's raw `completed` status never matching MetaKavita's internal `FINISHED` status key, which left completed series silently stuck as "Ongoing" in Kavita.
@@ -124,7 +129,6 @@
     - L'utilisateur valide le bon résultat ou passe, débloquant le worker pour le fichier suivant.
 - [ ] **C30. Scrapers Littéraires Francophones :** Intégrer des sources spécialisées en littérature française (Babelio, SensCritique) sans clé API.
 - [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
-- [ ] **C32. Refonte Flask Blueprints :** Découpage de `app.py` en modules de routes distincts (`routes/main.py`, `routes/api.py`, `routes/auth.py`).
 - [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
 - [ ] **C35. Support natif du type "Comic (Flexible)" :** Créer une cascade hybride dédiée pour le type de bibliothèque ID 5 de Kavita. Actuellement, MetaKavita le traite comme un Comic ou un Manga strict, mais il devrait pouvoir interroger les sites de Comics puis basculer intelligemment sur les sites de Mangas en cas d'échec pour refléter la nature "flexible" du dossier.
 - [ ] **C7. Tableau de bord Statistiques ludique (B12) :** Ajout de métriques sur la page `/stats` (estimation du temps de recherche épargné, équivalent en euros économisé sur DeepL, graphiques de répartition par scrapers).
@@ -134,8 +138,14 @@
 
 ---
 
-### ✨ Dernières Nouveautés (v1.5.6 à v1.5.9)
-- [x] **BF18. Préférence d'Éditeur par Série Jamais Sauvegardée (v1.5.9) :** L'endpoint `/save-override` lisait bien l'interrupteur d'Éditeur par série (`Auto`/`VF/VA`/`VO`) mais ne le transmettait jamais à la base de données, le réinitialisant silencieusement à `GLOBAL` à chaque sauvegarde. La préférence par série est désormais correctement persistée et respectée par les scrapers.
+### ✨ Dernières Nouveautés (v1.5.6 à v1.6.0)
+- [x] **C32. Refonte Flask Blueprints (v1.6.0) :** Découpage de l'ancien `app.py` monolithique en Blueprints `routes/`, plus `services/`, `models.py`, et un point d'assemblage mince.
+- [x] **C45. Smart Scoring (v1.6.0) :** Sélection du vainqueur par score + exécution en deux vagues (`SMART_SCORING`), avec opt-in scrapers communautaires / filet `_safe_match_score`.
+- [x] **C46. Origins CORS autorisées (v1.6.0) :** Variable Docker `CORS_ALLOWED_ORIGINS` (CSV) pour Flask HTTP + Socket.IO derrière Traefik/HTTPS.
+- [x] **C48. KAVITA_EXTERNAL_URL (v1.6.0) :** URL publique Kavita séparée pour les liens UI, vs `KAVITA_URL` interne pour les appels API Docker (merci LazyGeniusMan).
+- [x] **BF19. Timeout d'écriture Kavita & faux négatif RE-LOCK (v1.6.0) :** `KAVITA_HTTP_TIMEOUT` configurable (défaut 60s) ; soft-success si écriture OK mais RE-LOCK timeout (issue SqueezedByte).
+- [x] **C47. MangaBaka Book/LN + Durcissement API (v1.6.0) :** Support Book officiel MangaBaka avec `schema=full`, filtre `type=novel`, et correctifs de parsing (merci LazyGeniusMan).
+- [x] **BF18. Préférence d'Éditeur par Série Jamais Sauvegardée (v1.6.0) :** L'endpoint `/save-override` lisait bien l'interrupteur d'Éditeur par série (`Auto`/`VF/VA`/`VO`) mais ne le transmettait jamais à la base de données, le réinitialisant silencieusement à `GLOBAL` à chaque sauvegarde. La préférence par série est désormais correctement persistée et respectée par les scrapers.
 - [x] **BF14. Correction Corruption LocalizedName & Crash KOReader/Kamare (v1.5.8) :** `update_series_general()` récupère désormais systématiquement l'état complet de la série avant d'écrire, empêchant Kavita d'effacer silencieusement `LocalizedName` et de déverrouiller de force `NameLocked`/`SortNameLocked`/`LocalizedNameLocked` lors de mises à jour partielles (ex: changement du seul format). Cause racine d'un crash signalé sur l'extension KOReader "Kamare".
 - [x] **BF15. Fuite de Champs Système dans les Métadonnées (v1.5.8) :** Centralisation de l'assainissement des champs calculés en lecture seule (`totalCount`, `maxCount`, `pages`, `wordCount`) dans `update_series_metadata()`, évitant leur réinjection dans `POST /api/Series/metadata` et le risque d'exceptions de concurrence Entity Framework Core.
 - [x] **BF16. Mapping du Statut "Terminé" MangaBaka (v1.5.8) :** Correction du statut brut `completed` de MangaBaka qui ne correspondait jamais à la clé interne `FINISHED`, laissant les séries terminées silencieusement bloquées en "En cours" dans Kavita.
