@@ -52,7 +52,7 @@ The interface uses a 100% AJAX layout with zero page reloads. The left sidebar h
 
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
 Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. API Keys for metadata providers are neatly grouped in a dedicated section directly under the Kavita connection settings.
-The left sidebar contains the **Scraping Options** card (Smart Scoring, Smart Completion, Auto-Covers, Auto-Reading Direction, Force Update, Context Reset), a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
+The left sidebar contains the **Scraping Options** card (click the title to collapse/expand; open by default) with Smart Scoring, Smart Completion, **Reliability barometer** (optional match threshold `0.30`–`1.00`), Auto-Covers, Auto-Reading Direction, Force Update, Context Reset, a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
 
 #### 3. Unified Filtering & Central Toolbar
 The Library Selector, Search bar, and Status Filter are consolidated into a single horizontal toolbar. This puts all target controls on one cohesive line.
@@ -71,7 +71,7 @@ Each series has an advanced Options panel and relies on a powerful underlying sc
 Manual cover searches stream image results live over WebSockets (`Socket.IO`) as each provider responds, rather than blocking until all scrapers finish. Selecting a cover manually automatically unchecks the global `AUTO_COVER` field for that series to permanently lock your choice and protect it against background sync overwrites.
 
 #### 6. Live Processing Tracker, KPIs & WS Logs
-During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. Badge statuses update dynamically on completion; successful series **auto-uncheck** so you can relaunch the remaining selection. The topbar shows live lifetime counters (enriched / matches / misses) plus a **session** counter (resets when the tab closes). The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
+During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. A **batch progress bar** above the action buttons shows `done / total` (Socket.IO `batch_progress` from the worker queue). Badge statuses update dynamically on completion; successful series **auto-uncheck** so you can relaunch the remaining selection. The topbar shows live lifetime counters (enriched / matches / misses) plus a **session** counter (resets when the tab closes). The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
 
 #### 7. Playful Statistics (`/stats`)
 Optional fun dashboard (enabled by default via `ENABLE_PLAYFUL_STATS`): Chart.js donuts/bars, lifetime hit-rate, and ~24 playful cards derived from lifetime enrichment counters (stable even if series leave Kavita).
@@ -132,8 +132,10 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Application Audit Hardening (v1.6+)**: Cover/proxy SSRF allowlists (incl. private IPs + safe re-validated redirects), cover-modal XSS hardening, CSRF on mutating POSTs, forced-ID `fallback_query` retry, external-IDs GET-merge, Help/About with Kavita+ support links, and related Critical/High/Medium fixes (see `CHANGELOG.md` BF20–BF45 + C50–C53).
 *   **Localized Titles Policy (v1.6+, issue #12)**: Config modal + env for `LOCALIZED_TITLE_MODE`/`LANGS`; per-series `alt_title_langs`; AniList/MangaDex/Kitsu structured `titles[]`. Controls Kavita `localizedName` only — never rewrites `name`.
 *   **Comic Flexible (v1.6.1, C35)**: Kavita library type ID 5 uses Comic providers first, then Manga providers if no useful hit; cover search unions both families.
+*   **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Replaces Jikan. Manga + light novels (Book).
 *   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
-*   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck for resume-friendly batches.
+*   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck; batch progress bar; collapsible Scraping Options.
+*   **Reliability barometer (v1.6.1)**: Optional sidebar slider for match accept threshold (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`); default remains `0.60` via `get_match_accept_threshold()`.
 
 ---
 
@@ -212,13 +214,14 @@ docker compose up -d --build
 | `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | How to build Kavita `localizedName`: `all` (join unique titles with `" / "`), `prefer` (filter/order by `LOCALIZED_TITLE_LANGS`), `none` (do not write). Never rewrites Series `name`. Also in Config modal. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Comma-separated BCP-47-ish tags when mode is `prefer` (e.g. `en, ja-ro, ja`). Order = priority. Per-series override via `alt_title_langs`. | *(Empty)* |
-| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
+| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MAL`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
+| `MAL_API_KEY` | MyAnimeList **Client ID** (not a secret token) from https://myanimelist.net/apiconfig — sent as `X-MAL-CLIENT-ID`. | _(empty)_ |
 | `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
 | `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
 | `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Fallback comic source 1. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Fallback comic source 2. | `NONE` |
-| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `WIKIDATA`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, `WIKIDATA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Fallback book source 1. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Fallback book source 2. | `NONE` |
 | `SMART_SCORING`   | Enable Smart Scoring — best match wins (`true` or `false`). Off = classic list-order fallback. | `true` |
@@ -321,7 +324,7 @@ L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la 
 
 #### 2. Architecture Double-Formulaire (Modal + Sidebar)
 Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement. Les clés d'API des fournisseurs sont proprement regroupées dans un bloc dédié sous la connexion Kavita.
-La barre latérale contient la carte **Options de Scraping** (Smart Scoring, Complétion intelligente, Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte), un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
+La barre latérale contient la carte **Options de Scraping** (clic sur le titre pour plier/déplier ; ouverte par défaut) avec Smart Scoring, Complétion intelligente, **Baromètre de fiabilité** (seuil de match optionnel `0.30`–`1.00`), Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte, un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
 
 #### 3. Filtrage Unifié & Toolbar Centrale
 Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut sont regroupés dans une seule barre d'outils centrale. Toutes les commandes de ciblage se situent ainsi sur une même ligne horizontale cohérente.
@@ -341,7 +344,7 @@ La recherche manuelle d'images envoie les cartes de couvertures en direct au fil
 > 🔒 **Verrouillage Anti-Écrasement :** Appliquer une couverture manuelle depuis cette fenêtre décoche automatiquement l'option "Couverture" de l'œuvre. Cela fige votre choix définitivement et empêche l'Auto-Sync de l'écraser plus tard.
 
 #### 6. Suivi Live, KPI & Logs WebSockets
-Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Les badges se mettent à jour dynamiquement ; une série OK se **décoche** pour pouvoir relancer le reste. La topbar affiche les compteurs lifetime (enrichies / matchs / ratés) plus un compteur **session** (remis à 0 à la fermeture de l’onglet). La console affiche en temps réel des logs épurés via WebSockets.
+Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Une **barre de progression batch** au-dessus des boutons affiche `fait / total` (Socket.IO `batch_progress` depuis la file worker). Les badges se mettent à jour dynamiquement ; une série OK se **décoche** pour pouvoir relancer le reste. La topbar affiche les compteurs lifetime (enrichies / matchs / ratés) plus un compteur **session** (remis à 0 à la fermeture de l’onglet). La console affiche en temps réel des logs épurés via WebSockets.
 
 #### 7. Statistiques ludiques (`/stats`)
 Tableau de bord optionnel (activé par défaut via `ENABLE_PLAYFUL_STATS`) : donuts/barres Chart.js, taux de hit lifetime, et ~24 cartes fun basées sur les compteurs d’enrichissement lifetime (stables même si des séries quittent Kavita).
@@ -402,8 +405,10 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Durcissement suite audit applicatif (v1.6+)** : allowlists SSRF couverture/proxy (IPs privées + redirects re-validés), XSS modal couvertures, CSRF sur POST mutatifs, retry `fallback_query` après ID forcé, GET-merge des IDs externes, menu Aide / À propos avec liens Kavita+, et correctifs Critical/High/Medium associés (voir `CHANGELOG.md` BF20–BF45 + C50–C53).
 *   **Politique des titres localisés (v1.6+, issue #12)** : modal Config + env `LOCALIZED_TITLE_MODE`/`LANGS` ; override `alt_title_langs` par série ; `titles[]` structurés AniList/MangaDex/Kitsu. Contrôle uniquement `localizedName` — jamais de réécriture de `name`.
 *   **Comic Flexible (v1.6.1, C35)** : l’ID Kavita 5 utilise d’abord les providers Comic, puis Manga si aucun hit utile ; recherche de couvertures = union des deux familles.
+*   **MyAnimeList API officielle (v1.6.1)** : provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Remplace Jikan. Manga + light novels (Book).
 *   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
-*   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto de la sélection pour des lots reprise-friendly.
+*   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto ; barre de progression batch ; Options de Scraping pliables.
+*   **Baromètre de fiabilité (v1.6.1)** : curseur sidebar optionnel pour le seuil d’acceptation (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`) ; défaut `0.60` via `get_match_accept_threshold()`.
 
 ---
 
@@ -482,13 +487,14 @@ docker compose up -d --build
 | `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | Construction de Kavita `localizedName` : `all` (joindre les titres uniques avec `" / "`), `prefer` (filtre/ordre via `LOCALIZED_TITLE_LANGS`), `none` (ne pas écrire). Ne réécrit jamais Series `name`. Aussi dans la modal Config. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Tags BCP-47-ish séparés par des virgules en mode `prefer` (ex. `en, ja-ro, ja`). Ordre = priorité. Override par série via `alt_title_langs`. | *(Vide)* |
-| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
+| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MAL`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
+| `MAL_API_KEY` | **Client ID** MyAnimeList (pas un token secret) depuis https://myanimelist.net/apiconfig — envoyé en `X-MAL-CLIENT-ID`. | _(vide)_ |
 | `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
 | `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
 | `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
-| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `WIKIDATA`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, `WIKIDATA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
 | `SMART_SCORING`   | Activer le Smart Scoring — meilleur match (`true` ou `false`). Off = fallback classique par ordre de liste. | `true` |

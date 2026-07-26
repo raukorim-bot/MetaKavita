@@ -123,6 +123,11 @@ def stop_batch():
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
     set_batch_enqueue_enabled(False)
     drained = drain_sync_queue()
+    # drain_sync_queue émet déjà stopped si items retirés ; sinon forcer le reset UI
+    # (job en cours seul, file déjà vide).
+    if drained == 0:
+        from services.background_tasks import broadcast_batch_progress
+        broadcast_batch_progress(0, stopped=True)
     logging.info(t.get('log_batch_stopped') + f" ({drained} en attente retirée(s))")
     return jsonify(success=True, msg=t.get('batch_stopped'), drained=drained)
 

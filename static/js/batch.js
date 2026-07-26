@@ -7,6 +7,76 @@ const BATCH_SELECTION_PREFIX = 'mk_batch_selection:';
 var batchEnqueueAbort = false;
 var batchEnqueueController = null;
 
+/** Total du batch courant (fixé au lancement UI ; barre via événement batch_progress). */
+var batchProgressTotal = 0;
+var batchProgressHideTimer = null;
+
+function showBatchProgress(total) {
+    batchProgressTotal = Math.max(0, parseInt(total, 10) || 0);
+    if (batchProgressHideTimer) {
+        clearTimeout(batchProgressHideTimer);
+        batchProgressHideTimer = null;
+    }
+    const wrap = document.getElementById('batchProgressWrap');
+    if (!wrap) return;
+    wrap.style.display = '';
+    wrap.setAttribute('aria-hidden', 'false');
+    updateBatchProgressUI(0, batchProgressTotal);
+}
+
+function hideBatchProgress() {
+    batchProgressTotal = 0;
+    if (batchProgressHideTimer) {
+        clearTimeout(batchProgressHideTimer);
+        batchProgressHideTimer = null;
+    }
+    const wrap = document.getElementById('batchProgressWrap');
+    const fill = document.getElementById('batchProgressFill');
+    if (wrap) {
+        wrap.style.display = 'none';
+        wrap.setAttribute('aria-hidden', 'true');
+    }
+    if (fill) fill.style.width = '0%';
+}
+
+function updateBatchProgressUI(done, total) {
+    const label = document.getElementById('batchProgressLabel');
+    const fill = document.getElementById('batchProgressFill');
+    const track = document.querySelector('#batchProgressWrap .batch-progress-track');
+    const safeTotal = Math.max(0, total || 0);
+    const safeDone = Math.max(0, Math.min(safeTotal, done || 0));
+    const tpl = (window.AppTranslations && window.AppTranslations.batch_progress) || '{0} / {1}';
+    if (label) label.textContent = tpl.replace('{0}', String(safeDone)).replace('{1}', String(safeTotal));
+    const pct = safeTotal > 0 ? Math.round((safeDone / safeTotal) * 100) : 0;
+    if (fill) fill.style.width = pct + '%';
+    if (track) track.setAttribute('aria-valuenow', String(pct));
+}
+
+function applyBatchProgressPayload(payload) {
+    if (!payload) return;
+    if (payload.stopped) {
+        hideBatchProgress();
+        return;
+    }
+    if (batchProgressTotal <= 0) return;
+
+    const remaining = parseInt(payload.remaining, 10);
+    const rem = isNaN(remaining) ? 0 : Math.max(0, remaining);
+    const hasActive = !!(payload.active);
+    let done;
+    if (rem === 0 && !hasActive) {
+        done = batchProgressTotal;
+    } else {
+        done = Math.max(0, batchProgressTotal - rem - (hasActive ? 1 : 0));
+    }
+    updateBatchProgressUI(done, batchProgressTotal);
+
+    if (rem === 0 && !hasActive) {
+        if (batchProgressHideTimer) clearTimeout(batchProgressHideTimer);
+        batchProgressHideTimer = setTimeout(hideBatchProgress, 1500);
+    }
+}
+
 function getBatchSelectionKey() {
     const lib = localStorage.getItem('filter_library') || '';
     return BATCH_SELECTION_PREFIX + (lib || 'all');
@@ -218,6 +288,8 @@ async function launchBatch(event) {
         return;
     }
 
+    showBatchProgress(ids.length);
+
     batchEnqueueAbort = false;
     if (batchEnqueueController) {
         try { batchEnqueueController.abort(); } catch (e) { /* ignore */ }
@@ -293,6 +365,7 @@ function stopBatch() {
     if (batchEnqueueController) {
         try { batchEnqueueController.abort(); } catch (e) { /* ignore */ }
     }
+    hideBatchProgress();
     fetch(getRootPath() + '/stop-batch', { method: 'POST' })
     .then(res => res.json())
     .then(data => {

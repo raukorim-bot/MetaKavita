@@ -475,6 +475,7 @@ clamp toute valeur absente ou mal formée (`None`, str, bool, NaN…), ce qui em
 | `mangadex.py` | Manga | non | Pénalise les "oneshot" non demandés (ajustement local post-`score_candidate()`) ; staff déjà inclus dans la réponse de recherche via `includes[]`, aucune requête HTTP supplémentaire nécessaire |
 | `mangaupdates.py` | Manga | non | Gère `publisher_pref`, contourne Cloudflare via `curl_cffi` ; réutilise `_parse_series_record()` sur les résultats de recherche (même forme que le détail) pour obtenir le staff sans requête HTTP en plus |
 | `kitsu.py` | Manga | non | JSON:API, matching par substring + ratio |
+| `mal.py` | Manga/Book | **oui** (Client ID) | API officielle v2 (`X-MAL-CLIENT-ID` / `MAL_API_KEY`) ; remplace Jikan |
 | `shikimori.py` | Manga | non | Pré-filtre par titre (gratuit) avant de déclencher `/roles` (3ᵉ requête HTTP, staff) uniquement sur les candidats plausibles, pour limiter le coût de `score_candidate()` |
 | `manganews.py` | Manga | non | Scraping HTML (VF), contourne Cloudflare ; pré-filtre par titre puis récupère la fiche détaillée (staff) des 3 meilleurs candidats seulement, pour limiter la charge sur le site |
 | `bedetheque.py` | Comic (franco-belge) | non | Scraping HTML avec jeton CSRF, gère variantes d'articles ("Le", "La"...) |
@@ -483,10 +484,10 @@ clamp toute valeur absente ou mal formée (`None`, str, bool, NaN…), ce qui em
 | `hardcover.py` | Book/Comic | **oui** | GraphQL, expérimental (le nom de la classe le dit explicitement) |
 | `openlibrary.py` | Book/Comic | non | Gère le cas des couvertures "disclaimer Google Books" en repli vers l'API Google Books |
 
-**`scrapers/mal.py` et `scrapers/nautiljon.py` ont été supprimés (v1.6.0 / BF36).**
-Ce n'étaient pas des `BaseScraper` (fonctions `fetch_mal` / `fetch_nautiljon` seulement), donc
-jamais enregistrés par `ScraperRegistry`. Les fichiers morts ont été retirés du dépôt ; les IDs
-MAL restent récupérés via AniList / MangaBaka (`mal_id`), pas via un scraper MAL dédié.
+**`scrapers/nautiljon.py` a été supprimé (v1.6.0 / BF36)** (jamais un `BaseScraper` enregistré).
+L’ancien stub Jikan `mal.py` a été retiré puis **réécrit en v1.6.1** comme vrai `BaseScraper`
+(`id=MAL`, API officielle v2 + header `X-MAL-CLIENT-ID` / config `MAL_API_KEY` = Client ID).
+Les IDs MAL restent aussi récupérés en croisement via AniList / MangaBaka / etc.
 
 ---
 

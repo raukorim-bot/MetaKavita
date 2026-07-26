@@ -46,7 +46,8 @@
 			live_kpi_enriched: "{{ t.live_kpi_enriched }}",
 			live_kpi_matches: "{{ t.live_kpi_matches }}",
 			live_kpi_missed: "{{ t.live_kpi_missed }}",
-			live_kpi_session: "{{ t.live_kpi_session }}"
+			live_kpi_session: "{{ t.live_kpi_session }}",
+			batch_progress: "{{ t.batch_progress }}"
         };
 
     </script>
@@ -121,6 +122,14 @@
                     {% endif %}
 
                     <!-- ACCORDION D'ACTIONS DE MASSE -->
+                    <div id="batchProgressWrap" class="batch-progress-wrap" style="display: none;" aria-hidden="true">
+                        <div class="batch-progress-meta">
+                            <span id="batchProgressLabel">0 / 0</span>
+                        </div>
+                        <div class="batch-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                            <div id="batchProgressFill" class="batch-progress-fill" style="width: 0%;"></div>
+                        </div>
+                    </div>
                     <div class="batch-actions">
                         <button type="button" class="btn-warning" id="batchResetBtn" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
                         <button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>

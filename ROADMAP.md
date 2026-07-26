@@ -28,6 +28,10 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
+- [x] **Reliability barometer (v1.6.1):** Sidebar unlock + slider for match accept threshold (`0.30`–`1.00`, default `0.60`); `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; runtime via `get_match_accept_threshold()`.
+- [x] **Batch progress bar (v1.6.1):** `done / total` above batch buttons; Socket.IO `batch_progress` from worker `qsize()`; hides on finish/Stop.
+- [x] **Collapsible Scraping Options (v1.6.1):** Click sidebar title to show/hide the strategy card.
 - [x] **Wikidata live provider (v1.6.1):** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API; Magic Input Q-id; shared `wikidata_map`. Offline subset (C39) deferred.
 - [x] **C35. Native "Comic (Flexible)" Support (v1.6.1):** Kavita Library Type ID 5 is no longer flattened to Comic. Hybrid cascade: `COMIC_PROVIDER_*` first, then `PROVIDER_*` (Manga) if no useful hit. Cover search unions Comic + Manga scrapers.
 - [x] **C7. Playful Statistics Dashboard (v1.6.1):** Restyled `/stats` + Chart.js; lifetime `series_enriched` / `matches_won` / `series_missed` + hit-rate; live topbar KPIs + session counter; Socket.IO `enrichment_stats`; ~24 fun cards. `ENABLE_PLAYFUL_STATS` default ON.
@@ -145,6 +149,10 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.
+- [x] **Baromètre de fiabilité (v1.6.1) :** case + curseur sidebar pour le seuil d’acceptation (`0.30`–`1.00`, défaut `0.60`) ; `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; runtime via `get_match_accept_threshold()`.
+- [x] **Barre de progression batch (v1.6.1) :** jauge `fait / total` au-dessus des boutons ; Socket.IO `batch_progress` depuis le `qsize()` worker ; disparaît en fin de lot / Stop.
+- [x] **Options de Scraping pliables (v1.6.1) :** clic sur le titre sidebar pour afficher/masquer la carte stratégie.
 - [x] **Provider Wikidata live (v1.6.1) :** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API ; Magic Input Q-id ; mapping partagé `wikidata_map`. Sous-ensemble hors-ligne (C39) reporté.
 - [x] **C35. Support natif "Comic (Flexible)" (v1.6.1) :** L'ID Kavita 5 n'est plus aplati en Comic. Cascade hybride : `COMIC_PROVIDER_*` d'abord, puis `PROVIDER_*` (Manga) si aucun hit utile. Recherche de couvertures = union Comic + Manga.
 - [x] **C7. Tableau de bord Statistiques ludiques (v1.6.1) :** `/stats` restylée + Chart.js ; compteurs lifetime séries/matchs/ratés + taux de hit ; KPI live topbar + session ; Socket.IO `enrichment_stats` ; ~24 cartes fun. `ENABLE_PLAYFUL_STATS` défaut ON.

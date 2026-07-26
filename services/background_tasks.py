@@ -40,6 +40,21 @@ def is_batch_enqueue_enabled() -> bool:
         return _batch_enqueue_enabled
 
 
+def broadcast_batch_progress(remaining, active=None, stopped=False):
+    """Notifie l'UI (barre de progression batch) via Socket.IO."""
+    try:
+        from extensions import socketio
+        payload = {
+            "remaining": int(remaining),
+            "stopped": bool(stopped),
+        }
+        if active is not None:
+            payload["active"] = active
+        socketio.emit("batch_progress", payload)
+    except Exception as exc:
+        logging.debug("batch_progress emit skipped: %s", exc)
+
+
 def drain_sync_queue() -> int:
     """Vide la file d'attente (hors job en cours). Retourne le nombre d'items retirés."""
     drained = 0
@@ -50,6 +65,8 @@ def drain_sync_queue() -> int:
             drained += 1
         except queue.Empty:
             break
+    if drained:
+        broadcast_batch_progress(0, stopped=True)
     return drained
 
 
@@ -71,6 +88,7 @@ def _worker():
 
             remaining = sync_queue.qsize()
             logging.info(t.get('log_worker_start').format(series_name, remaining))
+            broadcast_batch_progress(remaining, active=series_name)
 
             # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
             enrich_series(
@@ -82,6 +100,7 @@ def _worker():
 
             if sync_queue.empty():
                 logging.info(t.get('log_batch_finished'))
+                broadcast_batch_progress(0)
         finally:
             # Toujours appeler task_done() pour chaque get() réussi (sauf sentinel
             # de shutdown). Sinon unfinished_tasks croît et tout futur join() bloque.

@@ -93,6 +93,15 @@ When a user manually selects a cover from the modal, the client instantly trigge
 * After record, `_broadcast_enrichment_stats` emits Socket.IO `enrichment_stats` with absolute `lifetime` + deltas.
 * Topbar KPIs + session counter (`sessionStorage` key `mk_session_processed`) in `websocket.js`. Playful `/stats` uses `services/stats_service.py` + Chart.js.
 
+#### F. Batch progress bar (v1.6.1)
+* `services/background_tasks.py` — `broadcast_batch_progress(remaining, active=…)` on each worker start; `{remaining: 0}` when the queue empties; `{stopped: true}` on `drain_sync_queue()` / `/stop-batch`.
+* `static/js/batch.js` — `showBatchProgress(ids.length)` at launch; `applyBatchProgressPayload()` computes `done = total - remaining - (active ? 1 : 0)`.
+* `static/js/websocket.js` — listens for Socket.IO `batch_progress`.
+
+#### G. Reliability barometer (v1.6.1)
+* Config keys `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` (clamped `[0.30, 1.00]`).
+* Runtime threshold: `scrapers/utils.py::get_match_accept_threshold()` (custom off → always `0.60`). Official scrapers + `_safe_match_score` / `attach_match_score` fallbacks use the getter.
+
 ---
 
 ### 5. Sideloading Scrapers & Auto-Discovery Registry
@@ -357,6 +366,15 @@ Appliquer une couverture manuellement via l'interface envoie un second signal AJ
 * Clés SQLite `lifetime_stats` : `series_enriched`, `matches_won`, `series_missed` via `record_enrichment_telemetry` / `record_enrichment_miss`.
 * Après enregistrement, `_broadcast_enrichment_stats` émet Socket.IO `enrichment_stats` (lifetime absolu + deltas).
 * KPI topbar + compteur session (`sessionStorage` `mk_session_processed`) dans `websocket.js`. `/stats` ludique via `services/stats_service.py` + Chart.js.
+
+#### F. Barre de progression batch (v1.6.1)
+* `services/background_tasks.py` — `broadcast_batch_progress(remaining, active=…)` à chaque démarrage worker ; `{remaining: 0}` quand la file est vide ; `{stopped: true}` sur `drain_sync_queue()` / `/stop-batch`.
+* `static/js/batch.js` — `showBatchProgress(ids.length)` au lancement ; `applyBatchProgressPayload()` calcule `done = total - remaining - (active ? 1 : 0)`.
+* `static/js/websocket.js` — écoute Socket.IO `batch_progress`.
+
+#### G. Baromètre de fiabilité (v1.6.1)
+* Clés config `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` (clamp `[0.30, 1.00]`).
+* Seuil runtime : `scrapers/utils.py::get_match_accept_threshold()` (custom off → toujours `0.60`). Scrapers officiels + fallbacks `_safe_match_score` / `attach_match_score` via le getter.
 
 ---
 

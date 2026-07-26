@@ -1,0 +1,186 @@
+========================================================================
+RAPPORT NAUTILJON — Suicide Red (dump local)
+========================================================================
+
+## 1. Titres / Open Graph
+title        : Suicide Red
+h1           : Modifier Suicide Red
+og:title      : Suicide Red
+og:image      : https://www.nautiljon.com/images/manga/00/13/suicide_red_33131.webp
+og:description: Manga : Suicide Red, Année : 2026. Il y a dix ans, des brèches vers une autre dimension se sont ouvertes au-dessus de Tokyo, déversant un flot de magie. La ville s'est retrouvée enva...
+og:url        : https://www.nautiljon.com/mangas/suicide+red.html
+og:type       : article
+
+## 2. Tous les <li> sous .infosFicheTop .liste_infos
+Nombre: 11
+--- LI #1 ---
+  span label : '02/07/2026'
+  full text  : Dernier paru 02/07/2026 À paraître 01/10/2026
+  links      : [('', 'https://www.nautiljon.com/mangas/suicide+red/volume-1,1028799.html'), ('', 'https://www.nautiljon.com/mangas/suicide+red/volume-2,1037876.html')]
+  itemprop   : []
+--- LI #2 ---
+  span label : 'Origine :'
+  full text  : Origine : Japon
+  links      : []
+  itemprop   : []
+--- LI #3 ---
+  span label : 'Année VF :'
+  full text  : Année VF : 2026
+  links      : []
+  itemprop   : []
+--- LI #4 ---
+  span label : 'Type :'
+  full text  : Type : Shonen
+  links      : [('Shonen', 'https://www.nautiljon.com/mangas/?q=&types_include%5b%5d=1')]
+  itemprop   : []
+--- LI #5 ---
+  span label : 'Genres :'
+  full text  : Genres : Action - Aventure - Fantastique
+  links      : [('Action', 'https://www.nautiljon.com/mangas/?q=&genres_include%5b%5d=2'), ('Aventure', 'https://www.nautiljon.com/mangas/?q=&genres_include%5b%5d=3'), ('Fantastique', 'https://www.nautiljon.com/mangas/?q=&genres_include%5b%5d=41')]
+  itemprop   : [{'tag': 'span', 'itemprop': 'genre', 'content': None, 'text': 'Action'}, {'tag': 'span', 'itemprop': 'genre', 'content': None, 'text': 'Aventure'}, {'tag': 'span', 'itemprop': 'genre', 'content': None, 'text': 'Fantastique'}]
+--- LI #6 ---
+  span label : 'Thème :'
+  full text  : Thème : Monstres
+  links      : [('Monstres', 'https://www.nautiljon.com/mangas/?q=&themes_include%5b%5d=32')]
+  itemprop   : []
+--- LI #7 ---
+  span label : 'Auteur :'
+  full text  : Auteur : Harimaru
+  links      : [('Harimaru', 'https://www.nautiljon.com/people/harimaru.html')]
+  itemprop   : [{'tag': 'span', 'itemprop': 'author', 'content': None, 'text': 'Harimaru'}, {'tag': 'a', 'itemprop': 'url', 'content': None, 'text': 'Harimaru'}, {'tag': 'span', 'itemprop': 'name', 'content': None, 'text': 'Harimaru'}]
+--- LI #8 ---
+  span label : 'Éditeur VF :'
+  full text  : Éditeur VF : Ki-oon
+  links      : [('Ki-oon', 'https://www.nautiljon.com/societes/ki-oon,1125.html')]
+  itemprop   : [{'tag': 'span', 'itemprop': 'publisher', 'content': None, 'text': 'Ki-oon'}, {'tag': 'a', 'itemprop': 'url', 'content': None, 'text': 'Ki-oon'}, {'tag': 'span', 'itemprop': 'legalName', 'content': None, 'text': 'Ki-oon'}]
+--- LI #9 ---
+  span label : 'Nb volumes VF :'
+  full text  : Nb volumes VF : 1 (En cours)
+  links      : []
+  itemprop   : []
+--- LI #10 ---
+  span label : 'Prix :'
+  full text  : Prix : 7.95 €
+  links      : []
+  itemprop   : []
+--- LI #11 ---
+  span label : 'Âge conseillé :'
+  full text  : Âge conseillé : 12 ans et +
+  links      : []
+  itemprop   : []
+
+## 3. .description
+present: True
+len: 816
+first 300 chars:
+Il y a dix ans, des brèches vers une autre dimension se sont ouvertes au-dessus de Tokyo, déversant un flot de magie. La ville s'est retrouvée envahie par les gobelins, les zombies et autres créatures, et certains humains ont acquis des pouvoirs spéciaux... Madoka en fait partie : elle manie les fla
+
+## 4. Couvertures (sélecteurs)
+  meta[property=og:image]: https://www.nautiljon.com/images/manga/00/13/suicide_red_33131.webp
+  #onglets_3_cover: NO MATCH
+  img#onglets_3_cover: NO MATCH
+  .image_fiche img: ./Suicide Red_files/suicide_red_33131.webp
+  a.image_fiche img: NO MATCH
+  .image_fiche a: https://www.nautiljon.com/images/manga/00/13/suicide_red_33131.webp?1781600456
+  img[itemprop=image]: ./Suicide Red_files/suicide_red_33131.webp
+  img.cover: NO MATCH
+
+## 5. itemprop uniques (échantillon)
+  aggregateRating: n=1 | ex={'tag': 'div', 'sample': '9/103membres'}
+  author: n=2 | ex={'tag': 'meta', 'sample': 'Membres de Nautiljon'}
+  bestRating: n=1 | ex={'tag': 'meta', 'sample': '10'}
+  genre: n=3 | ex={'tag': 'span', 'sample': 'Action'}
+  image: n=1 | ex={'tag': 'img', 'sample': ''}
+  item: n=3 | ex={'tag': 'a', 'sample': 'Nautiljon.com'}
+  itemListElement: n=3 | ex={'tag': 'li', 'sample': 'Nautiljon.com'}
+  legalName: n=1 | ex={'tag': 'span', 'sample': 'Ki-oon'}
+  name: n=5 | ex={'tag': 'span', 'sample': 'Nautiljon.com'}
+  position: n=3 | ex={'tag': 'meta', 'sample': '1'}
+  publisher: n=1 | ex={'tag': 'span', 'sample': 'Ki-oon'}
+  ratingCount: n=1 | ex={'tag': 'span', 'sample': '3'}
+  ratingValue: n=1 | ex={'tag': 'span', 'sample': '9'}
+  url: n=2 | ex={'tag': 'a', 'sample': 'Harimaru'}
+  worstRating: n=1 | ex={'tag': 'meta', 'sample': '1'}
+
+## 6. Autres blocs métadonnées
+h2: Synopsis | Mot de l'éditeur | Volumes | Bande-annonce | Proposition d'un lien vidéo | News (3) | Critiques | Mangas les plus attendus | Recommandations
+h3: Planches | Volume simple | Critiques (0) | Commentaires (0) | Tops | Le site | RSS | Communauté | Outils membres
+Mot de l'éditeur (extrait): Plongez dans les souterrains de Tokyo, capitale des monstres et de la magie ! Ancien assistant du célèbre Yusuke Murata (One-Punch Man), Harimaru déroule un récit sans temps mort, entre RPG et jeu de baston.
+Note: ratingValue=9 ratingCount=3
+meta keywords: Suicide Red,mangas,volumes,personnages,Manga
+meta description: Manga : Suicide Red, Année : 2026. Il y a dix ans, des brèches vers une autre dimension se sont ouvertes au-dessus de Tokyo, déversant un flot de magie. La ville s'est retrouvée enva...
+  keyword 'Titre alternatif' in HTML: False
+  keyword 'Titre original' in HTML: False
+  keyword 'Titre VO' in HTML: False
+  keyword 'Éditeur VO' in HTML: False
+  keyword 'Editeur VO' in HTML: False
+  keyword 'Nb volumes VO' in HTML: False
+  keyword 'Année VO' in HTML: False
+  keyword 'Annee VO' in HTML: False
+  keyword 'Scénariste' in HTML: False
+  keyword 'Dessinateur' in HTML: False
+
+## PARSEUR WAYBACK (simulation exacte)
+Source litérale Thème: 'Thème' codepoints=['0x54', '0x68', '0xe8', '0x6d', '0x65']
+Source litérale Scénariste: 'Scénariste'
+  label='02/07/2026' -> matched=['(rien)']
+  label='Origine :' -> matched=['origine/year=None']
+  label='Année VF :' -> matched=['(rien)']
+  label='Type :' -> matched=['(rien)']
+  label='Genres :' -> matched=['genres']
+  label='Thème :' -> matched=['tags/theme']
+  label='Auteur :' -> matched=['auteur']
+  label='Éditeur VF :' -> matched=['(rien)']
+  label='Nb volumes VF :' -> matched=['volumes/status=RELEASING']
+  label='Prix :' -> matched=['(rien)']
+  label='Âge conseillé :' -> matched=['(rien)']
+
+Résultat parse_nautiljon_html:
+{
+  "title": "Suicide Red",
+  "summary_len": 816,
+  "summary_preview": "Il y a dix ans, des brèches vers une autre dimension se sont ouvertes au-dessus de Tokyo, déversant un flot de magie. La ville s'est retrouvée envahie par les gobelins, les zombies",
+  "cover_url": "https://www.nautiljon.com/images/manga/00/13/suicide_red_33131.webp",
+  "year": null,
+  "pub_status": "RELEASING",
+  "genres": [
+    "Action",
+    "Aventure",
+    "Fantastique"
+  ],
+  "tags": [
+    "Monstres"
+  ],
+  "staff": [
+    {
+      "role": "Story",
+      "name": "Harimaru"
+    }
+  ]
+}
+
+## COMPARAISON MetaKavita
+Extrait par le parseur:
+  - title (og:title)
+  - summary (.description)
+  - cover_url (og:image / fallbacks)
+  - genres (label contenant Genre)
+  - tags (label Thème)
+  - year (Origine + datePublished ou regex année)
+  - staff Story (Auteur/Scénariste) + Art (Dessinateur)
+  - pub_status via Nb volumes [VO]
+
+Présent sur la page mais NON extrait (priorisé):
+  [HAUTE] Éditeur VF = 'Ki-oon' — Publisher Kavita — critique pour MetaKavita
+  [HAUTE] Type = 'Shonen' — Demographic / format series
+  [HAUTE] Année VF = '2026' — Year: Origine n'a pas d'année ici → year=null actuellement
+  [HAUTE] Nb volumes VF (count) = '1' — Seule la présence de statut est lue; le nombre de volumes n'est pas stocké
+  [MOYENNE] Âge conseillé = '12 ans et +' — Age rating Kavita
+  [MOYENNE] Origine (pays) = 'Japon' — Seul le year est lu; le pays n'est pas stocké
+  [MOYENNE] aggregateRating = '9/10 (3)' — Community score
+  [MOYENNE] Mot de l'éditeur = 'texte promo Ki-oon' — Blurbs alternatif / marketing copy
+  [BASSE] Dernier paru / À paraître = '02/07/2026 / 01/10/2026' — Dates de sortie volumes
+  [BASSE] Prix = '7.95 €' — Peu utile MetaKavita
+  [BASSE] og:url / og:description = 'présents' — URL canonique; desc déjà couverte via .description
+  [N/A page] Titre alternatif / Titre VO = 'absent' — Pas sur cette fiche
+  [N/A page] Éditeur VO / Nb volumes VO / Année VO / Dessinateur = 'absent' — Fiche orientée VF (licence FR récente)
