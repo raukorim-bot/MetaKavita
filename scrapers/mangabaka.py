@@ -8,7 +8,7 @@ from config_manager import load_config
 class MangaBakaScraper(BaseScraper):
     id = "MANGABAKA"
     display_name = "MangaBaka (API / Rapide)"
-    supported_types = {"Manga"}
+    supported_types = {"Manga", "Book"}
     rate_limit = 2.5
     proxy_domains = ["mangabaka.org"]
     has_direct_id_support = True
@@ -48,7 +48,7 @@ class MangaBakaScraper(BaseScraper):
         try:
             if is_id:
                 logging.info(self.t("direct_id").format(query))
-                res = requests.get(f"{base_url}/{query}", timeout=10)
+                res = requests.get(f"{base_url}/{query}", params={"schema": "full"}, timeout=10)
                 if res.status_code != 200: return None
                 json_res = res.json()
                 raw_data = json_res.get('data') if 'data' in json_res else json_res
@@ -57,7 +57,12 @@ class MangaBakaScraper(BaseScraper):
             else:
                 clean = clean_title(query, library_type=library_type)
                 logging.info(self.t("search_title").format(clean))
-                res = requests.get(search_url, params={"q": clean}, timeout=10)
+                type_mapping = {
+                    "Manga": ["manga", "manhwa", "manhua"],
+                    "Book": "novel"
+                }
+                mangabaka_type = type_mapping.get(library_type)
+                res = requests.get(search_url, params={"q": clean, "type": mangabaka_type, "schema": "full"}, timeout=10)
                 if res.status_code != 200: return None
                 json_res = res.json()
                 results = json_res.get('data') if 'data' in json_res else json_res
@@ -134,8 +139,8 @@ class MangaBakaScraper(BaseScraper):
             mal_id = mb_sources.get('mal', {}).get('id')
 
         format_type = None
-        tags_list = data.get('tags') or []
-        genres_list = data.get('genres') or []
+        tags_list = [tag.get('name') for tag in (data.get('tags') or []) if not tag.get('is_genre')]
+        genres_list = [tag.get('name') for tag in (data.get('tags') or []) if tag.get('is_genre')]
 
         try:
             mb_type = str(data.get('type', '')).upper()
@@ -210,7 +215,7 @@ class MangaBakaScraper(BaseScraper):
             'mangabaka_id': data.get('id'),
             'anilist_id': anilist_id,
             'mal_id': mal_id,
-            'links': data.get('links') or [],
+            'links': [link.get('name') for link in (data.get('links') or [])],
             'format': format_type
         }
     
