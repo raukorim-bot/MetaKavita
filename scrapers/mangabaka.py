@@ -136,7 +136,7 @@ class MangaBakaScraper(BaseScraper):
         anilist_id, mal_id = None, None
         if isinstance(mb_sources, dict):
             anilist_id = mb_sources.get('anilist', {}).get('id')
-            mal_id = mb_sources.get('mal', {}).get('id')
+            mal_id = mb_sources.get('my_anime_list', {}).get('id')
 
         format_type = None
         tags_list = [tag.get('name') for tag in (data.get('tags') or []) if not tag.get('is_genre')]
