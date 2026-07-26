@@ -273,10 +273,14 @@ def enrich_series(series_id, series_name, force_update=False):
                     metadata['characterLocked'] = True
 
         # 6. Titres Alternatifs (Localized Name - Va vers Series/update)
-        if 'alt_titles' in active_fields and provider_data.get('alternative_titles'):
-            clean_titles = [str(alt).strip() for alt in provider_data['alternative_titles'] if alt and str(alt).strip()]
-            if clean_titles:
-                localized_name_to_update = " / ".join(clean_titles)
+        if 'alt_titles' in active_fields:
+            from localized_titles import resolve_effective_title_policy, resolve_localized_name
+            mode, langs = resolve_effective_title_policy(
+                config, cache_data.get('alt_title_langs') or ""
+            )
+            localized_name_to_update = resolve_localized_name(
+                provider_data, mode=mode, langs=langs
+            )
 
         # 7. Auteurs et Staff
         if 'staff' in active_fields:

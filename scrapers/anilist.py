@@ -124,15 +124,28 @@ class AnilistScraper(BaseScraper):
     def _build_candidate(self, data: dict) -> dict:
         title_dict = data.get('title', {}) or {}
         romaji_title = title_dict.get('romaji', '')
+        english_title = title_dict.get('english', '')
+        native_title = title_dict.get('native', '')
         alt_titles = [t for t in title_dict.values() if t]
 
         country = str(data.get('countryOfOrigin', '')).upper()
         format_type = "manga"
         if country in ["KR", "CN"]: format_type = "webtoon"
 
+        from localized_titles import native_lang_from_country
+        native_lang = native_lang_from_country(country)
+        titles = []
+        if romaji_title:
+            titles.append({"lang": "ja-ro" if native_lang == "ja" else f"{native_lang}-ro", "value": romaji_title})
+        if english_title:
+            titles.append({"lang": "en", "value": english_title})
+        if native_title:
+            titles.append({"lang": native_lang, "value": native_title})
+
         return {
             'title': romaji_title,
             'alternative_titles': alt_titles,
+            'titles': titles,
             'summary': data.get('description', '') or '',
             'cover_url': data.get('coverImage', {}).get('extraLarge'),
             'genres': (data.get('genres') or [])[:get_max_genres()],

@@ -25,6 +25,8 @@ class SeriesOverride:
     forced_provider: str = "AUTO"
     targeted_fields: str = "ALL"
     publisher_pref: str = "GLOBAL"
+    # Vide = hérite du global LOCALIZED_TITLE_* ; sinon liste ex. "en,ja-ro"
+    alt_title_langs: str = ""
 
     @classmethod
     def from_cache_dict(cls, series_id: int, cache_data: dict) -> "SeriesOverride":
@@ -37,4 +39,5 @@ class SeriesOverride:
             forced_provider=cache_data.get('forced_provider') or "AUTO",
             targeted_fields=cache_data.get('targeted_fields') or "ALL",
             publisher_pref=cache_data.get('publisher_pref') or "GLOBAL",
+            alt_title_langs=cache_data.get('alt_title_langs') or "",
         )

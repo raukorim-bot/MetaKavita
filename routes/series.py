@@ -29,6 +29,7 @@ def save_override():
     forced_provider = request.form.get('forced_provider', 'AUTO').strip()
     targeted_fields = request.form.get('targeted_fields', 'ALL').strip()
     publisher_pref = request.form.get('publisher_pref', 'GLOBAL').strip()
+    alt_title_langs = request.form.get('alt_title_langs', '').strip()
 
     save_series_override(SeriesOverride(
         series_id=int(series_id),
@@ -37,6 +38,7 @@ def save_override():
         forced_provider=forced_provider,
         targeted_fields=targeted_fields,
         publisher_pref=publisher_pref,
+        alt_title_langs=alt_title_langs,
     ))
     return "OK", 200
 

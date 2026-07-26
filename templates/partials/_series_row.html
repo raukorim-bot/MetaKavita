@@ -93,6 +93,11 @@
                                             <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-{{ series.id }}" {% if tf_raw == 'ALL' or 'weblinks' in tf_list %}checked{% endif %}> Liens & IDs</label>
                                             <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-{{ series.id }}" {% if tf_raw == 'ALL' or 'alt_titles' in tf_list %}checked{% endif %}> Titres Alternatifs</label>
                                         </div>
+                                        <div style="margin-top: 8px;">
+                                            <span class="input-hint">{{ t.alt_title_langs_label }}</span>
+                                            <input type="text" id="alt-langs-{{ series.id }}" value="{{ series.alt_title_langs or '' }}" placeholder="{{ t.alt_title_langs_placeholder }}" style="width: 100%; font-size: 12px; padding: 6px 8px;">
+                                            <small class="text-muted" style="display:block;margin-top:4px;">{{ t.alt_title_langs_hint }}</small>
+                                        </div>
                                     </details>
                                 </div>
                             </div>

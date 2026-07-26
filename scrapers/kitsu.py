@@ -90,12 +90,19 @@ class KitsuScraper(BaseScraper):
             cover_url = poster.get('original') or poster.get('large')
 
         alt_titles = []
+        titles = []
         if isinstance(attrs.get('titles'), dict):
-            alt_titles = [t for t in attrs.get('titles').values() if t]
+            for lang_key, t_val in attrs.get('titles').items():
+                if not t_val:
+                    continue
+                alt_titles.append(t_val)
+                # Kitsu: en_jp ≈ romaji, ja_jp ≈ native
+                titles.append({"lang": lang_key, "value": t_val})
 
         return {
             'title': attrs.get('canonicalTitle', '') or '',
             'alternative_titles': alt_titles,
+            'titles': titles,
             'summary': attrs.get('synopsis', '') or '',
             'cover_url': cover_url,
             'genres': [],

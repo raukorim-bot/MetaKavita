@@ -4,6 +4,11 @@ MetaKavita is an automated metadata enricher and manager for [Kavita](https://ka
 
 MetaKavita also features a **Plug & Play Community Scraper** architecture, allowing you to load custom Python scrapers on the fly without rebuilding the Docker image!
 
+> **⭐ If MetaKavita saves you time, please give this repo a star!**  
+> It helps other Kavita users discover the tool (and who knows — maybe one day it'll buy the dev a coffee or a beer 🍻).  
+> *Si MetaKavita te fait gagner du temps, ajoute une étoile à ce dépôt !*  
+> *Ça aide d'autres utilisateurs de Kavita à découvrir l'outil (et qui sait — peut-être qu'un jour ça paiera un café ou une bière au dev 🍻).*
+
 ---
 
 ## Sommaire / Table of Contents
@@ -74,7 +79,7 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 
 | Category | Metadata Fields | Mapped Source Details |
 | :--- | :--- | :--- |
-| **Core Details** | Localized Name / Alternative Titles | Joins localized titles with a `" / "` separator |
+| **Core Details** | Localized Name / Alternative Titles | Controlled by `LOCALIZED_TITLE_MODE` (default **all** = unique titles joined with `" / "`). Prefer/none + per-series lang override available; never rewrites Series `name`. |
 | | Summary / Description | Scraped in source language, preserved as-is or translated via Azure, DeepL, or Google |
 | | Release Year | Publication start year |
 | | Publication Status | Maps to native codes: Ongoing, On Hiatus, Completed, Cancelled |
@@ -119,7 +124,8 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **High-Speed Per-Provider Rate Limiter**: Uses dynamic timestamp tracking (`LAST_REQUEST_TIMES`) with a per-scraper lock. Idle APIs respond instantly; after provider #1 seeds context, remaining providers run in parallel for Smart Fusion without triggering HTTP 429 rate limits.
 *   **Hardened Kavita API Compliance (v1.5.8+)**: All partial updates now perform a GET-merge-POST cycle before writing to Kavita, guaranteeing that untouched fields (like alternate titles) are never silently nulled out or unlocked by the server. This also resolved a real-world crash in third-party OPDS clients (e.g. KOReader's Kamare plugin) that were choking on unexpected `null` values previously introduced by partial payloads.
 *   **Configurable Tag & Genre Caps (v1.6+)**: `MAX_TAGS` (default 15) and `MAX_GENRES` (default 5) via env / `config.json` — applied in official scrapers and as a safety net in `enrichment_engine`. No UI (power-user).
-*   **Application Audit Hardening (v1.6+)**: Cover/proxy SSRF allowlists (incl. private IPs + safe re-validated redirects), cover-modal XSS hardening, CSRF on mutating POSTs, forced-ID `fallback_query` retry, external-IDs GET-merge, Help/About with Kavita+ support links, and related Critical/High/Medium fixes (see `CHANGELOG.md` BF20–BF45 + C50–C52).
+*   **Application Audit Hardening (v1.6+)**: Cover/proxy SSRF allowlists (incl. private IPs + safe re-validated redirects), cover-modal XSS hardening, CSRF on mutating POSTs, forced-ID `fallback_query` retry, external-IDs GET-merge, Help/About with Kavita+ support links, and related Critical/High/Medium fixes (see `CHANGELOG.md` BF20–BF45 + C50–C53).
+*   **Localized Titles Policy (v1.6+, issue #12)**: Config modal + env for `LOCALIZED_TITLE_MODE`/`LANGS`; per-series `alt_title_langs`; AniList/MangaDex/Kitsu structured `titles[]`. Controls Kavita `localizedName` only — never rewrites `name`.
 
 ---
 
@@ -182,6 +188,8 @@ docker compose up -d --build
 | `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! | `FR` |
 | `UI_LANG` | Dashboard interface language (`fr` or `en`). | `fr` |
 | `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
+| `LOCALIZED_TITLE_MODE` | How to build Kavita `localizedName`: `all` (join unique titles with `" / "`), `prefer` (filter/order by `LOCALIZED_TITLE_LANGS`), `none` (do not write). Never rewrites Series `name`. Also in Config modal. | `all` |
+| `LOCALIZED_TITLE_LANGS` | Comma-separated BCP-47-ish tags when mode is `prefer` (e.g. `en, ja-ro, ja`). Order = priority. Per-series override via `alt_title_langs`. | *(Empty)* |
 | `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`). | `MANGABAKA` |
 | `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
 | `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
@@ -318,7 +326,7 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 
 | Catégorie | Métadonnée Kavita | Détails de la source mappée |
 | :--- | :--- | :--- |
-| **Identité** | Titre Localisé / Alternatif | Assemble les titres alternatifs officiels séparés par `" / "` |
+| **Identité** | Titre Localisé / Alternatif | Contrôlé par `LOCALIZED_TITLE_MODE` (défaut **all** = titres uniques joints par `" / "`). Modes prefer/none + override langues par série ; ne réécrit jamais Series `name`. |
 | | Résumé / Description | Récupère le résumé d'origine et le conserve tel quel ou le traduit via Azure, DeepL ou Google |
 | | Année de sortie | Année de début de publication |
 | | Statut de publication | Mappe vers les statuts natifs : En cours, En pause, Terminé, Abandonné |
@@ -363,7 +371,8 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Throttling Dynamique Haute Performance** : régulateur par horodatage (`LAST_REQUEST_TIMES`) avec verrou par scraper. Après l'amorçage du contexte par le provider #1, les autres tournent en parallèle pour la Smart Fusion sans déclencher de HTTP 429.
 *   **Conformité Renforcée avec l'API Kavita (v1.5.8+)** : Chaque mise à jour partielle effectue désormais un cycle GET-fusion-POST avant l'écriture, garantissant que les champs non modifiés (ex: titres alternatifs) ne soient jamais silencieusement effacés ou déverrouillés par le serveur. Ce correctif a également résolu un plantage réel constaté sur des lecteurs OPDS tiers (ex: l'extension Kamare de KOReader), qui recevaient des valeurs `null` inattendues suite à d'anciens envois partiels.
 *   **Plafonds Tags & Genres configurables (v1.6+)** : `MAX_TAGS` (défaut 15) et `MAX_GENRES` (défaut 5) via env / `config.json` — appliqués dans les scrapers officiels et en filet dans `enrichment_engine`. Pas d'UI (power-user).
-*   **Durcissement suite audit applicatif (v1.6+)** : allowlists SSRF couverture/proxy (IPs privées + redirects re-validés), XSS modal couvertures, CSRF sur POST mutatifs, retry `fallback_query` après ID forcé, GET-merge des IDs externes, menu Aide / À propos avec liens Kavita+, et correctifs Critical/High/Medium associés (voir `CHANGELOG.md` BF20–BF45 + C50–C52).
+*   **Durcissement suite audit applicatif (v1.6+)** : allowlists SSRF couverture/proxy (IPs privées + redirects re-validés), XSS modal couvertures, CSRF sur POST mutatifs, retry `fallback_query` après ID forcé, GET-merge des IDs externes, menu Aide / À propos avec liens Kavita+, et correctifs Critical/High/Medium associés (voir `CHANGELOG.md` BF20–BF45 + C50–C53).
+*   **Politique des titres localisés (v1.6+, issue #12)** : modal Config + env `LOCALIZED_TITLE_MODE`/`LANGS` ; override `alt_title_langs` par série ; `titles[]` structurés AniList/MangaDex/Kitsu. Contrôle uniquement `localizedName` — jamais de réécriture de `name`.
 
 ---
 
@@ -426,6 +435,8 @@ docker compose up -d --build
 | `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`...). Modifie dynamiquement la langue de recherche Google Books ! | `FR` |
 | `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). | `fr` |
 | `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
+| `LOCALIZED_TITLE_MODE` | Construction de Kavita `localizedName` : `all` (joindre les titres uniques avec `" / "`), `prefer` (filtre/ordre via `LOCALIZED_TITLE_LANGS`), `none` (ne pas écrire). Ne réécrit jamais Series `name`. Aussi dans la modal Config. | `all` |
+| `LOCALIZED_TITLE_LANGS` | Tags BCP-47-ish séparés par des virgules en mode `prefer` (ex. `en, ja-ro, ja`). Ordre = priorité. Override par série via `alt_title_langs`. | *(Vide)* |
 | `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`). | `MANGABAKA` |
 | `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
 | `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
@@ -521,6 +532,9 @@ L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vo
 
 Community feedback that shaped MetaKavita — thank you!  
 *(Retours communautaires qui ont fait évoluer MetaKavita — merci !)*
+
+And if you have not already: a ⭐ on GitHub is the cheapest way to say thanks and boost discoverability.  
+*(Et si ce n’est pas déjà fait : une ⭐ sur GitHub, c’est le « merci » le moins cher — et ça aide le dépôt à remonter.)*
 
 | Contributor | Contributions |
 | :--- | :--- |

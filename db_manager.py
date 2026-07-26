@@ -11,7 +11,8 @@ def _ensure_schema(c):
     columns = [
         ("forced_provider", "TEXT DEFAULT 'AUTO'"),
         ("targeted_fields", "TEXT DEFAULT 'ALL'"),
-        ("publisher_pref", "TEXT DEFAULT 'GLOBAL'")
+        ("publisher_pref", "TEXT DEFAULT 'GLOBAL'"),
+        ("alt_title_langs", "TEXT DEFAULT ''"),
     ]
     for col_name, col_type in columns:
         try:
@@ -60,21 +61,22 @@ def save_series_override(override: SeriesOverride):
 
     _ensure_schema(c)
 
-    c.execute('''INSERT INTO series_cache (series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref) 
-                 VALUES (?, 'PENDING', ?, ?, ?, ?, ?)
+    c.execute('''INSERT INTO series_cache (series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref, alt_title_langs) 
+                 VALUES (?, 'PENDING', ?, ?, ?, ?, ?, ?)
                  ON CONFLICT(series_id) DO UPDATE SET 
                  forced_id=excluded.forced_id, 
                  alternative_title=excluded.alternative_title, 
                  forced_provider=excluded.forced_provider,
                  targeted_fields=excluded.targeted_fields,
                  publisher_pref=excluded.publisher_pref,
+                 alt_title_langs=excluded.alt_title_langs,
                  status='PENDING' ''',
-              (override.series_id, f_id, a_title, override.forced_provider, override.targeted_fields, override.publisher_pref))
+              (override.series_id, f_id, a_title, override.forced_provider, override.targeted_fields, override.publisher_pref, override.alt_title_langs or ""))
     conn.commit()
     conn.close()
 
 
-def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL", publisher_pref="GLOBAL"):
+def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL", publisher_pref="GLOBAL", alt_title_langs=""):
     """Wrapper rétro-compatible (arguments positionnels) autour de save_series_override().
     Conservé pour les appelants existants (ex: scripts de debug) ; tout nouveau code HTTP
     (voir routes/series.py) doit construire un SeriesOverride explicite et appeler
@@ -86,6 +88,7 @@ def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO
         forced_provider=forced_provider,
         targeted_fields=targeted_fields,
         publisher_pref=publisher_pref,
+        alt_title_langs=alt_title_langs or "",
     ))
 
 def reset_errors():
@@ -104,7 +107,7 @@ def get_all_cached_data():
     
     _ensure_schema(c)
         
-    c.execute("SELECT series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref FROM series_cache")
+    c.execute("SELECT series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref, alt_title_langs FROM series_cache")
     rows = c.fetchall()
     conn.close()
     return {row[0]: {
@@ -113,7 +116,8 @@ def get_all_cached_data():
         'alternative_title': row[3],
         'forced_provider': row[4],
         'targeted_fields': row[5],
-        'publisher_pref': row[6] if len(row) > 6 else 'GLOBAL'
+        'publisher_pref': row[6] if len(row) > 6 else 'GLOBAL',
+        'alt_title_langs': row[7] if len(row) > 7 else '',
     } for row in rows}
 
 def clean_orphaned_cache(active_ids):

@@ -59,6 +59,10 @@ def save_config_ajax():
 
         config['PUBLISHER_PREFERENCE'] = request.form.get('PUBLISHER_PREFERENCE', 'LOCALIZED').strip()
 
+        loc_mode = request.form.get('LOCALIZED_TITLE_MODE', 'all').strip().lower()
+        config['LOCALIZED_TITLE_MODE'] = loc_mode if loc_mode in ('all', 'prefer', 'none') else 'all'
+        config['LOCALIZED_TITLE_LANGS'] = request.form.get('LOCALIZED_TITLE_LANGS', '').strip()
+
         config['PROVIDER_1'] = request.form.get('PROVIDER_1', 'MANGABAKA').strip()
         config['PROVIDER_2'] = request.form.get('PROVIDER_2', 'KITSU').strip()
         config['PROVIDER_3'] = request.form.get('PROVIDER_3', 'ANILIST').strip()

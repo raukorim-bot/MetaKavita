@@ -123,6 +123,20 @@
                                 <option value="ORIGINAL" {% if config.get('PUBLISHER_PREFERENCE') == 'ORIGINAL' %}selected{% endif %}>{{ t.pub_original }}</option>
                             </select>
                         </div>
+                        <div class="form-group" style="margin-top: 15px;">
+                            <label>{{ t.localized_title_mode }}</label>
+                            <select name="LOCALIZED_TITLE_MODE" id="localizedTitleMode" onchange="toggleLocalizedTitleLangs()">
+                                <option value="all" {% if config.get('LOCALIZED_TITLE_MODE', 'all') == 'all' %}selected{% endif %}>{{ t.localized_title_mode_all }}</option>
+                                <option value="prefer" {% if config.get('LOCALIZED_TITLE_MODE') == 'prefer' %}selected{% endif %}>{{ t.localized_title_mode_prefer }}</option>
+                                <option value="none" {% if config.get('LOCALIZED_TITLE_MODE') == 'none' %}selected{% endif %}>{{ t.localized_title_mode_none }}</option>
+                            </select>
+                            <small class="text-muted" style="display:block;margin-top:4px;">{{ t.localized_title_mode_hint }}</small>
+                        </div>
+                        <div class="form-group" id="localizedTitleLangsGroup" style="margin-top: 10px;{% if config.get('LOCALIZED_TITLE_MODE', 'all') != 'prefer' %} display:none;{% endif %}">
+                            <label>{{ t.localized_title_langs }}</label>
+                            <input type="text" name="LOCALIZED_TITLE_LANGS" id="localizedTitleLangs" value="{{ config.get('LOCALIZED_TITLE_LANGS', '') }}" placeholder="en, ja-ro, ja">
+                            <small class="text-muted" style="display:block;margin-top:4px;">{{ t.localized_title_langs_hint }}</small>
+                        </div>
                         <!-- OPTION EXPÉRIMENTALE : TITRE DE SECOURS -->
                         <div class="form-group" style="margin-top: 15px; padding: 12px; background: rgba(245, 158, 11, 0.05); border-radius: 6px; border: 1px dashed var(--warning);">
                             <label class="checkbox-label" style="color: var(--warning); margin-bottom: 6px;">

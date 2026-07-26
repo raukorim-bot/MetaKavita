@@ -22,8 +22,16 @@ function toggleTranslationFields() {
     }
 }
 
+function toggleLocalizedTitleLangs() {
+    const mode = document.getElementById('localizedTitleMode');
+    const group = document.getElementById('localizedTitleLangsGroup');
+    if (!mode || !group) return;
+    group.style.display = mode.value === 'prefer' ? 'block' : 'none';
+}
+
 function openConfigModal() {
     document.getElementById('configModal').style.display = 'flex';
+    if (typeof toggleLocalizedTitleLangs === 'function') toggleLocalizedTitleLangs();
 }
 
 function closeConfigModal() {
