@@ -78,6 +78,8 @@ function syncSingle(id, name, btn) {
         
         const pubPrefInput = document.querySelector(`input[name="pubpref-${id}"]:checked`);
         const publisherPref = pubPrefInput ? pubPrefInput.value : 'GLOBAL';
+        const altLangsInput = document.getElementById('alt-langs-' + id);
+        const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
         
         const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
         const activeFields = fields.filter(f => {
@@ -90,11 +92,11 @@ function syncSingle(id, name, btn) {
         let loading = btn.nextElementSibling;
         loading.style.display = 'inline-block';
         
-        // Envoi au serveur incluant le publisher_pref
+        // Envoi au serveur incluant publisher_pref + alt_title_langs
         fetch(getRootPath() + '/save-override', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: `series_id=${id}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}`
+            body: `series_id=${id}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}&alt_title_langs=${encodeURIComponent(altTitleLangs)}`
         })
         .then(res => {
             if (!res.ok) throw new Error('HTTP ' + res.status);

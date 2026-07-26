@@ -65,3 +65,33 @@ def test_default_publisher_pref_is_global(isolated_db):
 
     cached = isolated_db.get_all_cached_data()
     assert cached[99]["publisher_pref"] == "GLOBAL"
+
+
+def test_save_series_override_roundtrip_persists_alt_title_langs(isolated_db):
+    override = SeriesOverride(
+        series_id=42,
+        publisher_pref="GLOBAL",
+        alt_title_langs="en, ja-ro",
+    )
+    isolated_db.save_series_override(override)
+
+    cached = isolated_db.get_all_cached_data()
+    assert cached[42]["alt_title_langs"] == "en, ja-ro"
+
+
+def test_save_forced_overrides_persists_alt_title_langs(isolated_db):
+    isolated_db.save_forced_overrides(
+        series_id=8,
+        forced_id="",
+        alt_title="",
+        forced_provider="AUTO",
+        targeted_fields="ALL",
+        publisher_pref="GLOBAL",
+        alt_title_langs="ja",
+    )
+    assert isolated_db.get_all_cached_data()[8]["alt_title_langs"] == "ja"
+
+
+def test_default_alt_title_langs_is_empty(isolated_db):
+    isolated_db.save_series_override(SeriesOverride(series_id=11))
+    assert isolated_db.get_all_cached_data()[11]["alt_title_langs"] == ""

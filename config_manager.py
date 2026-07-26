@@ -52,6 +52,9 @@ def load_config():
             "TARGET_LANG": "FR",
             "UI_LANG": "fr",
             "PUBLISHER_PREFERENCE": "LOCALIZED",
+            # Titres localizedName : all (défaut multi) | prefer | none
+            "LOCALIZED_TITLE_MODE": "all",
+            "LOCALIZED_TITLE_LANGS": "",
             "PROVIDER_1": "MANGABAKA",
             "PROVIDER_2": "KITSU",
             "PROVIDER_3": "ANILIST",
@@ -123,11 +126,16 @@ def load_config():
         for key in [
             "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
             "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE",
+            "LOCALIZED_TITLE_MODE", "LOCALIZED_TITLE_LANGS",
             "PROVIDER_1", "PROVIDER_2", "PROVIDER_3",
             "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
             "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
         ]:
             config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
+
+        mode = (config.get("LOCALIZED_TITLE_MODE") or "all").strip().lower()
+        config["LOCALIZED_TITLE_MODE"] = mode if mode in ("all", "prefer", "none") else "all"
+        config["LOCALIZED_TITLE_LANGS"] = (config.get("LOCALIZED_TITLE_LANGS") or "").strip()
 
         for env_key, env_val in os.environ.items():
             if env_key.endswith("_API_KEY") and env_key not in config:

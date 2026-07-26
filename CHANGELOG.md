@@ -77,6 +77,11 @@ Full static audit of application code (routes, services, scrapers, Kavita API, f
 * **BF45. Escape Closes Changelog**: Topbar Help Escape handler also closes the changelog modal.
 * **Docs**: `CODE_REVIEW.md` updated — MAL/Nautiljon marked removed (BF36), not “dead files still present”.
 
+### 🏷️ Localized Titles Policy (issue #12 / C53)
+* **`LOCALIZED_TITLE_MODE` + `LOCALIZED_TITLE_LANGS`**: Global control of Kavita `localizedName` only — **never** rewrites Series `name` (users edit the main title in Kavita). Modes: `all` (default, unique titles joined with `" / "`), `prefer` (filter/order by BCP-47-ish tags), `none` (skip writing `localizedName`). Config modal + env/`config.json`.
+* **Per-series override (`alt_title_langs`)**: Dumb text field (e.g. `en, ja-ro`) in the granular overrides panel. Non-empty → forces `prefer` for that series; empty → inherits global.
+* **Structured `titles[{lang,value}]`**: AniList / MangaDex / Kitsu emit language-tagged titles; Smart Completion merges them via `merge_title_entries`. Flat `alternative_titles` kept for scoring. Helper: `localized_titles.py`.
+
 ### 🐛 Manual Cover vs. Auto-Cover Conflict Fixes
 * **Per-Series Publisher Preference Persistence (`routes/series.py`)**: Fixed an issue where the `/save-override` endpoint failed to forward `publisher_pref` to persistence, which previously reset per-series choices back to `GLOBAL` in `cache.db`.
 * **Stale Targeted-Fields Checkbox (`static/js/covers.js`)**: Applying a manual cover correctly unlocks it server-side (removes `cover` from `targeted_fields`), but the per-series "Cover" checkbox in the UI kept its stale checked state from page load. Clicking "Sync" or "Save" on that same series before a page reload would silently re-lock `cover` back into `targeted_fields`, undoing the protection and exposing the manual cover to being overwritten again. The checkbox is now unchecked immediately on a successful manual cover apply.
@@ -166,6 +171,11 @@ Audit statique complet du code applicatif (routes, services, scrapers, API Kavit
 * **BF44. IPs privées bloquées dans l'allowlist** : refus RFC1918 / loopback / link-local / réservées et suffixes `.local`/`.internal`.
 * **BF45. Escape ferme aussi le changelog** : le handler Escape du menu Aide ferme également la modal nouveautés.
 * **Docs** : `CODE_REVIEW.md` — MAL/Nautiljon marqués comme **supprimés** (BF36).
+
+### 🏷️ Politique des titres localisés (issue #12 / C53)
+* **`LOCALIZED_TITLE_MODE` + `LOCALIZED_TITLE_LANGS`** : contrôle global de Kavita `localizedName` uniquement — **jamais** de réécriture de Series `name` (le titre principal se gère dans Kavita). Modes : `all` (défaut, titres uniques joints par `" / "`), `prefer` (filtre/ordre par tags BCP-47-ish), `none` (ne pas écrire `localizedName`). Modal Config + env/`config.json`.
+* **Override par série (`alt_title_langs`)** : champ texte libre (ex. `en, ja-ro`) dans le panneau granulaire. Non vide → force `prefer` pour cette série ; vide → hérite du global.
+* **`titles[{lang,value}]` structurés** : AniList / MangaDex / Kitsu émettent des titres tagués ; la Complétion intelligente les fusionne via `merge_title_entries`. `alternative_titles` plat conservé pour le scoring. Helper : `localized_titles.py`.
 
 ### 🐛 Correctifs des Conflits Couverture Manuelle vs Auto-Cover
 * **Persistance de la Préférence d'Éditeur par Série (`routes/series.py`)** : l'endpoint `/save-override` ne transmettait pas `publisher_pref` à la persistence, ce qui réinitialisait les choix par série à `GLOBAL` dans `cache.db`.

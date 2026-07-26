@@ -32,6 +32,8 @@ function saveOverride(seriesId, btn) {
     
     const pubPrefInput = document.querySelector(`input[name="pubpref-${seriesId}"]:checked`);
     const publisherPref = pubPrefInput ? pubPrefInput.value : 'GLOBAL';
+    const altLangsInput = document.getElementById('alt-langs-' + seriesId);
+    const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
     
     const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
     const activeFields = fields.filter(f => {
@@ -44,7 +46,7 @@ function saveOverride(seriesId, btn) {
     fetch(getRootPath() + '/save-override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `series_id=${seriesId}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}`
+        body: `series_id=${seriesId}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}&alt_title_langs=${encodeURIComponent(altTitleLangs)}`
     }).then(r => {
         if(r.ok) {
             btn.innerText = "✅"; 

@@ -139,6 +139,9 @@ shape `score_candidate()` expects.
 Users can dictate whether they want Localized Publishers (*Viz Media*, *Glénat*) or Original Japanese Publishers (*Shueisha*). 
 This is handled via a global variable `PUBLISHER_PREFERENCE` and overridden individually per series using a Segmented UI Toggle. The value is injected directly into `existing_metadata['publisher_pref']` for scrapers to read during extraction.
 
+#### C2. Localized Titles Policy (`localized_titles.py`, issue #12 / C53)
+Kavita `localizedName` is built from provider `titles[{lang,value}]` (fallback: flat `alternative_titles`). Global modes via `LOCALIZED_TITLE_MODE` (`all` | `prefer` | `none`) and optional `LOCALIZED_TITLE_LANGS`. Per-series `alt_title_langs` (non-empty) forces `prefer` for that series. **Series `name` is never rewritten** — V1 scope is `localizedName` only. Default `all` keeps the historical multi-title `" / "` join. AniList / MangaDex / Kitsu emit structured titles; Smart Completion merges via `merge_title_entries`.
+
 #### D. Smart Scoring: Score-Based Selection & Two-Wave Parallel Execution (`metadata_fetcher.py`)
 Controlled by the sidebar toggle `SMART_SCORING` (same Options card as `SMART_COMPLETION`).
 Default is **on**. When **off**, MetaKavita restores the classic sequential fallback: first useful
@@ -266,7 +269,7 @@ Every user-facing fix or feature must be reflected in **both** `CHANGELOG.md` (b
 Starting with the architecture refactor, `app.py` is a thin ~130-line assembly point only: Flask/SocketIO instantiation, middlewares (`ProxyFix`, `ScriptNameStripper`), logging bootstrap, the global `require_login` gate, Blueprint registration, and starting the background workers. All business logic lives in dedicated modules:
 
 *   **`kavita_constants.py`**: single source of truth for Kavita enum mappings (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) and raw-provider-status normalization (`normalize_provider_status()`, used by `scrapers/mangabaka.py`). Add new enum mappings here, never inline in a route or scraper.
-*   **`models.py`**: `SeriesOverride` dataclass, the typed contract for per-series overrides (forced ID/provider, alternative title, targeted fields, publisher preference). Prefer `db_manager.save_series_override(SeriesOverride(...))` (named fields) over the legacy positional `save_forced_overrides(...)` wrapper in any new code — this is a direct, structural mitigation for the class of bug described in §11.C.
+*   **`models.py`**: `SeriesOverride` dataclass, the typed contract for per-series overrides (forced ID/provider, alternative title, targeted fields, publisher preference, `alt_title_langs`). Prefer `db_manager.save_series_override(SeriesOverride(...))` (named fields) over the legacy positional `save_forced_overrides(...)` wrapper in any new code — this is a direct, structural mitigation for the class of bug described in §11.C.
 *   **`extensions.py`**: the shared `socketio = SocketIO()` instance (created without an app, `init_app(app)`'d once in `app.py`). Import from here — never from `app.py` — in any module that needs to emit events or declare `@socketio.on(...)` handlers, to avoid circular imports.
 *   **`services/enrichment_engine.py`**: `enrich_series(series_id, series_name, force_update)`, the extracted former `process_series_logic()`. Pure orchestration logic — scraping, field mapping, Kavita calls — with zero dependency on Flask or `app.py`.
 *   **`services/background_tasks.py`**: the daemon workers (`sync_queue` consumer + periodic auto-sync poller) and `start_background_workers()`, called once from `app.py` at import time (unchanged single-worker-process behavior, required for Gunicorn `-w 1`).
@@ -383,6 +386,9 @@ scraper est bien dans la forme attendue par `score_candidate()`.
 
 #### C. Qualité de Service (QoS) : Éditeur
 L'utilisateur peut imposer la récupération de l'éditeur traduit (ex: *Kurokawa*) ou de l'éditeur d'origine (ex: *Shueisha*). Ce paramètre est injecté localement via l'interrupteur UI directement dans `existing_metadata['publisher_pref']`.
+
+#### C2. Politique des titres localisés (`localized_titles.py`, issue #12 / C53)
+Kavita `localizedName` est construit à partir des `titles[{lang,value}]` fournisseurs (repli : `alternative_titles` plats). Modes globaux via `LOCALIZED_TITLE_MODE` (`all` | `prefer` | `none`) et `LOCALIZED_TITLE_LANGS` optionnel. `alt_title_langs` par série (non vide) force `prefer` pour cette série. **Series `name` n'est jamais réécrit** — scope V1 = `localizedName` uniquement. Le défaut `all` conserve la jointure multi-titres historique `" / "`. AniList / MangaDex / Kitsu émettent des titres structurés ; la Complétion intelligente fusionne via `merge_title_entries`.
 
 #### D. Smart Scoring : sélection par score & exécution en deux vagues (`metadata_fetcher.py`)
 Pilotulé par l'interrupteur sidebar `SMART_SCORING` (même carte Options que `SMART_COMPLETION`).
@@ -513,7 +519,7 @@ Chaque correctif ou fonctionnalité visible par l'utilisateur doit être réperc
 Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage d'environ 130 lignes : instanciation Flask/SocketIO, middlewares (`ProxyFix`, `ScriptNameStripper`), initialisation du logging, verrou global `require_login`, enregistrement des Blueprints, et démarrage des workers de fond. Toute la logique métier vit désormais dans des modules dédiés :
 
 *   **`kavita_constants.py`** : source unique de vérité pour les mappings d'énumération Kavita (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) et la normalisation des statuts bruts fournisseurs (`normalize_provider_status()`, utilisé par `scrapers/mangabaka.py`). Ajoutez tout nouveau mapping ici, jamais en ligne dans une route ou un scraper.
-*   **`models.py`** : la dataclass `SeriesOverride`, contrat typé des surcharges par série (ID/provider forcé, titre alternatif, champs ciblés, préférence d'éditeur). Préférez `db_manager.save_series_override(SeriesOverride(...))` (champs nommés) à l'ancien wrapper positionnel `save_forced_overrides(...)` dans tout nouveau code — c'est une mitigation structurelle directe de la classe de bug décrite au §11.C.
+*   **`models.py`** : la dataclass `SeriesOverride`, contrat typé des surcharges par série (ID/provider forcé, titre alternatif, champs ciblés, préférence d'éditeur, `alt_title_langs`). Préférez `db_manager.save_series_override(SeriesOverride(...))` (champs nommés) à l'ancien wrapper positionnel `save_forced_overrides(...)` dans tout nouveau code — c'est une mitigation structurelle directe de la classe de bug décrite au §11.C.
 *   **`extensions.py`** : l'instance partagée `socketio = SocketIO()` (créée sans app, `init_app(app)` appelé une seule fois dans `app.py`). Importez-la depuis ce module — jamais depuis `app.py` — dans tout module ayant besoin d'émettre des événements ou de déclarer des handlers `@socketio.on(...)`, pour éviter les imports circulaires.
 *   **`services/enrichment_engine.py`** : `enrich_series(series_id, series_name, force_update)`, extraction de l'ancien `process_series_logic()`. Logique d'orchestration pure (scraping, mapping des champs, appels Kavita) sans aucune dépendance vers Flask ni `app.py`.
 *   **`services/background_tasks.py`** : les workers démons (consommateur de `sync_queue` + polling d'auto-sync périodique) et `start_background_workers()`, appelé une seule fois par `app.py` au chargement du module (comportement inchangé, requis pour un déploiement Gunicorn à worker unique `-w 1`).

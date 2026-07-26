@@ -35,6 +35,23 @@ def test_save_override_defaults_publisher_pref_to_global_when_omitted(client, is
     assert cached[7]["publisher_pref"] == "GLOBAL"
 
 
+def test_save_override_persists_alt_title_langs(client, isolated_db):
+    response = client.post("/save-override", data={
+        "series_id": "42",
+        "publisher_pref": "GLOBAL",
+        "alt_title_langs": "en, ja-ro",
+    })
+    assert response.status_code == 200
+    cached = isolated_db.get_all_cached_data()
+    assert cached[42]["alt_title_langs"] == "en, ja-ro"
+
+
+def test_save_override_defaults_alt_title_langs_empty(client, isolated_db):
+    response = client.post("/save-override", data={"series_id": "9"})
+    assert response.status_code == 200
+    assert isolated_db.get_all_cached_data()[9]["alt_title_langs"] == ""
+
+
 def test_toggle_ignore_flips_status(client, isolated_db):
     response = client.post("/toggle-ignore", data={"series_id": "5", "current_status": "PENDING"})
 

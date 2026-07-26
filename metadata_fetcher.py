@@ -211,6 +211,13 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                     for key, value in data.items():
                         if key in ['_provider_used', '_fusion_providers', 'anilist_id', 'mal_id', 'mangabaka_id', 'links', 'external_links', 'url', MATCH_SCORE_KEY]:
                             continue
+                        if key == 'titles' and isinstance(value, list):
+                            from localized_titles import merge_title_entries
+                            merged = merge_title_entries(master_data.get('titles') or [], value)
+                            if merged and merged != (master_data.get('titles') or []):
+                                master_data['titles'] = merged
+                                filled_something = True
+                            continue
                         if not master_data.get(key) and value:
                             master_data[key] = value
                             filled_something = True

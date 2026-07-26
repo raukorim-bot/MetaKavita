@@ -59,11 +59,20 @@ class MangaDexScraper(BaseScraper):
         if not primary_title:
             return None
 
+        titles = []
         alt_titles = []
+        for lang_key, title_val in (attrs.get("title") or {}).items():
+            if title_val:
+                titles.append({"lang": lang_key, "value": title_val})
+                if title_val not in alt_titles:
+                    alt_titles.append(title_val)
         for alt_dict in attrs.get("altTitles", []):
-            for alt_val in alt_dict.values():
+            if not isinstance(alt_dict, dict):
+                continue
+            for lang_key, alt_val in alt_dict.items():
                 if alt_val and alt_val not in alt_titles:
                     alt_titles.append(alt_val)
+                    titles.append({"lang": lang_key, "value": alt_val})
 
         descriptions = attrs.get("description", {})
         summary = descriptions.get(target_lang) or descriptions.get("fr") or descriptions.get("en")
@@ -113,6 +122,7 @@ class MangaDexScraper(BaseScraper):
         return {
             'title': primary_title,
             'alternative_titles': alt_titles,
+            'titles': titles,
             'summary': summary or "",
             'cover_url': cover_url,
             'genres': ["Manga"],

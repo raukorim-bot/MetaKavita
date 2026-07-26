@@ -65,6 +65,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             s['targeted_fields'] = item_cache.get('targeted_fields') or 'ALL'
             s['forced_provider'] = item_cache.get('forced_provider') or 'AUTO'
             s['publisher_pref'] = item_cache.get('publisher_pref') or 'GLOBAL'
+            s['alt_title_langs'] = item_cache.get('alt_title_langs') or ''
 
     safe_config = config.copy()
     if safe_config.get('KAVITA_API_KEY'): safe_config['KAVITA_API_KEY'] = '********'
