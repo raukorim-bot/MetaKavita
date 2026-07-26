@@ -205,7 +205,7 @@ class MangaBakaScraper(BaseScraper):
             'summary': data.get('description', '') or '',
             'cover_url': cover_url,
             'genres': genres_list,
-            'tags': tags_list[:15],
+            'tags': tags_list[],
             'year': year,
             'status': mb_status,
             'staff': staff,
