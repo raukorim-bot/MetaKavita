@@ -215,7 +215,7 @@ class MangaBakaScraper(BaseScraper):
             'mangabaka_id': data.get('id'),
             'anilist_id': anilist_id,
             'mal_id': mal_id,
-            'links': [link.get('name') for link in (data.get('links') or [])],
+            'links': [link.get('url') for link in (data.get('links') or [])],
             'format': format_type
         }
     
