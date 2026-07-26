@@ -77,9 +77,17 @@ def save_config_ajax():
 
         config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
         config['SMART_SCORING'] = request.form.get('SMART_SCORING') == 'true'
+        config['MATCH_THRESHOLD_CUSTOM'] = request.form.get('MATCH_THRESHOLD_CUSTOM') == 'true'
+        try:
+            config['MATCH_ACCEPT_THRESHOLD'] = float(
+                request.form.get('MATCH_ACCEPT_THRESHOLD', 0.60)
+            )
+        except (TypeError, ValueError):
+            config['MATCH_ACCEPT_THRESHOLD'] = 0.60
         config['RESET_CONTEXT_ON_FORCE'] = request.form.get('RESET_CONTEXT_ON_FORCE') == 'true'
 
         config['TITLE_FALLBACK_TRANSLATION'] = request.form.get('TITLE_FALLBACK_TRANSLATION') == 'true'
+        config['ENABLE_PLAYFUL_STATS'] = request.form.get('ENABLE_PLAYFUL_STATS') == 'true'
 
         try:
             config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))

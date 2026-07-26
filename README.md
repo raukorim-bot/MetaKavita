@@ -1,6 +1,6 @@
 # MetaKavita
 
-MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance. 
+MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Comic Flexible, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance. 
 
 MetaKavita also features a **Plug & Play Community Scraper** architecture, allowing you to load custom Python scrapers on the fly without rebuilding the Docker image!
 
@@ -13,7 +13,7 @@ MetaKavita also features a **Plug & Play Community Scraper** architecture, allow
 
 ## Sommaire / Table of Contents
 1. [🇺🇸 English Documentation](#-english-documentation)
-   * [User Interface & Ergonomics](#-user-interface--ergonomics-v160)
+   * [User Interface & Ergonomics](#-user-interface--ergonomics-v161)
    * [Enriched Metadata Fields](#-enriched-metadata-fields)
    * [Custom Community Scrapers (Plug & Play)](#-custom-community-scrapers-plug--play)
    * [Quality, Reliability & Benchmarking](#-quality-reliability--engine-benchmarking)
@@ -25,7 +25,7 @@ MetaKavita also features a **Plug & Play Community Scraper** architecture, allow
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks)
    * [Security Disclaimer & Best Practices](#-security-disclaimer--deployment-best-practices)
 2. [🇫🇷 Documentation Française](#-documentation-française)
-   * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie-v160)
+   * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie-v161)
    * [Métadonnées Enrichies](#-métadonnées-enrichies)
    * [Scrapers Communautaires Personnalisés](#-scrapers-communautaires-personnalisés-plug--play)
    * [Assurance Qualité & Benchmarks Moteur](#-assurance-qualité--benchmarks-moteur)
@@ -43,16 +43,16 @@ MetaKavita also features a **Plug & Play Community Scraper** architecture, allow
 
 ## 🇺🇸 English Documentation
 
-### 🎨 User Interface & Ergonomics (V1.6.0)
+### 🎨 User Interface & Ergonomics (V1.6.1)
 
 MetaKavita has been completely redesigned and heavily refined to separate background configuration from daily operational strategy, offering a zero-reload AJAX experience.
 
 #### 1. Main Dashboard & Workspace Persistence
-The interface uses a 100% AJAX layout with zero page reloads. The left sidebar handles active strategic options, while the main panel presents your library. Thanks to local storage persistence, the dashboard automatically remembers your selected library, status filter, hide ignored state, and search query between sessions.
+The interface uses a 100% AJAX layout with zero page reloads. The left sidebar handles active strategic options, while the main panel presents your library. Thanks to local storage persistence, the dashboard automatically remembers your selected library, status filter, hide ignored state, and search query between sessions. **Batch checkboxes** are also remembered per library (`mk_batch_selection:*`) so you can resume after a refresh or network drop.
 
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
 Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. API Keys for metadata providers are neatly grouped in a dedicated section directly under the Kavita connection settings.
-The left sidebar contains only the **Scraping Options** card for quick tactical switches (Smart Completion, Auto-Covers, Auto-Reading Direction, Force Update, Context Reset) and the download button for your error reports.
+The left sidebar contains the **Scraping Options** card (Smart Scoring, Smart Completion, Auto-Covers, Auto-Reading Direction, Force Update, Context Reset), a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
 
 #### 3. Unified Filtering & Central Toolbar
 The Library Selector, Search bar, and Status Filter are consolidated into a single horizontal toolbar. This puts all target controls on one cohesive line.
@@ -64,20 +64,23 @@ Each series has an advanced Options panel and relies on a powerful underlying sc
 *   **Smart Scoring (v1.6+)**: Configured providers are scored against each other — the best match wins (ties keep your fallback order). Provider #1 runs first to seed ISBN/author context, then the others run in parallel. With Smart Completion enabled, missing fields are filled from highest score to lowest.
 *   **The "Magic Input" (Smart URL/ID Routing)**: Paste a direct URL (e.g., `https://kitsu.io/manga/attack-on-titan` or a Manga-News link) or a raw ID into this field. MetaKavita will auto-detect the provider, bypass the standard search cascade, and scrape that exact page!
 *   **Publisher Preference Toggle**: A dedicated segmented control allows you to force a specific publisher preference (`Auto` | `VF/VA` | `VO`) per series, overriding the global configuration.
-*   **Granular Scraping (Targeted Fields)**: Click the "⚙️ Targeted Fields" details menu to individually uncheck specific metadata fields (Summary, Cover, Authors, Tags, Publisher, etc.) you don't want MetaKavita to overwrite.
+*   **Granular Scraping (Targeted Fields)**: Click the "⚙️ Targeted Fields" details menu to individually uncheck specific metadata fields (Summary, Cover, Authors, Tags, Publisher, etc.) you don't want MetaKavita to overwrite. **Check all / Uncheck all** shortcuts are available here and on the sidebar batch mask.
 *   **Context Reset on Force Update**: When forcing an update on a mismatched series, a sidebar toggle allows you to completely wipe the existing Kavita context (including the existing ISBN) to break negative feedback loops and start fresh.
 
 #### 5. Live WebSocket Cover Streaming (*Progressive Loading*)
 Manual cover searches stream image results live over WebSockets (`Socket.IO`) as each provider responds, rather than blocking until all scrapers finish. Selecting a cover manually automatically unchecks the global `AUTO_COVER` field for that series to permanently lock your choice and protect it against background sync overwrites.
 
-#### 6. Live Processing Tracker & WS Logs
-During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. Badge statuses update dynamically on completion. The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
+#### 6. Live Processing Tracker, KPIs & WS Logs
+During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. Badge statuses update dynamically on completion; successful series **auto-uncheck** so you can relaunch the remaining selection. The topbar shows live lifetime counters (enriched / matches / misses) plus a **session** counter (resets when the tab closes). The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
+
+#### 7. Playful Statistics (`/stats`)
+Optional fun dashboard (enabled by default via `ENABLE_PLAYFUL_STATS`): Chart.js donuts/bars, lifetime hit-rate, and ~24 playful cards derived from lifetime enrichment counters (stable even if series leave Kavita).
 
 ---
 
 ### 📚 Enriched Metadata Fields
 
-MetaKavita adapts its scraping strategy depending on Kavita's library types (`Manga`, `Comic`, `Book`) and maps the following metadata fields directly into Kavita's database structure:
+MetaKavita adapts its scraping strategy depending on Kavita's library types (`Manga`, `Comic`, `ComicFlexible`, `Book`) and maps the following metadata fields directly into Kavita's database structure:
 
 | Category | Metadata Fields | Mapped Source Details |
 | :--- | :--- | :--- |
@@ -128,6 +131,9 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Configurable Tag & Genre Caps (v1.6+)**: `MAX_TAGS` (default 15) and `MAX_GENRES` (default 5) via env / `config.json` — applied in official scrapers and as a safety net in `enrichment_engine`. No UI (power-user).
 *   **Application Audit Hardening (v1.6+)**: Cover/proxy SSRF allowlists (incl. private IPs + safe re-validated redirects), cover-modal XSS hardening, CSRF on mutating POSTs, forced-ID `fallback_query` retry, external-IDs GET-merge, Help/About with Kavita+ support links, and related Critical/High/Medium fixes (see `CHANGELOG.md` BF20–BF45 + C50–C53).
 *   **Localized Titles Policy (v1.6+, issue #12)**: Config modal + env for `LOCALIZED_TITLE_MODE`/`LANGS`; per-series `alt_title_langs`; AniList/MangaDex/Kitsu structured `titles[]`. Controls Kavita `localizedName` only — never rewrites `name`.
+*   **Comic Flexible (v1.6.1, C35)**: Kavita library type ID 5 uses Comic providers first, then Manga providers if no useful hit; cover search unions both families.
+*   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
+*   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck for resume-friendly batches.
 
 ---
 
@@ -206,16 +212,19 @@ docker compose up -d --build
 | `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | How to build Kavita `localizedName`: `all` (join unique titles with `" / "`), `prefer` (filter/order by `LOCALIZED_TITLE_LANGS`), `none` (do not write). Never rewrites Series `name`. Also in Config modal. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Comma-separated BCP-47-ish tags when mode is `prefer` (e.g. `en, ja-ro, ja`). Order = priority. Per-series override via `alt_title_langs`. | *(Empty)* |
-| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`). | `MANGABAKA` |
+| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
 | `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
 | `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
-| `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`). | `COMICVINE` |
+| `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Fallback comic source 1. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Fallback comic source 2. | `NONE` |
-| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `WIKIDATA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Fallback book source 1. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Fallback book source 2. | `NONE` |
 | `SMART_SCORING`   | Enable Smart Scoring — best match wins (`true` or `false`). Off = classic list-order fallback. | `true` |
+| `MATCH_THRESHOLD_CUSTOM` | Unlock custom match accept threshold (Reliability barometer). Off = always `0.60`. | `false` |
+| `MATCH_ACCEPT_THRESHOLD` | Accept threshold when custom is on (`0.30`–`1.00`). Ignored when custom is off. | `0.60` |
+| `ENABLE_PLAYFUL_STATS` | Show playful `/stats` dashboard (Chart.js + fun cards). | `true` |
 | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
@@ -301,18 +310,18 @@ The presence of built-in security features **does not guarantee absolute immunit
 
 ## 🇫🇷 Documentation Française
 
-### 🎨 Interface Utilisateur & Ergonomie (V1.6.0)
+### 🎨 Interface Utilisateur & Ergonomie (V1.6.1)
 
 MetaKavita a été entièrement repensé et peaufiné pour séparer la configuration technique de la stratégie de scraping opérationnelle, tout en offrant une navigation fluide sans rechargements de page (AJAX).
 
 #### 1. Tableau de Bord & Persistance de l'Espace de Travail
-L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la stratégie active tandis que le panneau central affiche tes œuvres. Grâce au stockage local (`localStorage`), le tableau de bord se souvient automatiquement de tes filtres (bibliothèque sélectionnée, tri de statut, barre de recherche et masquage des ignorés) d'une session à l'autre.
+L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la stratégie active tandis que le panneau central affiche tes œuvres. Grâce au stockage local (`localStorage`), le tableau de bord se souvient automatiquement de tes filtres (bibliothèque sélectionnée, tri de statut, barre de recherche et masquage des ignorés) d'une session à l'autre. Les **cases du batch** sont aussi mémorisées par bibliothèque (`mk_batch_selection:*`) pour reprendre après un refresh ou une coupure réseau.
 
 ![Tableau de bord MetaKavita](./assets/dashboard.png)
 
 #### 2. Architecture Double-Formulaire (Modal + Sidebar)
 Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement. Les clés d'API des fournisseurs sont proprement regroupées dans un bloc dédié sous la connexion Kavita.
-La barre latérale ne contient plus que la carte **Options de Scraping** (Fusion intelligente, Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte) et l'export des erreurs.
+La barre latérale contient la carte **Options de Scraping** (Smart Scoring, Complétion intelligente, Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte), un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
 
 #### 3. Filtrage Unifié & Toolbar Centrale
 Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut sont regroupés dans une seule barre d'outils centrale. Toutes les commandes de ciblage se situent ainsi sur une même ligne horizontale cohérente.
@@ -324,21 +333,24 @@ Chaque série dispose d'un volet d'options avancées reposant sur un puissant mo
 *   **Smart Scoring (v1.6+)** : les fournisseurs configurés sont comparés entre eux — le meilleur match gagne (égalité → ordre de fallback). Le provider #1 tourne d'abord pour amorcer le contexte ISBN/auteurs, puis les autres en parallèle. Avec la Complétion intelligente, les champs manquants sont comblés du score le plus haut au plus bas.
 *   **Le "Champ Magique" (Routage URL & ID)** : Collez une URL directe (ex: `https://mangabaka.org/1234` ou une fiche Manga-News), un slug ou un ID pur dans ce champ. MetaKavita détectera automatiquement le site, contournera la cascade habituelle, et ciblera cette page exacte !
 *   **Préférence d'Éditeur (VF/VA vs VO)** : Un interrupteur (pilule) permet d'imposer individuellement à une série la recherche de son éditeur localisé/traduit ou d'origine (Japonais).
-*   **Scraping Granulaire (Champs Ciblés)** : Cliquez sur le menu "⚙️ Champs Ciblés" pour décocher individuellement n'importe quelle métadonnée (Résumé, Couvertures, Auteurs, Éditeur, etc.) que vous souhaitez figer et protéger des modifications de MetaKavita.
+*   **Scraping Granulaire (Champs Ciblés)** : Cliquez sur le menu "⚙️ Champs Ciblés" pour décocher individuellement n'importe quelle métadonnée (Résumé, Couvertures, Auteurs, Éditeur, etc.) que vous souhaitez figer. Raccourcis **Tout cocher / Tout décocher** ici et sur le masque batch de la sidebar.
 *   **Purge absolue du Contexte (Force Update)** : Lors d'une mise à jour forcée, l'option "Effacer le contexte" permet de purger totalement l'ISBN et les auteurs existants de Kavita pour briser les boucles de faux-positifs et repartir d'une page blanche.
 
 #### 5. Streaming de Couvertures en Temps Réel (*Progressive Loading*)
 La recherche manuelle d'images envoie les cartes de couvertures en direct au fil de l'eau via WebSockets (`Socket.IO`) dès qu'un provider répond. 
 > 🔒 **Verrouillage Anti-Écrasement :** Appliquer une couverture manuelle depuis cette fenêtre décoche automatiquement l'option "Couverture" de l'œuvre. Cela fige votre choix définitivement et empêche l'Auto-Sync de l'écraser plus tard.
 
-#### 6. Suivi Live & Logs WebSockets
-Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Les badges de statut se mettent à jour dynamiquement. La console affiche en temps réel des logs épurés et lisibles envoyés via WebSockets.
+#### 6. Suivi Live, KPI & Logs WebSockets
+Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Les badges se mettent à jour dynamiquement ; une série OK se **décoche** pour pouvoir relancer le reste. La topbar affiche les compteurs lifetime (enrichies / matchs / ratés) plus un compteur **session** (remis à 0 à la fermeture de l’onglet). La console affiche en temps réel des logs épurés via WebSockets.
+
+#### 7. Statistiques ludiques (`/stats`)
+Tableau de bord optionnel (activé par défaut via `ENABLE_PLAYFUL_STATS`) : donuts/barres Chart.js, taux de hit lifetime, et ~24 cartes fun basées sur les compteurs d’enrichissement lifetime (stables même si des séries quittent Kavita).
 
 ---
 
 ### 📚 Métadonnées Enrichies
 
-MetaKavita traite et verrouille automatiquement les champs de métadonnées suivants directement dans la structure de données de Kavita selon le type de bibliothèque (`Manga`, `Comic`, `Book`) :
+MetaKavita traite et verrouille automatiquement les champs de métadonnées suivants directement dans la structure de données de Kavita selon le type de bibliothèque (`Manga`, `Comic`, `ComicFlexible`, `Book`) :
 
 | Catégorie | Métadonnée Kavita | Détails de la source mappée |
 | :--- | :--- | :--- |
@@ -389,6 +401,9 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Plafonds Tags & Genres configurables (v1.6+)** : `MAX_TAGS` (défaut 15) et `MAX_GENRES` (défaut 5) via env / `config.json` — appliqués dans les scrapers officiels et en filet dans `enrichment_engine`. Pas d'UI (power-user).
 *   **Durcissement suite audit applicatif (v1.6+)** : allowlists SSRF couverture/proxy (IPs privées + redirects re-validés), XSS modal couvertures, CSRF sur POST mutatifs, retry `fallback_query` après ID forcé, GET-merge des IDs externes, menu Aide / À propos avec liens Kavita+, et correctifs Critical/High/Medium associés (voir `CHANGELOG.md` BF20–BF45 + C50–C53).
 *   **Politique des titres localisés (v1.6+, issue #12)** : modal Config + env `LOCALIZED_TITLE_MODE`/`LANGS` ; override `alt_title_langs` par série ; `titles[]` structurés AniList/MangaDex/Kitsu. Contrôle uniquement `localizedName` — jamais de réécriture de `name`.
+*   **Comic Flexible (v1.6.1, C35)** : l’ID Kavita 5 utilise d’abord les providers Comic, puis Manga si aucun hit utile ; recherche de couvertures = union des deux familles.
+*   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
+*   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto de la sélection pour des lots reprise-friendly.
 
 ---
 
@@ -467,16 +482,19 @@ docker compose up -d --build
 | `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | Construction de Kavita `localizedName` : `all` (joindre les titres uniques avec `" / "`), `prefer` (filtre/ordre via `LOCALIZED_TITLE_LANGS`), `none` (ne pas écrire). Ne réécrit jamais Series `name`. Aussi dans la modal Config. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Tags BCP-47-ish séparés par des virgules en mode `prefer` (ex. `en, ja-ro, ja`). Ordre = priorité. Override par série via `alt_title_langs`. | *(Vide)* |
-| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`). | `MANGABAKA` |
+| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
 | `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
 | `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
-| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`). | `COMICVINE` |
+| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
-| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `WIKIDATA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
 | `SMART_SCORING`   | Activer le Smart Scoring — meilleur match (`true` ou `false`). Off = fallback classique par ordre de liste. | `true` |
+| `MATCH_THRESHOLD_CUSTOM` | Déverrouiller le seuil de match personnalisé (Baromètre de fiabilité). Off = toujours `0.60`. | `false` |
+| `MATCH_ACCEPT_THRESHOLD` | Seuil d'acceptation si custom ON (`0.30`–`1.00`). Ignoré si custom OFF. | `0.60` |
+| `ENABLE_PLAYFUL_STATS` | Afficher le tableau `/stats` ludique (Chart.js + cartes fun). | `true` |
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |

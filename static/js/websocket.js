@@ -55,10 +55,12 @@ socket.on('log_update', function(msg) {
                             item.dataset.status = 'COMPLETED';
                             badge.className = 'badge badge-completed';
                             badge.innerText = window.AppTranslations.filter_completed;
+                            uncheckSeriesForBatchResume(item);
                         } else if (msg.data.includes('⏭️') || msg.data.includes('déjà à jour') || msg.data.includes('already up to date')) {
                             item.dataset.status = 'COMPLETED';
                             badge.className = 'badge badge-completed';
                             badge.innerText = window.AppTranslations.filter_completed;
+                            uncheckSeriesForBatchResume(item);
                         } else if (msg.data.includes('introuvable') || msg.data.includes('Aucun résultat') || msg.data.includes('No results')) {
                             item.dataset.status = 'NOT_FOUND';
                             badge.className = 'badge badge-notfound';
@@ -72,3 +74,60 @@ socket.on('log_update', function(msg) {
         console.error("[WebSockets] Erreur Live Highlight :", e);
     }
 });
+
+/** QoS batch : une série OK se décoche pour pouvoir relancer le lot sans re-scraper les déjà faits. */
+function uncheckSeriesForBatchResume(item) {
+    if (!item) return;
+    const cb = item.querySelector('.series-cb');
+    if (cb) cb.checked = false;
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) selectAll.checked = false;
+    if (typeof saveBatchSelection === 'function') {
+        saveBatchSelection();
+    }
+}
+
+// Compteurs lifetime + session (reset à la fermeture de l'onglet via sessionStorage)
+(function initLiveKpis() {
+    var enrichedEl = document.getElementById('kpiEnriched');
+    var matchesEl = document.getElementById('kpiMatches');
+    var missedEl = document.getElementById('kpiMissed');
+    var sessionEl = document.getElementById('kpiSession');
+    if (!sessionEl) return;
+
+    var SESSION_KEY = 'mk_session_processed';
+    var sessionCount = parseInt(sessionStorage.getItem(SESSION_KEY) || '0', 10);
+    if (isNaN(sessionCount) || sessionCount < 0) sessionCount = 0;
+    sessionEl.textContent = String(sessionCount);
+
+    function applyLifetime(life) {
+        if (!life) return;
+        if (enrichedEl) enrichedEl.textContent = String(life.series_enriched || 0);
+        if (matchesEl) matchesEl.textContent = String(life.matches_won || 0);
+        if (missedEl) missedEl.textContent = String(life.series_missed || 0);
+    }
+
+    function bump(el, delta) {
+        if (!el || !delta) return;
+        var cur = parseInt(el.textContent || '0', 10);
+        if (isNaN(cur)) cur = 0;
+        el.textContent = String(cur + delta);
+    }
+
+    socket.on('enrichment_stats', function(payload) {
+        if (!payload) return;
+        if (payload.lifetime) {
+            applyLifetime(payload.lifetime);
+        } else {
+            bump(enrichedEl, payload.series_enriched_delta || 0);
+            bump(matchesEl, payload.matches_won_delta || 0);
+            bump(missedEl, payload.series_missed_delta || 0);
+        }
+        var processed = (payload.series_enriched_delta || 0) + (payload.series_missed_delta || 0);
+        if (processed > 0) {
+            sessionCount += processed;
+            sessionStorage.setItem(SESSION_KEY, String(sessionCount));
+            sessionEl.textContent = String(sessionCount);
+        }
+    });
+})();

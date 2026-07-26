@@ -10,11 +10,12 @@ import logging
 from flask import Blueprint, request, render_template
 
 from config_manager import load_config, get_kavita_ui_url, get_kavita_plus_url
-from db_manager import get_all_cached_data, clean_orphaned_cache
+from db_manager import get_all_cached_data, clean_orphaned_cache, get_provider_stats, get_lifetime_stats
 from kavita_api import KavitaAPI
 from translations import translations
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
+from services.stats_service import compute_playful_stats
 
 pages_bp = Blueprint('pages', __name__)
 
@@ -90,6 +91,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
                            t=t, stats=stats,
+                           lifetime=get_lifetime_stats(),
                            kavita_ui_url=get_kavita_ui_url(config),
                            kavita_plus_url=get_kavita_plus_url(config),
                            manga_providers=manga_providers,
@@ -119,6 +121,24 @@ def stats():
     ui_lang = config.get('UI_LANG', 'fr')
     t = translations.get(ui_lang, translations['fr'])
 
-    return render_template('stats.html', config=config, t=t,
-                           total=total, completed=completed,
-                           pending=pending, not_found=not_found, ignored=ignored)
+    playful_enabled = bool(config.get('ENABLE_PLAYFUL_STATS', True))
+    playful = None
+    if playful_enabled:
+        playful = compute_playful_stats(
+            cached_data,
+            get_provider_stats(),
+            get_lifetime_stats(),
+        )
+
+    return render_template(
+        'stats.html',
+        config=config,
+        t=t,
+        total=total,
+        completed=completed,
+        pending=pending,
+        not_found=not_found,
+        ignored=ignored,
+        playful_enabled=playful_enabled,
+        playful=playful,
+    )

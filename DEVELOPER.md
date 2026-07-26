@@ -9,7 +9,7 @@ This guide is designed for developers and AI assistants wishing to understand, m
    * [1. Global Architecture & Security](#1-global-architecture--security)
    * [2. High-Speed Throttling & Rate-Limiting Architecture](#2-high-speed-throttling--rate-limiting-architecture)
    * [3. Reverse Proxy & Subpath Architecture](#3-reverse-proxy--subpath-architecture)
-   * [4. Frontend Mechanics & WebSocket Stream IDs](#4-frontend-mechanics--websocket-stream-ids)
+   * [4. Frontend Mechanics, Batch QoS & WebSockets](#4-frontend-mechanics-batch-qos--websockets)
    * [5. Sideloading Scrapers & Auto-Discovery Registry](#5-sideloading-scrapers--auto-discovery-registry)
    * [6. Deep Extraction, Publisher QoS & Unified Scoring](#6-deep-extraction-publisher-qos--unified-scoring)
    * [7. Active Scraper Ecosystem (V1.5.7)](#7-active-scraper-ecosystem-v157)
@@ -22,7 +22,7 @@ This guide is designed for developers and AI assistants wishing to understand, m
    * [1. Architecture Globale & Sécurité](#1-architecture-globale--sécurité-1)
    * [2. Moteur de Throttling & Régulation Dynamique](#2-moteur-de-throttling--régulation-dynamique-1)
    * [3. Architecture Reverse Proxy & Sous-dossiers](#3-architecture-reverse-proxy--sous-dossiers-1)
-   * [4. Mécanismes Frontend & Jetons WebSockets](#4-mécanismes-frontend--jetons-websockets-1)
+   * [4. Frontend, QoS Batch & WebSockets](#4-frontend-qos-batch--websockets-1)
    * [5. Sideloading de Scrapers & Auto-Découverte](#5-sideloading-de-scrapers--auto-découverte-1)
    * [6. Extraction Profonde, QoS Éditeurs & Scoring](#6-extraction-profonde-qos-éditeurs--scoring-1)
    * [7. Écosystème des Scrapers Actifs (V1.5.7)](#7-écosystème-des-scrapers-actifs-v157-1)
@@ -70,14 +70,28 @@ Reverse proxy headers (`X-Forwarded-Prefix`) are processed via Werkzeug's `Proxy
 
 ---
 
-### 4. Frontend Mechanics & WebSocket Stream IDs
+### 4. Frontend Mechanics, Batch QoS & WebSockets
 
-#### A. Live Cover Streaming & Race Conditions
+#### A. Live Cover Streaming
 Manual cover searches stream image results live over WebSockets via `socketio.start_background_task` and `socketio.sleep(0)`.
-To prevent **Race Conditions** where slow scrapers from a previous search resolve late and pollute the user's currently active search, MetaKavita uses a chronological `stream_id` token. The client explicitly rejects any incoming WS frame that doesn't carry the latest `stream_id`.
+Frames are filtered client-side by `series_id`. A chronological `stream_id` token (reject stale frames from a previous search on the same series) is the intended hardening documented historically for BF11 — **not yet implemented** in `covers.js` / `sockets/handlers.py`; do not assume it is present when debugging race conditions.
 
 #### B. Smart Auto-Cover Locking
 When a user manually selects a cover from the modal, the client instantly triggers an AJAX call to uncheck the specific "Cover" checkbox in the series override panel. This locks the manual choice and protects it from being overwritten by global `AUTO_COVER` tasks during the next batch.
+
+#### C. Batch selection persist & auto-uncheck (v1.6.1)
+* `static/js/batch.js` — `saveBatchSelection()` / `restoreBatchSelection()` store checked series IDs in `localStorage` under `mk_batch_selection:{libraryId|all}`. Filters hide rows without unchecking them.
+* `static/js/websocket.js` — on enrichment success (✅ / ⏭️), `uncheckSeriesForBatchResume()` clears the checkbox and updates storage.
+
+#### D. Ephemeral batch targeted-fields mask (v1.6.1)
+* Sidebar checkboxes `.batch-field-cb` → `getBatchTargetedFieldsMask()` (null if all 12 checked).
+* `POST /batch-sync` may include `targeted_fields`; worker unpacks a 3- or 4-tuple and passes `targeted_fields_override` to `enrich_series()`.
+* `resolve_active_fields()` in `services/enrichment_engine.py` — override primes over the series cache for that run only (write filter; providers are still fully scraped).
+
+#### E. Lifetime stats & live KPIs (v1.6.1 / C7)
+* SQLite `lifetime_stats` keys: `series_enriched`, `matches_won`, `series_missed` via `record_enrichment_telemetry` / `record_enrichment_miss`.
+* After record, `_broadcast_enrichment_stats` emits Socket.IO `enrichment_stats` with absolute `lifetime` + deltas.
+* Topbar KPIs + session counter (`sessionStorage` key `mk_session_processed`) in `websocket.js`. Playful `/stats` uses `services/stats_service.py` + Chart.js.
 
 ---
 
@@ -209,6 +223,7 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 | `MANGAUPDATES`| MangaUpdates | Manga | `hit_title` matching, Publisher Preference support. |
 | `OPENLIBRARY` | Open Library | Book, Comic | ISBN support, anti-429 retries, Google Disclaimer bypass. |
 | `SHIKIMORI` | Shikimori | Manga | Multilingual title matching, `/roles` staff extraction. |
+| `WIKIDATA` | Wikidata | Manga, Comic, Book | SPARQL + Entity API; Magic Input Q-id; shared `wikidata_map`. |
 
 ---
 
@@ -271,14 +286,15 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 *   **`kavita_constants.py`**: single source of truth for Kavita enum mappings (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) and raw-provider-status normalization (`normalize_provider_status()`, used by `scrapers/mangabaka.py`). Add new enum mappings here, never inline in a route or scraper.
 *   **`models.py`**: `SeriesOverride` dataclass, the typed contract for per-series overrides (forced ID/provider, alternative title, targeted fields, publisher preference, `alt_title_langs`). Prefer `db_manager.save_series_override(SeriesOverride(...))` (named fields) over the legacy positional `save_forced_overrides(...)` wrapper in any new code — this is a direct, structural mitigation for the class of bug described in §11.C.
 *   **`extensions.py`**: the shared `socketio = SocketIO()` instance (created without an app, `init_app(app)`'d once in `app.py`). Import from here — never from `app.py` — in any module that needs to emit events or declare `@socketio.on(...)` handlers, to avoid circular imports.
-*   **`services/enrichment_engine.py`**: `enrich_series(series_id, series_name, force_update)`, the extracted former `process_series_logic()`. Pure orchestration logic — scraping, field mapping, Kavita calls — with zero dependency on Flask or `app.py`.
-*   **`services/background_tasks.py`**: the daemon workers (`sync_queue` consumer + periodic auto-sync poller) and `start_background_workers()`, called once from `app.py` at import time (unchanged single-worker-process behavior, required for Gunicorn `-w 1`).
+*   **`services/enrichment_engine.py`**: `enrich_series(series_id, series_name, force_update, targeted_fields_override=None)`, the extracted former `process_series_logic()`. Pure orchestration — scraping, field mapping, Kavita calls, lifetime telemetry broadcast — with zero dependency on Flask or `app.py`.
+*   **`services/background_tasks.py`**: the daemon workers (`sync_queue` consumer + periodic auto-sync poller) and `start_background_workers()`, called once from `app.py` at import time (unchanged single-worker-process behavior, required for Gunicorn `-w 1`). Queue items are 3-tuples `(id, name, force)` or 4-tuples with ephemeral `targeted_fields`.
+*   **`services/stats_service.py`**: playful `/stats` metrics + Chart.js payload from lifetime counters + cache snapshot.
 *   **`services/changelog_service.py`**: `get_app_version()` / `get_current_version()` (cached) / `get_full_changelog_html()`. Imported independently by both `app.py` (global template context) and `routes/misc.py` (`/api/changelog`) — importing from here instead of from each other avoids a circular import.
 *   **`routes/*.py`**: one Flask Blueprint per domain — `auth` (`/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, cover search/apply), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `misc` (`/api/proxy-image`, `/api/changelog`).
 *   **`sockets/handlers.py`**: the two Socket.IO event handlers (`connect`, `fetch_covers_stream`), registered by decorating the shared `extensions.socketio` instance; imported once for side effects from `app.py`.
 *   **`static/js/*.js`**: the former monolithic `script.js` is now 7 plain `<script>` files loaded in dependency order (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). No bundler and no `type="module"` on purpose: templates rely on inline `onclick="..."` handlers, which require every function to stay in the global scope.
 *   **`templates/partials/*.html`**: the former monolithic `index.html` is now a thin shell that `{% include %}`s six Jinja partials — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — one per self-contained UI region. Edit the relevant partial directly instead of scrolling through a single 600+ line template.
-*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + domain tests such as `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10. Also note shared helpers: `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
+*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + domain tests such as `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10. Also note shared helpers: `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
 ⚠️ **Blueprint endpoint names changed.** Flask always prefixes a Blueprint route's endpoint with the Blueprint's name (e.g. the `login` view in `routes/auth.py`, registered on the `auth` Blueprint, becomes endpoint `auth.login` — there is no way to opt out of this prefixing). Every `url_for(...)` call and the `request.endpoint in [...]` whitelist in `app.py::require_login()` were updated accordingly (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **If you rename a Blueprint or move a route to a different Blueprint, grep for its old endpoint string across `app.py` and every `.html` template before assuming `url_for()` still resolves.**
 
@@ -319,13 +335,28 @@ Le système gère les sous-chemins (ex: `https://domaine.com/metakavita`) via `P
 
 ---
 
-### 4. Mécanismes Frontend & Jetons WebSockets
+### 4. Frontend, QoS Batch & WebSockets
 
-#### A. WebSockets et Race Conditions
-Le streaming de couvertures envoie les images au fil de l'eau. Pour éviter qu'un scraper lent d'une ancienne recherche ne vienne polluer une nouvelle recherche, le système génère un jeton chronologique `stream_id` pour chaque frappe. Le navigateur rejette silencieusement les images dont le jeton est périmé.
+#### A. Streaming de couvertures
+Les recherches manuelles de couvertures streamment les images via `socketio.start_background_task` et `socketio.sleep(0)`.
+Les frames sont filtrées côté client par `series_id`. Un jeton chronologique `stream_id` (rejeter les frames d’une recherche précédente sur la même série) est le durcissement historiquement documenté pour BF11 — **pas encore implémenté** dans `covers.js` / `sockets/handlers.py` ; ne pas l’assumer en debug de courses.
 
 #### B. Verrouillage Anti-Écrasement
 Appliquer une couverture manuellement via l'interface envoie un second signal AJAX qui décoche la case "Couverture" dans les options de la série. Cela protège la série en empêchant l'option globale `AUTO_COVER` de l'écraser lors des batchs ultérieurs.
+
+#### C. Persistance de sélection & décochage auto (v1.6.1)
+* `static/js/batch.js` — `saveBatchSelection()` / `restoreBatchSelection()` stockent les IDs cochés dans `localStorage` sous `mk_batch_selection:{libraryId|all}`. Les filtres masquent sans décocher.
+* `static/js/websocket.js` — en cas de succès (✅ / ⏭️), `uncheckSeriesForBatchResume()` décoche et met à jour le stockage.
+
+#### D. Masque éphémère de champs ciblés batch (v1.6.1)
+* Cases sidebar `.batch-field-cb` → `getBatchTargetedFieldsMask()` (null si les 12 sont cochées).
+* `POST /batch-sync` peut inclure `targeted_fields` ; le worker dépile un 3- ou 4-tuple et passe `targeted_fields_override` à `enrich_series()`.
+* `resolve_active_fields()` dans `services/enrichment_engine.py` — l’override prime sur le cache série pour ce run uniquement (filtre d’écriture ; les providers sont toujours scrapés en entier).
+
+#### E. Stats lifetime & KPI live (v1.6.1 / C7)
+* Clés SQLite `lifetime_stats` : `series_enriched`, `matches_won`, `series_missed` via `record_enrichment_telemetry` / `record_enrichment_miss`.
+* Après enregistrement, `_broadcast_enrichment_stats` émet Socket.IO `enrichment_stats` (lifetime absolu + deltas).
+* KPI topbar + compteur session (`sessionStorage` `mk_session_processed`) dans `websocket.js`. `/stats` ludique via `services/stats_service.py` + Chart.js.
 
 ---
 
@@ -521,13 +552,14 @@ Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage 
 *   **`kavita_constants.py`** : source unique de vérité pour les mappings d'énumération Kavita (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) et la normalisation des statuts bruts fournisseurs (`normalize_provider_status()`, utilisé par `scrapers/mangabaka.py`). Ajoutez tout nouveau mapping ici, jamais en ligne dans une route ou un scraper.
 *   **`models.py`** : la dataclass `SeriesOverride`, contrat typé des surcharges par série (ID/provider forcé, titre alternatif, champs ciblés, préférence d'éditeur, `alt_title_langs`). Préférez `db_manager.save_series_override(SeriesOverride(...))` (champs nommés) à l'ancien wrapper positionnel `save_forced_overrides(...)` dans tout nouveau code — c'est une mitigation structurelle directe de la classe de bug décrite au §11.C.
 *   **`extensions.py`** : l'instance partagée `socketio = SocketIO()` (créée sans app, `init_app(app)` appelé une seule fois dans `app.py`). Importez-la depuis ce module — jamais depuis `app.py` — dans tout module ayant besoin d'émettre des événements ou de déclarer des handlers `@socketio.on(...)`, pour éviter les imports circulaires.
-*   **`services/enrichment_engine.py`** : `enrich_series(series_id, series_name, force_update)`, extraction de l'ancien `process_series_logic()`. Logique d'orchestration pure (scraping, mapping des champs, appels Kavita) sans aucune dépendance vers Flask ni `app.py`.
-*   **`services/background_tasks.py`** : les workers démons (consommateur de `sync_queue` + polling d'auto-sync périodique) et `start_background_workers()`, appelé une seule fois par `app.py` au chargement du module (comportement inchangé, requis pour un déploiement Gunicorn à worker unique `-w 1`).
+*   **`services/enrichment_engine.py`** : `enrich_series(series_id, series_name, force_update, targeted_fields_override=None)`, extraction de l'ancien `process_series_logic()`. Logique d'orchestration pure (scraping, mapping des champs, appels Kavita, broadcast télémétrie lifetime) sans aucune dépendance vers Flask ni `app.py`.
+*   **`services/background_tasks.py`** : les workers démons (consommateur de `sync_queue` + polling d'auto-sync périodique) et `start_background_workers()`, appelé une seule fois par `app.py` au chargement du module (comportement inchangé, requis pour un déploiement Gunicorn à worker unique `-w 1`). Items de file : 3-tuples `(id, name, force)` ou 4-tuples avec `targeted_fields` éphémère.
+*   **`services/stats_service.py`** : métriques `/stats` ludiques + payload Chart.js à partir des compteurs lifetime + snapshot cache.
 *   **`services/changelog_service.py`** : `get_app_version()` / `get_current_version()` (mise en cache) / `get_full_changelog_html()`. Importé indépendamment par `app.py` (contexte global des templates) et par `routes/misc.py` (`/api/changelog`) — importer depuis ce module plutôt que l'un depuis l'autre évite un import circulaire.
 *   **`routes/*.py`** : un Blueprint Flask par domaine — `auth` (`/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, recherche/application de couverture), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `misc` (`/api/proxy-image`, `/api/changelog`).
 *   **`sockets/handlers.py`** : les deux handlers Socket.IO (`connect`, `fetch_covers_stream`), enregistrés en décorant l'instance partagée `extensions.socketio` ; importé une seule fois pour son effet de bord depuis `app.py`.
 *   **`static/js/*.js`** : l'ancien `script.js` monolithique est désormais découpé en 7 fichiers `<script>` classiques chargés dans l'ordre de dépendance (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). Volontairement sans bundler ni `type="module"` : les templates s'appuient sur des gestionnaires `onclick="..."` inline, qui exigent que chaque fonction reste en portée globale.
 *   **`templates/partials/*.html`** : l'ancien `index.html` monolithique est désormais une coquille légère qui `{% include %}` six partials Jinja — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — un par zone d'UI autonome. Modifiez directement le partial concerné plutôt que de faire défiler un template unique de 600+ lignes.
-*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + tests métier dont `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10. Helpers partagés : `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
+*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + tests métier dont `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10. Helpers partagés : `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
 ⚠️ **Les noms d'endpoints des Blueprints ont changé.** Flask préfixe toujours l'endpoint d'une route de Blueprint par le nom du Blueprint (ex : la vue `login` de `routes/auth.py`, enregistrée sur le Blueprint `auth`, devient l'endpoint `auth.login` — impossible de désactiver ce préfixage). Chaque appel `url_for(...)` et la liste blanche `request.endpoint in [...]` de `app.py::require_login()` ont été mis à jour en conséquence (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **Si vous renommez un Blueprint ou déplacez une route vers un autre Blueprint, recherchez son ancien nom d'endpoint dans `app.py` et dans chaque template `.html` avant de supposer que `url_for()` fonctionne toujours.**

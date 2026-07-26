@@ -15,7 +15,8 @@ class _ScraperRegistry:
         # 1. Charger les scrapers officiels (Inclus dans l'image Docker)
         current_dir = os.path.dirname(__file__)
         for filename in os.listdir(current_dir):
-            if filename.endswith(".py") and filename not in ["__init__.py", "base.py", "utils.py"]:
+            skip = {"__init__.py", "base.py", "utils.py", "wikidata_map.py"}
+            if filename.endswith(".py") and filename not in skip:
                 module_name = f"scrapers.{filename[:-3]}"
                 self._load_module_by_name(module_name)
 
@@ -87,6 +88,14 @@ class _ScraperRegistry:
         return self._scrapers.get(scraper_id)
 
     def get_by_type(self, lib_type: str) -> list:
+        # C35 : Comic (Flexible) = union Comic + Manga (dédupliquée par id)
+        if lib_type == "ComicFlexible":
+            seen = {}
+            for s in list(self._scrapers.values()):
+                if "Comic" in s.supported_types or "Manga" in s.supported_types:
+                    seen[s.id] = s
+            return sorted(seen.values(), key=lambda x: x.display_name)
+
         scrapers = [s for s in self._scrapers.values() if lib_type in s.supported_types]
         return sorted(scrapers, key=lambda x: x.display_name)
 

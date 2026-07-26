@@ -15,7 +15,13 @@ import logging
 import threading
 
 from config_manager import load_config, get_max_tags, get_max_genres
-from db_manager import get_all_cached_data, update_status
+from db_manager import (
+    get_all_cached_data,
+    update_status,
+    record_enrichment_telemetry,
+    record_enrichment_miss,
+    get_lifetime_stats,
+)
 from translations import translations
 from translator import translate_text
 from kavita_api import KavitaAPI
@@ -39,12 +45,87 @@ from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kav
 _processing_lock = threading.Lock()
 _processing_series_ids = set()
 
+ALL_TARGETED_FIELDS = [
+    "summary", "cover", "staff", "genres", "tags", "year",
+    "status", "publisher", "age", "format", "weblinks", "alt_titles",
+]
 
-def enrich_series(series_id, series_name, force_update=False):
+
+def resolve_active_fields(targeted_fields_raw, override=None):
+    """
+    Résout la liste des champs Kavita à écrire.
+    `override` (masque batch éphémère) prime sur `targeted_fields_raw` (cache série).
+    """
+    raw = override if override is not None else targeted_fields_raw
+    if raw is None or raw == "" or raw == "ALL":
+        return list(ALL_TARGETED_FIELDS)
+    if raw == "NONE":
+        return []
+    return [f.strip() for f in str(raw).split(",") if f.strip()]
+
+
+def _broadcast_enrichment_stats(deltas):
+    """Pousse les compteurs lifetime vers le dashboard (Socket.IO)."""
+    try:
+        from extensions import socketio
+        payload = {
+            "series_enriched_delta": int((deltas or {}).get("series_enriched_delta", 0)),
+            "matches_won_delta": int((deltas or {}).get("matches_won_delta", 0)),
+            "series_missed_delta": int((deltas or {}).get("series_missed_delta", 0)),
+            "lifetime": get_lifetime_stats(),
+        }
+        socketio.emit("enrichment_stats", payload)
+    except Exception as exc:
+        logging.debug("enrichment_stats emit skipped: %s", exc)
+
+
+def _providers_from_config(config, library_type, series_name):
+    """Lit COMIC_/BOOK_/PROVIDER_* selon le type, avec auto-réparation si vide."""
+    if library_type == "Comic":
+        keys = ("COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3")
+        repair_type = "Comic"
+    elif library_type == "Book":
+        keys = ("BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3")
+        repair_type = "Book"
+    else:
+        keys = ("PROVIDER_1", "PROVIDER_2", "PROVIDER_3")
+        repair_type = "Manga"
+
+    raw = [config.get(k) for k in keys]
+    providers = [p for p in raw if p and p != "NONE" and ScraperRegistry.get(p)]
+
+    if not providers:
+        available = ScraperRegistry.get_by_type(repair_type)
+        if available:
+            providers = [available[0].id]
+            logging.warning(f"[{series_name}] ⚠️ Config invalide. Auto-réparation : utilisation de {providers[0]}")
+        else:
+            fallback = ScraperRegistry.get_by_type("Manga")
+            if fallback:
+                providers = [fallback[0].id]
+                logging.warning(f"[{series_name}] ⚠️ Config invalide. Secours absolu : utilisation de {providers[0]}")
+
+    return list(dict.fromkeys(providers))
+
+
+def _has_useful_provider_data(data):
+    """Même critère que metadata_fetcher.has_useful_data (sans importer le privé)."""
+    if not data:
+        return False
+    return bool(
+        data.get('summary') or data.get('genres') or data.get('cover_url')
+        or data.get('staff') or data.get('year')
+    )
+
+
+def enrich_series(series_id, series_name, force_update=False, targeted_fields_override=None):
     """
     Récupère les métadonnées existantes dans Kavita, scrape les fournisseurs
     externes configurés, applique les champs ciblés par l'utilisateur, puis
     envoie le résultat à Kavita (métadonnées, généralités, couverture).
+
+    `targeted_fields_override` : masque éphémère (ex. batch) qui prime sur le
+    `targeted_fields` persisté en cache pour CE run uniquement.
 
     Retourne un tuple (success: bool, message: str, used_providers: list).
     """
@@ -89,41 +170,15 @@ def enrich_series(series_id, series_name, force_update=False):
         is_forced_id = bool(forced_id)
 
         # --- Récupération des champs ciblés (Scraping Granulaire) ---
-        targeted_fields_raw = cache_data.get('targeted_fields', 'ALL')
-        if targeted_fields_raw == 'ALL':
-            active_fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles']
-        else:
-            active_fields = targeted_fields_raw.split(',')
+        active_fields = resolve_active_fields(
+            cache_data.get('targeted_fields', 'ALL'),
+            override=targeted_fields_override,
+        )
 
         # --- LECTURE DE LA CONFIGURATION UTILISATEUR ---
-        if library_type == "Comic":
-            p1 = config.get("COMIC_PROVIDER_1")
-            p2 = config.get("COMIC_PROVIDER_2")
-            p3 = config.get("COMIC_PROVIDER_3")
-        elif library_type == "Book":
-            p1 = config.get("BOOK_PROVIDER_1")
-            p2 = config.get("BOOK_PROVIDER_2")
-            p3 = config.get("BOOK_PROVIDER_3")
-        else:
-            p1 = config.get("PROVIDER_1")
-            p2 = config.get("PROVIDER_2")
-            p3 = config.get("PROVIDER_3")
-
-        # --- FILTRAGE DE SÉCURITÉ ET AUTO-RÉPARATION ---
-        raw_providers = [p for p in [p1, p2, p3] if p and p != "NONE" and ScraperRegistry.get(p)]
-
-        if not raw_providers:
-            available_for_type = ScraperRegistry.get_by_type(library_type)
-            if available_for_type:
-                raw_providers = [available_for_type[0].id]
-                logging.warning(f"[{series_name}] ⚠️ Config invalide. Auto-réparation : utilisation de {raw_providers[0]}")
-            else:
-                fallback = ScraperRegistry.get_by_type("Manga")
-                if fallback:
-                    raw_providers = [fallback[0].id]
-                    logging.warning(f"[{series_name}] ⚠️ Config invalide. Secours absolu : utilisation de {raw_providers[0]}")
-
-        providers_list = list(dict.fromkeys(raw_providers))
+        # ComicFlexible : vague Comic d'abord ; la vague Manga est construite plus bas si besoin.
+        provider_family = "Comic" if library_type in ("Comic", "ComicFlexible") else library_type
+        providers_list = _providers_from_config(config, provider_family, series_name)
 
         # --- OVERRIDE DU FOURNISSEUR & AUTO-DÉTECTION URL ---
         forced_provider = cache_data.get('forced_provider', 'AUTO')
@@ -184,21 +239,70 @@ def enrich_series(series_id, series_name, force_update=False):
 
         # --- APPEL DU SCRAPER ---
         from metadata_fetcher import fetch_metadata
+
+        # Type passé aux scrapers : ComicFlexible n'existe pas dans supported_types.
+        # Vague 1 = Comic (ou type natif) ; vague 2 Manga seulement pour Flexible sans forçage.
+        fetch_type = "Comic" if library_type == "ComicFlexible" else library_type
+        if forced_provider != 'AUTO' and forced_provider in ScraperRegistry._scrapers:
+            scraper = ScraperRegistry.get(forced_provider)
+            st = getattr(scraper, 'supported_types', set()) or set()
+            if library_type == "ComicFlexible":
+                if "Comic" in st:
+                    fetch_type = "Comic"
+                elif "Manga" in st:
+                    fetch_type = "Manga"
+
         provider_data, used_providers = fetch_metadata(
             search_query,
             providers_list,
             smart_completion,
             fallback_query=fallback_query,
-            library_type=library_type,
+            library_type=fetch_type,
             is_forced_id=is_forced_id,
             forced_provider=forced_provider,
             existing_metadata=existing_metadata,
             smart_scoring=smart_scoring,
         )
 
+        # C35 : Comic Flexible — si la vague Comic échoue et qu'aucun provider n'est forcé,
+        # bascule sur la cascade Manga (PROVIDER_*).
+        if (
+            library_type == "ComicFlexible"
+            and forced_provider == 'AUTO'
+            and not _has_useful_provider_data(provider_data)
+        ):
+            manga_providers = _providers_from_config(config, "Manga", series_name)
+            if is_forced_id and not (search_query.startswith('http://') or search_query.startswith('https://')):
+                manga_providers = [
+                    p for p in manga_providers
+                    if getattr(ScraperRegistry.get(p), 'has_direct_id_support', False)
+                ]
+            if manga_providers:
+                logging.info(
+                    t.get(
+                        'log_flexible_manga_fallback',
+                        "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1})."
+                    ).format(series_name, " > ".join(manga_providers))
+                )
+                manga_data, manga_used = fetch_metadata(
+                    search_query,
+                    manga_providers,
+                    smart_completion,
+                    fallback_query=fallback_query,
+                    library_type="Manga",
+                    is_forced_id=is_forced_id,
+                    forced_provider=forced_provider,
+                    existing_metadata=existing_metadata,
+                    smart_scoring=smart_scoring,
+                )
+                used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
+                if _has_useful_provider_data(manga_data):
+                    provider_data = manga_data
+
         if not provider_data:
             logging.warning(t.get('log_not_found').format(series_name, "API(s)"))
             update_status(series_id, 'NOT_FOUND')
+            _broadcast_enrichment_stats(record_enrichment_miss())
             return False, "Introuvable.", used_providers
 
         actual_provider = provider_data.pop('_provider_used', 'Inconnu')
@@ -412,6 +516,7 @@ def enrich_series(series_id, series_name, force_update=False):
                 logging.info(f"[{series_name}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps.")
 
             update_status(series_id, 'COMPLETED')
+            _broadcast_enrichment_stats(record_enrichment_telemetry(used_providers))
             return True, "Succès", used_providers
         elif success and not general_ok:
             logging.error(

@@ -27,6 +27,8 @@ NOISE_KEYWORDS = {
 # passent par score_candidate(), via cette constante partagée plutôt qu'un literal
 # recopié dans chaque fichier.
 MATCH_ACCEPT_THRESHOLD = 0.60
+MATCH_THRESHOLD_MIN = 0.30
+MATCH_THRESHOLD_MAX = 1.00
 
 # Clé interne (préfixée par "_" comme "_provider_used"/"_fusion_providers") sous laquelle
 # chaque scraper attache le score de score_candidate() au dict qu'il retourne. Consommée
@@ -34,6 +36,29 @@ MATCH_ACCEPT_THRESHOLD = 0.60
 # de plusieurs providers entre eux plutôt que de retenir aveuglément le premier de la
 # liste de fallback qui dépasse MATCH_ACCEPT_THRESHOLD (voir CODE_REVIEW.md / DEVELOPER.md).
 MATCH_SCORE_KEY = "_match_score"
+
+
+def get_match_accept_threshold(config=None) -> float:
+    """Seuil d'acceptation effectif (Baromètre de fiabilité).
+
+    - `MATCH_THRESHOLD_CUSTOM` faux (défaut) → toujours 0.60 (valeur validée).
+    - sinon → `MATCH_ACCEPT_THRESHOLD` clampé dans [0.30, 1.00].
+    """
+    if config is None:
+        try:
+            from config_manager import load_config
+            config = load_config()
+        except Exception:
+            return MATCH_ACCEPT_THRESHOLD
+    if not config.get("MATCH_THRESHOLD_CUSTOM"):
+        return MATCH_ACCEPT_THRESHOLD
+    try:
+        value = float(config.get("MATCH_ACCEPT_THRESHOLD", MATCH_ACCEPT_THRESHOLD))
+    except (TypeError, ValueError):
+        return MATCH_ACCEPT_THRESHOLD
+    if value != value:  # NaN
+        return MATCH_ACCEPT_THRESHOLD
+    return max(MATCH_THRESHOLD_MIN, min(MATCH_THRESHOLD_MAX, value))
 
 
 def attach_match_score(candidate: Optional[dict], score: float) -> Optional[dict]:
@@ -59,11 +84,11 @@ def attach_match_score(candidate: Optional[dict], score: float) -> Optional[dict
             raise TypeError("bool is not a valid match score")
         numeric = float(score)
         if numeric != numeric:  # NaN
-            numeric = MATCH_ACCEPT_THRESHOLD
+            numeric = get_match_accept_threshold()
         else:
             numeric = max(0.0, min(1.0, numeric))
     except (TypeError, ValueError):
-        numeric = MATCH_ACCEPT_THRESHOLD
+        numeric = get_match_accept_threshold()
     candidate[MATCH_SCORE_KEY] = numeric
     return candidate
 
@@ -128,11 +153,25 @@ def calculate_similarity(s1, s2):
             
     return ratio
 
+def library_type_for_scraper(scraper, detected_type: str) -> str:
+    """
+    Type à passer à fetch_covers / clean_title pour un scraper donné.
+    ComicFlexible n'existe pas dans supported_types : on mappe vers Comic ou Manga.
+    """
+    if detected_type != "ComicFlexible":
+        return detected_type
+    st = getattr(scraper, "supported_types", set()) or set()
+    if "Comic" in st:
+        return "Comic"
+    if "Manga" in st:
+        return "Manga"
+    return "Comic"
+
 def clean_title(title: str, library_type: str = "Manga") -> str:
     title = str(title)
     title = re.sub(r'(?i)\.(cbz|cbr|zip|rar|epub|pdf)$', '', title)
     
-    if library_type == "Comic":
+    if library_type in ("Comic", "ComicFlexible"):
         title = re.sub(r'(?<!\d)\.|\.(?!\d)', ' ', title)
         title = re.sub(r'\[.*?\]', '', title)
         title = re.sub(r'\((?!\d{4}\))[^\)]*?\)', '', title)

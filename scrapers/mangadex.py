@@ -3,7 +3,7 @@ import requests
 import re
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_tags
 
 class MangaDexScraper(BaseScraper):
@@ -200,7 +200,7 @@ class MangaDexScraper(BaseScraper):
                     best_score = score
                     best_match = candidate
 
-            if not best_match or best_score < MATCH_ACCEPT_THRESHOLD:
+            if not best_match or best_score < get_match_accept_threshold():
                 logging.warning(self.t("no_match").format(cleaned))
                 return None
 

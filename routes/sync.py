@@ -19,7 +19,12 @@ from config_manager import load_config
 from db_manager import get_all_cached_data, reset_errors
 from kavita_api import KavitaAPI
 from translations import translations
-from services.background_tasks import sync_queue
+from services.background_tasks import (
+    sync_queue,
+    set_batch_enqueue_enabled,
+    is_batch_enqueue_enabled,
+    drain_sync_queue,
+)
 from services.enrichment_engine import enrich_series
 
 sync_bp = Blueprint('sync', __name__)
@@ -45,9 +50,25 @@ def force_sync():
 @sync_bp.route('/batch-sync', methods=['POST'])
 def batch_sync():
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
+    # Premier paquet d'un nouveau batch : réarme l'acceptation après un Stop.
+    if request.form.get('resume_enqueue') == 'true':
+        set_batch_enqueue_enabled(True)
+    elif not is_batch_enqueue_enabled():
+        return jsonify(
+            success=False,
+            rejected=True,
+            msg=t.get('batch_stopped', "Batch arrêté."),
+        ), 409
+
     library_id = request.form.get('library_id')
     force_update = request.form.get('force_update') == 'true'
     selected_ids = request.form.getlist('selected_series')
+    raw_fields = request.form.get('targeted_fields')
+    fields_override = None
+    if raw_fields is not None:
+        cleaned = raw_fields.strip()
+        if cleaned and cleaned != 'ALL':
+            fields_override = cleaned
 
     lib_id = library_id if library_id and library_id != "" and library_id != "None" else None
 
@@ -74,13 +95,24 @@ def batch_sync():
     if not series_to_process:
         return jsonify(success=False, msg=t.get('err_no_sel_or_empty', "Aucune série à traiter."))
 
+    # Re-check après le travail I/O : un Stop a pu arriver pendant get_all_series.
+    if not is_batch_enqueue_enabled():
+        return jsonify(
+            success=False,
+            rejected=True,
+            msg=t.get('batch_stopped', "Batch arrêté."),
+        ), 409
+
     current_size = sync_queue.qsize()
     total_after_add = current_size + len(series_to_process)
     log_msg = t.get('log_batch_added', "🚀 {0} série(s) ajoutée(s) (Total : {1})")
     logging.info(log_msg.format(len(series_to_process), total_after_add))
 
     for s in series_to_process:
-        sync_queue.put((s['id'], s['name'], force_update))
+        if fields_override is not None:
+            sync_queue.put((s['id'], s['name'], force_update, fields_override))
+        else:
+            sync_queue.put((s['id'], s['name'], force_update))
 
     msg_added = t.get('batch_added').replace('{}', str(len(series_to_process)))
     return jsonify(success=True, msg=msg_added)
@@ -89,14 +121,10 @@ def batch_sync():
 @sync_bp.route('/stop-batch', methods=['POST'])
 def stop_batch():
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
-    while not sync_queue.empty():
-        try:
-            sync_queue.get_nowait()
-            sync_queue.task_done()
-        except queue.Empty:
-            break
-    logging.info(t.get('log_batch_stopped'))
-    return jsonify(success=True, msg=t.get('batch_stopped'))
+    set_batch_enqueue_enabled(False)
+    drained = drain_sync_queue()
+    logging.info(t.get('log_batch_stopped') + f" ({drained} en attente retirée(s))")
+    return jsonify(success=True, msg=t.get('batch_stopped'), drained=drained)
 
 
 @sync_bp.route('/export-errors', methods=['GET'])

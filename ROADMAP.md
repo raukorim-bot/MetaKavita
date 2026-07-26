@@ -21,15 +21,17 @@
 - [ ] **C30. Francophone Book Scrapers:** Integrate dedicated French literature sources (Babelio, SensCritique) without requiring API keys.
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
 - [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
-- [ ] **C35. Native "Comic (Flexible)" Support:** Build a dedicated hybrid cascade for Kavita's Library Type ID 5. Currently, it defaults to Comic or Manga behavior, but it should inherently support querying Comic providers first, then gracefully falling back to Manga providers if no matches are found.
-- [ ] **C7. Playful Statistics Dashboard (B12):** Display fun metrics on the `/stats` page, such as estimated time saved, estimated DeepL Translation costs avoided, and provider usage charts.
 - [ ] **C8. Resiliency & Rate-Limiting Control:** Add an automatic exponential backoff retry mechanism to prevent API blocks (429 errors) during very large batches.
-- [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Create a metadata provider capable of querying a local database export (e.g., massive SQLite/JSON dumps from AniList or OpenLibrary). Enables lightning-fast, 100% private enrichment without internet connectivity and absolute immunity to API rate-limiting.
+- [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) — deferred; live `WIKIDATA` provider ships without offline DB for now.
 - [ ] **C40. Support the Developer (Donations):** Add a non-intrusive "Buy Me a Coffee" or "Ko-fi" link in the GitHub README and the application's sidebar footer to allow the community to support the project.
 
 ---
 
-### ✨ Latest Releases (v1.5.6 to v1.6.0)
+### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **Wikidata live provider (v1.6.1):** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API; Magic Input Q-id; shared `wikidata_map`. Offline subset (C39) deferred.
+- [x] **C35. Native "Comic (Flexible)" Support (v1.6.1):** Kavita Library Type ID 5 is no longer flattened to Comic. Hybrid cascade: `COMIC_PROVIDER_*` first, then `PROVIDER_*` (Manga) if no useful hit. Cover search unions Comic + Manga scrapers.
+- [x] **C7. Playful Statistics Dashboard (v1.6.1):** Restyled `/stats` + Chart.js; lifetime `series_enriched` / `matches_won` / `series_missed` + hit-rate; live topbar KPIs + session counter; Socket.IO `enrichment_stats`; ~24 fun cards. `ENABLE_PLAYFUL_STATS` default ON.
+- [x] **Batch QoS & Granularity (v1.6.1):** Auto-uncheck on success; `localStorage` selection persist per library; ephemeral batch targeted-fields mask (sidebar `<details>`); Check all / Uncheck all (sidebar + per-series overrides); Stop aborts ×50 enqueue loop + server rejects late chunks; `/stats` scroll fix.
 - [x] **C45. Smart Scoring (v1.6.0):** Score-based provider winner selection + two-wave parallel execution (`SMART_SCORING` sidebar toggle), with community-scraper opt-in/`_safe_match_score` hardening.
 - [x] **C53. Localized Titles Policy (v1.6.0, issue #12):** Global `LOCALIZED_TITLE_MODE`/`LANGS` + per-series `alt_title_langs` for Kavita `localizedName` only (never rewrite `name`); structured `titles[]` on AniList/MangaDex/Kitsu; default remains multi-title `" / "` join.
 - [x] **C52. Topbar Help Menu — About & Documentation (v1.6.0):** Help dropdown with About modal, GitHub doc links, changelog shortcut; Kavita+ support positioning (About copy + topbar Kavita+ beside BMC → instance `settings#admin-kavitaplus`).
@@ -53,7 +55,7 @@
 - [x] **C43. Bulletproof SQLite Schema Migrations (v1.5.7):** Rewrote the database initialization logic (`_ensure_schema`) to gracefully handle column additions one by one without container crashes.
 - [x] **C44. Custom Scraper Guide & Vibecoding (v1.5.7):** Released `CUSTOM_SCRAPERS.md` containing strict integration rules and ready-to-use AI Prompts to help users generate their own scrapers.
 - [x] **BF10. Pure Base64 Cover Payload (v1.5.6):** Fixed the "Phantom Cover" syndrome where Kavita silently rejected `Data URI` image payloads. Reverted to pure Base64 strings for permanent disk writes.
-- [x] **BF11. WebSocket Race Condition & Priority (v1.5.6):** Implemented a `stream_id` token system for live cover streaming and restored manual input priority in the cover modal.
+- [x] **BF11. WebSocket Cover Stream Priority (v1.5.6):** Manual input priority restored in the cover modal; live cover frames are filtered by `series_id`. *(Note: chronological `stream_id` tokens are documented as intended hardening — not yet wired in client/server; tracked as a known gap.)*
 - [x] **BF12. Smart Auto-Cover Locking (v1.5.6):** Manually applying a cover from the modal now automatically unchecks the "Cover" targeted field to protect it from background sync overwrites.
 - [x] **BF13. True Context Reset (ISBN Purge) (v1.5.6):** Fixed a critical oversight where forcing an update with "Context Reset" still retained the Kavita ISBN, causing persistent false-positive matches. The ISBN is now properly purged to guarantee a true clean slate.
 
@@ -136,15 +138,17 @@
 - [ ] **C30. Scrapers Littéraires Francophones :** Intégrer des sources spécialisées en littérature française (Babelio, SensCritique) sans clé API.
 - [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
 - [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
-- [ ] **C35. Support natif du type "Comic (Flexible)" :** Créer une cascade hybride dédiée pour le type de bibliothèque ID 5 de Kavita. Actuellement, MetaKavita le traite comme un Comic ou un Manga strict, mais il devrait pouvoir interroger les sites de Comics puis basculer intelligemment sur les sites de Mangas en cas d'échec pour refléter la nature "flexible" du dossier.
-- [ ] **C7. Tableau de bord Statistiques ludique (B12) :** Ajout de métriques sur la page `/stats` (estimation du temps de recherche épargné, équivalent en euros économisé sur DeepL, graphiques de répartition par scrapers).
 - [ ] **C8. Gestion de la Résilience d'API :** Système de retry automatique avec attente exponentielle pour contourner le rate limiting lors des très gros batchs.
-- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Création d'un fournisseur de métadonnées interrogeant un export massif de base de données local (ex: dump SQLite/JSON d'AniList ou OpenLibrary). Permet un enrichissement ultra-rapide, 100% privé, sans connexion Internet et totalement immunisé contre le Rate-Limiting.
+- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel — reporté ; le provider live `WIKIDATA` est livré sans base offline pour l’instant.
 - [ ] **C40. Soutien au développeur (Dons) :** Ajouter un lien discret "Buy Me a Coffee" ou "Ko-fi" dans le README GitHub et le pied de page de l'interface pour permettre à la communauté de soutenir le projet.
 
 ---
 
-### ✨ Dernières Nouveautés (v1.5.6 à v1.6.0)
+### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **Provider Wikidata live (v1.6.1) :** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API ; Magic Input Q-id ; mapping partagé `wikidata_map`. Sous-ensemble hors-ligne (C39) reporté.
+- [x] **C35. Support natif "Comic (Flexible)" (v1.6.1) :** L'ID Kavita 5 n'est plus aplati en Comic. Cascade hybride : `COMIC_PROVIDER_*` d'abord, puis `PROVIDER_*` (Manga) si aucun hit utile. Recherche de couvertures = union Comic + Manga.
+- [x] **C7. Tableau de bord Statistiques ludiques (v1.6.1) :** `/stats` restylée + Chart.js ; compteurs lifetime séries/matchs/ratés + taux de hit ; KPI live topbar + session ; Socket.IO `enrichment_stats` ; ~24 cartes fun. `ENABLE_PLAYFUL_STATS` défaut ON.
+- [x] **QoS & granularité batch (v1.6.1) :** décochage auto si OK ; persistance sélection `localStorage` par bibliothèque ; masque champs ciblés batch éphémère (sidebar) ; Tout cocher / Tout décocher ; Stop coupe l’envoi ×50 + rejet des chunks tardifs ; scroll `/stats`.
 - [x] **C45. Smart Scoring (v1.6.0) :** Sélection du vainqueur par score + exécution en deux vagues (`SMART_SCORING`), avec opt-in scrapers communautaires / filet `_safe_match_score`.
 - [x] **C53. Politique des titres localisés (v1.6.0, issue #12) :** `LOCALIZED_TITLE_MODE`/`LANGS` globaux + `alt_title_langs` par série pour Kavita `localizedName` uniquement (jamais de réécriture de `name`) ; `titles[]` structurés AniList/MangaDex/Kitsu ; défaut = jointure multi-titres `" / "`.
 - [x] **C52. Menu Aide topbar — À propos & Documentation (v1.6.0) :** menu Aide avec modal À propos, liens docs GitHub, raccourci nouveautés ; positionnement Kavita+ (texte À propos + bouton topbar à côté du café → `settings#admin-kavitaplus` de l’instance).
@@ -168,7 +172,7 @@
 - [x] **C43. Migrations SQLite Sécurisées (v1.5.7) :** Initialisation robuste (`_ensure_schema`) ajoutant les colonnes manquantes sans provoquer de crash HTTP 500.
 - [x] **C44. Guide Scrapers & Vibecoding (v1.5.7) :** Publication de `CUSTOM_SCRAPERS.md` incluant les règles d'intégration et les Prompts IA prêts à l'emploi.
 - [x] **BF10. Payload Base64 Pur (v1.5.6) :** Résolution du bug des "couvertures fantômes" où Kavita rejetait les images *Data URI*. Envoi en Base64 pur pour forcer l'écriture permanente sur le disque dur.
-- [x] **BF11. Priorité & Race Condition WebSockets (v1.5.6) :** Ajout d'un jeton `stream_id` pour le chargement des couvertures et restauration de la priorité du texte saisi manuellement dans la modal.
+- [x] **BF11. Priorité streaming couvertures WebSockets (v1.5.6) :** priorité de la saisie manuelle dans la modal ; filtrage des frames live par `series_id`. *(Note : les jetons chronologiques `stream_id` sont documentés comme durcissement prévu — pas encore branchés client/serveur ; écart connu.)*
 - [x] **BF12. Verrouillage Anti-Écrasement (v1.5.6) :** Appliquer une couverture manuellement décoche désormais automatiquement le champ "Couverture" de la série pour la protéger contre les futures synchronisations.
 - [x] **BF13. Véritable Purge du Contexte (ISBN) (v1.5.6) :** Correction critique purgeant réellement l'ISBN lors d'une réinitialisation de contexte pour éviter les boucles de faux-positifs lors du forçage de métadonnées.
 

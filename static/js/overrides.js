@@ -1,7 +1,34 @@
 // --- SURCHARGES PAR SÉRIE (ID/URL forcé, titre alternatif, champs ciblés, provider) ---
 // Dépend de utils.js (getRootPath).
 
+const TARGETED_FIELD_KEYS = [
+    'summary', 'cover', 'staff', 'genres', 'tags', 'year',
+    'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'
+];
+
 let allPanelsExpanded = false; // Mémorise l'état global du déploiement des options
+
+function setSeriesTargetedFields(seriesId, checked) {
+    TARGETED_FIELD_KEYS.forEach(f => {
+        const cb = document.getElementById(`field-${f}-${seriesId}`);
+        if (cb) cb.checked = !!checked;
+    });
+}
+
+function setBatchTargetedFields(checked) {
+    document.querySelectorAll('.batch-field-cb').forEach(cb => {
+        cb.checked = !!checked;
+    });
+}
+
+/** null = tout coché (pas d'override batch) ; sinon CSV ou NONE. */
+function getBatchTargetedFieldsMask() {
+    const boxes = Array.from(document.querySelectorAll('.batch-field-cb'));
+    if (boxes.length === 0) return null;
+    const active = boxes.filter(cb => cb.checked).map(cb => cb.value);
+    if (active.length === boxes.length) return null;
+    return active.length ? active.join(',') : 'NONE';
+}
 
 function togglePanel(id) {
     var panel = document.getElementById(id);

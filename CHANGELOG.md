@@ -1,3 +1,41 @@
+## [1.6.1] - 2026-07-26 (Comic Flexible + Playful Stats + Batch QoS + Wikidata)
+
+EN
+### ✨ Highlights
+* **Reliability barometer** — Sidebar checkbox unlocks a match-accept threshold slider (`0.30`–`1.00`, default `0.60`). Off = fixed tested default. Config: `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; scrapers use `get_match_accept_threshold()`.
+* **Wikidata provider (live)** — New `WIKIDATA` scraper for Manga / Comic / Book: SPARQL + Entity API, Magic Input `Q…` / wikidata.org URLs, unified scoring, Commons covers. Shared claim→MetaKavita mapping in `scrapers/wikidata_map.py`. Best as fallback / ISBN / cross-IDs (AniList, MAL), not a replacement for AniList. Offline SQLite subset deferred (ops complexity).
+* **Comic (Flexible) / ID 5 (C35)** — Kavita's mixed Comic Flexible libraries are no longer treated as strict Comic. MetaKavita runs `COMIC_PROVIDER_*` first, then falls back to Manga `PROVIDER_*` when no useful metadata is found. Manual cover search queries Comic + Manga scrapers.
+* **Playful Statistics (C7)** — Restyled `/stats` with Chart.js (donut + bars), lifetime counters (`series_enriched` / `matches_won` / `series_missed`), hit-rate KPI, ~24 fun cards. `ENABLE_PLAYFUL_STATS` on by default (disable in config modal). Live topbar KPIs on the dashboard (3 lifetime counters + session counter reset on tab close via `sessionStorage`). Socket.IO `enrichment_stats` keeps counters live during batch.
+
+### 🧰 Batch QoS & Granularity
+* **Resume-friendly selection** — Successful series (✅ / already up to date) auto-uncheck. Checked series IDs persist in `localStorage` per library (`mk_batch_selection:*`) so a refresh or network drop does not wipe the selection; filters no longer clear hidden checkboxes.
+* **Stop vs chunked enqueue** — Stop aborts the UI ×50 `/batch-sync` loop (`AbortController`) and disables server enqueue until the next batch’s first packet (`resume_enqueue=true`), so late in-flight chunks cannot refill the queue after a drain.
+* **Batch targeted-fields mask** — Collapsible sidebar panel “Targeted fields (batch)”: ephemeral write filter for the next batch only (does not persist overrides). Leave all 12 checked = respect each series’ saved mask. Uncheck any field → CSV sent to `/batch-sync` as a 4-tuple queue item (`targeted_fields_override`).
+* **Check all / Uncheck all** — Same controls on the sidebar batch mask and on each series’ targeted-fields override panel.
+
+### 🐛 UI polish
+* **`/stats` page scroll** — Dashboard `100vh` + `overflow: hidden` overrides so the playful stats page scrolls on desktop again.
+
+---
+
+FR
+### ✨ Points forts
+* **Baromètre de fiabilité** — Case sidebar + curseur de seuil d’acceptation (`0.30`–`1.00`, défaut `0.60`). Off = défaut testé fixe. Config : `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; scrapers via `get_match_accept_threshold()`.
+* **Provider Wikidata (live)** — Nouveau scraper `WIKIDATA` pour Manga / Comic / Book : SPARQL + Entity API, Magic Input `Q…` / URLs wikidata.org, scoring unifié, couvertures Commons. Mapping claims→MetaKavita partagé (`scrapers/wikidata_map.py`). Utile en fallback / ISBN / IDs croisés — pas un remplacement d’AniList. Sous-ensemble SQLite hors-ligne reporté (complexité ops).
+* **Comic (Flexible) / ID 5 (C35)** — Les bibliothèques mixtes Kavita « Comic Flexible » ne sont plus traitées comme du Comic strict. MetaKavita interroge d’abord `COMIC_PROVIDER_*`, puis bascule sur les providers Manga (`PROVIDER_*`) si aucun hit utile. La recherche manuelle de couvertures interroge Comic + Manga.
+* **Statistiques ludiques (C7)** — `/stats` restylée avec Chart.js (donut + barres), compteurs lifetime (`series_enriched` / `matches_won` / `series_missed`), KPI taux de hit, ~24 cartes fun. `ENABLE_PLAYFUL_STATS` ON par défaut. Compteurs live dans la topbar (3 KPI lifetime + session remise à 0 à la fermeture d’onglet via `sessionStorage`). Événement Socket.IO `enrichment_stats` pendant les batchs.
+
+### 🧰 QoS & granularité batch
+* **Sélection reprise-friendly** — Une série OK (✅ / déjà à jour) se décoche automatiquement. Les IDs cochés sont persistés en `localStorage` par bibliothèque (`mk_batch_selection:*`) : refresh / coupure réseau ne vident plus la sélection ; les filtres ne décochent plus les lignes masquées.
+* **Stop vs envoi par paquets** — Stop coupe la boucle UI ×50 `/batch-sync` (`AbortController`) et désarme l’enqueue serveur jusqu’au premier paquet du prochain batch (`resume_enqueue=true`), pour qu’un chunk encore en vol ne remplisse plus la file après le drain.
+* **Masque de champs ciblés (batch)** — Sous-menu sidebar pliable : filtre d’écriture éphémère pour le prochain batch uniquement (ne modifie pas les overrides série). Tout laisser coché = respecter le masque de chaque série. Décocher un champ → CSV envoyé à `/batch-sync` (4-tuple file, `targeted_fields_override`).
+* **Tout cocher / Tout décocher** — Sidebar (masque batch) et panneau override de chaque série.
+
+### 🐛 Polish UI
+* **Scroll `/stats`** — Contournement du layout dashboard `100vh` + `overflow: hidden` pour que la page stats scrolle à nouveau sur desktop.
+
+---
+
 ## [1.6.0] - 2026-07-26 (Smart Scoring, Localized Titles, Help Menu, Self-Host Polish & Hardening)
 
 EN

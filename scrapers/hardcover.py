@@ -3,7 +3,7 @@ import re
 from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_genres
 
 # --- OUTILS DE SCORING AVANCÉ ---
@@ -197,7 +197,7 @@ class HardcoverScraper(BaseScraper):
                     best_score = score
                     best_match = candidate
 
-            if not best_match or best_score < MATCH_ACCEPT_THRESHOLD:
+            if not best_match or best_score < get_match_accept_threshold():
                 logging.warning(self.t("no_match").format(cleaned_query, int(best_score*100)))
                 return None
 

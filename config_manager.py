@@ -68,11 +68,16 @@ def load_config():
             # Comparaison des providers par score (meilleur match gagne) + exécution en
             # deux vagues. Si False : fallback classique (1er provider utile de la liste).
             "SMART_SCORING": True,
+            # Baromètre de fiabilité : seuil d'acceptation des matches (défaut 0.60)
+            "MATCH_THRESHOLD_CUSTOM": False,
+            "MATCH_ACCEPT_THRESHOLD": 0.60,
             "AUTO_SYNC_INTERVAL": 0,
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
             "RESET_CONTEXT_ON_FORCE": False,
+            # C7 — stats ludiques sur /stats (ON par défaut, désactivable)
+            "ENABLE_PLAYFUL_STATS": True,
             "ADMIN_PASSWORD": "",
             "SECRET_KEY": "",
             "WEBHOOK_TOKEN": ""
@@ -172,11 +177,30 @@ def load_config():
 
         for bool_key in [
             "AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
-            "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE",
+            "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE", "ENABLE_PLAYFUL_STATS",
+            "MATCH_THRESHOLD_CUSTOM",
         ]:
             config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
 
+        config["MATCH_ACCEPT_THRESHOLD"] = _parse_match_threshold(
+            file_config.get(
+                "MATCH_ACCEPT_THRESHOLD",
+                os.getenv("MATCH_ACCEPT_THRESHOLD", config.get("MATCH_ACCEPT_THRESHOLD", 0.60)),
+            )
+        )
+
         return config
+
+
+def _parse_match_threshold(raw, default=0.60, minimum=0.30, maximum=1.00) -> float:
+    """Seuil d'acceptation des matches, borné [0.30, 1.00]."""
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return default
+    if value != value:  # NaN
+        return default
+    return max(minimum, min(maximum, value))
 
 
 def _parse_positive_int(raw, default=60, minimum=5, maximum=600) -> int:
@@ -252,6 +276,12 @@ def get_kavita_plus_url(config=None) -> str:
 
 def save_config(data):
     with CONFIG_LOCK:
+        if "MATCH_ACCEPT_THRESHOLD" in data:
+            data["MATCH_ACCEPT_THRESHOLD"] = _parse_match_threshold(
+                data.get("MATCH_ACCEPT_THRESHOLD")
+            )
+        if "MATCH_THRESHOLD_CUSTOM" in data:
+            data["MATCH_THRESHOLD_CUSTOM"] = bool(data.get("MATCH_THRESHOLD_CUSTOM"))
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR)
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:

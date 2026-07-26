@@ -16,7 +16,7 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 > 
 > Voici les contraintes absolues :
 > 1. Les seules librairies externes autorisées sont `requests`, `curl_cffi` et `bs4` (BeautifulSoup). N'utilise JAMAIS Selenium ou Playwright.
-> 2. Tu dois conserver les imports : `from scrapers.base import BaseScraper`, `from scrapers.utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score`, et `from config_manager import get_max_tags, get_max_genres`.
+> 2. Tu dois conserver les imports : `from scrapers.base import BaseScraper`, `from scrapers.utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score`, et `from config_manager import get_max_tags, get_max_genres`.
 > 
 > Voici le squelette obligatoire que tu dois remplir :
 > 
@@ -26,7 +26,7 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 > from curl_cffi import requests # Ou 'import requests' classique
 > from typing import Dict, Any, List, Optional
 > from scrapers.base import BaseScraper
-> from scrapers.utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+> from scrapers.utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 > from config_manager import get_max_tags, get_max_genres
 > 
 > class MyNewScraper(BaseScraper):
@@ -49,7 +49,7 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 >         # ÉTAPE 1 : Fais ta requête HTTP (API ou HTML)
 >         # ÉTAPE 2 : Construit un dictionnaire candidat au format exact Kavita
 >         # ÉTAPE 3 : Évalue le candidat avec score_candidate(candidate, clean, existing_metadata)
->         # ÉTAPE 4 : Retourne attach_match_score(best_match, best_score) SI score >= MATCH_ACCEPT_THRESHOLD
+>         # ÉTAPE 4 : Retourne attach_match_score(best_match, best_score) SI score >= get_match_accept_threshold()
 >         #           (pour une résolution par ID direct : attach_match_score(candidate, 1.0))
 >         
 >         # FORMAT OBLIGATOIRE DU DICTIONNAIRE DE RETOUR :
@@ -97,9 +97,9 @@ Définissez `rate_limit = 2.0` (ex: 2 secondes). Le moteur attendra automatiquem
 
 ### 4. La matrice de Scoring (`score_candidate`) & Smart Scoring
 Ne retournez jamais le premier résultat d'une recherche aveuglément ! 
-Importez `from scrapers.utils import score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score` et passez chaque résultat dans `score_candidate()`. Elle comparera le titre, les auteurs et l'ISBN trouvés avec la base de Kavita pour éliminer les homonymes et les Spin-offs. Ne retournez le candidat que si son score est supérieur ou égal à `MATCH_ACCEPT_THRESHOLD` (actuellement `0.60`, soit 60% de pertinence), **en l'attachant via `attach_match_score(candidate, score)`**.
+Importez `from scrapers.utils import score_candidate, get_match_accept_threshold, attach_match_score` et passez chaque résultat dans `score_candidate()`. Elle comparera le titre, les auteurs et l'ISBN trouvés avec la base de Kavita pour éliminer les homonymes et les Spin-offs. Ne retournez le candidat que si son score est supérieur ou égal à `get_match_accept_threshold()` (défaut `0.60`, configurable via le **Baromètre de fiabilité** dans la sidebar), **en l'attachant via `attach_match_score(candidate, score)`**.
 
-Le moteur (`metadata_fetcher.py`) compare ensuite les scores de plusieurs providers entre eux (Smart Scoring) : le meilleur score gagne, l'égalité est départagée par l'ordre de fallback configuré. Sans `attach_match_score()`, votre scraper reste utilisable, mais il est traité comme « juste accepté » (score neutre = `MATCH_ACCEPT_THRESHOLD`) et perdra presque toujours face à un scraper officiel mieux scoré.
+Le moteur (`metadata_fetcher.py`) compare ensuite les scores de plusieurs providers entre eux (Smart Scoring) : le meilleur score gagne, l'égalité est départagée par l'ordre de fallback configuré. Sans `attach_match_score()`, votre scraper reste utilisable, mais il est traité comme « juste accepté » (score neutre = seuil effectif) et perdra presque toujours face à un scraper officiel mieux scoré.
 
 Pour déclarer explicitement que votre scraper participe au Smart Scoring, ajoutez sur la classe :
 ```python
@@ -107,14 +107,14 @@ uses_unified_scoring = True
 ```
 Ce drapeau (défini à `False` par défaut sur `BaseScraper`) est **informatif** : il ne bloque pas le chargement. Le pipeline est déjà protégé contre un `_match_score` absent ou mal formé (`None`, chaîne, booléen, NaN…) via `_safe_match_score()` — un scraper communautaire mal écrit ne peut donc plus faire planter l'enrichissement. Le drapeau sert surtout à documenter l'intention et à faciliter le diagnostic.
 
-⚠️ N'écrivez pas `0.60` (ou toute autre valeur) en dur dans votre scraper : importez la constante `MATCH_ACCEPT_THRESHOLD`. Cette valeur a été relevée de `0.50` à `0.60` après des faux positifs constatés en usage réel (homonymes/spin-offs acceptés à tort) — un scraper avec son propre seuil codé en dur ne bénéficiera pas d'un futur ajustement de ce réglage.
+⚠️ N'écrivez pas `0.60` (ou toute autre valeur) en dur dans votre scraper : utilisez `get_match_accept_threshold()`. La constante `MATCH_ACCEPT_THRESHOLD = 0.60` reste le défaut documenté (rétrocompat), mais le seuil effectif peut être modifié par l'utilisateur (sidebar). Un scraper avec son propre seuil codé en dur ne suivra ni le défaut ni le baromètre.
 
 ⚠️ N'écrivez jamais `_match_score` à la main dans le dict retourné : passez toujours par `attach_match_score()`. Pour une résolution par ID/URL (`is_id=True`), utilisez `attach_match_score(candidate, 1.0)`.
 
 **Checklist Smart Scoring (scraper communautaire) :**
-1. `from scrapers.utils import score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score`
+1. `from scrapers.utils import score_candidate, get_match_accept_threshold, attach_match_score`
 2. `uses_unified_scoring = True` sur la classe
-3. Pour chaque candidat accepté : `return attach_match_score(candidate, score)` (ou `1.0` si `is_id=True`)
+3. Pour chaque candidat accepté : `return attach_match_score(candidate, score)` si `score >= get_match_accept_threshold()` (ou `1.0` si `is_id=True`)
 4. Ne jamais renvoyer un `_match_score` brut / non numérique — même si `_safe_match_score()` le tolère côté moteur
 
 ### 5. La sécurité des images (`proxy_domains`)

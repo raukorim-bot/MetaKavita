@@ -20,6 +20,7 @@ from config_manager import load_config
 from db_manager import get_all_cached_data
 from kavita_api import KavitaAPI
 from scrapers import ScraperRegistry
+from scrapers.utils import library_type_for_scraper
 
 
 @socketio.on('connect')
@@ -52,7 +53,8 @@ def handle_fetch_covers_stream(data):
 
     def process_and_emit_covers(scraper):
         try:
-            s_covers = scraper.fetch_covers(search_query, library_type=library_type)
+            fetch_lt = library_type_for_scraper(scraper, library_type)
+            s_covers = scraper.fetch_covers(search_query, library_type=fetch_lt)
             if s_covers:
                 results = []
                 for c in s_covers:

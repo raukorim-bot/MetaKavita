@@ -38,6 +38,31 @@ function closeConfigModal() {
     document.getElementById('configModal').style.display = 'none';
 }
 
+// --- BAROMÈTRE DE FIABILITÉ (seuil de match) ---
+let _matchThresholdSaveTimer = null;
+
+function onMatchThresholdCustomChange() {
+    const custom = document.getElementById('sidebar_match_threshold_custom');
+    const slider = document.getElementById('sidebar_match_accept_threshold');
+    const wrap = document.getElementById('match_threshold_slider_wrap');
+    if (slider && custom) {
+        slider.disabled = !custom.checked;
+    }
+    if (wrap && custom) {
+        wrap.style.opacity = custom.checked ? '1' : '0.45';
+    }
+    saveConfig();
+}
+
+function onMatchThresholdInput(el) {
+    const label = document.getElementById('match_threshold_value');
+    if (label && el) {
+        label.textContent = Number(el.value).toFixed(2);
+    }
+    clearTimeout(_matchThresholdSaveTimer);
+    _matchThresholdSaveTimer = setTimeout(function () { saveConfig(); }, 300);
+}
+
 // --- SAUVEGARDE CONFIGURATION (AJAX HYBRIDE) ---
 function saveConfig() {
     const form = document.getElementById('configForm');
@@ -48,14 +73,21 @@ function saveConfig() {
     const autoCover = document.getElementById('sidebar_auto_cover');
     const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
     const resetContext = document.getElementById('sidebar_reset_context');
+    const matchThresholdCustom = document.getElementById('sidebar_match_threshold_custom');
+    const matchAcceptThreshold = document.getElementById('sidebar_match_accept_threshold');
     if (resetContext) formData.append('RESET_CONTEXT_ON_FORCE', resetContext.checked ? 'true' : 'false');
     if (smartScoring) formData.append('SMART_SCORING', smartScoring.checked ? 'true' : 'false');
     if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
+    if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
+    if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
     if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
     
     const titleFallback = document.getElementById('config_title_fallback');
     if (titleFallback) formData.append('TITLE_FALLBACK_TRANSLATION', titleFallback.checked ? 'true' : 'false');
+
+    const playfulStats = document.getElementById('config_playful_stats');
+    if (playfulStats) formData.append('ENABLE_PLAYFUL_STATS', playfulStats.checked ? 'true' : 'false');
 
     const btn = form.querySelector('.btn-primary');
     const originalText = btn ? btn.innerText : "";

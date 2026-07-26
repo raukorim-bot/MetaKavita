@@ -3,7 +3,7 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from scrapers import ScraperRegistry
-from scrapers.utils import MATCH_ACCEPT_THRESHOLD, MATCH_SCORE_KEY
+from scrapers.utils import get_match_accept_threshold, MATCH_SCORE_KEY
 from config_manager import load_config
 from translations import translations
 
@@ -65,21 +65,22 @@ def _safe_match_score(candidate):
     valeur non coercible en float ferait planter `accepted.sort(...)` (TypeError /
     comparaison invalide) et tuerait tout le pipeline d'enrichissement pour la série.
     Comportement :
-    - clé absente / None / non numérique → `MATCH_ACCEPT_THRESHOLD` ("juste accepté")
+    - clé absente / None / non numérique → seuil effectif ("juste accepté")
     - booléen → rejeté (en Python `True` est un int, ce qui fausserait le classement)
     - score numérique hors [0.0, 1.0] → clampé dans cet intervalle
     """
+    threshold = get_match_accept_threshold()
     if not isinstance(candidate, dict):
-        return MATCH_ACCEPT_THRESHOLD
-    raw = candidate.get(MATCH_SCORE_KEY, MATCH_ACCEPT_THRESHOLD)
+        return threshold
+    raw = candidate.get(MATCH_SCORE_KEY, threshold)
     if isinstance(raw, bool) or raw is None:
-        return MATCH_ACCEPT_THRESHOLD
+        return threshold
     try:
         score = float(raw)
     except (TypeError, ValueError):
-        return MATCH_ACCEPT_THRESHOLD
+        return threshold
     if score != score:  # NaN
-        return MATCH_ACCEPT_THRESHOLD
+        return threshold
     return max(0.0, min(1.0, score))
 
 

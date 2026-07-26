@@ -79,6 +79,9 @@ body {
     box-shadow: var(--shadow);
     z-index: 10;
     flex-shrink: 0;
+    flex-wrap: wrap;
+    gap: 8px 0;
+    row-gap: 8px;
 }
 
 .logo {
@@ -101,6 +104,57 @@ body {
     align-items: center;
     gap: 10px;
     flex-wrap: wrap;
+}
+
+.live-kpis {
+    display: flex;
+    align-items: stretch;
+    gap: 8px;
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+    margin: 0 12px;
+}
+
+.live-kpi {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-width: 64px;
+    padding: 6px 12px;
+    border-radius: 10px;
+    text-decoration: none;
+    color: inherit;
+    background: color-mix(in srgb, var(--bg-input) 85%, transparent);
+    border: 1px solid var(--border-color);
+    line-height: 1.1;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+
+a.live-kpi:hover {
+    border-color: color-mix(in srgb, var(--primary) 50%, var(--border-color));
+}
+
+.live-kpi-val {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums;
+}
+
+.live-kpi-matches .live-kpi-val { color: var(--accent); }
+.live-kpi-missed .live-kpi-val { color: var(--danger); }
+.live-kpi-session .live-kpi-val { color: var(--success); }
+
+.live-kpi-label {
+    margin-top: 3px;
+    font-size: 0.65rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    white-space: nowrap;
 }
 
 .dashboard-body {
@@ -593,7 +647,16 @@ a.about-link-kavita {
         height: auto !important;
         overflow-y: auto !important;
     }
-    
+
+    .live-kpis {
+        order: 3;
+        flex: 1 1 100%;
+        justify-content: flex-start;
+        margin: 0 0 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
     .dashboard-wrapper {
         height: auto !important;
         overflow: visible !important;

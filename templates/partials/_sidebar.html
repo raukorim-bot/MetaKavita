@@ -45,7 +45,73 @@
                             <input type="checkbox" id="sidebar_smart_completion" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()"> 
                             {{ t.smart_completion }}
                         </label>
+                        {% set match_thr = config.get('MATCH_ACCEPT_THRESHOLD', 0.60) %}
+                        {% set match_custom = config.get('MATCH_THRESHOLD_CUSTOM', False) %}
+                        <div class="reliability-barometer" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(139, 92, 246, 0.25);">
+                            <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
+                                <input type="checkbox" id="sidebar_match_threshold_custom" value="true" {% if match_custom %}checked{% endif %} onchange="onMatchThresholdCustomChange()">
+                                {{ t.reliability_barometer }}
+                            </label>
+                            <p style="font-size: 10px; color: var(--text-muted); margin: 4px 0 6px 22px; line-height: 1.3;">{{ t.reliability_barometer_desc }}</p>
+                            <div id="match_threshold_slider_wrap" style="margin-left: 22px;{% if not match_custom %} opacity: 0.45;{% endif %}">
+                                <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">
+                                    <span>0.30</span>
+                                    <strong id="match_threshold_value" style="font-size: 12px; color: var(--accent);">{{ '%.2f'|format(match_thr|float) }}</strong>
+                                    <span>1.00</span>
+                                </div>
+                                <input type="range" id="sidebar_match_accept_threshold" class="reliability-slider"
+                                       min="0.30" max="1.00" step="0.01"
+                                       value="{{ '%.2f'|format(match_thr|float) }}"
+                                       {% if not match_custom %}disabled{% endif %}
+                                       oninput="onMatchThresholdInput(this)">
+                                <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 2px;">
+                                    <span style="color: #ef4444;">{{ t.reliability_loose }}</span>
+                                    <span style="color: #22c55e;">0.60</span>
+                                    <span style="color: #3b82f6;">{{ t.reliability_strict }}</span>
+                                </div>
+                            </div>
+                        </div>
                     </div>
+                    <style>
+                        .reliability-slider {
+                            -webkit-appearance: none;
+                            appearance: none;
+                            width: 100%;
+                            height: 8px;
+                            border-radius: 4px;
+                            outline: none;
+                            cursor: pointer;
+                            background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
+                        }
+                        .reliability-slider:disabled { cursor: not-allowed; }
+                        .reliability-slider::-webkit-slider-thumb {
+                            -webkit-appearance: none;
+                            appearance: none;
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 50%;
+                            background: #fff;
+                            border: 2px solid var(--accent, #8b5cf6);
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+                            cursor: pointer;
+                        }
+                        .reliability-slider:disabled::-webkit-slider-thumb { cursor: not-allowed; opacity: 0.7; }
+                        .reliability-slider::-moz-range-thumb {
+                            width: 14px;
+                            height: 14px;
+                            border-radius: 50%;
+                            background: #fff;
+                            border: 2px solid var(--accent, #8b5cf6);
+                            box-shadow: 0 1px 3px rgba(0,0,0,0.35);
+                            cursor: pointer;
+                        }
+                        .reliability-slider:disabled::-moz-range-thumb { cursor: not-allowed; opacity: 0.7; }
+                        .reliability-slider::-moz-range-track {
+                            height: 8px;
+                            border-radius: 4px;
+                            background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
+                        }
+                    </style>
                     <div class="form-group" style="margin-bottom: 10px;">
                         <label class="checkbox-label">
                             <input type="checkbox" id="sidebar_auto_cover" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
@@ -70,6 +136,28 @@
                             <strong>{{ t.force_update }}</strong>
                         </label>
                     </div>
+                    <details class="targeted-scraping-details batch-fields-details" style="margin-top: 10px;">
+                        <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">⚙️ {{ t.batch_targeted_fields }}</summary>
+                        <p style="font-size: 10px; color: var(--text-muted); margin: 8px 0 6px; line-height: 1.35;">{{ t.batch_targeted_fields_hint }}</p>
+                        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
+                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setBatchTargetedFields(true)">{{ t.fields_check_all }}</button>
+                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setBatchTargetedFields(false)">{{ t.fields_uncheck_all }}</button>
+                        </div>
+                        <div id="batchFieldsGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; padding: 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border-color);">
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-summary" value="summary" checked> Résumé</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-cover" value="cover" checked> Couverture</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-staff" value="staff" checked> Auteurs/Staff</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-genres" value="genres" checked> Genres</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-tags" value="tags" checked> Thèmes/Persos</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-year" value="year" checked> Année</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-status" value="status" checked> Statut</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-publisher" value="publisher" checked> Éditeur</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-age" value="age" checked> Âge</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-format" value="format" checked> Sens lecture</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-weblinks" value="weblinks" checked> Liens & IDs</label>
+                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-alt_titles" value="alt_titles" checked> Titres Alternatifs</label>
+                        </div>
+                    </details>
                 </div>
 
                 <!-- EXPORT DES ERREURS -->

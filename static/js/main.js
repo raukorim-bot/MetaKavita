@@ -36,6 +36,8 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     filterSeries();
+    restoreBatchSelection();
+    filterSeries();
 });
 
 // --- GESTION DYNAMIQUE DE LA MODAL CHANGELOG ---

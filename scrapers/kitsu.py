@@ -3,7 +3,7 @@ import logging
 import unicodedata
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import get_max_tags
 
 
@@ -173,7 +173,7 @@ class KitsuScraper(BaseScraper):
                     best_score = score
                     best_candidate = candidate
 
-            if not best_candidate or best_score < MATCH_ACCEPT_THRESHOLD:
+            if not best_candidate or best_score < get_match_accept_threshold():
                 return None
             return attach_match_score(best_candidate, best_score)
 

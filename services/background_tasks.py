@@ -23,6 +23,35 @@ from services.enrichment_engine import enrich_series
 # consommée par le worker démarré ci-dessous.
 sync_queue = queue.Queue()
 
+# Après Stop, rejette les paquets /batch-sync encore en vol (chunks de 50 côté UI).
+# Le premier chunk d'un nouveau lancement renvoie `resume_enqueue=true` pour réarmer.
+_batch_enqueue_lock = threading.Lock()
+_batch_enqueue_enabled = True
+
+
+def set_batch_enqueue_enabled(enabled: bool) -> None:
+    global _batch_enqueue_enabled
+    with _batch_enqueue_lock:
+        _batch_enqueue_enabled = bool(enabled)
+
+
+def is_batch_enqueue_enabled() -> bool:
+    with _batch_enqueue_lock:
+        return _batch_enqueue_enabled
+
+
+def drain_sync_queue() -> int:
+    """Vide la file d'attente (hors job en cours). Retourne le nombre d'items retirés."""
+    drained = 0
+    while not sync_queue.empty():
+        try:
+            sync_queue.get_nowait()
+            sync_queue.task_done()
+            drained += 1
+        except queue.Empty:
+            break
+    return drained
+
 
 def _worker():
     while True:
@@ -30,7 +59,12 @@ def _worker():
         try:
             if item is None:
                 break
-            series_id, series_name, force_update = item
+            # 3-tuple historique (webhook / auto-sync) ou 4-tuple batch (masque champs).
+            if len(item) == 4:
+                series_id, series_name, force_update, fields_override = item
+            else:
+                series_id, series_name, force_update = item
+                fields_override = None
 
             config = load_config()
             t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
@@ -39,7 +73,12 @@ def _worker():
             logging.info(t.get('log_worker_start').format(series_name, remaining))
 
             # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
-            enrich_series(series_id, series_name, force_update)
+            enrich_series(
+                series_id,
+                series_name,
+                force_update,
+                targeted_fields_override=fields_override,
+            )
 
             if sync_queue.empty():
                 logging.info(t.get('log_batch_finished'))

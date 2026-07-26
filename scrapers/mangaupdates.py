@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -229,7 +229,7 @@ class MangaUpdatesScraper(BaseScraper):
                     best_score = score
                     best_match_id = record.get("series_id")
 
-            if not best_match_id or best_score < MATCH_ACCEPT_THRESHOLD:
+            if not best_match_id or best_score < get_match_accept_threshold():
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 

@@ -71,6 +71,10 @@
                                     <!-- SOUS-MENU CACHÉ POUR LE SCRAPING CIBLÉ (TOUS LES CHAMPS) -->
                                     <details class="targeted-scraping-details" style="margin-top: 10px;">
                                         <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">⚙️ {{ t.targeted_fields }}</summary>
+                                        <div style="display: flex; gap: 6px; margin: 8px 0 0;">
+                                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setSeriesTargetedFields('{{ series.id }}', true)">{{ t.fields_check_all }}</button>
+                                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setSeriesTargetedFields('{{ series.id }}', false)">{{ t.fields_uncheck_all }}</button>
+                                        </div>
                                         <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; padding: 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border-color);">
                                             {# tf_raw peut valoir 'ALL', 'NONE' ou une liste 'summary,staff,...' séparée par
                                                des virgules. On la découpe explicitement en liste (tf_list) avant de tester

@@ -163,15 +163,21 @@ class KavitaAPI:
     def _normalize_library_type(raw_type) -> str:
         """
         Convertit un type de bibliothèque brut (ID numérique C# ou nom textuel)
-        en l'un des 3 types standards pris en charge par MetaKavita : 'Manga', 'Comic', ou 'Book'.
+        en l'un des 4 types internes MetaKavita : 'Manga', 'Comic', 'Book', ou 'ComicFlexible'.
         """
         if raw_type is None:
             return "Manga"
 
         val_str = str(raw_type).strip().lower()
 
-        # Type Comic (IDs Kavita : 1 et 5 'Comic Flexible')
-        if val_str in ["1", "5", "comic", "comics", "comic (flexible)", "comicflexible", "comic_flexible", "flexiblecomic"] or "comic" in val_str:
+        # Type Comic Flexible (ID Kavita : 5) — cascade hybride Comic puis Manga (C35)
+        if val_str in ["5", "comic (flexible)", "comicflexible", "comic_flexible", "flexiblecomic"]:
+            return "ComicFlexible"
+        if "flexible" in val_str and "comic" in val_str:
+            return "ComicFlexible"
+
+        # Type Comic strict (ID Kavita : 1)
+        if val_str in ["1", "comic", "comics"] or "comic" in val_str:
             return "Comic"
 
         # Type Livre / Roman (IDs Kavita : 2 et 3)
@@ -220,7 +226,8 @@ class KavitaAPI:
 
     def get_library_type_for_series(self, series_id) -> str:
         """
-        Détermine le type de bibliothèque ('Manga', 'Comic', 'Book') associé à une série donnée.
+        Détermine le type de bibliothèque ('Manga', 'Comic', 'Book', 'ComicFlexible')
+        associé à une série donnée.
         Utilise un cache mémoire local pour éviter les requêtes HTTP répétitives.
         """
         if int(series_id) in self._series_lib_type_cache:

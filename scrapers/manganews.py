@@ -5,7 +5,7 @@ from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -292,7 +292,7 @@ class MangaNewsScraper(BaseScraper):
                     best_score = score
                     best_candidate = candidate
 
-            if not best_candidate or best_score < MATCH_ACCEPT_THRESHOLD:
+            if not best_candidate or best_score < get_match_accept_threshold():
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 

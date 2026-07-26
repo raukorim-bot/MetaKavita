@@ -31,9 +31,156 @@ def init_db():
                   status TEXT, 
                   forced_id TEXT, 
                   alternative_title TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS provider_stats
+                 (provider_id TEXT PRIMARY KEY,
+                  wins INTEGER NOT NULL DEFAULT 0)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS lifetime_stats
+                 (stat_key TEXT PRIMARY KEY,
+                  value INTEGER NOT NULL DEFAULT 0)''')
     _ensure_schema(c)
     conn.commit()
     conn.close()
+
+
+def _ensure_lifetime_stats_table(c):
+    c.execute('''CREATE TABLE IF NOT EXISTS lifetime_stats
+                 (stat_key TEXT PRIMARY KEY,
+                  value INTEGER NOT NULL DEFAULT 0)''')
+
+
+def _ensure_provider_stats_table(c):
+    c.execute('''CREATE TABLE IF NOT EXISTS provider_stats
+                 (provider_id TEXT PRIMARY KEY,
+                  wins INTEGER NOT NULL DEFAULT 0)''')
+
+
+def increment_provider_win(provider_id):
+    """Incrémente le compteur de victoires d'un scraper (télémétrie C7)."""
+    pid = _normalize_provider_stat_id(provider_id)
+    if not pid:
+        return
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    _ensure_provider_stats_table(c)
+    c.execute(
+        '''INSERT INTO provider_stats (provider_id, wins) VALUES (?, 1)
+           ON CONFLICT(provider_id) DO UPDATE SET wins = wins + 1''',
+        (pid,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def record_enrichment_telemetry(used_providers):
+    """
+    Télémétrie lifetime après un enrichissement réussi :
+    - series_enriched += 1
+    - matches_won += nombre de scrapers utiles (used_providers)
+    - +1 win par scraper dans used_providers (podium)
+    """
+    providers = []
+    seen = set()
+    for raw in used_providers or []:
+        pid = _normalize_provider_stat_id(raw)
+        if pid and pid not in seen:
+            seen.add(pid)
+            providers.append(pid)
+
+    match_count = len(providers)
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    _ensure_lifetime_stats_table(c)
+    _ensure_provider_stats_table(c)
+
+    c.execute(
+        '''INSERT INTO lifetime_stats (stat_key, value) VALUES ('series_enriched', 1)
+           ON CONFLICT(stat_key) DO UPDATE SET value = value + 1'''
+    )
+    if match_count:
+        c.execute(
+            '''INSERT INTO lifetime_stats (stat_key, value) VALUES ('matches_won', ?)
+               ON CONFLICT(stat_key) DO UPDATE SET value = value + excluded.value''',
+            (match_count,),
+        )
+        for pid in providers:
+            c.execute(
+                '''INSERT INTO provider_stats (provider_id, wins) VALUES (?, 1)
+                   ON CONFLICT(provider_id) DO UPDATE SET wins = wins + 1''',
+                (pid,),
+            )
+
+    conn.commit()
+    conn.close()
+    return {
+        "series_enriched_delta": 1,
+        "matches_won_delta": match_count,
+        "series_missed_delta": 0,
+    }
+
+
+def record_enrichment_miss():
+    """Télémétrie lifetime : +1 quand MetaKavita ne trouve rien (NOT_FOUND)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    _ensure_lifetime_stats_table(c)
+    c.execute(
+        '''INSERT INTO lifetime_stats (stat_key, value) VALUES ('series_missed', 1)
+           ON CONFLICT(stat_key) DO UPDATE SET value = value + 1'''
+    )
+    conn.commit()
+    conn.close()
+    return {
+        "series_enriched_delta": 0,
+        "matches_won_delta": 0,
+        "series_missed_delta": 1,
+    }
+
+
+def get_lifetime_stats():
+    """Retourne {series_enriched, matches_won, series_missed} (0 si absents)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    _ensure_lifetime_stats_table(c)
+    c.execute("SELECT stat_key, value FROM lifetime_stats")
+    rows = {row[0]: int(row[1]) for row in c.fetchall()}
+    conn.close()
+    return {
+        "series_enriched": rows.get("series_enriched", 0),
+        "matches_won": rows.get("matches_won", 0),
+        "series_missed": rows.get("series_missed", 0),
+    }
+
+
+def get_provider_stats():
+    """Retourne {provider_id: wins} trié par wins décroissant."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    _ensure_provider_stats_table(c)
+    c.execute("SELECT provider_id, wins FROM provider_stats ORDER BY wins DESC, provider_id ASC")
+    rows = c.fetchall()
+    conn.close()
+    return {row[0]: int(row[1]) for row in rows}
+
+
+def _normalize_provider_stat_id(provider_id):
+    if not provider_id:
+        return None
+    pid = str(provider_id).strip()
+    if " (" in pid:
+        pid = pid.split(" (", 1)[0].strip()
+    if not pid or pid.lower() in ("inconnu", "unknown", "none"):
+        return None
+    return pid
 
 def update_status(series_id, status):
     conn = sqlite3.connect(DB_FILE)

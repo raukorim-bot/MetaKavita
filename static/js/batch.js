@@ -1,6 +1,41 @@
 // --- LISTE DE SÉRIES : FILTRAGE, SÉLECTION, SYNCHRONISATION UNITAIRE/LOT, IGNORER ---
 // Dépend de utils.js (getRootPath).
 
+const BATCH_SELECTION_PREFIX = 'mk_batch_selection:';
+
+/** Stop pendant l'envoi des paquets ×50 : coupe la boucle + AbortController. */
+var batchEnqueueAbort = false;
+var batchEnqueueController = null;
+
+function getBatchSelectionKey() {
+    const lib = localStorage.getItem('filter_library') || '';
+    return BATCH_SELECTION_PREFIX + (lib || 'all');
+}
+
+/** Persiste les IDs cochés (reprise batch après refresh / coupure). */
+function saveBatchSelection() {
+    const ids = Array.from(document.querySelectorAll('.series-cb:checked')).map(cb => String(cb.value));
+    localStorage.setItem(getBatchSelectionKey(), JSON.stringify(ids));
+}
+
+function restoreBatchSelection() {
+    let saved;
+    try {
+        saved = JSON.parse(localStorage.getItem(getBatchSelectionKey()) || '[]');
+    } catch (e) {
+        saved = [];
+    }
+    if (!Array.isArray(saved) || saved.length === 0) return;
+
+    const want = new Set(saved.map(String));
+    document.querySelectorAll('.series-cb').forEach(cb => {
+        cb.checked = want.has(String(cb.value));
+    });
+
+    // Nettoie les IDs disparus de la bibliothèque
+    saveBatchSelection();
+}
+
 function filterSeries() {
     const filter = document.getElementById('statusFilter').value;
     const hideIgnoredCb = document.getElementById('hideIgnoredCb');
@@ -14,6 +49,8 @@ function filterSeries() {
     if (searchInput) localStorage.setItem('filter_search', searchQuery);
     
     let count = 0;
+    let visibleChecked = 0;
+    let visibleTotal = 0;
     
     document.querySelectorAll('.series-item').forEach(item => {
         const status = item.dataset.status;
@@ -40,14 +77,19 @@ function filterSeries() {
         if (show) {
             item.style.display = 'flex';
             count++;
-        } else {
-            item.style.display = 'none';
+            visibleTotal++;
             const cb = item.querySelector('.series-cb');
-            if(cb) cb.checked = false;
+            if (cb && cb.checked) visibleChecked++;
+        } else {
+            // Ne pas décocher : la sélection batch doit survivre aux filtres / rechargements.
+            item.style.display = 'none';
         }
     });
     
-    document.getElementById('selectAll').checked = false;
+    const selectAll = document.getElementById('selectAll');
+    if (selectAll) {
+        selectAll.checked = visibleTotal > 0 && visibleChecked === visibleTotal;
+    }
     
     const countElem = document.getElementById('visibleCount');
     if(countElem) {
@@ -63,7 +105,15 @@ function toggleSelectAll() {
             if(cb) cb.checked = isChecked;
         }
     });
+    saveBatchSelection();
 }
+
+// Délégation : toute case série → persistance
+document.addEventListener('change', function(e) {
+    if (e.target && e.target.classList && e.target.classList.contains('series-cb')) {
+        saveBatchSelection();
+    }
+});
 
 // --- SYNCHRONISATION ---
 function syncSingle(id, name, btn) {
@@ -168,9 +218,23 @@ async function launchBatch(event) {
         return;
     }
 
+    batchEnqueueAbort = false;
+    if (batchEnqueueController) {
+        try { batchEnqueueController.abort(); } catch (e) { /* ignore */ }
+    }
+    batchEnqueueController = typeof AbortController !== 'undefined' ? new AbortController() : null;
+
     btn.innerText = window.AppTranslations.batch_sending;
     
+    const batchFieldsMask = getBatchTargetedFieldsMask();
+    let stopped = false;
+
     for (let i = 0; i < ids.length; i += 50) {
+        if (batchEnqueueAbort) {
+            stopped = true;
+            break;
+        }
+
         const batch = ids.slice(i, i + 50);
         const formData = new FormData();
         
@@ -181,21 +245,62 @@ async function launchBatch(event) {
         if (forceUpdateCb && forceUpdateCb.checked) {
             formData.append('force_update', 'true');
         }
+
+        if (batchFieldsMask !== null) {
+            formData.append('targeted_fields', batchFieldsMask);
+        }
+
+        // Premier paquet : réarme l'acceptation serveur après un Stop précédent.
+        if (i === 0) {
+            formData.append('resume_enqueue', 'true');
+        }
         
         batch.forEach(id => formData.append('selected_series', id));
-        await fetch(getRootPath() + '/batch-sync', { method: 'POST', body: formData });
+
+        try {
+            const fetchOpts = { method: 'POST', body: formData };
+            if (batchEnqueueController) fetchOpts.signal = batchEnqueueController.signal;
+            const res = await fetch(getRootPath() + '/batch-sync', fetchOpts);
+            if (batchEnqueueAbort) {
+                stopped = true;
+                break;
+            }
+            if (res.status === 409) {
+                stopped = true;
+                break;
+            }
+        } catch (err) {
+            if (batchEnqueueAbort || (err && err.name === 'AbortError')) {
+                stopped = true;
+                break;
+            }
+            throw err;
+        }
     }
 
-    btn.innerText = window.AppTranslations.batch_ok;
+    batchEnqueueController = null;
+    if (stopped || batchEnqueueAbort) {
+        btn.innerText = window.AppTranslations.batch_stopped || '🛑 Batch stopped!';
+    } else {
+        btn.innerText = window.AppTranslations.batch_ok;
+    }
     setTimeout(() => { btn.innerText = window.AppTranslations.launchBatch; }, 4000);
 }
 
+/** Coupe l'envoi des paquets UI (×50) ET vide la file serveur. */
 function stopBatch() {
+    batchEnqueueAbort = true;
+    if (batchEnqueueController) {
+        try { batchEnqueueController.abort(); } catch (e) { /* ignore */ }
+    }
     fetch(getRootPath() + '/stop-batch', { method: 'POST' })
     .then(res => res.json())
     .then(data => {
         const btn = document.getElementById('mainBatchBtn');
-        if (btn) btn.innerText = window.AppTranslations.launchBatch;
+        if (btn) btn.innerText = window.AppTranslations.batch_stopped || window.AppTranslations.launchBatch;
+        setTimeout(() => {
+            if (btn) btn.innerText = window.AppTranslations.launchBatch;
+        }, 3000);
     });
 }
 
@@ -264,6 +369,8 @@ function loadLibrary(libraryId) {
             contentArea.style.pointerEvents = 'auto';
             
             filterSeries();
+            restoreBatchSelection();
+            filterSeries(); // recalcule selectAll / compteur après restauration
         })
         .catch(err => {
             console.error("Erreur lors du chargement de la bibliothèque :", err);

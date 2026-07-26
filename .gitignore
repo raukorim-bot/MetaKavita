@@ -12,6 +12,8 @@ cache.db
 *.log
 metakavita.log
 nautiljon_dump.html
+debug/build_nautiljon_wayback.py
+debug/build_wikidata_subset.py
 
 # Environnements virtuels (si dev local hors docker)
 venv/

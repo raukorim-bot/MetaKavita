@@ -3,22 +3,22 @@ Non-régression : le seuil d'acceptation d'un candidat scoré était recopié en
 dans chaque scraper — `0.50` pour la plupart, `0.60` pour Hardcover/OpenLibrary, et même `0.45`
 pour Manga-News/Shikimori. `0.50` (et a fortiori `0.45`) a été testé en usage réel et générait
 trop de faux positifs (homonymes, spin-offs acceptés à tort) ; `0.60` est la valeur validée.
-Elle est maintenant centralisée dans `scrapers/utils.py::MATCH_ACCEPT_THRESHOLD` pour que tous
-les scrapers restent synchronisés si ce réglage est ajusté à nouveau.
+Elle est maintenant centralisée dans `scrapers/utils.py::MATCH_ACCEPT_THRESHOLD` (défaut 0.60)
+et lue à l'exécution via `get_match_accept_threshold()` (Baromètre de fiabilité).
 
 Historiquement, MangaDex/MangaUpdates/Manga-News/Shikimori avaient chacun leur propre
 heuristique titre-seul (sans comparaison d'auteur, donc sans protection anti-homonyme). Ils ont
 depuis été migrés pour construire un candidat complet (avec staff) et appeler `score_candidate()`
 comme les 5 autres scrapers — voir `tests/test_scraper_score_migration.py` pour la preuve que
-leur staff est bien dans la forme attendue par la matrice unifiée. Les 9 scrapers concernés sont
-donc désormais homogènes : ce test vérifie que chacun importe bien la constante partagée plutôt
+leur staff est bien dans la forme attendue par la matrice unifiée. Les scrapers concernés sont
+donc désormais homogènes : ce test vérifie que chacun importe le getter partagé plutôt
 qu'un literal recopié qui pourrait dériver silencieusement.
 """
 import importlib
 
 from scrapers.utils import MATCH_ACCEPT_THRESHOLD
 
-# Les 9 scrapers qui appellent score_candidate() pour évaluer leurs candidats.
+# Scrapers officiels qui appellent score_candidate() pour évaluer leurs candidats.
 SCORE_CANDIDATE_MODULES = [
     "scrapers.mangabaka",
     "scrapers.anilist",
@@ -32,6 +32,7 @@ SCORE_CANDIDATE_MODULES = [
     "scrapers.kitsu",
     "scrapers.comicvine",
     "scrapers.bedetheque",
+    "scrapers.wikidata",
 ]
 
 
@@ -39,12 +40,12 @@ def test_match_accept_threshold_is_the_validated_value():
     assert MATCH_ACCEPT_THRESHOLD == 0.60
 
 
-def test_all_score_candidate_scrapers_import_shared_threshold():
+def test_all_score_candidate_scrapers_import_shared_threshold_getter():
     for module_name in SCORE_CANDIDATE_MODULES:
         module = importlib.import_module(module_name)
-        assert module.MATCH_ACCEPT_THRESHOLD == MATCH_ACCEPT_THRESHOLD, (
-            f"{module_name} doit importer scrapers.utils.MATCH_ACCEPT_THRESHOLD "
-            "au lieu de recopier un literal."
+        assert hasattr(module, "get_match_accept_threshold"), (
+            f"{module_name} doit importer scrapers.utils.get_match_accept_threshold "
+            "au lieu de comparer à un literal / à la constante seule."
         )
 
 
@@ -76,7 +77,7 @@ def test_all_score_candidate_scrapers_declare_uses_unified_scoring():
     expected_ids = {
         "MANGABAKA", "ANILIST", "GOOGLEBOOKS", "HARDCOVER", "OPENLIBRARY",
         "MANGADEX", "MANGAUPDATES", "MANGANEWS", "SHIKIMORI",
-        "KITSU", "COMICVINE", "BEDETHEQUE",
+        "KITSU", "COMICVINE", "BEDETHEQUE", "WIKIDATA",
     }
     for scraper_id in expected_ids:
         scraper = ScraperRegistry.get(scraper_id)

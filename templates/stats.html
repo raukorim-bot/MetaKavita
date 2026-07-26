@@ -5,62 +5,569 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>MetaKavita Statistiques</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script>
         const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
     </script>
+    <style>
+        .stats-shell {
+            width: 100%;
+            max-width: {% if playful_enabled %}1120px{% else %}640px{% endif %};
+            margin: 0 auto;
+            padding: 8px 0 48px;
+        }
+        .stats-hero {
+            position: relative;
+            overflow: hidden;
+            border-radius: 18px;
+            padding: 36px 32px 28px;
+            text-align: left;
+            background:
+                radial-gradient(ellipse 80% 60% at 100% 0%, color-mix(in srgb, var(--primary) 28%, transparent), transparent 55%),
+                radial-gradient(ellipse 60% 50% at 0% 100%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 50%),
+                var(--bg-card);
+            border: 1px solid var(--border-color, var(--border));
+            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
+        }
+        .stats-hero h1 {
+            font-family: "Fraunces", Georgia, serif;
+            font-size: clamp(1.6rem, 3vw, 2.15rem);
+            font-weight: 700;
+            margin: 0 0 8px;
+            letter-spacing: -0.02em;
+            color: var(--text-main, var(--text));
+        }
+        .stats-hero .hero-sub {
+            margin: 0 0 28px;
+            color: var(--text-muted);
+            font-size: 0.95rem;
+            max-width: 42ch;
+            line-height: 1.45;
+        }
+        .hero-kpis {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 14px;
+        }
+        .hero-kpi {
+            background: color-mix(in srgb, var(--bg-input) 88%, transparent);
+            border: 1px solid color-mix(in srgb, var(--border-color, var(--border)) 80%, transparent);
+            border-radius: 14px;
+            padding: 16px 18px;
+            backdrop-filter: blur(6px);
+        }
+        .hero-kpi .kpi-val {
+            font-family: "Fraunces", Georgia, serif;
+            font-size: 2rem;
+            font-weight: 700;
+            margin: 0;
+            line-height: 1.1;
+            color: var(--primary);
+        }
+        .hero-kpi.kpi-matches .kpi-val { color: var(--accent); }
+        .hero-kpi.kpi-miss .kpi-val { color: var(--danger); }
+        .hero-kpi.kpi-ok .kpi-val { color: var(--success); }
+        .hero-kpi .kpi-label {
+            margin: 6px 0 0;
+            font-size: 0.78rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: var(--text-muted);
+        }
+        .charts-row {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 16px;
+            margin-top: 20px;
+        }
+        .chart-panel {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color, var(--border));
+            border-radius: 16px;
+            padding: 20px 18px 16px;
+            text-align: left;
+        }
+        .chart-panel h3 {
+            font-family: "DM Sans", sans-serif;
+            font-size: 0.95rem;
+            font-weight: 600;
+            margin: 0 0 12px;
+            color: var(--text-main, var(--text));
+        }
+        .chart-wrap {
+            position: relative;
+            height: 220px;
+        }
+        .stats-section-title {
+            font-family: "Fraunces", Georgia, serif;
+            font-size: 1.25rem;
+            margin: 32px 0 14px;
+            text-align: left;
+            color: var(--text-main, var(--text));
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+            gap: 12px;
+            text-align: left;
+        }
+        .stat-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-color, var(--border));
+            border-radius: 14px;
+            padding: 16px;
+            min-height: 108px;
+            transition: transform 0.18s ease, border-color 0.18s ease;
+        }
+        .stat-card:hover {
+            transform: translateY(-2px);
+            border-color: color-mix(in srgb, var(--primary) 45%, var(--border-color, var(--border)));
+        }
+        .stat-card .stat-value {
+            font-family: "Fraunces", Georgia, serif;
+            font-size: 1.45rem;
+            font-weight: 700;
+            margin: 0 0 4px;
+            color: var(--primary);
+            line-height: 1.15;
+            word-break: break-word;
+        }
+        .stat-card .stat-label {
+            font-weight: 600;
+            font-size: 0.82rem;
+            margin: 0 0 6px;
+            color: var(--text-main, var(--text));
+        }
+        .stat-card .stat-hint {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin: 0;
+            line-height: 1.35;
+        }
+        .stat-card.stat-bmc .stat-value { color: var(--accent); }
+        .stat-card.stat-wide { grid-column: 1 / -1; }
+        .podium-row { margin-top: 10px; }
+        .podium-bar-track {
+            width: 100%;
+            height: 8px;
+            background: var(--bg-input);
+            border-radius: 6px;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .podium-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--primary), var(--accent));
+            border-radius: 6px;
+        }
+        .podium-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.78rem;
+            font-weight: 600;
+        }
+        .stats-disclaimer {
+            font-size: 0.72rem;
+            color: var(--text-muted);
+            margin-top: 20px;
+            line-height: 1.45;
+            text-align: left;
+        }
+        .stats-backbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+        .stats-backbar .logo-mini {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-family: "Fraunces", Georgia, serif;
+            font-weight: 700;
+            font-size: 1.05rem;
+            color: var(--text-main, var(--text));
+        }
+        .stats-backbar .logo-mini img { width: 28px; height: 28px; border-radius: 6px; }
+        /* style.css fige le dashboard (100vh + overflow:hidden) — /stats doit scroller */
+        html {
+            height: auto;
+            overflow-x: hidden;
+            overflow-y: auto;
+        }
+        body {
+            font-family: "DM Sans", system-ui, sans-serif;
+            height: auto !important;
+            min-height: 100vh;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            background:
+                radial-gradient(ellipse 70% 40% at 50% -10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent),
+                var(--bg-app);
+        }
+        .dashboard-wrapper {
+            height: auto !important;
+            min-height: 100vh;
+            overflow: visible !important;
+        }
+        .content {
+            overflow: visible !important;
+            height: auto !important;
+            min-height: 0;
+        }
+        @media (max-width: 640px) {
+            .stats-hero { padding: 24px 18px; }
+            .chart-wrap { height: 200px; }
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard-wrapper">
-        <header class="topbar">
-            <div class="logo">
-                <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" class="logo-img">
-                MetaKavita - Statistiques
-            </div>
-            <div class="topbar-actions">
-                <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.stats_back }}</a>
-            </div>
-        </header>
+        <main class="content" style="display:block; padding: 24px 16px;">
+            <div class="stats-shell">
+                <div class="stats-backbar">
+                    <div class="logo-mini">
+                        <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+                        MetaKavita
+                    </div>
+                    <a href="{{ url_for('pages.index') }}" class="btn-primary block-link" style="padding: 8px 14px; font-size: 13px;">{{ t.stats_back }}</a>
+                </div>
 
-        <main class="content" style="align-items: center; justify-content: center;">
-            <div class="card" style="width: 100%; max-width: 600px; text-align: center; padding: 40px;">
-                <h2 class="section-title" style="font-size: 24px;">{{ t.stats_global }}</h2>
-                
-                <div style="display: flex; justify-content: space-around; margin-top: 30px;">
-                    <div>
-                        <h1 style="color: var(--primary); font-size: 3.5rem; margin: 0;">{{ total }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_cache }}</p>
+                <section class="stats-hero">
+                    <h1>{{ t.stats_global }}</h1>
+                    <p class="hero-sub">{{ t.stats_hero_sub }}</p>
+                    <div class="hero-kpis">
+                        {% if playful_enabled and playful %}
+                        <div class="hero-kpi">
+                            <p class="kpi-val">{{ playful.series_enriched }}</p>
+                            <p class="kpi-label">{{ t.playful_lifetime_series }}</p>
+                        </div>
+                        <div class="hero-kpi kpi-matches">
+                            <p class="kpi-val">{{ playful.matches_won }}</p>
+                            <p class="kpi-label">{{ t.playful_lifetime_matches }}</p>
+                        </div>
+                        <div class="hero-kpi kpi-miss">
+                            <p class="kpi-val">{{ playful.series_missed }}</p>
+                            <p class="kpi-label">{{ t.playful_lifetime_missed }}</p>
+                        </div>
+                        <div class="hero-kpi">
+                            <p class="kpi-val">{{ playful.lifetime_hit_rate }}%</p>
+                            <p class="kpi-label">{{ t.playful_lifetime_hit_rate }}</p>
+                        </div>
+                        <div class="hero-kpi">
+                            <p class="kpi-val">{{ playful.avg_matches }}</p>
+                            <p class="kpi-label">{{ t.playful_avg_matches }}</p>
+                        </div>
+                        {% endif %}
+                        <div class="hero-kpi kpi-ok">
+                            <p class="kpi-val">{{ completed }}</p>
+                            <p class="kpi-label">{{ t.stats_ok }}</p>
+                        </div>
+                        <div class="hero-kpi">
+                            <p class="kpi-val">{{ total }}</p>
+                            <p class="kpi-label">{{ t.stats_cache }}</p>
+                        </div>
+                        <div class="hero-kpi">
+                            <p class="kpi-val">{{ pending }}</p>
+                            <p class="kpi-label">{{ t.stats_wait }}</p>
+                        </div>
+                        <div class="hero-kpi">
+                            <p class="kpi-val">{{ not_found }}</p>
+                            <p class="kpi-label">{{ t.stats_err }}</p>
+                        </div>
                     </div>
-                    <div>
-                        <h1 style="color: var(--success); font-size: 3.5rem; margin: 0;">{{ completed }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_ok }}</p>
+                </section>
+
+                {% if playful_enabled and playful %}
+                <div class="charts-row">
+                    <div class="chart-panel">
+                        <h3>{{ t.playful_chart_status }}</h3>
+                        <div class="chart-wrap"><canvas id="chartStatus"></canvas></div>
+                    </div>
+                    <div class="chart-panel">
+                        <h3>{{ t.playful_chart_providers }}</h3>
+                        <div class="chart-wrap"><canvas id="chartProviders"></canvas></div>
+                    </div>
+                    <div class="chart-panel">
+                        <h3>{{ t.playful_chart_lifetime }}</h3>
+                        <div class="chart-wrap"><canvas id="chartLifetime"></canvas></div>
+                    </div>
+                    <div class="chart-panel">
+                        <h3>{{ t.playful_chart_hit_miss }}</h3>
+                        <div class="chart-wrap"><canvas id="chartHitMiss"></canvas></div>
                     </div>
                 </div>
-                
-                <div style="display: flex; justify-content: space-around; margin-top: 30px;">
-                    <div>
-                        <h1 style="color: var(--warning); font-size: 3.5rem; margin: 0;">{{ pending }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_wait }}</p>
+
+                <h2 class="stats-section-title">{{ t.playful_stats_title }}</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.time_saved.display }}</p>
+                        <p class="stat-label">{{ t.playful_time_saved }}</p>
+                        <p class="stat-hint">{{ t.playful_time_saved_hint }}</p>
                     </div>
-                    <div>
-                        <h1 style="color: var(--danger); font-size: 3.5rem; margin: 0;">{{ not_found }}</h1>
-                        <p class="text-muted" style="font-weight: 600; font-size: 16px;">{{ t.stats_err }}</p>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.coffees_avoided }}</p>
+                        <p class="stat-label">{{ t.playful_coffees }}</p>
+                        <p class="stat-hint">{{ t.playful_coffees_hint }}</p>
                     </div>
-                </div>
-                
-                <div class="mt-3" style="margin-top: 40px !important;">
-                    <div style="width: 100%; background: var(--bg-input); height: 25px; border-radius: 15px; overflow: hidden; display: flex;">
-                        {% if total > 0 %}
-                        <div style="width: {{ (completed / total) * 100 }}%; background: var(--success);" title="Complétées"></div>
-                        <div style="width: {{ (not_found / total) * 100 }}%; background: var(--danger);" title="Introuvables"></div>
-                        <div style="width: {{ (pending / total) * 100 }}%; background: var(--warning);" title="En Attente"></div>
+                    <div class="stat-card">
+                        <p class="stat-value">€{{ '%.2f'|format(playful.deepl_eur_saved) }}</p>
+                        <p class="stat-label">{{ t.playful_deepl }}</p>
+                        <p class="stat-hint">{{ t.playful_deepl_hint }}</p>
+                    </div>
+                    <div class="stat-card stat-bmc">
+                        <p class="stat-value">{{ playful.bmc_coffees }}</p>
+                        <p class="stat-label">{{ t.playful_bmc }}</p>
+                        <p class="stat-hint">{{ t.playful_bmc_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.netflix_episodes }}</p>
+                        <p class="stat-label">{{ t.playful_netflix }}</p>
+                        <p class="stat-hint">{{ t.playful_netflix_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.manga_pages }}</p>
+                        <p class="stat-label">{{ t.playful_pages }}</p>
+                        <p class="stat-hint">{{ t.playful_pages_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.success_rate }}%</p>
+                        <p class="stat-label">{{ t.playful_success_rate }}</p>
+                        <p class="stat-hint">{{ t.playful_success_rate_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.completion_pct }}%</p>
+                        <p class="stat-label">{{ t.playful_completion }}</p>
+                        <p class="stat-hint">{{ t.playful_completion_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.library_score }}/100</p>
+                        <p class="stat-label">{{ t.playful_library_score }}</p>
+                        <p class="stat-hint">{{ t.playful_library_score_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.automation_rate }}%</p>
+                        <p class="stat-label">{{ t.playful_automation }}</p>
+                        <p class="stat-hint">{{ t.playful_automation_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.mysteries }}</p>
+                        <p class="stat-label">{{ t.playful_mysteries }}</p>
+                        <p class="stat-hint">{{ t.playful_mysteries_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.queue }}</p>
+                        <p class="stat-label">{{ t.playful_queue }}</p>
+                        <p class="stat-hint">{{ t.playful_queue_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.closet }}</p>
+                        <p class="stat-label">{{ t.playful_closet }}</p>
+                        <p class="stat-hint">{{ t.playful_closet_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.manual_overrides }}</p>
+                        <p class="stat-label">{{ t.playful_manual }}</p>
+                        <p class="stat-hint">{{ t.playful_manual_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.forced_ids }}</p>
+                        <p class="stat-label">{{ t.playful_forced_ids }}</p>
+                        <p class="stat-hint">{{ t.playful_forced_ids_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.forced_providers }}</p>
+                        <p class="stat-label">{{ t.playful_forced_providers }}</p>
+                        <p class="stat-hint">{{ t.playful_forced_providers_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.alt_lang_crafts }}</p>
+                        <p class="stat-label">{{ t.playful_alt_langs }}</p>
+                        <p class="stat-hint">{{ t.playful_alt_langs_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.protected_covers }}</p>
+                        <p class="stat-label">{{ t.playful_covers }}</p>
+                        <p class="stat-hint">{{ t.playful_covers_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.surgical }}</p>
+                        <p class="stat-label">{{ t.playful_surgical }}</p>
+                        <p class="stat-hint">{{ t.playful_surgical_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.pub_localized }} / {{ playful.pub_original }}</p>
+                        <p class="stat-label">{{ t.playful_publisher_split }}</p>
+                        <p class="stat-hint">{{ t.playful_publisher_split_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{{ playful.provider_diversity }}</p>
+                        <p class="stat-label">{{ t.playful_diversity }}</p>
+                        <p class="stat-hint">{{ t.playful_diversity_hint }}</p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{% if playful.champion %}{{ playful.champion.name }}{% else %}—{% endif %}</p>
+                        <p class="stat-label">{{ t.playful_champion }}</p>
+                        <p class="stat-hint">
+                            {% if playful.champion %}{{ t.playful_champion_hint.format(playful.champion.wins) }}{% else %}{{ t.playful_no_provider_data }}{% endif %}
+                        </p>
+                    </div>
+                    <div class="stat-card">
+                        <p class="stat-value">{% if playful.underdog %}{{ playful.underdog.name }}{% else %}—{% endif %}</p>
+                        <p class="stat-label">{{ t.playful_underdog }}</p>
+                        <p class="stat-hint">
+                            {% if playful.underdog %}{{ t.playful_underdog_hint.format(playful.underdog.wins) }}{% else %}{{ t.playful_no_provider_data }}{% endif %}
+                        </p>
+                    </div>
+                    <div class="stat-card stat-wide">
+                        <p class="stat-label">{{ t.playful_podium }}</p>
+                        {% if playful.podium %}
+                            {% for p in playful.podium %}
+                            <div class="podium-row">
+                                <div class="podium-meta">
+                                    <span>{{ loop.index }}. {{ p.name }}</span>
+                                    <span>{{ p.wins }} · {{ p.pct }}%</span>
+                                </div>
+                                <div class="podium-bar-track">
+                                    <div class="podium-bar-fill" style="width: {{ p.pct }}%;"></div>
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <p class="stat-hint">{{ t.playful_no_provider_data }}</p>
                         {% endif %}
                     </div>
                 </div>
+                <p class="stats-disclaimer">{{ t.playful_disclaimer }}</p>
+                {% endif %}
             </div>
         </main>
     </div>
+
+    {% if playful_enabled and playful %}
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+    <script>
+    (function () {
+        const charts = {{ playful.charts | tojson }};
+        const labelsStatus = {{ [t.stats_enriched, t.stats_pending, t.stats_errors, t.stats_ignored] | tojson }};
+        const labelsLifetime = {{ [t.playful_lifetime_series, t.playful_lifetime_matches, t.playful_lifetime_missed] | tojson }};
+        const labelsHitMiss = {{ [t.playful_lifetime_series, t.playful_lifetime_missed] | tojson }};
+        const css = getComputedStyle(document.documentElement);
+        const primary = css.getPropertyValue('--primary').trim() || '#3b82f6';
+        const success = css.getPropertyValue('--success').trim() || '#10b981';
+        const warning = css.getPropertyValue('--warning').trim() || '#f59e0b';
+        const danger = css.getPropertyValue('--danger').trim() || '#ef4444';
+        const accent = css.getPropertyValue('--accent').trim() || '#8b5cf6';
+        const muted = css.getPropertyValue('--text-muted').trim() || '#94a3b8';
+        const grid = 'rgba(148, 163, 184, 0.18)';
+
+        Chart.defaults.color = muted;
+        Chart.defaults.font.family = "'DM Sans', system-ui, sans-serif";
+
+        const statusEl = document.getElementById('chartStatus');
+        if (statusEl) {
+            new Chart(statusEl, {
+                type: 'doughnut',
+                data: {
+                    labels: labelsStatus,
+                    datasets: [{
+                        data: charts.status.values,
+                        backgroundColor: [success, warning, danger, muted],
+                        borderWidth: 0,
+                        hoverOffset: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '62%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14 } }
+                    }
+                }
+            });
+        }
+
+        const hitMissEl = document.getElementById('chartHitMiss');
+        if (hitMissEl) {
+            new Chart(hitMissEl, {
+                type: 'doughnut',
+                data: {
+                    labels: labelsHitMiss,
+                    datasets: [{
+                        data: charts.hit_miss.values,
+                        backgroundColor: [success, danger],
+                        borderWidth: 0,
+                        hoverOffset: 6
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    cutout: '62%',
+                    plugins: {
+                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14 } }
+                    }
+                }
+            });
+        }
+
+        const provEl = document.getElementById('chartProviders');
+        if (provEl) {
+            const hasData = (charts.providers.values || []).some(v => v > 0);
+            new Chart(provEl, {
+                type: 'bar',
+                data: {
+                    labels: hasData ? charts.providers.labels : ['—'],
+                    datasets: [{
+                        data: hasData ? charts.providers.values : [0],
+                        backgroundColor: primary,
+                        borderRadius: 8,
+                        maxBarThickness: 36
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    indexAxis: 'y',
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        x: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } },
+                        y: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+
+        const lifeEl = document.getElementById('chartLifetime');
+        if (lifeEl) {
+            new Chart(lifeEl, {
+                type: 'bar',
+                data: {
+                    labels: labelsLifetime,
+                    datasets: [{
+                        data: charts.lifetime.values,
+                        backgroundColor: [primary, accent, danger],
+                        borderRadius: 10,
+                        maxBarThickness: 48
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: {
+                        y: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } },
+                        x: { grid: { display: false } }
+                    }
+                }
+            });
+        }
+    })();
+    </script>
+    {% endif %}
 </body>
 </html>

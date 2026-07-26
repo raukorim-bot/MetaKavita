@@ -7,7 +7,7 @@ import difflib
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_tags
 from secure_logging import safe_exc_str
 
@@ -367,7 +367,7 @@ class ComicVineScraper(BaseScraper):
             return attach_match_score(candidate, 1.0)
         clean_q = clean_title(query, library_type=library_type) or query
         score = score_candidate(candidate, clean_q, existing_metadata)
-        if score < MATCH_ACCEPT_THRESHOLD:
+        if score < get_match_accept_threshold():
             return None
         return attach_match_score(candidate, score)
 

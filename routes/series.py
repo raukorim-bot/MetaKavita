@@ -17,6 +17,7 @@ from db_manager import get_all_cached_data, update_status, save_series_override
 from kavita_api import KavitaAPI
 from models import SeriesOverride
 from scrapers import ScraperRegistry
+from scrapers.utils import library_type_for_scraper
 
 series_bp = Blueprint('series', __name__)
 
@@ -75,7 +76,8 @@ def get_series_covers(series_id):
     def fetch_single_scraper(scraper):
         """Fonction exécutée en parallèle pour chaque scraper."""
         try:
-            s_covers = scraper.fetch_covers(search_query, library_type=library_type)
+            fetch_lt = library_type_for_scraper(scraper, library_type)
+            s_covers = scraper.fetch_covers(search_query, library_type=fetch_lt)
             results = []
             if s_covers:
                 for c in s_covers:
