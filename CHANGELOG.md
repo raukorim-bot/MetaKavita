@@ -16,7 +16,7 @@ EN
 * **Check all / Uncheck all** — Same controls on the sidebar batch mask and on each series’ targeted-fields override panel.
 
 ### 🐛 UI polish
-* **Collapsible Scraping Options** — Click the sidebar “Scraping Options” title to show/hide the whole strategy card (open by default).
+* **Collapsible Scraping Options** — Click the sidebar “Scraping Options” title to show/hide the whole strategy card (open by default; open/closed state persisted in `localStorage` as `mk_scraping_options_open`).
 * **`/stats` page scroll** — Dashboard `100vh` + `overflow: hidden` overrides so the playful stats page scrolls on desktop again.
 
 ---
@@ -37,7 +37,7 @@ FR
 * **Tout cocher / Tout décocher** — Sidebar (masque batch) et panneau override de chaque série.
 
 ### 🐛 Polish UI
-* **Options de Scraping pliables** — Clic sur le titre sidebar pour afficher/masquer toute la carte stratégie (ouverte par défaut).
+* **Options de Scraping pliables** — Clic sur le titre sidebar pour afficher/masquer toute la carte stratégie (ouverte par défaut ; état ouvert/fermé persisté en `localStorage` sous `mk_scraping_options_open`).
 * **Scroll `/stats`** — Contournement du layout dashboard `100vh` + `overflow: hidden` pour que la page stats scrolle à nouveau sur desktop.
 
 ---

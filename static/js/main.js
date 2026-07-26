@@ -2,12 +2,26 @@
 // Chargé en dernier : appelle des fonctions définies dans config.js (toggleTranslationFields),
 // batch.js (loadLibrary, filterSeries) une fois toutes les autres briques prêtes.
 
+const SCRAPING_OPTIONS_OPEN_KEY = 'mk_scraping_options_open';
+
+function restoreScrapingOptionsOpenState() {
+    const details = document.getElementById('scrapingOptionsDetails');
+    if (!details) return;
+    const saved = localStorage.getItem(SCRAPING_OPTIONS_OPEN_KEY);
+    // Défaut : ouvert (comme avant) si aucune préférence enregistrée
+    details.open = saved === null ? true : saved === 'true';
+    details.addEventListener('toggle', function () {
+        localStorage.setItem(SCRAPING_OPTIONS_OPEN_KEY, details.open ? 'true' : 'false');
+    });
+}
+
 document.addEventListener('DOMContentLoaded', () => {
     const savedStatus = localStorage.getItem('filter_status');
     const savedHideIgnored = localStorage.getItem('filter_hide_ignored');
     const savedSearch = localStorage.getItem('filter_search');
     const savedLibrary = localStorage.getItem('filter_library');
     toggleTranslationFields();
+    restoreScrapingOptionsOpenState();
     if (savedStatus) {
         const statusSelect = document.getElementById('statusFilter');
         if (statusSelect) statusSelect.value = savedStatus;
