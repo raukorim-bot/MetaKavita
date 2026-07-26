@@ -3,7 +3,7 @@ import requests
 import urllib.parse
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 from config_manager import load_config
 
 class GoogleBooksScraper(BaseScraper):
@@ -14,6 +14,7 @@ class GoogleBooksScraper(BaseScraper):
     proxy_domains = ["books.google.com"]
     has_direct_id_support = True
     needs_api_key = True
+    uses_unified_scoring = True
     
     translations = {
         "fr": {
@@ -57,7 +58,7 @@ class GoogleBooksScraper(BaseScraper):
                 res = requests.get(url, params=params, timeout=15)
                 if res.status_code == 200:
                     item = res.json()
-                    return self._build_candidate(item.get("volumeInfo", {}), item.get("id"))
+                    return attach_match_score(self._build_candidate(item.get("volumeInfo", {}), item.get("id")), 1.0)
                 return None
 
             cleaned = clean_title(query, library_type=library_type)
@@ -118,12 +119,12 @@ class GoogleBooksScraper(BaseScraper):
                     best_score = score
                     best_match = candidate
 
-            if not best_match or best_score < 0.50:
+            if not best_match or best_score < MATCH_ACCEPT_THRESHOLD:
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 
             logging.info(self.t("matched").format(best_match.get('title'), int(best_score*100)))
-            return best_match
+            return attach_match_score(best_match, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

@@ -2,16 +2,18 @@ import requests
 import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 from config_manager import load_config
+from kavita_constants import normalize_provider_status
 
 class MangaBakaScraper(BaseScraper):
     id = "MANGABAKA"
     display_name = "MangaBaka (API / Rapide)"
-    supported_types = {"Manga"}
+    supported_types = {"Manga", "Book"}
     rate_limit = 2.5
     proxy_domains = ["mangabaka.org"]
     has_direct_id_support = True
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -48,16 +50,28 @@ class MangaBakaScraper(BaseScraper):
         try:
             if is_id:
                 logging.info(self.t("direct_id").format(query))
-                res = requests.get(f"{base_url}/{query}", timeout=10)
+                # schema=full : champs sources/tags/genres complets (fix LazyGeniusMan / PR communautaire).
+                res = requests.get(f"{base_url}/{query}", params={"schema": "full"}, timeout=10)
                 if res.status_code != 200: return None
                 json_res = res.json()
                 raw_data = json_res.get('data') if 'data' in json_res else json_res
-                return self._build_candidate(raw_data, pub_pref) if raw_data else None
+                return attach_match_score(self._build_candidate(raw_data, pub_pref), 1.0) if raw_data else None
 
             else:
                 clean = clean_title(query, library_type=library_type)
                 logging.info(self.t("search_title").format(clean))
-                res = requests.get(search_url, params={"q": clean}, timeout=10)
+                # Filtre `type` MangaBaka : évite qu'une recherche Book/LN tombe sur un manga
+                # homonyme (et réciproquement).
+                type_mapping = {
+                    "Manga": ["manga", "manhwa", "manhua"],
+                    "Book": "novel",
+                    "Comic": ["manga", "manhwa", "manhua"],
+                }
+                params = {"q": clean, "schema": "full"}
+                mangabaka_type = type_mapping.get(library_type)
+                if mangabaka_type is not None:
+                    params["type"] = mangabaka_type
+                res = requests.get(search_url, params=params, timeout=10)
                 if res.status_code != 200: return None
                 json_res = res.json()
                 results = json_res.get('data') if 'data' in json_res else json_res
@@ -77,8 +91,8 @@ class MangaBakaScraper(BaseScraper):
                         best_score = score
                         best_match = candidate
 
-                if best_match and best_score >= 0.50:
-                    return best_match
+                if best_match and best_score >= MATCH_ACCEPT_THRESHOLD:
+                    return attach_match_score(best_match, best_score)
 
                 return None
 
@@ -130,19 +144,39 @@ class MangaBakaScraper(BaseScraper):
         mb_sources = data.get('source', {})
         anilist_id, mal_id = None, None
         if isinstance(mb_sources, dict):
-            anilist_id = mb_sources.get('anilist', {}).get('id')
-            mal_id = mb_sources.get('mal', {}).get('id')
+            anilist_id = mb_sources.get('anilist', {}).get('id') if isinstance(mb_sources.get('anilist'), dict) else None
+            # schema=full utilise souvent `my_anime_list` ; l'ancien chemin `mal` est gardé
+            # en repli pour rester compatible avec les réponses allégées.
+            mal_node = mb_sources.get('my_anime_list') or mb_sources.get('mal') or {}
+            mal_id = mal_node.get('id') if isinstance(mal_node, dict) else None
+
+        # schema=full : tags unifiés avec drapeau is_genre. Sinon : clés séparées genres/tags.
+        raw_tags = data.get('tags') or []
+        if raw_tags and isinstance(raw_tags[0], dict) and 'is_genre' in raw_tags[0]:
+            tags_list = [tag.get('name') for tag in raw_tags if isinstance(tag, dict) and tag.get('name') and not tag.get('is_genre')]
+            genres_list = [tag.get('name') for tag in raw_tags if isinstance(tag, dict) and tag.get('name') and tag.get('is_genre')]
+        else:
+            tags_list = []
+            for tag in raw_tags:
+                if isinstance(tag, dict) and tag.get('name'):
+                    tags_list.append(tag['name'])
+                elif isinstance(tag, str) and tag.strip():
+                    tags_list.append(tag.strip())
+            genres_list = []
+            for g in (data.get('genres') or []):
+                if isinstance(g, dict) and g.get('name'):
+                    genres_list.append(g['name'])
+                elif isinstance(g, str) and g.strip():
+                    genres_list.append(g.strip())
 
         format_type = None
-        tags_list = data.get('tags') or []
-        genres_list = data.get('genres') or []
-
         try:
             mb_type = str(data.get('type', '')).upper()
             if 'MANHWA' in mb_type or 'WEBTOON' in mb_type: format_type = 'webtoon'
+            elif 'NOVEL' in mb_type: format_type = 'book'
             elif 'MANGA' in mb_type: format_type = 'manga'
             if not format_type:
-                tags_str = " ".join([str(t.get('name', t)) if isinstance(t, dict) else str(t) for t in tags_list]).upper()
+                tags_str = " ".join([str(t) for t in tags_list]).upper()
                 genres_str = " ".join([str(g) for g in genres_list]).upper()
                 if "MANHWA" in tags_str or "WEBTOON" in tags_str or "MANHWA" in genres_str or "WEBTOON" in genres_str:
                     format_type = "webtoon"
@@ -182,18 +216,19 @@ class MangaBakaScraper(BaseScraper):
 
         # Normalisation du statut brut MangaBaka ('cancelled', 'completed', 'hiatus',
         # 'releasing', 'unknown', 'upcoming') vers le contrat interne MetaKavita
-        # ('RELEASING', 'FINISHED', 'HIATUS', 'CANCELLED'). Sans ce mapping, "completed"
-        # ne correspondait à aucune clé de status_map dans app.py (qui attend "FINISHED"),
-        # et les séries terminées scrapées via MangaBaka restaient silencieusement
-        # marquées "En cours" dans Kavita.
-        raw_mb_status = str(data.get('status', '')).lower()
-        status_map_mb = {
-            'completed': 'FINISHED',
-            'releasing': 'RELEASING',
-            'hiatus': 'HIATUS',
-            'cancelled': 'CANCELLED',
-        }
-        mb_status = status_map_mb.get(raw_mb_status)
+        # ('RELEASING', 'FINISHED', 'HIATUS', 'CANCELLED'), centralisee dans
+        # kavita_constants.py (voir DEVELOPER.md section 11.D). Sans ce mapping,
+        # "completed" ne correspondait a aucune cle du mapping de statut attendu
+        # par le moteur d'enrichissement, et les series terminees scrapees via
+        # MangaBaka restaient silencieusement marquees "En cours" dans Kavita.
+        mb_status = normalize_provider_status(data.get('status'))
+
+        links = []
+        for link in (data.get('links') or []):
+            if isinstance(link, dict) and link.get('url'):
+                links.append(link['url'])
+            elif isinstance(link, str) and link.strip():
+                links.append(link.strip())
 
         return {
             'title': fetched_title or (alt_titles[0] if alt_titles else ""),
@@ -210,7 +245,7 @@ class MangaBakaScraper(BaseScraper):
             'mangabaka_id': data.get('id'),
             'anilist_id': anilist_id,
             'mal_id': mal_id,
-            'links': data.get('links') or [],
+            'links': links,
             'format': format_type
         }
     
@@ -218,7 +253,16 @@ class MangaBakaScraper(BaseScraper):
         covers = []
         clean_sq = clean_title(query, library_type=library_type)
         try:
-            res = requests.get("https://api.mangabaka.org/v2/series/search", params={"q": clean_sq}, timeout=10)
+            type_mapping = {
+                "Manga": ["manga", "manhwa", "manhua"],
+                "Book": "novel",
+                "Comic": ["manga", "manhwa", "manhua"],
+            }
+            params = {"q": clean_sq, "schema": "full"}
+            mangabaka_type = type_mapping.get(library_type)
+            if mangabaka_type is not None:
+                params["type"] = mangabaka_type
+            res = requests.get("https://api.mangabaka.org/v2/series/search", params=params, timeout=10)
             if res.status_code == 200:
                 json_res = res.json()
                 results = json_res.get('data') if 'data' in json_res else json_res

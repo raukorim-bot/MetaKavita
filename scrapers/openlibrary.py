@@ -4,7 +4,7 @@ import re
 import time
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
 
@@ -64,6 +64,7 @@ class OpenLibraryScraper(BaseScraper):
     proxy_domains = ["openlibrary.org", "covers.openlibrary.org", "books.google.com"]
     has_direct_id_support = True
     requires_proxy = False
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -202,7 +203,7 @@ class OpenLibraryScraper(BaseScraper):
                 res = safe_get_request(url, headers=headers, timeout=12)
                 if res and res.status_code == 200:
                     logging.info(self.t("matched_isbn").format(existing_isbn))
-                    return self._parse_work_record(res.json(), {}, headers)
+                    return attach_match_score(self._parse_work_record(res.json(), {}, headers), 1.0)
                     
             # 2. RECHERCHE PAR ID / WORK / BOOK BRUT
             if is_id:
@@ -213,7 +214,7 @@ class OpenLibraryScraper(BaseScraper):
                 url = f"https://openlibrary.org{endpoint}.json"
                 res = safe_get_request(url, headers=headers, timeout=12)
                 if res and res.status_code == 200:
-                    return self._parse_work_record(res.json(), {}, headers)
+                    return attach_match_score(self._parse_work_record(res.json(), {}, headers), 1.0)
                 return None
 
             # 3. RECHERCHE TEXTUELLE CLASSIQUE ET ÉVALUATION
@@ -228,8 +229,6 @@ class OpenLibraryScraper(BaseScraper):
 
             docs = res.json().get("docs", []) or []
             if not docs: return None
-
-            from .utils import score_candidate
 
             best_match = None
             best_score = -1.0
@@ -253,12 +252,12 @@ class OpenLibraryScraper(BaseScraper):
                     best_score = score
                     best_match = candidate
 
-            if not best_match or best_score < 0.60:
+            if not best_match or best_score < MATCH_ACCEPT_THRESHOLD:
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 
             logging.info(self.t("matched").format(best_match.get('title'), int(best_score*100)))
-            return best_match
+            return attach_match_score(best_match, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

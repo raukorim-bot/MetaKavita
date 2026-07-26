@@ -1,0 +1,141 @@
+"""
+Blueprint de synchronisation : déclenchement manuel/lot, webhook entrant,
+export des erreurs.
+
+⚠️ Endpoints réels : 'sync.force_sync', 'sync.batch_sync', 'sync.stop_batch',
+'sync.amnistie' (reset-errors), 'sync.export_errors', 'sync.webhook'.
+'sync.webhook' est whitelisté dans `require_login` (app.py) car il utilise sa
+propre authentification par jeton — gardez ce nom synchronisé si vous le
+renommez.
+"""
+
+import logging
+import queue
+import secrets
+
+from flask import Blueprint, request, jsonify, Response
+
+from config_manager import load_config
+from db_manager import get_all_cached_data, reset_errors
+from kavita_api import KavitaAPI
+from translations import translations
+from services.background_tasks import sync_queue
+from services.enrichment_engine import enrich_series
+
+sync_bp = Blueprint('sync', __name__)
+
+
+@sync_bp.route('/reset-errors', methods=['POST'])
+def amnistie():
+    reset_errors()
+    return jsonify(success=True)
+
+
+@sync_bp.route('/force-sync', methods=['POST'])
+def force_sync():
+    t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
+    series_id = request.form.get('series_id')
+    series_name = request.form.get('series_name')
+    if not series_id or not series_name: return jsonify(success=False, msg=t.get('err_missing'))
+
+    success, result_msg, _ = enrich_series(series_id, series_name, force_update=True)
+    return jsonify(success=success, msg=result_msg)
+
+
+@sync_bp.route('/batch-sync', methods=['POST'])
+def batch_sync():
+    t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
+    library_id = request.form.get('library_id')
+    force_update = request.form.get('force_update') == 'true'
+    selected_ids = request.form.getlist('selected_series')
+
+    lib_id = library_id if library_id and library_id != "" and library_id != "None" else None
+
+    config = load_config()
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+
+    if not kavita.authenticate():
+        return jsonify(success=False, msg=t.get('err_kavita', "Connexion échouée."))
+
+    all_series = kavita.get_all_series(library_id=lib_id)
+    cached = get_all_cached_data()
+
+    if not selected_ids:
+        # Si aucune case n'est cochée (batch global), on exclut les ignorés
+        series_to_process = [
+            s for s in all_series
+            if cached.get(s['id'], {}).get('status') != 'IGNORED'
+        ]
+    else:
+        # Si l'utilisateur a COCHÉ des séries spécifiques, ON LES TRAITE TOUTES,
+        # même si elles étaient marquées comme IGNORED !
+        series_to_process = [s for s in all_series if str(s['id']) in selected_ids]
+
+    if not series_to_process:
+        return jsonify(success=False, msg=t.get('err_no_sel_or_empty', "Aucune série à traiter."))
+
+    current_size = sync_queue.qsize()
+    total_after_add = current_size + len(series_to_process)
+    log_msg = t.get('log_batch_added', "🚀 {0} série(s) ajoutée(s) (Total : {1})")
+    logging.info(log_msg.format(len(series_to_process), total_after_add))
+
+    for s in series_to_process:
+        sync_queue.put((s['id'], s['name'], force_update))
+
+    msg_added = t.get('batch_added').replace('{}', str(len(series_to_process)))
+    return jsonify(success=True, msg=msg_added)
+
+
+@sync_bp.route('/stop-batch', methods=['POST'])
+def stop_batch():
+    t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
+    while not sync_queue.empty():
+        try:
+            sync_queue.get_nowait()
+            sync_queue.task_done()
+        except queue.Empty:
+            break
+    logging.info(t.get('log_batch_stopped'))
+    return jsonify(success=True, msg=t.get('batch_stopped'))
+
+
+@sync_bp.route('/export-errors', methods=['GET'])
+def export_errors():
+    config = load_config()
+    t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
+    all_series = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY')).get_all_series()
+    cached = get_all_cached_data()
+
+    error_lines = [f"{t.get('report_title')}\n", "="*50, "\n\n"]
+    for s in all_series:
+        if cached.get(s['id'], {}).get('status') == 'NOT_FOUND':
+            error_lines.append(f"- {s['name']} ({t.get('report_item')} {s['id']})\n")
+
+    return Response("".join(error_lines), mimetype="text/plain", headers={"Content-disposition": "attachment; filename=metakavita_erreurs.txt"})
+
+
+@sync_bp.route('/webhook', methods=['POST'])
+def webhook():
+    config = load_config()
+    token = request.args.get('token')
+    webhook_token = config.get('WEBHOOK_TOKEN', '')
+
+    if not token or not webhook_token or not secrets.compare_digest(token, webhook_token):
+        logging.warning("🚨 [Sécurité] Tentative d'accès au webhook bloquée (Jeton invalide).")
+        return jsonify(success=False, message="Unauthorized"), 401
+
+    payload = request.get_json(silent=True) or request.form or {}
+    series_id = payload.get("seriesId") or payload.get("SeriesId") or payload.get("series_id")
+    series_name = payload.get("name") or payload.get("Name") or payload.get("series_name")
+
+    force_param = payload.get("force") or payload.get("force_update") or payload.get("forceUpdate") or request.args.get('force')
+    force_update = str(force_param).lower() in ['true', '1', 'yes'] if force_param is not None else False
+
+    if series_id and series_name:
+        sync_queue.put((series_id, series_name, force_update))
+        mode_str = " (⚠️ Mode Forcé)" if force_update else ""
+        logging.info(f"⚡ [Webhook] Événement reçu ! Série '{series_name}' (ID: {series_id}){mode_str} ajoutée à la file.")
+        return jsonify(success=True, message="Event reçu", force_update=force_update), 200
+
+    logging.warning("⚠️ [Webhook] Événement ignoré : champs 'seriesId' ou 'name' manquants dans le payload.")
+    return jsonify(success=False, message="Champs requis manquants"), 400

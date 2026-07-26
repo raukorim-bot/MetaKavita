@@ -8,7 +8,7 @@ MetaKavita also features a **Plug & Play Community Scraper** architecture, allow
 
 ## Sommaire / Table of Contents
 1. [🇺🇸 English Documentation](#-english-documentation)
-   * [User Interface & Ergonomics](#-user-interface--ergonomics-v159)
+   * [User Interface & Ergonomics](#-user-interface--ergonomics-v160)
    * [Enriched Metadata Fields](#-enriched-metadata-fields)
    * [Custom Community Scrapers (Plug & Play)](#-custom-community-scrapers-plug--play)
    * [Quality, Reliability & Benchmarking](#-quality-reliability--engine-benchmarking)
@@ -19,7 +19,7 @@ MetaKavita also features a **Plug & Play Community Scraper** architecture, allow
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks)
    * [Security Disclaimer & Best Practices](#-security-disclaimer--deployment-best-practices)
 2. [🇫🇷 Documentation Française](#-documentation-française)
-   * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie-v159)
+   * [Interface Utilisateur & Ergonomie](#-interface-utilisateur--ergonomie-v160)
    * [Métadonnées Enrichies](#-métadonnées-enrichies)
    * [Scrapers Communautaires Personnalisés](#-scrapers-communautaires-personnalisés-plug--play)
    * [Assurance Qualité & Benchmarks Moteur](#-assurance-qualité--benchmarks-moteur)
@@ -29,13 +29,14 @@ MetaKavita also features a **Plug & Play Community Scraper** architecture, allow
    * [Reverse Proxy & Hébergement en Sous-dossier](#-reverse-proxy--hébergement-en-sous-dossier)
    * [Auto-Sync & Webhooks](#-auto-sync--webhooks-1)
    * [Avertissement de Sécurité & Bonnes Pratiques](#-avertissement-de-sécurité--bonnes-pratiques)
-3. [⚠️ Notes, Tech Stack & Full Documentation](#-notes-tech-stack--full-documentation)
+3. [🙌 Contributors / Contributeurs](#-contributors--contributeurs)
+4. [⚠️ Notes, Tech Stack & Full Documentation](#-notes-tech-stack--full-documentation)
 
 ---
 
 ## 🇺🇸 English Documentation
 
-### 🎨 User Interface & Ergonomics (V1.5.9)
+### 🎨 User Interface & Ergonomics (V1.6.0)
 
 MetaKavita has been completely redesigned and heavily refined to separate background configuration from daily operational strategy, offering a zero-reload AJAX experience.
 
@@ -53,6 +54,7 @@ To the right, the **Expand/Collapse All** (`📐`) button allows you to toggle o
 #### 4. The "Magic Input", Deep Extraction & Advanced Overrides
 Each series has an advanced Options panel and relies on a powerful underlying scraping engine:
 *   **Deep Kavita Extraction**: Before querying the web, MetaKavita silently reads your existing Kavita metadata (like an embedded ISBN or an existing author). It uses this context in its unified scoring matrix to guarantee exact matches.
+*   **Smart Scoring (v1.6+)**: Configured providers are scored against each other — the best match wins (ties keep your fallback order). Provider #1 runs first to seed ISBN/author context, then the others run in parallel. With Smart Completion enabled, missing fields are filled from highest score to lowest.
 *   **The "Magic Input" (Smart URL/ID Routing)**: Paste a direct URL (e.g., `https://kitsu.io/manga/attack-on-titan` or a Manga-News link) or a raw ID into this field. MetaKavita will auto-detect the provider, bypass the standard search cascade, and scrape that exact page!
 *   **Publisher Preference Toggle**: A dedicated segmented control allows you to force a specific publisher preference (`Auto` | `VF/VA` | `VO`) per series, overriding the global configuration.
 *   **Granular Scraping (Targeted Fields)**: Click the "⚙️ Targeted Fields" details menu to individually uncheck specific metadata fields (Summary, Cover, Authors, Tags, Publisher, etc.) you don't want MetaKavita to overwrite.
@@ -103,6 +105,8 @@ You no longer need to modify the core code or rebuild the Docker image to add a 
 2. Restart your MetaKavita container (`docker restart metakavita`).
 3. The custom scraper will dynamically integrate into the UI dropdowns, automatically generate API key inputs in the Settings Modal if required, and benefit from the built-in SSRF Image Proxy protection!
 
+To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return candidates via `attach_match_score(...)` (see `CUSTOM_SCRAPERS.md` §4). Scrapers that skip this remain usable: they get a neutral score and cannot crash the enrichment pipeline.
+
 > 💡 **Developers**: Please read the `CUSTOM_SCRAPERS.md` file for strict integration contracts and AI Prompts ("Vibecoding") to generate custom scrapers effortlessly.
 
 ---
@@ -110,8 +114,9 @@ You no longer need to modify the core code or rebuild the Docker image to add a 
 ### 🧪 Quality, Reliability & Engine Benchmarking
 
 *   **100% Core Scoring Matrix Accuracy**: Evaluated across 20 complex edge cases including Roman volume numerals (`Tome II` -> `Tome 2`), sub-volume subtitle matching, spin-off penalties (`-35%`), guidebook noise filtering (`-50%`), and strict Anti-Homonym Author mismatch protections.
+*   **Smart Scoring Winner Selection (v1.6+)**: Providers compete by match score instead of list order; community scrapers opt in via `uses_unified_scoring` + `attach_match_score()`, with a hardened fallback so malformed scores never crash enrichment.
 *   **Pure Base64 Payload Delivery**: Cover uploads use pure Base64 byte strings ensuring that Kavita's C# engine flawlessly writes and saves images permanently to the disk, completely eradicating the "Phantom Cover" syndrome.
-*   **High-Speed Per-Provider Rate Limiter**: Uses dynamic timestamp tracking (`LAST_REQUEST_TIMES`). Idle APIs respond instantly with zero artificial delay, executing 3-provider Smart Fusions in ~1.6 seconds without triggering HTTP 429 rate limits.
+*   **High-Speed Per-Provider Rate Limiter**: Uses dynamic timestamp tracking (`LAST_REQUEST_TIMES`) with a per-scraper lock. Idle APIs respond instantly; after provider #1 seeds context, remaining providers run in parallel for Smart Fusion without triggering HTTP 429 rate limits.
 *   **Hardened Kavita API Compliance (v1.5.8+)**: All partial updates now perform a GET-merge-POST cycle before writing to Kavita, guaranteeing that untouched fields (like alternate titles) are never silently nulled out or unlocked by the server. This also resolved a real-world crash in third-party OPDS clients (e.g. KOReader's Kamare plugin) that were choking on unexpected `null` values previously introduced by partial payloads.
 
 ---
@@ -134,6 +139,7 @@ services:
     environment:
       - ADMIN_PASSWORD=your_secure_password
       # - ROOT_PATH=/metakavita # Optional subpath for reverse proxies
+      # - CORS_ALLOWED_ORIGINS=https://metakavita.home.local.ltd # Explicit HTTPS origins for Socket.IO / AJAX
     volumes:
       - ./data:/app/data
 ```
@@ -157,7 +163,10 @@ docker compose up -d --build
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | Secures the dashboard with a password. | *(Empty = No Auth)* |
 | `ROOT_PATH` | Custom URL subpath when hosted behind a reverse proxy (e.g. `/metakavita`). | *(Empty)* |
-| `KAVITA_URL` | Your Kavita instance URL. | *(Empty)* |
+| `CORS_ALLOWED_ORIGINS` | Comma-separated explicit origins allowed for CORS (HTTP + Socket.IO), e.g. `https://metakavita.home.local.ltd`. Empty = Same-Origin only. `*` is rejected. Does not replace proper reverse-proxy WebSocket upgrade config. | *(Empty)* |
+| `KAVITA_URL` | Kavita URL used by MetaKavita for API calls (can be an internal Docker hostname, e.g. `http://kavita:5000`). | *(Empty)* |
+| `KAVITA_EXTERNAL_URL` | Optional public Kavita URL for browser UI links (e.g. `https://kavita.domain.tld`). If empty, falls back to `KAVITA_URL`. | *(Empty)* |
+| `KAVITA_HTTP_TIMEOUT` | HTTP timeout in seconds for Kavita **write** requests (metadata / series update / cover upload). Raise to `90`–`120` on slow disks or large force-update batches. | `60` |
 | `KAVITA_API_KEY` | Your Kavita API Key. | *(Empty)* |
 | `TRANSLATION_PROVIDER` | Active translation engine (`GOOGLE`, `DEEPL`, `AZURE`, or `NONE` to disable). | `GOOGLE` |
 | `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
@@ -172,9 +181,10 @@ docker compose up -d --build
 | `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Fallback comic source 1. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Fallback comic source 2. | `NONE` |
-| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Fallback book source 1. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Fallback book source 2. | `NONE` |
+| `SMART_SCORING`   | Enable Smart Scoring — best match wins (`true` or `false`). Off = classic list-order fallback. | `true` |
 | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
@@ -258,7 +268,7 @@ The presence of built-in security features **does not guarantee absolute immunit
 
 ## 🇫🇷 Documentation Française
 
-### 🎨 Interface Utilisateur & Ergonomie (V1.5.9)
+### 🎨 Interface Utilisateur & Ergonomie (V1.6.0)
 
 MetaKavita a été entièrement repensé et peaufiné pour séparer la configuration technique de la stratégie de scraping opérationnelle, tout en offrant une navigation fluide sans rechargements de page (AJAX).
 
@@ -278,6 +288,7 @@ Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut son
 #### 4. Le "Champ Magique", Extraction Profonde & Forçages Avancés
 Chaque série dispose d'un volet d'options avancées reposant sur un puissant moteur de scraping :
 *   **Extraction Profonde Kavita** : Avant d'interroger le web, MetaKavita lit silencieusement vos métadonnées Kavita actuelles (ISBN, auteurs existants). Il utilise ce contexte dans sa matrice d'évaluation mathématique pour garantir des correspondances parfaites et éliminer les faux positifs.
+*   **Smart Scoring (v1.6+)** : les fournisseurs configurés sont comparés entre eux — le meilleur match gagne (égalité → ordre de fallback). Le provider #1 tourne d'abord pour amorcer le contexte ISBN/auteurs, puis les autres en parallèle. Avec la Complétion intelligente, les champs manquants sont comblés du score le plus haut au plus bas.
 *   **Le "Champ Magique" (Routage URL & ID)** : Collez une URL directe (ex: `https://mangabaka.org/1234` ou une fiche Manga-News), un slug ou un ID pur dans ce champ. MetaKavita détectera automatiquement le site, contournera la cascade habituelle, et ciblera cette page exacte !
 *   **Préférence d'Éditeur (VF/VA vs VO)** : Un interrupteur (pilule) permet d'imposer individuellement à une série la recherche de son éditeur localisé/traduit ou d'origine (Japonais).
 *   **Scraping Granulaire (Champs Ciblés)** : Cliquez sur le menu "⚙️ Champs Ciblés" pour décocher individuellement n'importe quelle métadonnée (Résumé, Couvertures, Auteurs, Éditeur, etc.) que vous souhaitez figer et protéger des modifications de MetaKavita.
@@ -329,6 +340,8 @@ Il n'est plus nécessaire de modifier le code source ou de recompiler l'image Do
 2. Redémarrez votre conteneur MetaKavita (`docker restart metakavita`).
 3. Votre scraper personnalisé sera automatiquement détecté, s'ajoutera à l'interface graphique, générera ses champs de clé API dans la configuration, et bénéficiera de la protection SSRF du Proxy d'images natif !
 
+Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring = True` et retournez vos candidats via `attach_match_score(...)` (voir `CUSTOM_SCRAPERS.md` §4). Sans cela, le scraper reste utilisable : il reçoit un score neutre et ne peut pas faire planter le pipeline d'enrichissement.
+
 > 💡 **Développeurs** : Veuillez lire le fichier `CUSTOM_SCRAPERS.md` à la racine du projet pour connaître le contrat technique et récupérer nos Prompts IA ("Vibecoding") pour générer vos scrapers en 5 minutes.
 
 ---
@@ -336,8 +349,9 @@ Il n'est plus nécessaire de modifier le code source ou de recompiler l'image Do
 ### 🧪 Assurance Qualité & Benchmarks Moteur
 
 *   **Précision de Scoring de 100%** : Évaluée sur 20 cas limites complexes incluant les chiffres romains (`Tome II` -> `Tome 2`), les sous-titres d'albums, le filtrage anti-spin-off (`-35%`), l'exclusion des artbooks/guidebooks (`-50%`) et la purge d'ISBN pour contrer les faux-positifs.
+*   **Sélection Smart Scoring (v1.6+)** : les fournisseurs sont départagés par score de match plutôt que par ordre de liste ; les scrapers communautaires optent via `uses_unified_scoring` + `attach_match_score()`, avec un filet de sécurité qui empêche tout score mal formé de faire planter l'enrichissement.
 *   **Payload Base64 Pur** : Résolution définitive du "Syndrome de la couverture fantôme". Les requêtes n'utilisent plus le *Data URI* mais une chaîne Base64 pure afin que le moteur C# de Kavita écrive physiquement et de manière permanente les images sur le disque dur.
-*   **Throttling Dynamique Haute Performance** : Remplacement des pauses fixes par un régulateur par horodatage (`LAST_REQUEST_TIMES`), exécutant des Smart Fusions de 3 fournisseurs en ~1,6 seconde sans jamais subir de blocage HTTP 429.
+*   **Throttling Dynamique Haute Performance** : régulateur par horodatage (`LAST_REQUEST_TIMES`) avec verrou par scraper. Après l'amorçage du contexte par le provider #1, les autres tournent en parallèle pour la Smart Fusion sans déclencher de HTTP 429.
 *   **Conformité Renforcée avec l'API Kavita (v1.5.8+)** : Chaque mise à jour partielle effectue désormais un cycle GET-fusion-POST avant l'écriture, garantissant que les champs non modifiés (ex: titres alternatifs) ne soient jamais silencieusement effacés ou déverrouillés par le serveur. Ce correctif a également résolu un plantage réel constaté sur des lecteurs OPDS tiers (ex: l'extension Kamare de KOReader), qui recevaient des valeurs `null` inattendues suite à d'anciens envois partiels.
 
 ---
@@ -360,6 +374,7 @@ services:
     environment:
       - ADMIN_PASSWORD=votre_mot_de_passe_securise
       # - ROOT_PATH=/metakavita # Optionnel : pour hébergement en sous-dossier
+      # - CORS_ALLOWED_ORIGINS=https://metakavita.home.local.ltd # Origins HTTPS explicites pour Socket.IO / AJAX
     volumes:
       - ./data:/app/data
 ```
@@ -383,7 +398,10 @@ docker compose up -d --build
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | Sécurise l'interface par mot de passe. | *(Vide = Pas d'Auth)* |
 | `ROOT_PATH` | Sous-chemin d'URL lors de l'exposition derrière un reverse proxy (ex: `/metakavita`). | *(Vide)* |
-| `KAVITA_URL` | L'URL de ton instance Kavita. | *(Vide)* |
+| `CORS_ALLOWED_ORIGINS` | Origins CORS explicites séparées par des virgules (HTTP + Socket.IO), ex: `https://metakavita.home.local.ltd`. Vide = Same-Origin uniquement. `*` est rejeté. Ne remplace pas une config reverse-proxy correcte pour l'upgrade WebSocket. | *(Vide)* |
+| `KAVITA_URL` | URL Kavita utilisée par MetaKavita pour les appels API (peut être un hostname Docker interne, ex: `http://kavita:5000`). | *(Vide)* |
+| `KAVITA_EXTERNAL_URL` | URL publique optionnelle de Kavita pour les liens UI (ex: `https://kavita.domain.tld`). Si vide, repli sur `KAVITA_URL`. | *(Vide)* |
+| `KAVITA_HTTP_TIMEOUT` | Timeout HTTP (secondes) pour les **écritures** Kavita (métadonnées / update série / couverture). Montez à `90`–`120` sur HDD ou gros force-update. | `60` |
 | `KAVITA_API_KEY` | Ta clé API Kavita. | *(Vide)* |
 | `TRANSLATION_PROVIDER` | Moteur de traduction actif (`GOOGLE`, `DEEPL`, `AZURE`, ou `NONE` pour désactiver). | `GOOGLE` |
 | `AZURE_API_KEY` | Ta clé d'API Microsoft Azure Translator (Moteur principal). | *(Vide)* |
@@ -398,9 +416,10 @@ docker compose up -d --build
 | `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
-| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
+| `SMART_SCORING`   | Activer le Smart Scoring — meilleur match (`true` ou `false`). Off = fallback classique par ordre de liste. | `true` |
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
@@ -477,6 +496,17 @@ L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vo
 4. **Mot de Passe Fort** : Définissez un paramètre `ADMIN_PASSWORD` complexe dans l'environnement de votre conteneur.
 
 > **Avertissement de responsabilité** : MetaKavita est fourni "en l'état", sans aucune garantie. Les développeurs et contributeurs déclinent toute responsabilité en cas d'altération de données, d'intrusion ou d'incident de sécurité découlant d'une exposition publique ou d'une erreur de configuration.
+
+---
+
+## 🙌 Contributors / Contributeurs
+
+Community feedback that shaped MetaKavita — thank you!  
+*(Retours communautaires qui ont fait évoluer MetaKavita — merci !)*
+
+| Contributor | Contributions |
+| :--- | :--- |
+| [**LazyGeniusMan**](https://github.com/LazyGeniusMan) | MangaBaka API hardening (`schema=full`, `type=novel` filter, tag/genre & MAL parsing), official Book/LN provider feedback, `KAVITA_EXTERNAL_URL` (Docker internal API vs public UI URL), Traefik / Socket.IO CORS origin reports. |
 
 ---
 

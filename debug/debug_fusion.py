@@ -48,7 +48,7 @@ if master_data:
     print("\n" + "="*55)
     print("📊 RÉSULTAT FINAL DE LA FUSION (MASTER DATA)")
     print("="*55)
-    print(f"🏆 Provider de Base       : {base_provider}")
+    print(f"🏆 Provider de Base       : {base_provider} (score: {master_data.get('_match_score', 'N/A')})")
     print(f"🧩 Providers de Fusion    : {', '.join(fusion_providers) if fusion_providers else 'Aucune fusion (Base 100% complète)'}")
     print(f"📌 Sources sollicitées    : {', '.join(used_providers)}")
     print("-" * 55)

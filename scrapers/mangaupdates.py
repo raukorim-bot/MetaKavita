@@ -6,7 +6,7 @@ from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str
+from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 from config_manager import load_config
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -30,6 +30,7 @@ class MangaUpdatesScraper(BaseScraper):
     proxy_domains = ["mangaupdates.com", "api.mangaupdates.com", "www.mangaupdates.com"]
     has_direct_id_support = True
     requires_proxy = False
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -182,7 +183,7 @@ class MangaUpdatesScraper(BaseScraper):
                 # Ajout de impersonate="chrome110" pour passer Cloudflare
                 res = requests.get(url, headers=headers, timeout=12, impersonate="chrome110")
                 if res.status_code == 200:
-                    return self._parse_series_record(res.json(), pub_pref)
+                    return attach_match_score(self._parse_series_record(res.json(), pub_pref), 1.0)
                 return None
 
             cleaned = clean_title(query, library_type=library_type)
@@ -199,53 +200,35 @@ class MangaUpdatesScraper(BaseScraper):
             results = res.json().get("results", []) or []
             if not results: return None
 
-            query_keywords = extract_meaningful_words(cleaned)
             best_match_id = None
             best_score = -1.0
 
             for item in results:
                 record = item.get("record", {}) or {}
-                title = record.get("title", "") or ""
+
+                # Le "record" renvoyé par l'endpoint de recherche a la même forme que celui de
+                # l'endpoint de détail /v1/series/{id} (mêmes clés : authors, associated,
+                # publishers...) : on peut donc construire un candidat complet (avec staff) sans
+                # requête HTTP supplémentaire, condition nécessaire pour utiliser score_candidate()
+                # et sa protection anti-homonyme par auteur.
+                candidate = self._parse_series_record(record, pub_pref)
+                if not candidate or not candidate.get("title"):
+                    continue
+
+                # "hit_title" est le snippet mis en avant par le moteur de recherche MangaUpdates,
+                # parfois différent du titre principal ou des titres associés : on l'ajoute aux
+                # titres alternatifs évalués par score_candidate() pour ne pas perdre ce signal.
                 hit_title = item.get("hit_title", "") or ""
-                
-                titles_to_check = [title] if title else []
-                if hit_title and hit_title not in titles_to_check:
-                    titles_to_check.append(hit_title)
+                if hit_title and hit_title not in candidate["alternative_titles"]:
+                    candidate["alternative_titles"].append(hit_title)
 
-                for assoc in (record.get("associated") or []):
-                    if isinstance(assoc, dict) and assoc.get("title"):
-                        titles_to_check.append(assoc["title"])
-                    elif isinstance(assoc, str):
-                        titles_to_check.append(assoc)
+                score = score_candidate(candidate, cleaned, existing_metadata)
 
-                item_score = 0.0
-                for t in titles_to_check:
-                    if not t: continue
-                    score = calculate_similarity(cleaned, t)
-                    if score > item_score: item_score = score
-
-                if item_score <= 0.0: continue
-
-                total_score = item_score
-
-                if query_keywords:
-                    record_text = f"{title} {hit_title} " + " ".join([str(a) for a in titles_to_check])
-                    record_keywords = extract_meaningful_words(record_text)
-                    missing_keywords = query_keywords - record_keywords
-                    if missing_keywords:
-                        total_score -= (0.25 * len(missing_keywords))
-
-                desc = record.get("description", "") or ""
-                if len(desc.strip()) > 30: total_score += 0.10
-
-                if normalize_str(cleaned) in [normalize_str(t) for t in titles_to_check]:
-                    total_score += 0.05
-
-                if total_score > best_score:
-                    best_score = total_score
+                if score > best_score:
+                    best_score = score
                     best_match_id = record.get("series_id")
 
-            if not best_match_id or best_score < 0.50:
+            if not best_match_id or best_score < MATCH_ACCEPT_THRESHOLD:
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
                 return None
 
@@ -254,7 +237,7 @@ class MangaUpdatesScraper(BaseScraper):
             # Ajout de impersonate="chrome110" pour passer Cloudflare
             detail_res = requests.get(f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12, impersonate="chrome110")
             if detail_res.status_code == 200:
-                return self._parse_series_record(detail_res.json(), pub_pref)
+                return attach_match_score(self._parse_series_record(detail_res.json(), pub_pref), best_score)
 
             return None
 

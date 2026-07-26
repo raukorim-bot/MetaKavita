@@ -1,0 +1,101 @@
+            <aside class="sidebar">
+                
+                <!-- BLOC 1: STATISTIQUES -->
+                <div class="card">
+                    <h3 class="section-title">{{ t.stats_title }}</h3>
+                    <div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px; flex-wrap: wrap;">
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--success); font-size: 1.2rem;">{{ stats.completed }}</h4>
+                            <small class="text-muted">{{ t.stats_enriched }}</small>
+                        </div>
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--danger); font-size: 1.2rem;">{{ stats.not_found }}</h4>
+                            <small class="text-muted">{{ t.stats_errors }}</small>
+                        </div>
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--warning); font-size: 1.2rem;">{{ stats.pending }}</h4>
+                            <small class="text-muted">{{ t.stats_pending }}</small>
+                        </div>
+                        <div style="flex: 1;">
+                            <h4 style="margin:0; color: var(--secondary); font-size: 1.2rem;">{{ stats.ignored }}</h4>
+                            <small class="text-muted">{{ t.stats_ignored }}</small>
+                        </div>
+                    </div>
+                    <div style="width: 100%; background: var(--bg-input); height: 8px; border-radius: 4px; overflow: hidden; display: flex;">
+                        {% if stats.total > 0 %}
+                        <div style="width: {{ (stats.completed / stats.total) * 100 }}%; background: var(--success);"></div>
+                        <div style="width: {{ (stats.not_found / stats.total) * 100 }}%; background: var(--danger);"></div>
+                        <div style="width: {{ (stats.pending / stats.total) * 100 }}%; background: var(--warning);"></div>
+                        <div style="width: {{ (stats.ignored / stats.total) * 100 }}%; background: var(--secondary);"></div>
+                        {% endif %}
+                    </div>
+                    <a href="{{ url_for('pages.stats') }}" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">{{ t.open_stats }}</a>
+                </div>
+
+                <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
+                <div class="card">
+                    <h3 class="section-title">{{ t.options }}</h3>
+                    <div class="form-group" style="padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3); margin-bottom: 12px;">
+                        <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
+                            <input type="checkbox" id="sidebar_smart_scoring" value="true" {% if config.get('SMART_SCORING', True) %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.smart_scoring }}
+                        </label>
+                        <p style="font-size: 10px; color: var(--text-muted); margin: 4px 0 0 22px; line-height: 1.3;">{{ t.smart_scoring_desc }}</p>
+                        <label class="checkbox-label" style="font-size: 12px; color: var(--accent); margin-top: 8px;">
+                            <input type="checkbox" id="sidebar_smart_completion" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.smart_completion }}
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sidebar_auto_cover" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.auto_cover }}
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 10px;">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="sidebar_auto_reading_dir" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.auto_reading_dir }}
+                        </label>
+                    </div>
+					<div class="form-group" style="margin-bottom: 10px;">
+                        <label class="checkbox-label" style="font-size: 12px;">
+                            <input type="checkbox" id="sidebar_reset_context" value="true" {% if config.get('RESET_CONTEXT_ON_FORCE') %}checked{% endif %} onchange="saveConfig()"> 
+                            {{ t.get('reset_context_on_force', "Effacer le contexte en mode forcé") }}
+                        </label>
+                    </div>
+                    <div class="form-group" style="margin-bottom: 5px; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 6px; border: 1px dashed var(--warning);">
+                        <label class="checkbox-label" style="color: var(--warning);">
+                            <input type="checkbox" id="sidebar_force_update" value="true"> 
+                            <strong>{{ t.force_update }}</strong>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- EXPORT DES ERREURS -->
+                {% if libraries %}
+                <div style="margin-top: -10px; margin-bottom: 10px;">
+                    <a href="{{ url_for('sync.export_errors') }}" class="btn-danger block-link w-100" style="font-size: 13px; padding: 10px;">{{ t.export_errors }}</a>
+                </div>
+                {% endif %}
+                
+                <!-- BLOC 3: TERMINAL DE LOGS -->
+                <div class="logs-container card" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
+                    <h3 class="section-title m-0 mb-2">{{ t.live_logs }}</h3>
+                    <div id="log-console" class="log-console" style="flex: 1;">
+                        <div class="log-line text-muted">{{ t.waiting }}</div>
+                    </div>
+                </div>
+
+                <!-- PIED DE LA BARRE LATÉRALE -->
+                <div class="sidebar-footer">
+					<p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
+					<p>
+						<a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v{{ app_version }}</a> | 
+						<a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
+					</p>
+                    {% if config.get('ADMIN_PASSWORD') %}
+                    <a href="{{ url_for('auth.logout') }}" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
+                    {% endif %}
+                </div>
+            </aside>

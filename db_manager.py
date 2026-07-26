@@ -1,6 +1,8 @@
 import sqlite3
 import os
 
+from models import SeriesOverride
+
 DATA_DIR = "data"
 DB_FILE = os.path.join(DATA_DIR, "cache.db")
 
@@ -40,14 +42,24 @@ def update_status(series_id, status):
     conn.commit()
     conn.close()
 
-def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL", publisher_pref="GLOBAL"):
+def save_series_override(override: SeriesOverride):
+    """
+    Persiste un SeriesOverride complet en une seule opération atomique.
+
+    Préférer cette fonction à `save_forced_overrides()` dans tout nouveau code :
+    en exigeant un objet à champs nommés plutôt qu'une liste d'arguments
+    positionnels, elle rend beaucoup plus visible (à la relecture comme à la
+    complétion IDE) tout champ oublié lors de la construction de l'objet —
+    c'est exactement l'angle mort qui avait fait disparaître silencieusement
+    `publisher_pref` dans l'ancienne route `/save-override`.
+    """
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
-    f_id = forced_id.strip() if forced_id else None
-    a_title = alt_title.strip() if alt_title else None
-    
+    f_id = override.forced_id.strip() if override.forced_id else None
+    a_title = override.alternative_title.strip() if override.alternative_title else None
+
     _ensure_schema(c)
-        
+
     c.execute('''INSERT INTO series_cache (series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref) 
                  VALUES (?, 'PENDING', ?, ?, ?, ?, ?)
                  ON CONFLICT(series_id) DO UPDATE SET 
@@ -56,10 +68,25 @@ def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO
                  forced_provider=excluded.forced_provider,
                  targeted_fields=excluded.targeted_fields,
                  publisher_pref=excluded.publisher_pref,
-                 status='PENDING' ''', 
-              (series_id, f_id, a_title, forced_provider, targeted_fields, publisher_pref))
+                 status='PENDING' ''',
+              (override.series_id, f_id, a_title, override.forced_provider, override.targeted_fields, override.publisher_pref))
     conn.commit()
     conn.close()
+
+
+def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL", publisher_pref="GLOBAL"):
+    """Wrapper rétro-compatible (arguments positionnels) autour de save_series_override().
+    Conservé pour les appelants existants (ex: scripts de debug) ; tout nouveau code HTTP
+    (voir routes/series.py) doit construire un SeriesOverride explicite et appeler
+    save_series_override() directement."""
+    save_series_override(SeriesOverride(
+        series_id=series_id,
+        forced_id=forced_id,
+        alternative_title=alt_title,
+        forced_provider=forced_provider,
+        targeted_fields=targeted_fields,
+        publisher_pref=publisher_pref,
+    ))
 
 def reset_errors():
     """Réinitialise les statuts NOT_FOUND et IGNORED en PENDING."""

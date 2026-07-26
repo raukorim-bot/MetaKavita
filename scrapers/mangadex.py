@@ -3,7 +3,7 @@ import requests
 import re
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
 from config_manager import load_config
 
 class MangaDexScraper(BaseScraper):
@@ -14,6 +14,7 @@ class MangaDexScraper(BaseScraper):
     proxy_domains = ["mangadex.org", "uploads.mangadex.org", "api.mangadex.org"]
     has_direct_id_support = True
     requires_proxy = True
+    uses_unified_scoring = True
     proxy_referer = "https://mangadex.org/"
 
     translations = {
@@ -42,12 +43,96 @@ class MangaDexScraper(BaseScraper):
                 return match.group(1)
         return None
 
+    def _build_candidate(self, manga_data: dict, target_lang: str) -> Optional[Dict[str, Any]]:
+        """Construit un candidat standardisé complet (titre + staff + résumé...) à partir
+        d'un objet manga MangaDex. Utilisée à la fois pour le résultat direct par UUID et pour
+        CHAQUE résultat de recherche : le staff (auteur/artiste) est déjà inclus dans la réponse
+        de recherche grâce à `includes[]=author,artist`, donc construire le candidat complet ici
+        ne coûte aucune requête HTTP supplémentaire — condition nécessaire pour pouvoir évaluer
+        chaque candidat avec `score_candidate()` (et sa protection anti-homonyme par auteur).
+        """
+        attrs = manga_data.get("attributes", {})
+        manga_id = manga_data.get("id")
+
+        main_titles = list(attrs.get("title", {}).values())
+        primary_title = main_titles[0] if main_titles else ""
+        if not primary_title:
+            return None
+
+        alt_titles = []
+        for alt_dict in attrs.get("altTitles", []):
+            for alt_val in alt_dict.values():
+                if alt_val and alt_val not in alt_titles:
+                    alt_titles.append(alt_val)
+
+        descriptions = attrs.get("description", {})
+        summary = descriptions.get(target_lang) or descriptions.get("fr") or descriptions.get("en")
+        if not summary and descriptions:
+            summary = next(iter(descriptions.values()))
+
+        year = attrs.get("year")
+        raw_status = attrs.get("status", "").lower()
+        status = "RELEASING"
+        if raw_status == "completed": status = "FINISHED"
+        elif raw_status == "hiatus": status = "HIATUS"
+        elif raw_status == "cancelled": status = "CANCELLED"
+
+        raw_rating = attrs.get("contentRating", "safe").lower()
+        age_rating = "safe"
+        if raw_rating in ["erotica", "pornographic"]: age_rating = "pornographic"
+        elif raw_rating == "suggestive": age_rating = "suggestive"
+
+        orig_lang = str(attrs.get("originalLanguage", "")).lower()
+        format_type = "manga"
+        if orig_lang in ["ko", "zh"]: format_type = "webtoon"
+
+        tags = ["MangaDex"]
+        for tag_obj in attrs.get("tags", []):
+            t_name = tag_obj.get("attributes", {}).get("name", {})
+            tag_str = t_name.get("en") or t_name.get(target_lang)
+            if tag_str and tag_str not in tags:
+                tags.append(tag_str)
+
+        staff = []
+        cover_url = None
+
+        for rel in manga_data.get("relationships", []):
+            rel_type = rel.get("type")
+            rel_attrs = rel.get("attributes", {})
+            if rel_type == "author" and rel_attrs.get("name"):
+                staff.append({"role": "Story", "node": {"name": {"full": rel_attrs.get("name")}}})
+            elif rel_type == "artist" and rel_attrs.get("name"):
+                staff.append({"role": "Art", "node": {"name": {"full": rel_attrs.get("name")}}})
+            elif rel_type == "cover_art" and rel_attrs.get("fileName"):
+                cover_url = f"https://uploads.mangadex.org/covers/{manga_id}/{rel_attrs.get('fileName')}"
+
+        links = attrs.get("links", {})
+        anilist_id = links.get("al") if links.get("al") and str(links.get("al")).isdigit() else None
+        mal_id = links.get("mal") if links.get("mal") and str(links.get("mal")).isdigit() else None
+
+        return {
+            'title': primary_title,
+            'alternative_titles': alt_titles,
+            'summary': summary or "",
+            'cover_url': cover_url,
+            'genres': ["Manga"],
+            'tags': tags[:15],
+            'year': year,
+            'status': status,
+            'staff': staff,
+            'publisher': None,
+            'age_rating': age_rating,
+            'format': format_type,
+            'anilist_id': anilist_id,
+            'mal_id': mal_id,
+            'url': f"https://mangadex.org/title/{manga_id}"
+        }
+
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         config = load_config()
         target_lang = config.get("TARGET_LANG", "FR").lower()[:2]
         base_url = "https://api.mangadex.org/manga"
         headers = {"User-Agent": "MetaKavita-Fetcher/1.5"}
-        manga_data = None
 
         try:
             common_includes = [("includes[]", "author"), ("includes[]", "artist"), ("includes[]", "cover_art")]
@@ -56,150 +141,61 @@ class MangaDexScraper(BaseScraper):
                 logging.info(self.t("direct_uuid").format(query))
                 url = f"{base_url}/{query}"
                 res = requests.get(url, params=common_includes, headers=headers, timeout=12)
-                if res.status_code == 200:
-                    manga_data = res.json().get("data")
-            else:
-                cleaned = clean_title(query, library_type=library_type)
-                if not cleaned: return None
-                
-                logging.info(self.t("search_title").format(cleaned))
-                params = [
-                    ("title", cleaned),
-                    ("limit", "5"),
-                    ("order[relevance]", "desc"),
-                    ("contentRating[]", "safe"),
-                    ("contentRating[]", "suggestive"),
-                    ("contentRating[]", "erotica"),
-                    ("contentRating[]", "pornographic")
-                ] + common_includes
-
-                res = requests.get(base_url, params=params, headers=headers, timeout=12)
                 if res.status_code != 200: return None
-                
-                items = res.json().get("data", [])
-                if not items: return None
+                manga_data = res.json().get("data")
+                return attach_match_score(self._build_candidate(manga_data, target_lang), 1.0) if manga_data else None
 
-                best_match = None
-                best_score = -1.0
+            cleaned = clean_title(query, library_type=library_type)
+            if not cleaned: return None
 
-                for item in items:
-                    attrs = item.get("attributes", {})
-                    main_titles = list(attrs.get("title", {}).values())
-                    titles_to_check = list(main_titles)
-                    for alt in attrs.get("altTitles", []):
-                        titles_to_check.extend(alt.values())
+            logging.info(self.t("search_title").format(cleaned))
+            params = [
+                ("title", cleaned),
+                ("limit", "5"),
+                ("order[relevance]", "desc"),
+                ("contentRating[]", "safe"),
+                ("contentRating[]", "suggestive"),
+                ("contentRating[]", "erotica"),
+                ("contentRating[]", "pornographic")
+            ] + common_includes
 
-                    item_title_score = 0.0
-                    for t in titles_to_check:
-                        if not t: continue
-                        score = calculate_similarity(cleaned, t)
-                        if score > item_title_score:
-                            item_title_score = score
+            res = requests.get(base_url, params=params, headers=headers, timeout=12)
+            if res.status_code != 200: return None
 
-                    if item_title_score <= 0.0: continue
+            items = res.json().get("data", [])
+            if not items: return None
 
-                    total_score = item_title_score
+            best_match = None
+            best_score = -1.0
 
-                    tag_names = [str(t.get("attributes", {}).get("name", {}).get("en", "")).lower() for t in attrs.get("tags", [])]
-                    is_oneshot = "oneshot" in tag_names or any("oneshot" in str(t).lower() for t in main_titles)
+            for item in items:
+                candidate = self._build_candidate(item, target_lang)
+                if not candidate: continue
 
-                    if is_oneshot and "oneshot" not in cleaned.lower():
-                        total_score -= 0.20
+                # Évaluation avec la matrice unifiée (titre + auteur/artiste + anti-homonyme).
+                score = score_candidate(candidate, cleaned, existing_metadata)
 
-                    descriptions = attrs.get("description", {})
-                    if descriptions and any(len(d.strip()) > 30 for d in descriptions.values()):
-                        total_score += 0.10
+                # Pénalité spécifique MangaDex : un "oneshot" (histoire courte isolée, souvent
+                # au titre identique à la série mère) ne doit pas remplacer la série multi-tomes
+                # réellement recherchée, sauf si l'utilisateur cherche explicitement un oneshot.
+                # Ce signal n'existe pas dans score_candidate(), il reste donc un ajustement local.
+                attrs = item.get("attributes", {})
+                tag_names = [str(t.get("attributes", {}).get("name", {}).get("en", "")).lower() for t in attrs.get("tags", [])]
+                main_titles = list(attrs.get("title", {}).values())
+                is_oneshot = "oneshot" in tag_names or any("oneshot" in str(t).lower() for t in main_titles)
+                if is_oneshot and "oneshot" not in cleaned.lower():
+                    score -= 0.20
 
-                    if any(normalize_str(cleaned) == normalize_str(mt) for mt in main_titles):
-                        total_score += 0.05
+                if score > best_score:
+                    best_score = score
+                    best_match = candidate
 
-                    if total_score > best_score:
-                        best_score = total_score
-                        best_match = item
+            if not best_match or best_score < MATCH_ACCEPT_THRESHOLD:
+                logging.warning(self.t("no_match").format(cleaned))
+                return None
 
-                if not best_match or best_score < 0.50:
-                    logging.warning(self.t("no_match").format(cleaned))
-                    return None
-
-                manga_data = best_match
-                logging.info(self.t("matched").format(int(best_score*100)))
-
-            if not manga_data: return None
-
-            attrs = manga_data.get("attributes", {})
-            manga_id = manga_data.get("id")
-
-            main_titles = list(attrs.get("title", {}).values())
-            primary_title = main_titles[0] if main_titles else ""
-            
-            alt_titles = []
-            for alt_dict in attrs.get("altTitles", []):
-                for alt_val in alt_dict.values():
-                    if alt_val and alt_val not in alt_titles:
-                        alt_titles.append(alt_val)
-
-            descriptions = attrs.get("description", {})
-            summary = descriptions.get(target_lang) or descriptions.get("fr") or descriptions.get("en")
-            if not summary and descriptions:
-                summary = next(iter(descriptions.values()))
-
-            year = attrs.get("year")
-            raw_status = attrs.get("status", "").lower()
-            status = "RELEASING"
-            if raw_status == "completed": status = "FINISHED"
-            elif raw_status == "hiatus": status = "HIATUS"
-            elif raw_status == "cancelled": status = "CANCELLED"
-
-            raw_rating = attrs.get("contentRating", "safe").lower()
-            age_rating = "safe"
-            if raw_rating in ["erotica", "pornographic"]: age_rating = "pornographic"
-            elif raw_rating == "suggestive": age_rating = "suggestive"
-
-            orig_lang = str(attrs.get("originalLanguage", "")).lower()
-            format_type = "manga"
-            if orig_lang in ["ko", "zh"]: format_type = "webtoon"
-
-            tags = ["MangaDex"]
-            for tag_obj in attrs.get("tags", []):
-                t_name = tag_obj.get("attributes", {}).get("name", {})
-                tag_str = t_name.get("en") or t_name.get(target_lang)
-                if tag_str and tag_str not in tags:
-                    tags.append(tag_str)
-
-            staff = []
-            cover_url = None
-
-            for rel in manga_data.get("relationships", []):
-                rel_type = rel.get("type")
-                rel_attrs = rel.get("attributes", {})
-                if rel_type == "author" and rel_attrs.get("name"):
-                    staff.append({"role": "Story", "node": {"name": {"full": rel_attrs.get("name")}}})
-                elif rel_type == "artist" and rel_attrs.get("name"):
-                    staff.append({"role": "Art", "node": {"name": {"full": rel_attrs.get("name")}}})
-                elif rel_type == "cover_art" and rel_attrs.get("fileName"):
-                    cover_url = f"https://uploads.mangadex.org/covers/{manga_id}/{rel_attrs.get('fileName')}"
-
-            links = attrs.get("links", {})
-            anilist_id = links.get("al") if links.get("al") and str(links.get("al")).isdigit() else None
-            mal_id = links.get("mal") if links.get("mal") and str(links.get("mal")).isdigit() else None
-
-            return {
-                'title': primary_title,
-                'alternative_titles': alt_titles,
-                'summary': summary or "",
-                'cover_url': cover_url,
-                'genres': ["Manga"],
-                'tags': tags[:15],
-                'year': year,
-                'status': status,
-                'staff': staff,
-                'publisher': None,
-                'age_rating': age_rating,
-                'format': format_type,
-                'anilist_id': anilist_id,
-                'mal_id': mal_id,
-                'url': f"https://mangadex.org/title/{manga_id}"
-            }
+            logging.info(self.t("matched").format(int(best_score*100)))
+            return attach_match_score(best_match, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

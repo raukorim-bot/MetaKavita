@@ -57,10 +57,27 @@ class _ScraperRegistry:
             logging.error(f"[Registry] Erreur au chargement du scraper personnalisé ({file_path}): {e}")
 
     def _extract_scrapers(self, module):
-        """Extrait et enregistre toutes les classes héritant de BaseScraper dans un fichier."""
+        """Extrait et enregistre les classes héritant de BaseScraper *définies* dans ce module.
+
+        Le filtre `obj.__module__ == module.__name__` est indispensable : sans lui,
+        `inspect.getmembers` remonte AUSSI les classes simplement importées dans le fichier
+        (ex: un scraper communautaire qui fait `from scrapers.mangabaka import MangaBakaScraper`
+        pour en hériter) et les ré-enregistrerait comme si elles avaient été définies ici,
+        dupliquant inutilement l'enregistrement du scraper d'origine à chaque chargement.
+        """
         for name, obj in inspect.getmembers(module, inspect.isclass):
+            if obj.__module__ != module.__name__:
+                continue
             if issubclass(obj, BaseScraper) and obj is not BaseScraper:
                 instance = obj()
+                existing = self._scrapers.get(instance.id)
+                if existing is not None and existing.__class__ is not obj:
+                    logging.warning(
+                        f"⚠️ [Registry] L'id de scraper '{instance.id}' ("
+                        f"{existing.__class__.__module__}.{existing.__class__.__name__}) est "
+                        f"remplacé par {obj.__module__}.{obj.__name__} (chargé après). "
+                        "Vérifiez qu'il s'agit bien d'une surcharge volontaire."
+                    )
                 self._scrapers[instance.id] = instance
                 # Petit log optionnel pour confirmer l'enregistrement d'un scraper custom
                 if "custom_scrapers" in module.__name__:

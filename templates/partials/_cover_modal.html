@@ -1,0 +1,19 @@
+    <!-- MODAL DE SÉLECTION DE COUVERTURE AVEC RECHERCHE MANUELLE INTÉGRÉE -->
+    <div id="coverModal" class="modal-overlay" onclick="if(event.target===this) closeCoverModal()">
+        <div class="modal-content">
+            <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <h3 class="m-0">{{ t.modal_cover_title }}<span id="modalSeriesName" style="color: var(--primary);"></span></h3>
+                    <button type="button" class="close-btn" onclick="closeCoverModal()">&times;</button>
+                </div>
+                <!-- RECHERCHE MANUELLE DE COUVERTURE DANS LA MODAL -->
+                <div class="modal-search-wrapper" style="display: flex; gap: 8px; margin-top: 5px;">
+                    <input type="text" id="modalCoverSearchInput" placeholder="{{ t.search_placeholder_covers }}" style="flex: 1; padding: 8px;">
+                    <button type="button" class="btn-primary" id="modalCoverSearchBtn" onclick="triggerManualCoverSearch()" style="padding: 8px 15px;">{{ t.search_btn }}</button>
+                </div>
+            </div>
+            <div id="coversGrid" class="covers-grid" style="max-height: 55vh; overflow-y: auto; padding: 5px;">
+                <!-- Les images apparaîtront ici -->
+            </div>
+        </div>
+    </div>

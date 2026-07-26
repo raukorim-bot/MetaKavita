@@ -1,0 +1,82 @@
+"""
+Handlers Socket.IO : authentification à la connexion et streaming des
+couvertures de séries trouvées par les scrapers (une émission par fournisseur,
+au fil de l'eau, pour un affichage progressif côté UI).
+
+Ce module ne définit aucune route Flask : il enregistre ses handlers en
+décorant directement l'instance partagée `extensions.socketio`. Il suffit de
+l'importer une fois (pour effet de bord) depuis app.py, après
+`socketio.init_app(app)`, pour que les handlers soient actifs.
+"""
+
+import logging
+from urllib.parse import quote
+
+from flask import request, session
+from flask_socketio import disconnect
+
+from extensions import socketio
+from config_manager import load_config
+from db_manager import get_all_cached_data
+from kavita_api import KavitaAPI
+from scrapers import ScraperRegistry
+
+
+@socketio.on('connect')
+def handle_connect():
+    config = load_config()
+    if config.get('ADMIN_PASSWORD') and not session.get('logged_in'):
+        logging.warning(f"🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {request.remote_addr}")
+        disconnect()
+
+
+@socketio.on('fetch_covers_stream')
+def handle_fetch_covers_stream(data):
+    """Sert les couvertures en streaming direct (flush immédiat Eventlet)."""
+    series_id = data.get('series_id')
+    query = data.get('query')
+    if not series_id or not query: return
+
+    cache_data = get_all_cached_data().get(int(series_id), {})
+    search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or query
+
+    config = load_config()
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    library_type = kavita.get_library_type_for_series(series_id)
+
+    target_scrapers = ScraperRegistry.get_by_type(library_type) or ScraperRegistry.get_by_type("Manga")
+    script_root = request.script_root or ""
+
+    total_scrapers = len(target_scrapers)
+    finished_counter = [0]
+
+    def process_and_emit_covers(scraper):
+        try:
+            s_covers = scraper.fetch_covers(search_query, library_type=library_type)
+            if s_covers:
+                results = []
+                for c in s_covers:
+                    if getattr(scraper, 'requires_proxy', False):
+                        c['display_url'] = f"{script_root}/api/proxy-image?url={quote(c['url'])}"
+                    else:
+                        c['display_url'] = c['url']
+                    results.append(c)
+
+                # Émission vers le client web
+                socketio.emit('cover_stream_data', {
+                    'series_id': int(series_id),
+                    'provider': scraper.display_name,
+                    'covers': results
+                })
+                # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket sur le réseau
+                socketio.sleep(0)
+        except Exception as e:
+            logging.error(f"[Covers Stream] Erreur sur {scraper.id} : {e}")
+        finally:
+            finished_counter[0] += 1
+            if finished_counter[0] >= total_scrapers:
+                socketio.emit('cover_stream_complete', {'series_id': int(series_id)})
+                socketio.sleep(0)
+
+    for scraper in target_scrapers:
+        socketio.start_background_task(process_and_emit_covers, scraper)
