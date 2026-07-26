@@ -2,7 +2,7 @@ name: Docker Build and Push
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "main", "dev" ]
 
 jobs:
   build:
@@ -15,11 +15,9 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      # 1. Émulation QEMU pour permettre la compilation ARM64 sur runner x86
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
 
-      # 2. Configuration de Buildx pour le multi-architecture
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -30,10 +28,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Tags :
+      #   push sur main → :latest (+ :main)
+      #   push sur dev  → :dev seulement (ne touche PAS à :latest)
+      - name: Docker meta (tags)
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/raukorim-bot/metakavita
+          tags: |
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
+            type=raw,value=dev,enable=${{ github.ref == 'refs/heads/dev' }}
+
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/raukorim-bot/metakavita:latest
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

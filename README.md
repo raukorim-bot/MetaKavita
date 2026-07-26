@@ -507,6 +507,9 @@ Community feedback that shaped MetaKavita — thank you!
 | Contributor | Contributions |
 | :--- | :--- |
 | [**LazyGeniusMan**](https://github.com/LazyGeniusMan) | MangaBaka API hardening (`schema=full`, `type=novel` filter, tag/genre & MAL parsing), official Book/LN provider feedback, `KAVITA_EXTERNAL_URL` (Docker internal API vs public UI URL), Traefik / Socket.IO CORS origin reports. |
+| [**SqueezedByte**](https://github.com/SqueezedByte) | KOReader / Kamare crash report (`localizedName` nulling), Kavita force-update read-timeout reports → `KAVITA_HTTP_TIMEOUT` + 2-pass soft-success. |
+| [**ThoughtzThruKeyz**](https://github.com/ThoughtzThruKeyz) | Publisher metadata feature request, ComicVine scraping feedback, disable-translation option (`NONE`), series / localized title configuration ideas. |
+| [**randrini**](https://github.com/randrini) | Free Google Translate (`googletrans`) integration request. |
 
 ---
 
