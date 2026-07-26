@@ -89,10 +89,10 @@
 
                 <!-- PIED DE LA BARRE LATÉRALE -->
                 <div class="sidebar-footer">
-					<p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank">Raukorim</a></p>
+					<p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank" rel="noopener noreferrer">Raukorim</a></p>
 					<p>
-						<a href="https://github.com/raukorim-bot/MetaKavita" target="_blank">MetaKavita v{{ app_version }}</a> | 
-						<a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank">{{ t.report_bug }}</a>
+						<a href="https://github.com/raukorim-bot/MetaKavita" target="_blank" rel="noopener noreferrer">MetaKavita v{{ app_version }}</a> | 
+						<a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank" rel="noopener noreferrer">{{ t.report_bug }}</a>
 					</p>
                     {% if config.get('ADMIN_PASSWORD') %}
                     <a href="{{ url_for('auth.logout') }}" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>

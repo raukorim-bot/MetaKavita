@@ -9,7 +9,7 @@ import logging
 
 from flask import Blueprint, request, render_template
 
-from config_manager import load_config, get_kavita_ui_url
+from config_manager import load_config, get_kavita_ui_url, get_kavita_plus_url
 from db_manager import get_all_cached_data, clean_orphaned_cache
 from kavita_api import KavitaAPI
 from translations import translations
@@ -90,6 +90,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
                            t=t, stats=stats,
                            kavita_ui_url=get_kavita_ui_url(config),
+                           kavita_plus_url=get_kavita_plus_url(config),
                            manga_providers=manga_providers,
                            comic_providers=comic_providers,
                            book_providers=book_providers,

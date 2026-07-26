@@ -57,7 +57,10 @@ function saveConfig() {
         method: 'POST',
         body: formData
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    })
     .then(data => {
         if (data.success) {
             if (btn) {
@@ -70,6 +73,15 @@ function saveConfig() {
             if (newLang && currentLang !== newLang) {
                 window.location.reload();
             }
+        } else if (btn) {
+            btn.innerText = "❌";
+            setTimeout(() => { btn.innerText = originalText; }, 2000);
+        }
+    })
+    .catch(() => {
+        if (btn) {
+            btn.innerText = "❌";
+            setTimeout(() => { btn.innerText = originalText; }, 2000);
         }
     });
 }

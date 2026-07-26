@@ -4,14 +4,18 @@ import urllib.parse
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
-from config_manager import load_config
+from config_manager import load_config, get_max_tags, get_max_genres
 
 class GoogleBooksScraper(BaseScraper):
     id = "GOOGLEBOOKS"
     display_name = "Google Books"
     supported_types = {"Book", "Comic"}
     rate_limit = 1.0
-    proxy_domains = ["books.google.com"]
+    proxy_domains = [
+        "books.google.com",
+        "books.googleusercontent.com",
+        "googleusercontent.com",
+    ]
     has_direct_id_support = True
     needs_api_key = True
     uses_unified_scoring = True
@@ -165,8 +169,8 @@ class GoogleBooksScraper(BaseScraper):
             'alternative_titles': alt_titles,
             'summary': summary,
             'cover_url': cover_url,
-            'genres': genres,
-            'tags': tags[:15],
+            'genres': genres[:get_max_genres()],
+            'tags': tags[:get_max_tags()],
             'year': year,
             'status': 'FINISHED',
             'staff': staff,

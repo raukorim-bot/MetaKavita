@@ -326,13 +326,15 @@ volontairement.
 
 ### `routes/misc.py` (`misc_bp`)
 `/api/proxy-image` et `/api/changelog`. Le proxy d'image est un point sensible en matière de
-sécurité (SSRF) : la liste blanche de domaines autorisés est reconstruite dynamiquement à chaque
-requête via `ScraperRegistry.get_all_proxy_domains()` (agrège `proxy_domains` de tous les
-scrapers, y compris personnalisés). C'est un bon design (pas de liste à maintenir manuellement),
-mais cela signifie aussi qu'un scraper personnalisé malveillant ou mal écrit dans
-`data/scrapers/` pourrait légitimement élargir la surface de ce proxy à un domaine arbitraire —
-cohérent avec le principe déjà documenté dans `CUSTOM_SCRAPERS.md` (« le code personnalisé
-s'exécute avec les pleins pouvoirs, à la responsabilité de l'utilisateur qui l'installe »).
+sécurité (SSRF) : validation via `url_allowlist.validate_proxied_image_url` + fetch via
+`fetch_with_safe_redirects` (jusqu'à 3 hops, chaque hop re-validé ; refus des IPs privées /
+localhost). La liste blanche de domaines est reconstruite dynamiquement à chaque requête via
+`ScraperRegistry.get_all_proxy_domains()` (agrège `proxy_domains` de tous les scrapers, y
+compris personnalisés). C'est un bon design (pas de liste à maintenir manuellement), mais cela
+signifie aussi qu'un scraper personnalisé malveillant ou mal écrit dans `data/scrapers/` pourrait
+légitimement élargir la surface de ce proxy à un domaine arbitraire — cohérent avec le principe
+déjà documenté dans `CUSTOM_SCRAPERS.md` (« le code personnalisé s'exécute avec les pleins
+pouvoirs, à la responsabilité de l'utilisateur qui l'installe »).
 
 ---
 
@@ -374,9 +376,9 @@ dossier `scrapers/` (sauf `__init__.py`, `base.py`, `utils.py`) via `importlib.i
 `importlib.util.spec_from_file_location` — c'est le mécanisme qui permet d'ajouter un scraper
 personnalisé en déposant simplement un fichier, sans redémarrer autrement qu'en relançant le
 conteneur. `_extract_scrapers()` utilise `inspect.getmembers` pour ne retenir que les classes qui
-héritent de `BaseScraper` : **c'est ce qui explique que `scrapers/mal.py` et
-`scrapers/nautiljon.py` (voir ci-dessous) ne sont jamais enregistrés**, puisqu'ils exposent des
-fonctions et non des classes `BaseScraper`.
+héritent de `BaseScraper` : seules les classes `BaseScraper` définies dans le module sont
+enregistrées (les anciens `mal.py` / `nautiljon.py` à fonctions seules, désormais **supprimés
+BF36**, n'auraient de toute façon jamais été découverts).
 
 **Audit de l'auto-découverte (2 correctifs appliqués, voir `tests/test_scraper_registry.py`) :**
 1. `inspect.getmembers(module, inspect.isclass)` remonte *toutes* les classes visibles dans
@@ -395,11 +397,10 @@ fonctions et non des classes `BaseScraper`.
    dans `CUSTOM_SCRAPERS.md` section "Dupliquer / étendre un scraper officiel existant"), mais
    n'est plus silencieux.
 
-Un exemple concret de duplication de scraper officiel vers la catégorie communautaire est fourni
-dans `data/scrapers/mangabaka_book.py` (non versionné, `data/` étant dans `.gitignore`) : il
-hérite de `MangaBakaScraper` pour ajouter le support de `supported_types = {"Book"}` (romans /
-light novels) sous un id distinct (`MANGABAKA_BOOK`), sans dupliquer la logique de scraping ni
-toucher au fichier officiel.
+Un exemple historique de duplication communautaire était `data/scrapers/mangabaka_book.py`
+(non versionné) : hériter de `MangaBakaScraper` pour ajouter `Book` sous un id distinct. Depuis
+v1.6, le scraper officiel `mangabaka.py` expose déjà `supported_types = {"Manga", "Book"}` —
+ce genre de fork n’est plus nécessaire sauf besoin d’un id / UX séparés.
 
 Note annexe découverte pendant cet audit (hors périmètre du Registre lui-même) :
 `metadata_fetcher.py::run_cascade()` filtre les fournisseurs avec
@@ -470,7 +471,7 @@ clamp toute valeur absente ou mal formée (`None`, str, bool, NaN…), ce qui em
 | Fichier | Type(s) | ID requis | Particularité notable |
 |---|---|---|---|
 | `anilist.py` | Manga/Comic/Book | non | GraphQL officiel, très complet (staff, personnages, liens externes) |
-| `mangabaka.py` | Manga | non | Rapide, gère `publisher_pref` (VF/VO), normalise le statut via `kavita_constants` |
+| `mangabaka.py` | Manga/Book | non | Rapide, gère `publisher_pref` (VF/VO), normalise le statut via `kavita_constants` |
 | `mangadex.py` | Manga | non | Pénalise les "oneshot" non demandés (ajustement local post-`score_candidate()`) ; staff déjà inclus dans la réponse de recherche via `includes[]`, aucune requête HTTP supplémentaire nécessaire |
 | `mangaupdates.py` | Manga | non | Gère `publisher_pref`, contourne Cloudflare via `curl_cffi` ; réutilise `_parse_series_record()` sur les résultats de recherche (même forme que le détail) pour obtenir le staff sans requête HTTP en plus |
 | `kitsu.py` | Manga | non | JSON:API, matching par substring + ratio |
@@ -481,20 +482,11 @@ clamp toute valeur absente ou mal formée (`None`, str, bool, NaN…), ce qui em
 | `googlebooks.py` | Book/Comic | non (clé optionnelle) | Recherche prioritaire par ISBN Kavita |
 | `hardcover.py` | Book/Comic | **oui** | GraphQL, expérimental (le nom de la classe le dit explicitement) |
 | `openlibrary.py` | Book/Comic | non | Gère le cas des couvertures "disclaimer Google Books" en repli vers l'API Google Books |
-| `mal.py` | — | — | **Code mort** (voir ci-dessous) |
-| `nautiljon.py` | — | — | **Code mort** (voir ci-dessous) |
 
-**`scrapers/mal.py` et `scrapers/nautiljon.py` ne sont jamais chargés par `ScraperRegistry`.**
-Les deux exposent une fonction (`fetch_mal`, `fetch_nautiljon`) au lieu d'une classe
-`BaseScraper`, donc `_extract_scrapers()` les ignore silencieusement. Aucun autre fichier du
-projet n'importe ces fonctions (vérifié). Ils ne sont donc sélectionnables nulle part dans l'UI
-(cohérent avec le fait que "MAL"/"MyAnimeList" n'apparaît pas dans les listes de providers du
-`README.md`), et `nautiljon.py` importe même `from scrapers import clean_title` — un nom qui
-n'existe plus dans `scrapers/__init__.py` actuel (seul `ScraperRegistry` y est exposé), ce qui
-signifie que ce fichier lèverait une `ImportError` s'il était un jour importé tel quel. Ces deux
-fichiers sont probablement des reliquats d'une itération antérieure du projet : à supprimer, ou à
-réécrire en `BaseScraper` si Nautiljon/MAL doivent redevenir des providers actifs (le
-`ROADMAP.md` mentionne d'ailleurs Nautiljon comme retiré du routage par défaut).
+**`scrapers/mal.py` et `scrapers/nautiljon.py` ont été supprimés (v1.6.0 / BF36).**
+Ce n'étaient pas des `BaseScraper` (fonctions `fetch_mal` / `fetch_nautiljon` seulement), donc
+jamais enregistrés par `ScraperRegistry`. Les fichiers morts ont été retirés du dépôt ; les IDs
+MAL restent récupérés via AniList / MangaBaka (`mal_id`), pas via un scraper MAL dédié.
 
 ---
 
@@ -752,11 +744,12 @@ recoupent fonctionnellement, ex. `debug_deep.py`/`debug_custom.py`/`debug_ultime
 
 1. **✅ Fait — Sécurité** : jeton Hardcover révoqué et retiré du code (section 0). Reste optionnel :
    purger l'historique git si ce fichier a déjà été poussé sur un dépôt distant.
-2. **🟠 Court terme — Nettoyage** : supprimer ou réécrire `scrapers/mal.py` et
-   `scrapers/nautiljon.py` (code mort, l'un d'eux contient même un import cassé) ; regrouper les
+2. **🟠 Court terme — Nettoyage** : ~~supprimer ou réécrire `scrapers/mal.py` et
+   `scrapers/nautiljon.py`~~ **fait (BF36)** ; ~~documenter les `proxy_domains` CDN
+   (Google Books / ComicVine)~~ **fait (BF43)** ; regrouper les
    scripts de debug de la racine dans `debug/`.
 3. **🟡 Moyen terme — Dette technique légère** :
-   - Faire migrer les scrapers restants (Kitsu, MangaDex, Shikimori, MangaUpdates, MAL) vers
+   - Faire migrer les scrapers restants (Kitsu, MangaDex, Shikimori, MangaUpdates) vers
      `kavita_constants.normalize_provider_status()` au lieu de leur mapping de statut inline,
      pour finir la centralisation commencée avec MangaBaka.
    - Ajouter un `needs:` entre `docker-publish.yml` et `tests.yml` si vous voulez empêcher la

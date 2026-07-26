@@ -14,7 +14,7 @@ routes HTTP (`routes/sync.py::force_sync`) que depuis les workers de fond
 import logging
 import threading
 
-from config_manager import load_config
+from config_manager import load_config, get_max_tags, get_max_genres
 from db_manager import get_all_cached_data, update_status
 from translations import translations
 from translator import translate_text
@@ -239,17 +239,38 @@ def enrich_series(series_id, series_name, force_update=False):
 
         # 4. Genres
         if 'genres' in active_fields and provider_data.get('genres'):
-            metadata['genres'] = [{"id": 0, "title": g} for g in provider_data['genres']]
+            metadata['genres'] = [
+                {"id": 0, "title": g}
+                for g in provider_data['genres'][:get_max_genres(config)]
+            ]
             metadata['genresLocked'] = True
 
         # 5. Tags & Personnages
         if 'tags' in active_fields:
             if provider_data.get('tags'):
-                metadata['tags'] = [{"id": 0, "title": tag} for tag in provider_data['tags'][:15]]
+                metadata['tags'] = [{"id": 0, "title": tag} for tag in provider_data['tags'][:get_max_tags(config)]]
                 metadata['tagsLocked'] = True
             if provider_data.get('characters'):
-                metadata['characters'] = [{"id": 0, "name": c['node']['name']['full']} for c in provider_data['characters']]
-                metadata['characterLocked'] = True
+                characters_payload = []
+                for c in provider_data['characters']:
+                    name = None
+                    if isinstance(c, str):
+                        name = c.strip()
+                    elif isinstance(c, dict):
+                        node = c.get('node') if isinstance(c.get('node'), dict) else {}
+                        nested_name = node.get('name')
+                        if isinstance(nested_name, dict):
+                            name = (nested_name.get('full') or nested_name.get('romaji') or nested_name.get('native') or "").strip()
+                        elif isinstance(nested_name, str):
+                            name = nested_name.strip()
+                        if not name:
+                            raw = c.get('name') or c.get('full')
+                            name = str(raw).strip() if raw else ""
+                    if name:
+                        characters_payload.append({"id": 0, "name": name})
+                if characters_payload:
+                    metadata['characters'] = characters_payload
+                    metadata['characterLocked'] = True
 
         # 6. Titres Alternatifs (Localized Name - Va vers Series/update)
         if 'alt_titles' in active_fields and provider_data.get('alternative_titles'):
@@ -327,10 +348,15 @@ def enrich_series(series_id, series_name, force_update=False):
             if safe_links:
                 metadata['webLinks'] = ",".join(safe_links)
 
-        # 12. Langue de l'œuvre
-        if config.get('TARGET_LANG'):
-            metadata['language'] = config.get('TARGET_LANG').lower()
-            metadata['languageLocked'] = True
+        # 12. Langue de l'œuvre — ne pas écraser à chaque sync juste parce que
+        # TARGET_LANG a un défaut ("FR"). N'écrire que si Kavita n'a pas encore de
+        # langue, ou en force_update.
+        target_lang = (config.get('TARGET_LANG') or "").strip()
+        if target_lang:
+            current_lang = (metadata.get('language') or "").strip()
+            if force_update or not current_lang:
+                metadata['language'] = target_lang.lower()
+                metadata['languageLocked'] = True
 
         # =========================================================
         # --- ENVOI FINAL À KAVITA
@@ -346,14 +372,22 @@ def enrich_series(series_id, series_name, force_update=False):
         success, msg = kavita.update_series_metadata(metadata)
 
         # 2. Envoi des Champs Généraux (Titre alternatif & Format uniquement)
+        general_ok = True
+        general_msg = ""
         if localized_name_to_update or format_to_update:
-            kavita.update_series_general(
+            general_ok, general_msg = kavita.update_series_general(
                 series_id,
                 localized_name=localized_name_to_update,
                 format_val=format_to_update
             )
+            if not general_ok:
+                logging.error(
+                    t.get('log_kavita_refused', "[{0}] ❌ Kavita a refusé la mise à jour : {1}").format(
+                        series_name, f"champs généraux: {general_msg}"
+                    )
+                )
 
-        if success:
+        if success and general_ok:
             logging.info(t.get('log_success').format(series_name))
 
             # 3. Upload de Couverture (Format v1.4 fiable)
@@ -375,6 +409,11 @@ def enrich_series(series_id, series_name, force_update=False):
 
             update_status(series_id, 'COMPLETED')
             return True, "Succès", used_providers
+        elif success and not general_ok:
+            logging.error(
+                f"[{series_name}] Métadonnées OK mais champs généraux refusés : {general_msg}"
+            )
+            return False, f"Erreur champs généraux: {general_msg}", used_providers
         else:
             logging.error(t.get('log_kavita_refused').format(series_name, msg))
             return False, f"Erreur: {msg}", used_providers

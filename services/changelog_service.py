@@ -8,6 +8,7 @@ Extrait de l'ancien `app.py`. Volontairement sans dépendance vers `app.py` ni
 l'utilise pour l'endpoint `/api/changelog`.
 """
 
+import html
 import logging
 import os
 import re
@@ -47,6 +48,24 @@ def get_current_version() -> str:
     return _cached_version
 
 
+def _format_inline_markdown(text: str) -> str:
+    """Échappe le HTML puis applique **gras**, *italique* et `code`.
+
+    L'échappement DOIT précéder le wrapping : un CHANGELOG contenant
+    `` `<script>` `` injecté via innerHTML ferait sinon fermer le document
+    HTML du navigateur et tronquerait toute la suite de la modale.
+    """
+    safe = html.escape(text, quote=True)
+    safe = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', safe)
+    safe = re.sub(r'(?<!\*)\*(?!\*)(.*?)(?<!\*)\*(?!\*)', r'<em>\1</em>', safe)
+    safe = re.sub(
+        r'`([^`]+)`',
+        r'<code style="background: var(--bg-input); padding: 2px 5px; border-radius: 4px; font-size: 11px;">\1</code>',
+        safe,
+    )
+    return safe
+
+
 def get_full_changelog_html() -> str:
     """Lit l'intégralité de CHANGELOG.md et le convertit proprement en HTML."""
     possible_paths = [
@@ -68,51 +87,71 @@ def get_full_changelog_html() -> str:
         with open(changelog_path, "r", encoding="utf-8") as f:
             content = f.read().replace('\r\n', '\n')
 
-        html = []
+        html_parts = []
         in_list = False
 
         for line in content.split("\n"):
             line_str = line.strip()
             if not line_str:
                 if in_list:
-                    html.append("</ul>")
+                    html_parts.append("</ul>")
                     in_list = False
                 continue
 
             if line_str.startswith("# "):
-                if in_list: html.append("</ul>"); in_list = False
-                title_text = line_str[2:].strip()
-                html.append(f"<h2 style='color: var(--primary); margin-top: 10px; margin-bottom: 10px; border-bottom: 2px solid var(--border-color); padding-bottom: 5px; font-size: 18px;'>{title_text}</h2>")
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                title_text = _format_inline_markdown(line_str[2:].strip())
+                html_parts.append(
+                    f"<h2 style='color: var(--primary); margin-top: 10px; margin-bottom: 10px; "
+                    f"border-bottom: 2px solid var(--border-color); padding-bottom: 5px; font-size: 18px;'>"
+                    f"{title_text}</h2>"
+                )
             elif line_str.startswith("## "):
-                if in_list: html.append("</ul>"); in_list = False
-                version_text = line_str[3:].strip()
-                html.append(f"<h3 style='color: var(--accent); margin-top: 20px; margin-bottom: 10px; border-bottom: 1px solid var(--border-color); padding-bottom: 4px; font-size: 15px;'>{version_text}</h3>")
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                version_text = _format_inline_markdown(line_str[3:].strip())
+                html_parts.append(
+                    f"<h3 style='color: var(--accent); margin-top: 20px; margin-bottom: 10px; "
+                    f"border-bottom: 1px solid var(--border-color); padding-bottom: 4px; font-size: 15px;'>"
+                    f"{version_text}</h3>"
+                )
             elif line_str.startswith("### "):
-                if in_list: html.append("</ul>"); in_list = False
-                subtitle_text = line_str[4:].strip()
-                html.append(f"<h4 style='color: var(--text-main); margin-top: 12px; margin-bottom: 6px; font-size: 13px;'>{subtitle_text}</h4>")
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                subtitle_text = _format_inline_markdown(line_str[4:].strip())
+                html_parts.append(
+                    f"<h4 style='color: var(--text-main); margin-top: 12px; margin-bottom: 6px; font-size: 13px;'>"
+                    f"{subtitle_text}</h4>"
+                )
             elif line_str.startswith("* ") or line_str.startswith("- "):
                 if not in_list:
-                    html.append("<ul style='padding-left: 20px; margin: 5px 0 15px 0;'>")
+                    html_parts.append("<ul style='padding-left: 20px; margin: 5px 0 15px 0;'>")
                     in_list = True
-                item_text = line_str[2:].strip()
-                item_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', item_text)
-                item_text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', item_text)
-                item_text = re.sub(r'`(.*?)`', r'<code style="background: var(--bg-input); padding: 2px 5px; border-radius: 4px; font-size: 11px;">\1</code>', item_text)
-                html.append(f"<li style='margin-bottom: 6px;'>{item_text}</li>")
+                item_text = _format_inline_markdown(line_str[2:].strip())
+                html_parts.append(f"<li style='margin-bottom: 6px;'>{item_text}</li>")
             elif line_str in ["FR", "EN"]:
-                if in_list: html.append("</ul>"); in_list = False
-                html.append(f"<div style='font-weight: bold; color: var(--warning); margin-top: 10px;'>{line_str}</div>")
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                html_parts.append(
+                    f"<div style='font-weight: bold; color: var(--warning); margin-top: 10px;'>"
+                    f"{html.escape(line_str)}</div>"
+                )
             else:
-                if in_list: html.append("</ul>"); in_list = False
-                line_text = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', line_str)
-                line_text = re.sub(r'\*(.*?)\*', r'<em>\1</em>', line_text)
-                html.append(f"<p style='margin: 4px 0;'>{line_text}</p>")
+                if in_list:
+                    html_parts.append("</ul>")
+                    in_list = False
+                line_text = _format_inline_markdown(line_str)
+                html_parts.append(f"<p style='margin: 4px 0;'>{line_text}</p>")
 
         if in_list:
-            html.append("</ul>")
+            html_parts.append("</ul>")
 
-        return "".join(html)
+        return "".join(html_parts)
 
     except Exception as e:
         logging.error(f"[Changelog Parser] Erreur : {e}")

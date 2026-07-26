@@ -1,6 +1,7 @@
 # Dans config_manager.py
 
 import json
+import logging
 import os
 import secrets
 import threading
@@ -41,6 +42,10 @@ def load_config():
             # Timeout HTTP (secondes) pour les écritures Kavita (POST metadata / update / cover).
             # Env Docker : KAVITA_HTTP_TIMEOUT=90 pour HDD / gros force-update. Défaut 60.
             "KAVITA_HTTP_TIMEOUT": 60,
+            # Plafond de tags poussés vers Kavita (env MAX_TAGS). Défaut 15. Pas d'UI.
+            "MAX_TAGS": 15,
+            # Plafond de genres (env MAX_GENRES). Défaut 5. Pas d'UI.
+            "MAX_GENRES": 5,
             "DEEPL_API_KEY": "",
             "AZURE_API_KEY": "",
             "AZURE_REGION": "",
@@ -50,6 +55,12 @@ def load_config():
             "PROVIDER_1": "MANGABAKA",
             "PROVIDER_2": "KITSU",
             "PROVIDER_3": "ANILIST",
+            "COMIC_PROVIDER_1": "COMICVINE",
+            "COMIC_PROVIDER_2": "ANILIST",
+            "COMIC_PROVIDER_3": "NONE",
+            "BOOK_PROVIDER_1": "GOOGLEBOOKS",
+            "BOOK_PROVIDER_2": "OPENLIBRARY",
+            "BOOK_PROVIDER_3": "NONE",
             "SMART_COMPLETION": False,
             # Comparaison des providers par score (meilleur match gagne) + exécution en
             # deux vagues. Si False : fallback classique (1er provider utile de la liste).
@@ -58,36 +69,63 @@ def load_config():
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
+            "RESET_CONTEXT_ON_FORCE": False,
             "ADMIN_PASSWORD": "",
             "SECRET_KEY": "",
             "WEBHOOK_TOKEN": ""
         }
 
         file_config = {}
+        config_parse_failed = False
         if os.path.exists(CONFIG_FILE):
             try:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     file_config = json.load(f)
                     config.update(file_config)
-            except json.JSONDecodeError:
-                pass
+            except json.JSONDecodeError as e:
+                config_parse_failed = True
+                logging.error(
+                    "[Config] config.json illisible (%s) — conservation du fichier corrompu ; "
+                    "defaults en mémoire uniquement (pas d'écrasement automatique).",
+                    e,
+                )
+                try:
+                    bak = CONFIG_FILE + ".bak"
+                    if os.path.exists(CONFIG_FILE):
+                        # Ne remplace un .bak existant que s'il n'y en a pas encore
+                        # pour cette session : on garde une copie du JSON cassé.
+                        if not os.path.exists(bak):
+                            os.replace(CONFIG_FILE, bak)
+                            logging.error("[Config] Copie de sauvegarde écrite : %s", bak)
+                except OSError as bak_err:
+                    logging.error("[Config] Impossible de sauvegarder config.json.bak : %s", bak_err)
 
         needs_save = False
-        if not config.get("SECRET_KEY"):
-            config["SECRET_KEY"] = secrets.token_hex(24)
-            needs_save = True
-        if not config.get("WEBHOOK_TOKEN"):
-            config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
-            needs_save = True
+        if not config_parse_failed:
+            if not config.get("SECRET_KEY"):
+                config["SECRET_KEY"] = secrets.token_hex(24)
+                needs_save = True
+            if not config.get("WEBHOOK_TOKEN"):
+                config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
+                needs_save = True
 
-        if needs_save:
-            save_config(config)
+            if needs_save:
+                save_config(config)
+        else:
+            # Secrets éphémères en mémoire seulement — ne pas écraser le fichier corrompu
+            if not config.get("SECRET_KEY"):
+                config["SECRET_KEY"] = secrets.token_hex(24)
+            if not config.get("WEBHOOK_TOKEN"):
+                config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
 
         config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", "")))
 
         for key in [
             "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
-            "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE", "PROVIDER_1", "PROVIDER_2", "PROVIDER_3"
+            "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE",
+            "PROVIDER_1", "PROVIDER_2", "PROVIDER_3",
+            "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
+            "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
         ]:
             config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
 
@@ -110,8 +148,24 @@ def load_config():
             maximum=600,
         )
 
-        # --- NOUVEAU : Ajout de la clé dans la boucle des booléens ---
-        for bool_key in ["AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING", "TITLE_FALLBACK_TRANSLATION"]:
+        config["MAX_TAGS"] = _parse_positive_int(
+            file_config.get("MAX_TAGS", os.getenv("MAX_TAGS", config.get("MAX_TAGS", 15))),
+            default=15,
+            minimum=1,
+            maximum=100,
+        )
+
+        config["MAX_GENRES"] = _parse_positive_int(
+            file_config.get("MAX_GENRES", os.getenv("MAX_GENRES", config.get("MAX_GENRES", 5))),
+            default=5,
+            minimum=1,
+            maximum=50,
+        )
+
+        for bool_key in [
+            "AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
+            "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE",
+        ]:
             config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
 
         return config
@@ -139,6 +193,28 @@ def get_kavita_http_timeout(config=None) -> int:
     return _parse_positive_int(config.get("KAVITA_HTTP_TIMEOUT", 60), default=60)
 
 
+def get_max_tags(config=None) -> int:
+    """Nombre max de tags poussés vers Kavita.
+
+    Configurable via env / config.json `MAX_TAGS` (défaut 15, min 1, max 100).
+    Pas d'exposition UI (réglage avancé / power-user).
+    """
+    if config is None:
+        config = load_config()
+    return _parse_positive_int(config.get("MAX_TAGS", 15), default=15, minimum=1, maximum=100)
+
+
+def get_max_genres(config=None) -> int:
+    """Nombre max de genres poussés vers Kavita.
+
+    Configurable via env / config.json `MAX_GENRES` (défaut 5, min 1, max 50).
+    Pas d'exposition UI (réglage avancé / power-user).
+    """
+    if config is None:
+        config = load_config()
+    return _parse_positive_int(config.get("MAX_GENRES", 5), default=5, minimum=1, maximum=50)
+
+
 def get_kavita_ui_url(config=None) -> str:
     """URL Kavita destinée au navigateur (liens série dans l'UI).
 
@@ -152,6 +228,18 @@ def get_kavita_ui_url(config=None) -> str:
     if external:
         return external
     return (config.get("KAVITA_URL") or "").strip().rstrip("/")
+
+
+def get_kavita_plus_url(config=None) -> str:
+    """Lien navigateur vers la page admin Kavita+ de *cette* instance.
+
+    `{ui}/settings#admin-kavitaplus` via `get_kavita_ui_url()`.
+    Si aucune URL UI n'est configurée, repli sur le wiki officiel Kavita+.
+    """
+    ui = get_kavita_ui_url(config)
+    if ui:
+        return f"{ui}/settings#admin-kavitaplus"
+    return "https://wiki.kavitareader.com/kavita+/"
 
 
 def save_config(data):

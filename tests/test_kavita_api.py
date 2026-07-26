@@ -16,12 +16,13 @@ Non-régression sur les deux bugs critiques corrigés dans kavita_api.py :
 
 3. Soft-success 2-pass + KAVITA_HTTP_TIMEOUT (issue SqueezedByte) : si l'écriture
    réussit mais le RE-LOCK timeout, l'opération est un succès (données déjà
-   persistées).
+   persistées). Un seul retry léger du RE-LOCK (timeout retry plafonné à 20s)
+   tente de sceller les verrous sans rejouer scrape/écriture.
 """
 import pytest
 import requests
 
-from kavita_api import KavitaAPI
+from kavita_api import KavitaAPI, _RELOCK_RETRY_TIMEOUT_CAP_S
 
 
 def _authenticated_api():
@@ -178,14 +179,19 @@ class TestUpdateSeriesMetadata:
         assert mock_post.call_count == 1
 
     def test_relock_timeout_is_soft_success_after_write_ok(self, mocker):
-        """Issue SqueezedByte : étape 1 = 200, étape 2 = ReadTimeout → ne pas marquer échec."""
+        """Issue SqueezedByte : étape 1 = 200, RE-LOCK timeout×2 → soft-success."""
         api = _authenticated_api()
         api._write_timeout_override = 60
+        mocker.patch("kavita_api.time.sleep")
 
         ok = mocker.Mock(status_code=200, text="Successfully updated")
         mock_post = mocker.patch(
             "kavita_api.requests.post",
-            side_effect=[ok, requests.exceptions.ReadTimeout("read timeout=60")],
+            side_effect=[
+                ok,
+                requests.exceptions.ReadTimeout("read timeout=60"),
+                requests.exceptions.ReadTimeout("read timeout=20"),
+            ],
         )
 
         success, msg = api.update_series_metadata({
@@ -196,20 +202,47 @@ class TestUpdateSeriesMetadata:
 
         assert success is True
         assert "écriture OK" in msg
-        assert mock_post.call_count == 2
+        assert mock_post.call_count == 3  # write + lock + lock retry
         assert mock_post.call_args_list[0].kwargs["timeout"] == 60
         assert mock_post.call_args_list[1].kwargs["timeout"] == 60
+        assert mock_post.call_args_list[2].kwargs["timeout"] == _RELOCK_RETRY_TIMEOUT_CAP_S
+
+    def test_relock_succeeds_on_retry(self, mocker):
+        api = _authenticated_api()
+        api._write_timeout_override = 60
+        mocker.patch("kavita_api.time.sleep")
+        ok = mocker.Mock(status_code=200, text="OK")
+        mock_post = mocker.patch(
+            "kavita_api.requests.post",
+            side_effect=[
+                ok,
+                requests.exceptions.ReadTimeout("read timeout=60"),
+                ok,
+            ],
+        )
+
+        success, msg = api.update_series_metadata({
+            "seriesId": 1,
+            "summaryLocked": True,
+        })
+
+        assert success is True
+        assert msg == "Succès"
+        assert mock_post.call_count == 3
+        assert mock_post.call_args_list[2].kwargs["timeout"] == _RELOCK_RETRY_TIMEOUT_CAP_S
 
     def test_relock_http_error_is_soft_success_after_write_ok(self, mocker):
         api = _authenticated_api()
+        mocker.patch("kavita_api.time.sleep")
         ok = mocker.Mock(status_code=200, text="OK")
         bad = mocker.Mock(status_code=504, text="Gateway Timeout")
-        mocker.patch("kavita_api.requests.post", side_effect=[ok, bad])
+        mock_post = mocker.patch("kavita_api.requests.post", side_effect=[ok, bad, bad])
 
         success, msg = api.update_series_metadata({"seriesId": 1, "summaryLocked": True})
 
         assert success is True
-        assert "re-lock HTTP 504" in msg
+        assert "re-lock échoué" in msg
+        assert mock_post.call_count == 3
 
     def test_write_timeout_override_is_passed_to_posts(self, mocker):
         api = _authenticated_api()
@@ -235,13 +268,19 @@ class TestUpdateSeriesGeneralRelock:
             "localizedNameLocked": True,
         }
         mocker.patch("kavita_api.requests.get", return_value=mocker.Mock(status_code=200, json=lambda: current_state))
+        mocker.patch("kavita_api.time.sleep")
         ok = mocker.Mock(status_code=200, text="OK")
-        mocker.patch(
+        mock_post = mocker.patch(
             "kavita_api.requests.post",
-            side_effect=[ok, requests.exceptions.ReadTimeout("read timeout=60")],
+            side_effect=[
+                ok,
+                requests.exceptions.ReadTimeout("read timeout=60"),
+                requests.exceptions.ReadTimeout("read timeout=20"),
+            ],
         )
 
         success, msg = api.update_series_general(42, format_val=3)
 
         assert success is True
         assert "écriture OK" in msg
+        assert mock_post.call_count == 3

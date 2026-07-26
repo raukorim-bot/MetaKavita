@@ -5,7 +5,8 @@ from bs4 import BeautifulSoup
 from curl_cffi import requests
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from config_manager import get_max_tags, get_max_genres
 
 def format_author_name(name: str) -> str:
     name = name.strip()
@@ -37,6 +38,7 @@ class BedethequeScraper(BaseScraper):
     id = "BEDETHEQUE"
     display_name = "Bédéthèque (Franco-Belge)"
     supported_types = {"Comic"}
+    uses_unified_scoring = True
     rate_limit = 2.0
     proxy_domains = ["bedetheque.com"]
     has_direct_id_support = True
@@ -308,13 +310,13 @@ class BedethequeScraper(BaseScraper):
             if not final_summary and not cover_url and not unique_staff:
                 return None
 
-            return {
+            candidate = {
                 'title': fetched_title,
                 'alternative_titles': [],
                 'summary': final_summary,
                 'cover_url': cover_url,
-                'genres': ["BD"] if not genres else [genres[0]],
-                'tags': tags[:15],
+                'genres': genres[:get_max_genres()] if genres else ["BD"],
+                'tags': tags[:get_max_tags()],
                 'year': year,
                 'status': status,
                 'staff': unique_staff,
@@ -324,9 +326,21 @@ class BedethequeScraper(BaseScraper):
                 'url': serie_url or album_url,
                 'links': [serie_url] if serie_url else [album_url]
             }
+            if is_id:
+                return attach_match_score(candidate, 1.0)
+            clean_q = clean_title(query, library_type=library_type) or query
+            score = score_candidate(candidate, clean_q, existing_metadata)
+            if score < MATCH_ACCEPT_THRESHOLD:
+                return None
+            return attach_match_score(candidate, score)
         except Exception as e:
             logging.error(self.t("error").format(e))
             return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
 
     # CORRECTION : Renommé en fetch_covers et allègement de la signature
     def fetch_covers(self, query: str, library_type: str = "Comic") -> List[Dict[str, str]]:
@@ -408,4 +422,10 @@ class BedethequeScraper(BaseScraper):
                 logging.error(self.t("covers_err").format(q, e))
                 
         best_covers = exact_matches if exact_matches else fallback_matches
-        return best_covers[:8]
+        try:
+            return best_covers[:8]
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass

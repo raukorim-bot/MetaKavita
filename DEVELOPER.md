@@ -39,9 +39,10 @@ This guide is designed for developers and AI assistants wishing to understand, m
 ### 1. Global Architecture & Security
 MetaKavita is an asynchronous Python application powered by a **Gunicorn WSGI server** with **Eventlet** workers to support real-time WebSockets via Flask-SocketIO.
 
-*   **Security Layer:** Global authentication is enforced via `@app.before_request`. Session cookies are configured as `HttpOnly` and `SameSite=Lax`. Timing attacks are prevented using `secrets.compare_digest`.
-*   **SSRF Protection:** The `/api/proxy-image` route uses dynamic strict whitelisting via `ScraperRegistry.get_all_proxy_domains()`, which inherently protects even dynamically sideloaded community scrapers.
-*   **Webhook Hardening:** Webhooks require a cryptographically secure `WEBHOOK_TOKEN` generated in `data/config.json`.
+*   **Security Layer:** Global authentication is enforced via `@app.before_request`. Session cookies are configured as `HttpOnly` and `SameSite=Lax` (optional `SESSION_COOKIE_SECURE=1` behind HTTPS). Timing attacks are prevented using `secrets.compare_digest`. CSRF tokens (`csrf_utils.py`) are validated on state-changing POSTs; the frontend injects `X-CSRF-Token` on mutating `fetch` calls. `SECRET_KEY` is generated on first boot — never a public hardcoded fallback.
+*   **SSRF Protection:** Shared allowlist helper (`url_allowlist.py`) for cover downloads and `/api/proxy-image` — http(s) only, no credentials/localhost/private IPs, up to 3 redirects with each hop re-validated (`fetch_with_safe_redirects`), safe `image/*` MIME. Domain lists come from `ScraperRegistry.get_all_proxy_domains()` (covers community scrapers too).
+*   **Credential-safe logging:** Use `secure_logging.safe_exc_str()` / `redact_secrets()` when logging exceptions that may include authenticated URLs (Kavita `apiKey`, ComicVine `api_key`, etc.) — never log raw `str(e)` after such calls.
+*   **Webhook Hardening:** Webhooks require a cryptographically secure `WEBHOOK_TOKEN` generated in `data/config.json` (CSRF-exempt; token auth only).
 *   **Safe SQLite Schema Migrations:** Database updates in `db_manager.py` use a safe `_ensure_schema` method that handles `sqlite3.OperationalError` gracefully per column, preventing fatal container crashes when introducing new features.
 *   **Pure Base64 Kavita Uploads:** Kavita requires cover uploads to be sent as pure Base64 byte strings (`kavita_api.py`). Prepending `Data URI` schemas (`data:image/jpeg;base64,...`) results in silent Kavita C# backend failures (the "Phantom Cover" syndrome).
 
@@ -59,9 +60,13 @@ Reverse proxy headers (`X-Forwarded-Prefix`) are processed via Werkzeug's `Proxy
 
 **CORS whitelist (Docker env `CORS_ALLOWED_ORIGINS`)** — for self-host HTTPS domains (e.g. `https://….local.ltd`) where Same-Origin alone blocks Socket.IO / cross-origin AJAX. Comma-separated **explicit** origins only; empty = Same-Origin (no broad CORS). Applied to both Flask HTTP (`after_request` + OPTIONS preflight, with credentials) and `socketio.init_app(cors_allowed_origins=…)`. `*` is rejected. This does **not** replace reverse-proxy WebSocket upgrade (`Upgrade` / `Connection`) configuration — see `cors_config.py` and `app.py`.
 
-**`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — API calls always use `KAVITA_URL` (safe for Docker-internal hostnames like `http://kavita:5000`). Browser series links use `get_kavita_ui_url()` (`config_manager.py`), which prefers `KAVITA_EXTERNAL_URL` (public reverse-proxy URL) and falls back to `KAVITA_URL` when unset.
+**`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — API calls always use `KAVITA_URL` (safe for Docker-internal hostnames like `http://kavita:5000`). Browser series links use `get_kavita_ui_url()` (`config_manager.py`), which prefers `KAVITA_EXTERNAL_URL` (public reverse-proxy URL) and falls back to `KAVITA_URL` when unset. The topbar/About **Kavita+** button uses `get_kavita_plus_url()` → `{ui}/settings#admin-kavitaplus` (wiki fallback if no UI URL is configured).
 
 **`KAVITA_HTTP_TIMEOUT`** — seconds for Kavita **write** POSTs (metadata 2-pass, series update 2-pass, cover upload). Default `60`. Env or `config.json`. If pass 1 (write) succeeds and pass 2 (re-lock) times out, `update_series_metadata` / `update_series_general` return soft success with a warning log.
+
+**`MAX_TAGS`** — max tags pushed to Kavita. Default `15` (clamped 1–100). Env or `config.json` only — **not** in the Config modal. Use `get_max_tags(config=None)` from `config_manager` in scrapers (`tags[:get_max_tags()]`) and in `services/enrichment_engine.py` when building the Kavita payload (`get_max_tags(config)`).
+
+**`MAX_GENRES`** — max genres pushed to Kavita. Default `5` (clamped 1–50). Env or `config.json` only — **not** in the Config modal. Use `get_max_genres(config=None)` in scrapers (`genres[:get_max_genres()]`) and in `services/enrichment_engine.py` when building the Kavita payload (`get_max_genres(config)`).
 
 ---
 
@@ -219,6 +224,8 @@ Please refer to the `CUSTOM_SCRAPERS.md` file located at the root of the project
 ### 10. Quality Benchmarking & Debugging Suite
 Developers can run standalone unit test scripts located at the project root (`debug_all_scrapers.py`, `debug_scoring_20.py`, `debug_manga_quality.py`) to validate engine features and API compliance without needing a running Kavita server. Cover uploads can be traced using `debug_cover.py`.
 
+**Batch wall-clock benchmark (all heavy options on):** `python debug/benchmark_batch.py --limit 10` — sequential enrich like the real worker, with Smart Scoring / Smart Completion / title fallback / reset-on-force / auto-cover forced on. Prompts interactively for the **Kavita API token** (getpass). Default is **dry-run** (real scrape + translation, Kavita writes mocked). Use `--live --i-know` only when you intentionally want force-updates written to Kavita.
+
 Since the architecture refactor, there is also an automated **pytest** suite under `tests/` (see §12 below) that runs on every push/PR via `.github/workflows/tests.yml`. Unlike the `debug_*.py` scripts (interactive, opinion-based exploration scripts meant to be read and extended by a human), `tests/` is a fast, mocked, CI-enforced regression net targeted specifically at bugs that have already bitten this project once (`publisher_pref` disappearing, Kavita payload sanitization, MangaBaka status mapping) — it must stay green at all times. Run it locally with `pip install -r requirements-dev.txt && pytest`.
 
 ---
@@ -248,6 +255,7 @@ Use the standalone `debug_*.py` scripts at the project root to validate logic ch
 * `debug_all_scrapers.py` / `debug_scoring_20.py` / `debug_manga_quality.py`: scoring engine and scraper-contract regression tests.
 * `debug_publisher.py`: dumps the raw `publishers` payload from the MangaBaka/MangaUpdates APIs and runs the `LOCALIZED`/`ORIGINAL` extraction logic side-by-side to verify the Publisher Preference feature.
 * `debug_cover.py` / `debug_concurrency.py`: cover upload payload shape validation and cache race-condition checks.
+* `debug/benchmark_batch.py`: sequential batch wall-clock with all heavy options forced on (`--limit`, `--library-id`, `--ids`; dry-run by default; `--live --i-know` for real Kavita writes).
 
 When fixing a bug, extend one of these scripts (or add a new one) to reproduce it first — it's the fastest way to confirm a fix is real without a full Docker rebuild and manual click-through in the Kavita UI.
 
@@ -267,7 +275,7 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 *   **`sockets/handlers.py`**: the two Socket.IO event handlers (`connect`, `fetch_covers_stream`), registered by decorating the shared `extensions.socketio` instance; imported once for side effects from `app.py`.
 *   **`static/js/*.js`**: the former monolithic `script.js` is now 7 plain `<script>` files loaded in dependency order (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). No bundler and no `type="module"` on purpose: templates rely on inline `onclick="..."` handlers, which require every function to stay in the global scope.
 *   **`templates/partials/*.html`**: the former monolithic `index.html` is now a thin shell that `{% include %}`s six Jinja partials — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — one per self-contained UI region. Edit the relevant partial directly instead of scrolling through a single 600+ line template.
-*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10.
+*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + domain tests such as `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10. Also note shared helpers: `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
 ⚠️ **Blueprint endpoint names changed.** Flask always prefixes a Blueprint route's endpoint with the Blueprint's name (e.g. the `login` view in `routes/auth.py`, registered on the `auth` Blueprint, becomes endpoint `auth.login` — there is no way to opt out of this prefixing). Every `url_for(...)` call and the `request.endpoint in [...]` whitelist in `app.py::require_login()` were updated accordingly (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **If you rename a Blueprint or move a route to a different Blueprint, grep for its old endpoint string across `app.py` and every `.html` template before assuming `url_for()` still resolves.**
 
@@ -280,8 +288,9 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 ### 1. Architecture Globale & Sécurité
 MetaKavita est une application Python asynchrone fonctionnant derrière un serveur **WSGI Gunicorn** couplé à des workers **Eventlet** pour supporter les WebSockets en temps réel.
 
-*   **Sécurité :** L'authentification utilise `secrets.compare_digest` contre les attaques temporelles. Les webhooks exigent un jeton cryptographique (`WEBHOOK_TOKEN`).
-*   **Protection SSRF :** Le proxy d'images `/api/proxy-image` utilise une liste blanche dynamique qui protège automatiquement les scrapers communautaires ajoutés par les utilisateurs.
+*   **Sécurité :** L'authentification utilise `secrets.compare_digest` contre les attaques temporelles. Les webhooks exigent un jeton cryptographique (`WEBHOOK_TOKEN`). CSRF sur les POST mutatifs (`csrf_utils.py` + header frontend). `SECRET_KEY` générée au boot — pas de fallback public hardcodé.
+*   **Protection SSRF :** Allowlist partagée (`url_allowlist.py`) pour upload de couvertures et `/api/proxy-image` (http(s), pas d'IPs privées, jusqu'à 3 redirects re-validés, MIME image). Les `proxy_domains` des scrapers (y compris communautaires) alimentent la liste.
+*   **Logs sans fuite de clés :** utiliser `secure_logging.safe_exc_str()` / `redact_secrets()` pour les exceptions susceptibles de contenir des URLs authentifiées (ne jamais logger `str(e)` brut après ces appels).
 *   **Migrations SQLite Sécurisées :** Le `db_manager.py` met à jour les colonnes de la BDD une par une en interceptant silencieusement les erreurs `sqlite3.OperationalError` pour éviter les crashs de conteneur 500.
 *   **Upload Kavita en Base64 Pur :** Le moteur C# de Kavita refuse les uploads d'images commençant par le schéma `Data URI`. L'envoi doit impérativement se faire en chaîne de caractères Base64 pure pour être écrit de manière permanente sur le disque dur.
 
@@ -297,9 +306,13 @@ Le système gère les sous-chemins (ex: `https://domaine.com/metakavita`) via `P
 
 **Whitelist CORS (env Docker `CORS_ALLOWED_ORIGINS`)** — pour les self-hosts HTTPS (ex: `https://….local.ltd`) où le Same-Origin seul bloque Socket.IO / AJAX cross-origin. Origins **explicites** séparées par des virgules ; vide = Same-Origin. Appliquée à Flask HTTP (`after_request` + preflight OPTIONS, avec credentials) et à `socketio.init_app(cors_allowed_origins=…)`. `*` est rejeté. Cela ne remplace **pas** la config reverse-proxy d'upgrade WebSocket (`Upgrade` / `Connection`) — voir `cors_config.py` et `app.py`.
 
-**`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — les appels API utilisent toujours `KAVITA_URL` (hostname Docker interne OK, ex: `http://kavita:5000`). Les liens série du navigateur passent par `get_kavita_ui_url()` (`config_manager.py`), qui préfère `KAVITA_EXTERNAL_URL` (URL publique / reverse proxy) et se rabat sur `KAVITA_URL` si elle est vide.
+**`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — les appels API utilisent toujours `KAVITA_URL` (hostname Docker interne OK, ex: `http://kavita:5000`). Les liens série du navigateur passent par `get_kavita_ui_url()` (`config_manager.py`), qui préfère `KAVITA_EXTERNAL_URL` (URL publique / reverse proxy) et se rabat sur `KAVITA_URL` si elle est vide. Le bouton **Kavita+** (topbar / À propos) utilise `get_kavita_plus_url()` → `{ui}/settings#admin-kavitaplus` (repli wiki si aucune URL UI).
 
 **`KAVITA_HTTP_TIMEOUT`** — secondes pour les POST d'**écriture** Kavita (metadata 2-pass, update série 2-pass, upload couverture). Défaut `60`. Env ou `config.json`. Si le passage 1 (écriture) réussit et le passage 2 (re-lock) timeout, `update_series_metadata` / `update_series_general` renvoient un soft-success avec warning en log.
+
+**`MAX_TAGS`** — nombre max de tags poussés vers Kavita. Défaut `15` (borné 1–100). Env ou `config.json` uniquement — **pas** dans la modal Config. Utiliser `get_max_tags(config=None)` depuis `config_manager` dans les scrapers (`tags[:get_max_tags()]`) et dans `services/enrichment_engine.py` pour le payload Kavita (`get_max_tags(config)`).
+
+**`MAX_GENRES`** — nombre max de genres poussés vers Kavita. Défaut `5` (borné 1–50). Env ou `config.json` uniquement — **pas** dans la modal Config. Utiliser `get_max_genres(config=None)` dans les scrapers (`genres[:get_max_genres()]`) et dans `services/enrichment_engine.py` pour le payload Kavita (`get_max_genres(config)`).
 
 ---
 
@@ -458,6 +471,8 @@ Pour permettre à la communauté de créer ses propres scrapers, veuillez vous r
 ### 10. Suite de Tests & Débogage Qualité
 Des scripts de tests unitaires autonomes (`debug_all_scrapers.py`, `debug_scoring_20.py`, `debug_manga_quality.py`) permettent d'auditer 20 cas limites de scoring mathématique et les performances sans nécessiter d'instance Kavita. L'envoi physique d'image peut être traqué via `debug_cover.py`.
 
+**Benchmark batch (tout allumé) :** `python debug/benchmark_batch.py --limit 10` — enrichissement séquentiel comme le worker réel, avec Smart Scoring / Smart Completion / title fallback / reset-on-force / auto-cover forcés. Demande interactivement le **token / clé API Kavita** (getpass). Défaut = **dry-run** (scrape + traduction réels, écritures Kavita mockées). `--live --i-know` uniquement si tu veux forcer des écritures réelles vers Kavita.
+
 Depuis le refactor d'architecture, il existe également une suite **pytest** automatisée dans `tests/` (voir §12 ci-dessous), exécutée à chaque push/PR via `.github/workflows/tests.yml`. Contrairement aux scripts `debug_*.py` (scripts d'exploration interactifs, destinés à être lus et étendus par un humain), `tests/` est un filet de non-régression rapide, mocké et vérifié par CI, ciblé spécifiquement sur des bugs qui ont déjà touché ce projet une fois (disparition de `publisher_pref`, assainissement des payloads Kavita, mapping de statut MangaBaka) — il doit rester vert en permanence. Lancez-le localement avec `pip install -r requirements-dev.txt && pytest`.
 
 ---
@@ -487,6 +502,7 @@ Utilisez les scripts autonomes `debug_*.py` à la racine du projet pour valider 
 * `debug_all_scrapers.py` / `debug_scoring_20.py` / `debug_manga_quality.py` : tests de non-régression du moteur de scoring et du contrat des scrapers.
 * `debug_publisher.py` : extrait le payload brut `publishers` des API MangaBaka/MangaUpdates et exécute la logique d'extraction `LOCALIZED`/`ORIGINAL` en parallèle pour vérifier la fonctionnalité de Préférence d'Éditeur.
 * `debug_cover.py` / `debug_concurrency.py` : validation du format du payload d'upload de couverture et détection des races conditions du cache.
+* `debug/benchmark_batch.py` : chronométrage batch séquentiel avec options lourdes forcées (`--limit`, `--library-id`, `--ids` ; dry-run par défaut ; `--live --i-know` pour écritures Kavita réelles).
 
 Lors de la correction d'un bug, étendez l'un de ces scripts (ou créez-en un nouveau) pour le reproduire d'abord — c'est le moyen le plus rapide de confirmer qu'un correctif fonctionne réellement, sans reconstruction Docker complète ni parcours manuel dans l'interface Kavita.
 
@@ -506,6 +522,6 @@ Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage 
 *   **`sockets/handlers.py`** : les deux handlers Socket.IO (`connect`, `fetch_covers_stream`), enregistrés en décorant l'instance partagée `extensions.socketio` ; importé une seule fois pour son effet de bord depuis `app.py`.
 *   **`static/js/*.js`** : l'ancien `script.js` monolithique est désormais découpé en 7 fichiers `<script>` classiques chargés dans l'ordre de dépendance (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). Volontairement sans bundler ni `type="module"` : les templates s'appuient sur des gestionnaires `onclick="..."` inline, qui exigent que chaque fonction reste en portée globale.
 *   **`templates/partials/*.html`** : l'ancien `index.html` monolithique est désormais une coquille légère qui `{% include %}` six partials Jinja — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — un par zone d'UI autonome. Modifiez directement le partial concerné plutôt que de faire défiler un template unique de 600+ lignes.
-*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10.
+*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + tests métier dont `test_db_manager.py`, `test_kavita_api.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10. Helpers partagés : `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
 ⚠️ **Les noms d'endpoints des Blueprints ont changé.** Flask préfixe toujours l'endpoint d'une route de Blueprint par le nom du Blueprint (ex : la vue `login` de `routes/auth.py`, enregistrée sur le Blueprint `auth`, devient l'endpoint `auth.login` — impossible de désactiver ce préfixage). Chaque appel `url_for(...)` et la liste blanche `request.endpoint in [...]` de `app.py::require_login()` ont été mis à jour en conséquence (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **Si vous renommez un Blueprint ou déplacez une route vers un autre Blueprint, recherchez son ancien nom d'endpoint dans `app.py` et dans chaque template `.html` avant de supposer que `url_for()` fonctionne toujours.**

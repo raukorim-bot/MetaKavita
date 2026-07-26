@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
     <title>MetaKavita Dashboard</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -50,7 +51,24 @@
                 MetaKavita
             </div>
             <div class="topbar-actions">
-			<button type="button" class="btn-icon" onclick="openChangelogModal(true)" title="Voir les nouveautés">✨ v{{ app_version }}</button>
+			<div class="topbar-support" role="group" aria-label="Support">
+				<a href="{{ kavita_plus_url }}" target="_blank" rel="noopener noreferrer" class="btn-icon support-link kavita-plus-link" title="{{ t.about_kavita_plus }}">💜 {{ t.kavita_plus_btn }}</a>
+				<a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer" class="btn-icon support-link bmc-link" title="{{ t.buy_me_coffee }}">☕ {{ t.buy_me_coffee }}</a>
+			</div>
+			<div class="topbar-help">
+				<button type="button" class="btn-icon" id="helpMenuBtn" onclick="toggleHelpMenu(event)" aria-expanded="false" aria-haspopup="true" title="{{ t.help_menu }}">❓ {{ t.help_menu }}</button>
+				<div id="helpDropdown" class="help-dropdown" hidden>
+					<button type="button" class="help-dropdown-item" onclick="openAboutModal(); closeHelpMenu();">{{ t.about_title }}</button>
+					<div class="help-dropdown-label">{{ t.docs_menu }}</div>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/README.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_readme }}</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/CUSTOM_SCRAPERS.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_custom_scrapers }}</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/DEVELOPER.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_developer }}</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/ROADMAP.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_roadmap }}</a>
+					<div class="help-dropdown-sep"></div>
+					<button type="button" class="help-dropdown-item" onclick="closeHelpMenu(); openChangelogModal(true);">{{ t.help_changelog }}</button>
+				</div>
+			</div>
+			<button type="button" class="btn-icon" onclick="openChangelogModal(true)" title="{{ t.help_changelog }}">✨ v{{ app_version }}</button>
                 <button type="button" class="btn-icon" onclick="openConfigModal()" title="{{ t.toggle_config }}">⚙️ Config</button>
                 <button type="button" class="btn-icon" onclick="toggleTheme()" title="{{ t.toggle_theme }}">🌓 Thème</button>
             </div>
@@ -104,6 +122,8 @@
     {% include "partials/_cover_modal.html" %}
 
     {% include "partials/_changelog_modal.html" %}
+
+    {% include "partials/_about_modal.html" %}
 
     <!-- Chargement par balises <script> classiques (pas de bundler, pas de type="module")
          afin de préserver les fonctions en portée globale utilisées par les attributs

@@ -7,7 +7,7 @@ from curl_cffi import requests
 
 from .base import BaseScraper
 from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
-from config_manager import load_config
+from config_manager import load_config, get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
 
@@ -110,8 +110,9 @@ class MangaUpdatesScraper(BaseScraper):
             elif isinstance(g, str): genres.append(g)
 
         tags = ["MangaUpdates"] + genres
-        for cat in (record.get("categories") or [])[:10]:
-            if isinstance(cat, dict) and cat.get("category"): tags.append(cat["category"])
+        for cat in (record.get("categories") or []):
+            if isinstance(cat, dict) and cat.get("category"):
+                tags.append(cat["category"])
 
         # --- GESTION DE L'ÉDITEUR (PUBLISHER) ---
         publisher = None
@@ -150,8 +151,8 @@ class MangaUpdatesScraper(BaseScraper):
             'alternative_titles': alt_titles,
             'summary': summary,
             'cover_url': cover_url,
-            'genres': genres[:5] if genres else ["Manga"],
-            'tags': tags[:15],
+            'genres': genres[:get_max_genres()] if genres else ["Manga"],
+            'tags': tags[:get_max_tags()],
             'year': year,
             'status': status,
             'staff': staff,

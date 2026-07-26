@@ -95,7 +95,19 @@ function syncSingle(id, name, btn) {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
             body: `series_id=${id}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}`
-        }).then(() => proceedSyncSingle(id, name, btn, loading));
+        })
+        .then(res => {
+            if (!res.ok) throw new Error('HTTP ' + res.status);
+            return res.json().catch(() => ({}));
+        })
+        .then(() => proceedSyncSingle(id, name, btn, loading))
+        .catch(() => {
+            loading.style.display = 'none';
+            btn.style.display = 'inline-block';
+            btn.previousElementSibling.style.display = 'inline-block';
+            btn.innerText = "❌ Fail";
+            setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
+        });
     } else {
         proceedSyncSingle(id, name, btn, null);
     }
@@ -110,21 +122,33 @@ function proceedSyncSingle(id, name, btn, loadingElem) {
         loading.style.display = 'inline-block';
     }
 
+    const restoreBtn = () => {
+        loading.style.display = 'none';
+        btn.style.display = 'inline-block';
+        btn.previousElementSibling.style.display = 'inline-block';
+    };
+
     fetch(getRootPath() + '/force-sync', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: `series_id=${id}&series_name=${encodeURIComponent(name)}`
     })
-    .then(res => res.json())
+    .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    })
     .then(data => {
-        loading.style.display = 'none';
-        btn.style.display = 'inline-block';
-        btn.previousElementSibling.style.display = 'inline-block';
+        restoreBtn();
         if(data.success) {
             btn.innerText = "✅ OK";
         } else {
             btn.innerText = "❌ Fail";
         }
+        setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
+    })
+    .catch(() => {
+        restoreBtn();
+        btn.innerText = "❌ Fail";
         setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
     });
 }

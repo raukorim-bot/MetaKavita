@@ -29,6 +29,9 @@ SCORE_CANDIDATE_MODULES = [
     "scrapers.mangaupdates",
     "scrapers.manganews",
     "scrapers.shikimori",
+    "scrapers.kitsu",
+    "scrapers.comicvine",
+    "scrapers.bedetheque",
 ]
 
 
@@ -66,13 +69,14 @@ def test_all_score_candidate_scrapers_import_attach_match_score():
 
 
 def test_all_score_candidate_scrapers_declare_uses_unified_scoring():
-    """Les 9 scrapers officiels basés sur score_candidate() doivent déclarer
+    """Les scrapers officiels basés sur score_candidate() doivent déclarer
     `uses_unified_scoring = True` sur leur classe (contrat BaseScraper)."""
     from scrapers import ScraperRegistry
 
     expected_ids = {
         "MANGABAKA", "ANILIST", "GOOGLEBOOKS", "HARDCOVER", "OPENLIBRARY",
         "MANGADEX", "MANGAUPDATES", "MANGANEWS", "SHIKIMORI",
+        "KITSU", "COMICVINE", "BEDETHEQUE",
     }
     for scraper_id in expected_ids:
         scraper = ScraperRegistry.get(scraper_id)

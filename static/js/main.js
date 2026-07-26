@@ -83,6 +83,49 @@ function closeChangelogModal() {
     }
 }
 
+// --- MENU AIDE (À propos / Documentation) ---
+function closeHelpMenu() {
+    const dropdown = document.getElementById('helpDropdown');
+    const btn = document.getElementById('helpMenuBtn');
+    if (dropdown) dropdown.hidden = true;
+    if (btn) btn.setAttribute('aria-expanded', 'false');
+}
+
+function toggleHelpMenu(event) {
+    if (event) event.stopPropagation();
+    const dropdown = document.getElementById('helpDropdown');
+    const btn = document.getElementById('helpMenuBtn');
+    if (!dropdown || !btn) return;
+    const willOpen = dropdown.hidden;
+    dropdown.hidden = !willOpen;
+    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+}
+
+function openAboutModal() {
+    const modal = document.getElementById('aboutModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeAboutModal() {
+    const modal = document.getElementById('aboutModal');
+    if (modal) modal.style.display = 'none';
+}
+
+document.addEventListener('click', (event) => {
+    const help = document.querySelector('.topbar-help');
+    if (help && !help.contains(event.target)) {
+        closeHelpMenu();
+    }
+});
+
+document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+        closeHelpMenu();
+        closeAboutModal();
+        closeChangelogModal();
+    }
+});
+
 // Déclencheur au chargement de la page
 document.addEventListener('DOMContentLoaded', () => {
     setTimeout(checkChangelogPopup, 600);

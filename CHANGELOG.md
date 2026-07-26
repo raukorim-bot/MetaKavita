@@ -1,4 +1,4 @@
-## [1.6.0] - 2026-07-26 (The Modular Architecture, Smart Scoring, CORS & MangaBaka Book Update)
+## [1.6.0] - 2026-07-26 (Modular Architecture, Smart Scoring, CORS, MangaBaka Book, MAX_TAGS/MAX_GENRES & Audit Hardening)
 
 EN
 ### 🏗️ Full Backend & Frontend Architecture Refactor
@@ -30,7 +30,52 @@ EN
 ### 🔐 CORS Allowed Origins (Docker)
 * **`CORS_ALLOWED_ORIGINS`**: Comma-separated explicit origins (e.g. `https://metakavita.home.local.ltd`) applied to Flask HTTP and Socket.IO. Empty = Same-Origin only. `*` is rejected. Enables self-host HTTPS domains that were blocked by the previous Same-Origin Socket.IO setup. Does not replace reverse-proxy WebSocket upgrade configuration.
 * **`KAVITA_EXTERNAL_URL` (thanks LazyGeniusMan)**: Optional public Kavita URL for browser UI links (series title → Kavita). `KAVITA_URL` remains the server-side API endpoint (e.g. `http://kavita:5000` on the Docker network). If external is empty, UI links fall back to `KAVITA_URL`.
-* **`KAVITA_HTTP_TIMEOUT` + 2-pass soft-success (issue SqueezedByte)**: Kavita write timeout is now configurable via env/config (default **60s**, was hard-coded 35s). If metadata/general **write** succeeds but **RE-LOCK** times out or returns non-200, MetaKavita treats the update as success with a warning — avoiding false "Kavita refused the update" failures when data was already persisted.
+* **`KAVITA_HTTP_TIMEOUT` + 2-pass soft-success (issue SqueezedByte)**: Kavita write timeout is now configurable via env/config (default **60s**, was hard-coded 35s). If metadata/general **write** succeeds but **RE-LOCK** times out or returns non-200, MetaKavita treats the update as success with a warning — avoiding false "Kavita refused the update" failures when data was already persisted. One lightweight **RE-LOCK-only retry** (0.5s pause, retry timeout capped at **20s**) tries to seal field locks without re-scraping or re-writing.
+* **`debug/benchmark_batch.py`**: CLI wall-clock benchmark for a sequential force-batch with all heavy options forced on (Smart Scoring / Completion / title fallback / reset-on-force / auto-cover). Dry-run by default; `--live --i-know` for real Kavita writes.
+* **`MAX_TAGS` (feedback LazyGeniusMan)**: Configurable cap on tags pushed to Kavita (env / `config.json`, default **15**, range 1–100). Applied in `enrichment_engine` and all official scrapers that previously hard-coded `[:15]`. No UI — advanced/power-user setting only. Documented for community scrapers in `CUSTOM_SCRAPERS.md` (`get_max_tags()`).
+* **`MAX_GENRES`**: Configurable cap on genres pushed to Kavita (env / `config.json`, default **5**, range 1–50). Homogenized across dynamic-list scrapers + `enrichment_engine` safety net (`get_max_genres(config)`). No UI — see BF41.
+
+### 🛡️ Application Code Audit Hardening
+Full static audit of application code (routes, services, scrapers, Kavita API, frontend — excluding tests/docs/debug). Critical and High findings fixed in this release; optional empty `ADMIN_PASSWORD` (open LAN backoffice) is **intentional** and left unchanged.
+
+* **BF20. External IDs Partial `Series/update` Corruption**: `update_series_external_ids()` used to POST only `id` + AniList/MAL/MangaBaka IDs. Same Kavita quirk as the historical `localizedName` wipe — omitted fields can null alt titles and reset name locks. Now GET-snapshots the series and reinjects `name` / `sortName` / `localizedName` / locks / existing external IDs before overlaying new ones. Invalid non-numeric IDs are skipped (no crash).
+* **BF21. Cover Upload SSRF Allowlist**: Manual/auto cover download now validates `http(s)` only, rejects credentials/localhost/link-local, requires a `proxy_domains` allowlist match, and refuses HTTP redirects (`allow_redirects=False`). Soft-fail with a clear message — never crashes enrichment.
+* **BF22. Forced-ID `fallback_query` Was Dead**: `enrich_series` passed `fallback_query` (alt title / series name) but `fetch_metadata` never used it. After a failed forced ID/URL pass, MetaKavita now retries a title search automatically.
+* **BF23. Comic/Book Provider Config Load/Save Asymmetry**: `COMIC_PROVIDER_*`, `BOOK_PROVIDER_*`, and `RESET_CONTEXT_ON_FORCE` were saved from the UI but missing from `load_config()` defaults and env override loops — Docker env for comic/book cascades and reset-on-force was ignored. Defaults + env wiring restored.
+* **BF24. Cover Modal DOM XSS**: HTTP and Socket cover UIs interpolated remote `title` / `display_url` into `innerHTML`. Rebuilt with DOM APIs (`createElement` / `textContent`) so provider metadata cannot inject script into the admin session.
+* **BF25. `/api/proxy-image` Redirect SSRF**: Proxy already had a domain allowlist but followed redirects by default and echoed upstream Content-Type. Now uses the shared allowlist helper, blocks redirects, and only serves safe `image/*` MIME types.
+* **BF26. Silent `update_series_general` Failure**: Metadata success alone marked the series `COMPLETED` even when alt title / format write failed. General update result is now checked; partial failure is reported instead of a false success.
+* **BF27. Characters Mapping Crash**: Enrichment assumed AniList GraphQL shape `c['node']['name']['full']` and could `KeyError` on custom/malformed character lists. Parsing is now defensive (dict/string variants; bad entries skipped).
+* **C50. CSRF Protection + Session Cookie Hardening**: Session CSRF token (`csrf_utils.py`) validated on state-changing POSTs (header `X-CSRF-Token` or form field); frontend `utils.js` injects the header on all mutating `fetch` calls; login form includes a hidden token. Session cookie uses `SameSite=Lax` + `HttpOnly` (optional `SESSION_COOKIE_SECURE=1` behind HTTPS). Webhook remains token-auth exempt; pytest `TESTING` skips CSRF.
+* **BF28. Changelog Modal Truncated by Unescaped `<script>`**: The Markdown→HTML renderer injected CHANGELOG text (e.g. `` `<script>` `` in the frontend modularization notes) into `innerHTML` without escaping. Browsers treated that as a real script tag and discarded the rest of the modal. Text is now HTML-escaped before inline Markdown formatting.
+
+### 🛠️ Medium Audit Hardening
+* **BF29. Unified Scoring for Kitsu / ComicVine / Bédéthèque**: These scrapers lacked `attach_match_score` / `uses_unified_scoring`, so Smart Scoring treated them as neutral `0.60`. They now use `score_candidate` + threshold like the other official scrapers.
+* **BF30. `localizedName` Read from Wrong Kavita DTO**: `get_series_deep_metadata()` looked for `localizedName` on Series/metadata; it lives on `GET /api/Series/{id}`. Scoring now receives the real alt title when present.
+* **BF31. Frontend Fetch Error Handling**: `syncSingle` / `proceedSyncSingle` / `saveConfig` / `applyCover` now check `res.ok` and restore UI on network/HTTP failure (no stuck spinners; override save must succeed before force-sync).
+* **BF32. Sync Queue `task_done()`**: Background `_worker` now calls `task_done()` after each job so `unfinished_tasks` stays accurate (aligned with `stop_batch`).
+* **BF33. Scraper HTTP Session Cleanup**: `bedetheque` / `manganews` / `hardcover` close their `Session` in `finally` after fetch/covers.
+* **BF34. Corrupt `config.json` No Longer Silently Overwritten**: Parse failure logs loudly, optionally renames to `config.json.bak`, and skips auto-`save_config` that would wipe the broken file with defaults.
+* **BF35. `TARGET_LANG` No Longer Forced Every Enrich**: Language is written only when Kavita has no language yet, or on `force_update` (still used for summary translation independently).
+* **BF36. Dead MAL / Nautiljon Modules Removed**: Non-`BaseScraper` leftovers never registered by the registry; deleted.
+
+### 🧹 Low Audit Polish
+* **BF37. No Hardcoded `SECRET_KEY` Fallback**: Removed public `'kavita-secret-key'` default in `app.py`. If `SECRET_KEY` is still empty after `load_config()`, an ephemeral key is generated and an error is logged (sessions won't survive restart until `config.json` is fixed). Also fixed missing `import logging` in `config_manager.py`.
+* **BF38. API Key Prefix No Longer Logged**: Kavita auth debug log no longer prints `api_key[:5]`.
+* **BF39. Smart Scoring Double-Absorb Documented**: Wave-1 `absorb_candidate` before parallel wave-2 is intentional (context snapshot); final `apply_accepted` re-absorbs — comment added, behavior unchanged.
+* **BF40. ComicVine `proxy_domains` Narrowed**: Dropped broad `gamespot.com`; keep `comicvine.gamespot.com` only.
+* **BF41. `MAX_GENRES` / `get_max_genres()`**: Configurable genre cap (env / `config.json`, default **5**, range 1–50). Applied in scrapers with dynamic genre lists (Shikimori, Manga-News, MangaUpdates, Hardcover, OpenLibrary, AniList, MangaBaka, GoogleBooks, Bédéthèque) and as a safety net in `enrichment_engine` (`get_max_genres(config)`), mirroring `MAX_TAGS`. OpenLibrary build loop no longer hard-codes `5`. AniList tags now use `get_max_tags()`; MangaUpdates dropped the hard-coded `categories[:10]` so `MAX_TAGS` can take full effect. No UI.
+
+### 🧭 Topbar Help Menu (About & Documentation)
+* **C52. Help / About / Docs Dropdown**: Topbar Help menu (next to support links): in-app **About** modal (version, short blurb, GitHub / Issues / BMC), **Documentation** links to GitHub (`README`, `CUSTOM_SCRAPERS`, `DEVELOPER`, `ROADMAP` on `dev`), and **Release notes** reusing the changelog modal.
+* **C52b. Kavita+ Support Positioning**: About modal encourages supporting Kavita first (Kavita+ / donations / Open Collective). Topbar shows **Kavita+** beside Buy me a coffee (equal visual weight). Kavita+ button opens this instance’s admin settings (`get_kavita_plus_url()` → `{KAVITA_EXTERNAL_URL|KAVITA_URL}/settings#admin-kavitaplus`, wiki fallback if unset).
+
+### 🔧 Post-Audit Follow-ups
+* **BF42. Credential-Safe Exception Logging**: Added `secure_logging.safe_exc_str` / `redact_secrets`. Kavita auth and ComicVine search errors no longer log raw `str(e)` (which could embed `?apiKey=` / `?api_key=` in urllib3 messages, including Live Logs).
+* **BF43. Safe Cover Redirects + CDN Domains**: Cover upload and `/api/proxy-image` follow up to 3 redirects with each hop re-validated via `fetch_with_safe_redirects` (**supersedes** the strict “block all redirects” policy from BF21/BF25). Extended `proxy_domains` for Google Books (`googleusercontent.com`), MangaBaka (`api.mangabaka.org`), ComicVine (`static.comicvine.com`).
+* **BF44. Block Private IPs in URL Allowlist**: `url_allowlist` now rejects RFC1918 / loopback / link-local / reserved literal IPs and `.local`/`.internal` suffixes (in addition to localhost / metadata).
+* **BF45. Escape Closes Changelog**: Topbar Help Escape handler also closes the changelog modal.
+* **Docs**: `CODE_REVIEW.md` updated — MAL/Nautiljon marked removed (BF36), not “dead files still present”.
 
 ### 🐛 Manual Cover vs. Auto-Cover Conflict Fixes
 * **Per-Series Publisher Preference Persistence (`routes/series.py`)**: Fixed an issue where the `/save-override` endpoint failed to forward `publisher_pref` to persistence, which previously reset per-series choices back to `GLOBAL` in `cache.db`.
@@ -40,6 +85,10 @@ EN
 
 ### 🔒 Security
 * **Hardcoded Hardcover API Token Removed (`debug/debug_hardcover.py`)**: A live bearer token was committed directly into a debug script. Replaced with loading the key from the standard configuration system; the token was revoked and purged from the git history.
+* **Cover SSRF / Proxy Hardening**: See BF21 / BF25 (initial allowlist) and BF43 / BF44 (`fetch_with_safe_redirects`, private IP block) — `url_allowlist.py`, cover upload + `/api/proxy-image`.
+* **Cover UI XSS Hardening**: See BF24 (`static/js/covers.js`).
+* **CSRF + Cookie Flags**: See C50 (`csrf_utils.py`, `utils.js`, `SameSite=Lax`).
+* **Credential-safe exception logs**: See BF42 (`secure_logging.py`).
 
 FR
 ### 🏗️ Refonte Complète de l'Architecture Backend & Frontend
@@ -71,7 +120,52 @@ FR
 ### 🔐 Origins CORS autorisées (Docker)
 * **`CORS_ALLOWED_ORIGINS`** : origins explicites séparées par des virgules (ex: `https://metakavita.home.local.ltd`), appliquées à Flask HTTP et Socket.IO. Vide = Same-Origin uniquement. `*` est rejeté. Débloque les self-hosts HTTPS dont les sockets étaient bloqués par le Same-Origin. Ne remplace pas la config reverse-proxy d'upgrade WebSocket.
 * **`KAVITA_EXTERNAL_URL` (merci LazyGeniusMan)** : URL publique optionnelle de Kavita pour les liens UI (titre de série → Kavita). `KAVITA_URL` reste l'endpoint API serveur (ex: `http://kavita:5000` sur le réseau Docker). Si l'URL externe est vide, les liens UI se rabattent sur `KAVITA_URL`.
-* **`KAVITA_HTTP_TIMEOUT` + soft-success 2-pass (issue SqueezedByte)** : timeout d'écriture Kavita configurable (défaut **60s**, était 35s en dur). Si l'écriture metadata/général réussit mais le **RE-LOCK** timeout ou renvoie non-200, MetaKavita compte un succès avec warning — plus de faux "Kavita refused" quand les données sont déjà persistées.
+* **`KAVITA_HTTP_TIMEOUT` + soft-success 2-pass (issue SqueezedByte)** : timeout d'écriture Kavita configurable (défaut **60s**, était 35s en dur). Si l'écriture metadata/général réussit mais le **RE-LOCK** timeout ou renvoie non-200, MetaKavita compte un succès avec warning — plus de faux "Kavita refused" quand les données sont déjà persistées. Un **retry léger du seul RE-LOCK** (pause 0,5s, timeout retry plafonné à **20s**) tente de sceller les verrous sans re-scrape ni re-écriture.
+* **`debug/benchmark_batch.py`** : benchmark wall-clock d'un force-batch séquentiel avec options lourdes forcées (Smart Scoring / Completion / title fallback / reset-on-force / auto-cover). Dry-run par défaut ; `--live --i-know` pour écritures Kavita réelles.
+* **`MAX_TAGS` (retour LazyGeniusMan)** : plafond configurable des tags poussés vers Kavita (env / `config.json`, défaut **15**, borné 1–100). Appliqué dans `enrichment_engine` et tous les scrapers officiels qui hard-codaient `[:15]`. Pas d'UI — réglage avancé uniquement. Documenté pour les scrapers communautaires dans `CUSTOM_SCRAPERS.md` (`get_max_tags()`).
+* **`MAX_GENRES`** : plafond configurable des genres poussés vers Kavita (env / `config.json`, défaut **5**, borné 1–50). Homogénéisé sur les scrapers à listes dynamiques + filet `enrichment_engine` (`get_max_genres(config)`). Pas d'UI — voir BF41.
+
+### 🛡️ Durcissement suite à l'Audit du Code Applicatif
+Audit statique complet du code applicatif (routes, services, scrapers, API Kavita, frontend — hors tests/docs/debug). Findings Critical et High corrigés dans cette version ; le `ADMIN_PASSWORD` vide (backoffice LAN ouvert) reste un **choix volontaire** et n'a pas été modifié.
+
+* **BF20. Corruption via POST partiel des IDs externes** : `update_series_external_ids()` n'envoyait que `id` + IDs AniList/MAL/MangaBaka. Même piège Kavita que l'ancien wipe de `localizedName` — les champs omis peuvent nullifier les titres alt et déverrouiller name/sortName. Snapshot GET + réinjection des champs/verrous/IDs existants avant overlay. IDs non numériques ignorés (pas de crash).
+* **BF21. SSRF à l'upload de couverture** : téléchargement manuel/auto limité à `http(s)`, refus credentials/localhost/link-local, allowlist `proxy_domains`, refus des redirects. Soft-fail explicite — n'interrompt jamais l'enrichissement en exception.
+* **BF22. `fallback_query` mort après ID forcé** : `enrich_series` passait `fallback_query` (titre alt / nom) mais `fetch_metadata` ne le lisait jamais. En cas d'échec ID/URL forcé, nouvelle tentative automatique en recherche titre.
+* **BF23. Asymétrie load/save des providers Comic/Book** : `COMIC_PROVIDER_*`, `BOOK_PROVIDER_*` et `RESET_CONTEXT_ON_FORCE` étaient sauvegardés depuis l'UI mais absents des defaults / boucles env de `load_config()` — l'env Docker pour Comic/Book et le reset-on-force était ignorée. Defaults + câblage env rétablis.
+* **BF24. XSS DOM de la modal couvertures** : les UIs HTTP/Socket interpolaient `title` / `display_url` distants dans `innerHTML`. Reconstruction via APIs DOM (`createElement` / `textContent`).
+* **BF25. SSRF par redirect sur `/api/proxy-image`** : allowlist existante mais redirects suivis par défaut + Content-Type répercuté. Helper d'allowlist partagé, redirects bloqués, MIME `image/*` uniquement.
+* **BF26. Échec silencieux de `update_series_general`** : le succès metadata seul marquait `COMPLETED` même si titre alt / format échouait. Le résultat de l'update général est désormais contrôlé.
+* **BF27. Crash du mapping personnages** : l'enrichissement imposait la forme AniList `c['node']['name']['full']` et pouvait `KeyError`. Parsing défensif (dict/string ; entrées invalides ignorées).
+* **C50. Protection CSRF + durcissement cookie de session** : jeton CSRF session (`csrf_utils.py`) validé sur les POST mutatifs (header `X-CSRF-Token` ou champ form) ; `utils.js` injecte le header sur tous les `fetch` mutatifs ; formulaire login avec champ caché. Cookie `SameSite=Lax` + `HttpOnly` (`SESSION_COOKIE_SECURE=1` optionnel derrière HTTPS). Webhook exempt (auth par jeton) ; `TESTING` pytest saute le CSRF.
+* **BF28. Modale Changelog tronquée par un `<script>` non échappé** : le rendu Markdown→HTML injectait le texte du CHANGELOG (ex: `` `<script>` `` dans les notes de modularisation frontend) en `innerHTML` sans échappement. Le navigateur traitait ça comme une vraie balise script et jetait le reste de la modale. Le texte est désormais échappé HTML avant le formatage Markdown inline.
+
+### 🛠️ Durcissement Audit — Findings Medium
+* **BF29. Scoring unifié Kitsu / ComicVine / Bédéthèque** : ces scrapers n'avaient pas `attach_match_score` / `uses_unified_scoring` (score neutre 0.60). Ils passent désormais par `score_candidate` + seuil comme les autres officiels.
+* **BF30. `localizedName` lu sur le mauvais DTO Kavita** : `get_series_deep_metadata()` cherchait `localizedName` dans Series/metadata ; il est sur `GET /api/Series/{id}`. Le scoring reçoit enfin le vrai titre alt.
+* **BF31. Gestion d'erreur fetch frontend** : `syncSingle` / `proceedSyncSingle` / `saveConfig` / `applyCover` vérifient `res.ok` et restaurent l'UI en cas d'échec (plus de spinners bloqués ; save-override doit réussir avant force-sync).
+* **BF32. `task_done()` sur la file de sync** : le `_worker` de fond appelle désormais `task_done()` après chaque job (aligné avec `stop_batch`).
+* **BF33. Fermeture des Sessions HTTP scrapers** : `bedetheque` / `manganews` / `hardcover` ferment leur `Session` dans un `finally`.
+* **BF34. `config.json` corrompu non écrasé silencieusement** : parse en échec → log + éventuel `config.json.bak`, pas de `save_config` auto qui écraserait le fichier cassé.
+* **BF35. `TARGET_LANG` non forcé à chaque enrich** : langue écrite seulement si Kavita n'en a pas encore, ou en `force_update` (la traduction de résumé reste indépendante).
+* **BF36. Modules morts MAL / Nautiljon supprimés** : fonctions hors `BaseScraper`, jamais enregistrées ; fichiers retirés.
+
+### 🧹 Polish Audit — Findings Low
+* **BF37. Plus de fallback `SECRET_KEY` hardcodé** : suppression du défaut public `'kavita-secret-key'` dans `app.py`. Si la clé est encore vide après `load_config()`, génération éphémère + log d'erreur. `import logging` manquant corrigé dans `config_manager.py`.
+* **BF38. Préfixe de clé API plus logué** : le log debug d'auth Kavita n'affiche plus `api_key[:5]`.
+* **BF39. Double absorb Smart Scoring documenté** : l'`absorb_candidate` vague-1 avant vague-2 parallèle est intentionnel ; commentaire ajouté, comportement inchangé.
+* **BF40. `proxy_domains` ComicVine restreint** : retrait de `gamespot.com` large ; uniquement `comicvine.gamespot.com`.
+* **BF41. `MAX_GENRES` / `get_max_genres()`** : plafond genres configurable (env / `config.json`, défaut **5**, borné 1–50). Appliqué aux scrapers à listes dynamiques (Shikimori, Manga-News, MangaUpdates, Hardcover, OpenLibrary, AniList, MangaBaka, GoogleBooks, Bédéthèque) et en filet dans `enrichment_engine` (`get_max_genres(config)`), miroir de `MAX_TAGS`. Boucle OpenLibrary sans hardcode `5`. Tags AniList via `get_max_tags()` ; MangaUpdates sans `categories[:10]` en dur pour laisser `MAX_TAGS` s'appliquer pleinement. Pas d'UI.
+
+### 🧭 Menu Aide du topbar (À propos & Documentation)
+* **C52. Menu Aide / À propos / Docs** : menu Aide du topbar (à côté des liens de soutien) : modal **À propos** in-app (version, texte court, liens GitHub / Issues / BMC), liens **Documentation** vers GitHub (`README`, `CUSTOM_SCRAPERS`, `DEVELOPER`, `ROADMAP` sur `dev`), et **Nouveautés** réutilisant la modal changelog.
+* **C52b. Positionnement soutien Kavita+** : la modal À propos pousse d’abord le soutien à Kavita (Kavita+ / dons / Open Collective). Le topbar affiche **Kavita+** à côté de Buy me a coffee (même poids visuel). Le bouton ouvre les réglages admin de *cette* instance (`get_kavita_plus_url()` → `{KAVITA_EXTERNAL_URL|KAVITA_URL}/settings#admin-kavitaplus`, repli wiki si aucune URL).
+
+### 🔧 Suivi post-audit
+* **BF42. Logs d'exceptions sans fuite de clés** : `secure_logging.safe_exc_str` / `redact_secrets`. Auth Kavita et recherches ComicVine ne loguent plus `str(e)` brut (risque `?apiKey=` / `?api_key=` dans urllib3, y compris Live Logs).
+* **BF43. Redirects couverture sécurisés + CDN** : upload couverture et `/api/proxy-image` suivent jusqu'à 3 redirects avec re-validation (`fetch_with_safe_redirects`) — **remplace** la politique stricte « aucun redirect » de BF21/BF25. `proxy_domains` élargis : Google Books (`googleusercontent.com`), MangaBaka (`api.mangabaka.org`), ComicVine (`static.comicvine.com`).
+* **BF44. IPs privées bloquées dans l'allowlist** : refus RFC1918 / loopback / link-local / réservées et suffixes `.local`/`.internal`.
+* **BF45. Escape ferme aussi le changelog** : le handler Escape du menu Aide ferme également la modal nouveautés.
+* **Docs** : `CODE_REVIEW.md` — MAL/Nautiljon marqués comme **supprimés** (BF36).
 
 ### 🐛 Correctifs des Conflits Couverture Manuelle vs Auto-Cover
 * **Persistance de la Préférence d'Éditeur par Série (`routes/series.py`)** : l'endpoint `/save-override` ne transmettait pas `publisher_pref` à la persistence, ce qui réinitialisait les choix par série à `GLOBAL` dans `cache.db`.
@@ -81,6 +175,10 @@ FR
 
 ### 🔒 Sécurité
 * **Jeton API Hardcover Codé en Dur Supprimé (`debug/debug_hardcover.py`)** : un jeton bearer valide avait été commité directement dans un script de debug. Remplacé par un chargement depuis le système de configuration standard ; le jeton a été révoqué et purgé de l'historique git.
+* **Durcissement SSRF couverture / proxy** : voir BF21 / BF25 (allowlist initiale) et BF43 / BF44 (`fetch_with_safe_redirects`, blocage IPs privées) — `url_allowlist.py`, upload couverture + `/api/proxy-image`.
+* **Durcissement XSS UI couvertures** : voir BF24 (`static/js/covers.js`).
+* **CSRF + flags cookie** : voir C50 (`csrf_utils.py`, `utils.js`, `SameSite=Lax`).
+* **Logs d'exceptions sans fuite de clés** : voir BF42 (`secure_logging.py`).
 
 ## [1.5.8] - 2026-07-25 (The Kavita API Deep Compliance & KOReader Stability Update)
 

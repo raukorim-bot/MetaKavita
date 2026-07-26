@@ -5,7 +5,7 @@ En Docker, l'API peut viser http://kavita:5000 (réseau interne) tandis que les
 liens navigateur doivent ouvrir https://kavita.domain.tld. Si EXTERNAL est vide,
 repli historique sur KAVITA_URL.
 """
-from config_manager import get_kavita_ui_url
+from config_manager import get_kavita_ui_url, get_kavita_plus_url
 
 
 def test_kavita_ui_url_prefers_external():
@@ -37,3 +37,14 @@ def test_kavita_ui_url_falls_back_when_external_missing():
 
 def test_kavita_ui_url_empty_config():
     assert get_kavita_ui_url({}) == ""
+
+
+def test_kavita_plus_url_uses_external_settings_hash():
+    assert get_kavita_plus_url({
+        "KAVITA_URL": "http://kavita:5000",
+        "KAVITA_EXTERNAL_URL": "https://kavita.raukorim.fr",
+    }) == "https://kavita.raukorim.fr/settings#admin-kavitaplus"
+
+
+def test_kavita_plus_url_falls_back_to_wiki_when_no_ui():
+    assert get_kavita_plus_url({}) == "https://wiki.kavitareader.com/kavita+/"
