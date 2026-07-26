@@ -16,7 +16,7 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 > 
 > Voici les contraintes absolues :
 > 1. Les seules librairies externes autorisées sont `requests`, `curl_cffi` et `bs4` (BeautifulSoup). N'utilise JAMAIS Selenium ou Playwright.
-> 2. Tu dois conserver l'import : `from scrapers.base import BaseScraper` et `from scrapers.utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score`.
+> 2. Tu dois conserver les imports : `from scrapers.base import BaseScraper`, `from scrapers.utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score`, et `from config_manager import get_max_tags, get_max_genres`.
 > 
 > Voici le squelette obligatoire que tu dois remplir :
 > 
@@ -27,6 +27,7 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 > from typing import Dict, Any, List, Optional
 > from scrapers.base import BaseScraper
 > from scrapers.utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+> from config_manager import get_max_tags, get_max_genres
 > 
 > class MyNewScraper(BaseScraper):
 >     id = "MON_SITE_ID" # En majuscules, sans espaces
@@ -58,8 +59,8 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 >             'alternative_titles': ['titre1', 'titre2'],
 >             'summary': 'str_resume',
 >             'cover_url': 'str_url_image',
->             'genres': ['Action', 'Fantasy'],   # 5 max recommandés
->             'tags': ['Magie', 'Démons'],       # 15 max
+>             'genres': genres_list[:get_max_genres()] if genres_list else ['Manga'],  # JAMAIS [:5] en dur — voir §7
+>             'tags': tags_list[:get_max_tags()], # JAMAIS [:15] en dur — voir §6
 >             'year': 2024,                      # int
 >             'status': 'RELEASING',             # 'RELEASING', 'FINISHED', 'HIATUS' ou 'CANCELLED'
 >             'staff': [{'role': 'Story', 'node': {'name': {'full': 'Prénom Nom'}}}, {'role': 'Art', 'node': {'name': {'full': 'Prénom Nom'}}}],
@@ -118,6 +119,34 @@ Ce drapeau (défini à `False` par défaut sur `BaseScraper`) est **informatif**
 
 ### 5. La sécurité des images (`proxy_domains`)
 Kavita requiert un lien direct pour télécharger la couverture. Si le site a des protections Cloudflare sur ses images, renseignez le domaine dans la liste `proxy_domains = ["monsite.com"]`. MetaKavita fera transiter l'image par son proxy interne (`/api/proxy-image`) pour contourner les blocages.
+
+### 6. Le plafond de tags (`MAX_TAGS` / `get_max_tags`)
+Ne tronquez **jamais** la liste de tags avec un littéral `[:15]` (ou toute autre constante). Le plafond est configurable par l’utilisateur via env Docker / `config.json` (`MAX_TAGS`, défaut **15**, borné 1–100) — **pas d’UI**. Importez le helper et tronquez ainsi :
+
+```python
+from config_manager import get_max_tags
+
+# ...
+'tags': tags_list[:get_max_tags()],
+```
+
+Le moteur d’enrichissement (`services/enrichment_engine.py`) applique aussi `get_max_tags(config)` au moment d’écrire vers Kavita. Tronquer côté scraper reste recommandé pour rester cohérent avec les scrapers officiels et éviter d’envoyer des listes inutiles au pipeline.
+
+⚠️ Un scraper avec `tags[:15]` en dur ignorera le réglage de l’utilisateur (ex: `MAX_TAGS=30`) et ne profitera pas d’un futur changement de défaut.
+
+### 7. Le plafond de genres (`MAX_GENRES` / `get_max_genres`)
+Même logique que les tags : ne tronquez **jamais** avec un littéral `[:5]`. Le plafond est configurable (`MAX_GENRES`, défaut **5**, borné 1–50) — **pas d’UI** :
+
+```python
+from config_manager import get_max_genres
+
+# ...
+'genres': genres[:get_max_genres()] if genres else ["Manga"],
+```
+
+Le moteur d’enrichissement (`services/enrichment_engine.py`) applique aussi `get_max_genres(config)` au moment d’écrire vers Kavita (filet de sécurité, miroir de `get_max_tags`). Tronquer côté scraper reste recommandé pour rester cohérent avec les scrapers officiels.
+
+⚠️ Un scraper avec `genres[:5]` en dur ignorera le réglage de l’utilisateur (ex: `MAX_GENRES=10`) et ne profitera pas d’un futur changement de défaut.
 
 ---
 

@@ -18,20 +18,73 @@ document.addEventListener('keydown', (e) => {
 function openCoverModal(seriesId, seriesName) {
     currentCoverModalSeriesId = seriesId;
     currentCoverModalSeriesName = seriesName;
-    
+
     document.getElementById('modalSeriesName').innerText = seriesName;
-    
+
     const modalSearchInput = document.getElementById('modalCoverSearchInput');
     if (modalSearchInput) modalSearchInput.value = seriesName;
-    
+
     document.getElementById('coverModal').style.display = 'flex';
-    document.getElementById('coversGrid').innerHTML = `
-        <div class="stream-status-bar" id="coverStreamStatus" style="grid-column: 1 / -1;">
-            <span class="stream-spinner"></span>
-            <span>${window.AppTranslations.cover_streaming_start || 'Recherche en direct...'}</span>
-        </div>`;
-    
+    const grid = document.getElementById('coversGrid');
+    grid.innerHTML = '';
+    grid.appendChild(_buildCoverStreamStatus(
+        window.AppTranslations.cover_streaming_start || 'Recherche en direct...'
+    ));
+
     triggerCoverStream(seriesId, seriesName);
+}
+
+function _buildCoverStreamStatus(message) {
+    const bar = document.createElement('div');
+    bar.className = 'stream-status-bar';
+    bar.id = 'coverStreamStatus';
+    bar.style.gridColumn = '1 / -1';
+    const spinner = document.createElement('span');
+    spinner.className = 'stream-spinner';
+    const label = document.createElement('span');
+    label.textContent = message;
+    bar.appendChild(spinner);
+    bar.appendChild(label);
+    return bar;
+}
+
+function _buildCoverItem(seriesId, cover) {
+    const coverDiv = document.createElement('div');
+    coverDiv.className = 'cover-item';
+    coverDiv.dataset.url = cover.url || '';
+    coverDiv.title = cover.title || '';
+    coverDiv.onclick = () => applyCover(seriesId, cover.url);
+
+    const img = document.createElement('img');
+    img.src = cover.display_url || '';
+    img.alt = 'Cover';
+    img.loading = 'lazy';
+
+    const titleDiv = document.createElement('div');
+    titleDiv.className = 'cover-title';
+    titleDiv.style.cssText = 'font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 8px;';
+    titleDiv.title = cover.title || '';
+    titleDiv.textContent = cover.title || '';
+
+    const providerDiv = document.createElement('div');
+    providerDiv.className = 'cover-provider';
+    providerDiv.style.cssText = 'font-size: 11px; color: var(--primary); margin-top: 2px;';
+    providerDiv.textContent = cover.provider || '';
+
+    coverDiv.appendChild(img);
+    coverDiv.appendChild(titleDiv);
+    coverDiv.appendChild(providerDiv);
+    return coverDiv;
+}
+
+function _setCoverGridError(message) {
+    const grid = document.getElementById('coversGrid');
+    grid.innerHTML = '';
+    const err = document.createElement('div');
+    err.className = 'alert error';
+    err.style.gridColumn = '1 / -1';
+    err.textContent = message;
+    grid.appendChild(err);
 }
 
 function triggerCoverStream(seriesId, query) {
@@ -47,23 +100,18 @@ function fetchCovers(seriesId, query) {
     fetch(`${getRootPath()}/api/series/${seriesId}/covers?series_name=${encodeURIComponent(query)}`)
     .then(r => r.json())
     .then(data => {
-        if(data.success && data.covers.length > 0) {
-            let html = '';
+        if (data.success && data.covers.length > 0) {
+            const grid = document.getElementById('coversGrid');
+            grid.innerHTML = '';
             data.covers.forEach(c => {
-                html += `
-                <div class="cover-item" data-url="${c.url}" onclick="applyCover('${seriesId}', '${c.url}')" title="${c.title}">
-                    <img src="${c.display_url}" alt="Cover" loading="lazy">
-                    <div class="cover-title" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 8px;" title="${c.title}">${c.title}</div>
-                    <div class="cover-provider" style="font-size: 11px; color: var(--primary); margin-top: 2px;">${c.provider}</div>
-                </div>`;
+                grid.appendChild(_buildCoverItem(seriesId, c));
             });
-            document.getElementById('coversGrid').innerHTML = html;
         } else {
-            document.getElementById('coversGrid').innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">❌ Aucune image trouvée.</div>`;
+            _setCoverGridError('❌ Aucune image trouvée.');
         }
     })
-    .catch(err => {
-        document.getElementById('coversGrid').innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">❌ Erreur réseau ou de scraping.</div>`;
+    .catch(() => {
+        _setCoverGridError('❌ Erreur réseau ou de scraping.');
     });
 }
 
@@ -72,11 +120,9 @@ function triggerManualCoverSearch() {
     if (modalSearchInput && currentCoverModalSeriesId) {
         const query = modalSearchInput.value.trim();
         if (query) {
-            document.getElementById('coversGrid').innerHTML = `
-                <div class="stream-status-bar" id="coverStreamStatus" style="grid-column: 1 / -1;">
-                    <span class="stream-spinner"></span>
-                    <span>Recherche en direct pour "${query}"...</span>
-                </div>`;
+            const grid = document.getElementById('coversGrid');
+            grid.innerHTML = '';
+            grid.appendChild(_buildCoverStreamStatus(`Recherche en direct pour "${query}"...`));
             triggerCoverStream(currentCoverModalSeriesId, query);
         }
     }
@@ -90,16 +136,24 @@ function closeCoverModal() {
 }
 
 function applyCover(seriesId, coverUrl) {
-    document.getElementById('coversGrid').innerHTML = `<div class="loader-spinner">${window.AppTranslations.modal_cover_sending}</div>`;
-    
+    const grid = document.getElementById('coversGrid');
+    grid.innerHTML = '';
+    const loader = document.createElement('div');
+    loader.className = 'loader-spinner';
+    loader.textContent = window.AppTranslations.modal_cover_sending;
+    grid.appendChild(loader);
+
     fetch(`${getRootPath()}/api/series/${seriesId}/update-cover`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ cover_url: coverUrl })
     })
-    .then(r => r.json())
+    .then(r => {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+    })
     .then(data => {
-        if(data.success) {
+        if (data.success) {
             // Le backend (/update-cover) retire 'cover' de targeted_fields pour protéger
             // ce choix manuel contre un futur scraping. Sans ceci, la case "Couverture" du
             // panneau "⚙️ Options de scraping ciblé" resterait cochée (état de rendu de la
@@ -115,6 +169,10 @@ function applyCover(seriesId, coverUrl) {
             alert("Erreur lors de l'envoi de la couverture : " + data.msg);
             closeCoverModal();
         }
+    })
+    .catch(() => {
+        alert("Erreur réseau lors de l'envoi de la couverture.");
+        closeCoverModal();
     });
 }
 
@@ -127,27 +185,19 @@ if (typeof socket !== 'undefined') {
         if (!grid) return;
 
         data.covers.forEach(c => {
-            if (grid.querySelector(`div[data-url="${c.url}"]`)) return;
+            let already = false;
+            grid.querySelectorAll('.cover-item').forEach(el => {
+                if (el.dataset.url === c.url) already = true;
+            });
+            if (already) return;
 
-            const coverDiv = document.createElement('div');
-            coverDiv.className = 'cover-item';
-            coverDiv.dataset.url = c.url;
-            coverDiv.title = c.title;
-            coverDiv.onclick = () => applyCover(data.series_id, c.url);
-
-            coverDiv.innerHTML = `
-                <img src="${c.display_url}" alt="Cover" loading="lazy">
-                <div class="cover-title" style="font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 8px;" title="${c.title}">${c.title}</div>
-                <div class="cover-provider" style="font-size: 11px; color: var(--primary); margin-top: 2px;">${c.provider}</div>
-            `;
-
-            grid.appendChild(coverDiv);
+            grid.appendChild(_buildCoverItem(data.series_id, c));
         });
     });
 
     socket.on('cover_stream_complete', function(data) {
         if (parseInt(currentCoverModalSeriesId) !== parseInt(data.series_id)) return;
-        
+
         const statusStatus = document.getElementById('coverStreamStatus');
         if (statusStatus) {
             statusStatus.remove();
@@ -156,7 +206,7 @@ if (typeof socket !== 'undefined') {
         const grid = document.getElementById('coversGrid');
         if (grid && grid.querySelectorAll('.cover-item').length === 0) {
             const noImgMsg = window.AppTranslations.cover_no_images_found || '❌ Aucune image trouvée.';
-            grid.innerHTML = `<div class="alert error" style="grid-column: 1 / -1;">${noImgMsg}</div>`;
+            _setCoverGridError(noImgMsg);
         }
     });
 }

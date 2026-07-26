@@ -79,8 +79,8 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 | | Release Year | Publication start year |
 | | Publication Status | Maps to native codes: Ongoing, On Hiatus, Completed, Cancelled |
 | | Language | Localized language translated target (e.g., `fr`, `en`) |
-| **Collections & Lore** | Genres | Comprehensive mapping from visited sources |
-| | Tags | Top 15 thematic categories |
+| **Collections & Lore** | Genres | From providers, capped by `MAX_GENRES` (default **5**, env/`config.json`) |
+| | Tags | From providers, capped by `MAX_TAGS` (default **15**, env/`config.json`) |
 | | Characters | Rich character lists populated in Kavita |
 | **Staff & Editing** | Writers | Original Story authors & Scriptwriters |
 | | Pencillers | Illustrators & Artists |
@@ -118,6 +118,8 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Pure Base64 Payload Delivery**: Cover uploads use pure Base64 byte strings ensuring that Kavita's C# engine flawlessly writes and saves images permanently to the disk, completely eradicating the "Phantom Cover" syndrome.
 *   **High-Speed Per-Provider Rate Limiter**: Uses dynamic timestamp tracking (`LAST_REQUEST_TIMES`) with a per-scraper lock. Idle APIs respond instantly; after provider #1 seeds context, remaining providers run in parallel for Smart Fusion without triggering HTTP 429 rate limits.
 *   **Hardened Kavita API Compliance (v1.5.8+)**: All partial updates now perform a GET-merge-POST cycle before writing to Kavita, guaranteeing that untouched fields (like alternate titles) are never silently nulled out or unlocked by the server. This also resolved a real-world crash in third-party OPDS clients (e.g. KOReader's Kamare plugin) that were choking on unexpected `null` values previously introduced by partial payloads.
+*   **Configurable Tag & Genre Caps (v1.6+)**: `MAX_TAGS` (default 15) and `MAX_GENRES` (default 5) via env / `config.json` — applied in official scrapers and as a safety net in `enrichment_engine`. No UI (power-user).
+*   **Application Audit Hardening (v1.6+)**: Cover/proxy SSRF allowlists (incl. private IPs + safe re-validated redirects), cover-modal XSS hardening, CSRF on mutating POSTs, forced-ID `fallback_query` retry, external-IDs GET-merge, Help/About with Kavita+ support links, and related Critical/High/Medium fixes (see `CHANGELOG.md` BF20–BF45 + C50–C52).
 
 ---
 
@@ -140,6 +142,9 @@ services:
       - ADMIN_PASSWORD=your_secure_password
       # - ROOT_PATH=/metakavita # Optional subpath for reverse proxies
       # - CORS_ALLOWED_ORIGINS=https://metakavita.home.local.ltd # Explicit HTTPS origins for Socket.IO / AJAX
+      # - MAX_TAGS=15    # Power-user: max tags written to Kavita (1–100)
+      # - MAX_GENRES=5   # Power-user: max genres written to Kavita (1–50)
+      # - SESSION_COOKIE_SECURE=1  # Optional: set behind HTTPS reverse proxy
     volumes:
       - ./data:/app/data
 ```
@@ -167,6 +172,8 @@ docker compose up -d --build
 | `KAVITA_URL` | Kavita URL used by MetaKavita for API calls (can be an internal Docker hostname, e.g. `http://kavita:5000`). | *(Empty)* |
 | `KAVITA_EXTERNAL_URL` | Optional public Kavita URL for browser UI links (e.g. `https://kavita.domain.tld`). If empty, falls back to `KAVITA_URL`. | *(Empty)* |
 | `KAVITA_HTTP_TIMEOUT` | HTTP timeout in seconds for Kavita **write** requests (metadata / series update / cover upload). Raise to `90`–`120` on slow disks or large force-update batches. | `60` |
+| `MAX_TAGS` | Max number of tags written to Kavita (scrapers + `enrichment_engine` safety net). Env / `config.json` only — no UI. Clamped 1–100. | `15` |
+| `MAX_GENRES` | Max number of genres written to Kavita (scrapers + `enrichment_engine` safety net). Env / `config.json` only — no UI. Clamped 1–50. | `5` |
 | `KAVITA_API_KEY` | Your Kavita API Key. | *(Empty)* |
 | `TRANSLATION_PROVIDER` | Active translation engine (`GOOGLE`, `DEEPL`, `AZURE`, or `NONE` to disable). | `GOOGLE` |
 | `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
@@ -246,10 +253,12 @@ MetaKavita is designed primarily as an **internal management tool (backoffice)**
 #### 🔒 Security Measures Included
 Although designed for internal management, several security hardening controls are built into the application to mitigate common risks:
 * **Authentication**: Password locking with timing-attack prevention (`secrets.compare_digest`) and artificial anti-brute-force delays.
-* **Session Security**: Hardened `HttpOnly` and `SameSite=Lax` session cookies.
-* **Proxy Restrictions**: Strict dynamic domain whitelisting on the `/api/proxy-image` endpoint to prevent SSRF (Server-Side Request Forgery) exploits.
+* **CSRF Protection (v1.6+)**: Session CSRF token validated on state-changing POSTs (`X-CSRF-Token` / form field); frontend injects the header on mutating `fetch` calls. Webhook remains token-auth exempt.
+* **Session Security**: Hardened `HttpOnly` and `SameSite=Lax` session cookies (optional `SESSION_COOKIE_SECURE=1` behind HTTPS). `SECRET_KEY` is generated on first boot — never a public hardcoded fallback.
+* **SSRF Hardening (v1.6+)**: Shared URL allowlist for cover downloads and `/api/proxy-image` (http(s) only, no credentials/localhost/private IPs; up to 3 redirects with each hop re-validated; safe `image/*` MIME).
+* **Cover UI XSS Hardening (v1.6+)**: Cover results built with DOM APIs (`textContent`) — no remote HTML interpolation.
 * **Token Protection**: Webhooks require a cryptographically generated authorization token (`WEBHOOK_TOKEN`) with on-demand UI token rotation.
-* **Credential Masking**: API keys are censored in the HTML DOM to protect sensitive values.
+* **Credential Masking**: API keys are censored in the HTML DOM; Kavita auth logs never print API key prefixes.
 
 #### ⚠️ Important Notice for Public Web Exposure
 The presence of built-in security features **does not guarantee absolute immunity against external threats**. Exposing MetaKavita directly to the open internet is done at your own risk.
@@ -314,8 +323,8 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 | | Année de sortie | Année de début de publication |
 | | Statut de publication | Mappe vers les statuts natifs : En cours, En pause, Terminé, Abandonné |
 | | Langue (Language) | Calquée automatiquement sur votre langue cible (ex: `fr`, `en`) |
-| **Thématiques** | Genres | Liste complète des genres récupérés |
-| | Thèmes (Tags) | Les 15 catégories thématiques les plus importantes |
+| **Thématiques** | Genres | Depuis les providers, plafonnés par `MAX_GENRES` (défaut **5**, env/`config.json`) |
+| | Thèmes (Tags) | Depuis les providers, plafonnés par `MAX_TAGS` (défaut **15**, env/`config.json`) |
 | | Personnages | Liste enrichie des personnages secondaires |
 | **Staff & Édition** | Scénaristes (Writers) | Auteur de l'œuvre d'origine / Scénaristes |
 | | Dessinateurs (Pencillers) | Illustrateurs et artistes principaux |
@@ -353,6 +362,8 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Payload Base64 Pur** : Résolution définitive du "Syndrome de la couverture fantôme". Les requêtes n'utilisent plus le *Data URI* mais une chaîne Base64 pure afin que le moteur C# de Kavita écrive physiquement et de manière permanente les images sur le disque dur.
 *   **Throttling Dynamique Haute Performance** : régulateur par horodatage (`LAST_REQUEST_TIMES`) avec verrou par scraper. Après l'amorçage du contexte par le provider #1, les autres tournent en parallèle pour la Smart Fusion sans déclencher de HTTP 429.
 *   **Conformité Renforcée avec l'API Kavita (v1.5.8+)** : Chaque mise à jour partielle effectue désormais un cycle GET-fusion-POST avant l'écriture, garantissant que les champs non modifiés (ex: titres alternatifs) ne soient jamais silencieusement effacés ou déverrouillés par le serveur. Ce correctif a également résolu un plantage réel constaté sur des lecteurs OPDS tiers (ex: l'extension Kamare de KOReader), qui recevaient des valeurs `null` inattendues suite à d'anciens envois partiels.
+*   **Plafonds Tags & Genres configurables (v1.6+)** : `MAX_TAGS` (défaut 15) et `MAX_GENRES` (défaut 5) via env / `config.json` — appliqués dans les scrapers officiels et en filet dans `enrichment_engine`. Pas d'UI (power-user).
+*   **Durcissement suite audit applicatif (v1.6+)** : allowlists SSRF couverture/proxy (IPs privées + redirects re-validés), XSS modal couvertures, CSRF sur POST mutatifs, retry `fallback_query` après ID forcé, GET-merge des IDs externes, menu Aide / À propos avec liens Kavita+, et correctifs Critical/High/Medium associés (voir `CHANGELOG.md` BF20–BF45 + C50–C52).
 
 ---
 
@@ -375,6 +386,9 @@ services:
       - ADMIN_PASSWORD=votre_mot_de_passe_securise
       # - ROOT_PATH=/metakavita # Optionnel : pour hébergement en sous-dossier
       # - CORS_ALLOWED_ORIGINS=https://metakavita.home.local.ltd # Origins HTTPS explicites pour Socket.IO / AJAX
+      # - MAX_TAGS=15    # Power-user : max tags écrits dans Kavita (1–100)
+      # - MAX_GENRES=5   # Power-user : max genres écrits dans Kavita (1–50)
+      # - SESSION_COOKIE_SECURE=1  # Optionnel : derrière un reverse proxy HTTPS
     volumes:
       - ./data:/app/data
 ```
@@ -402,6 +416,8 @@ docker compose up -d --build
 | `KAVITA_URL` | URL Kavita utilisée par MetaKavita pour les appels API (peut être un hostname Docker interne, ex: `http://kavita:5000`). | *(Vide)* |
 | `KAVITA_EXTERNAL_URL` | URL publique optionnelle de Kavita pour les liens UI (ex: `https://kavita.domain.tld`). Si vide, repli sur `KAVITA_URL`. | *(Vide)* |
 | `KAVITA_HTTP_TIMEOUT` | Timeout HTTP (secondes) pour les **écritures** Kavita (métadonnées / update série / couverture). Montez à `90`–`120` sur HDD ou gros force-update. | `60` |
+| `MAX_TAGS` | Nombre max de tags écrits dans Kavita (scrapers + filet `enrichment_engine`). Env / `config.json` uniquement — pas d'UI. Borné 1–100. | `15` |
+| `MAX_GENRES` | Nombre max de genres écrits dans Kavita (scrapers + filet `enrichment_engine`). Env / `config.json` uniquement — pas d'UI. Borné 1–50. | `5` |
 | `KAVITA_API_KEY` | Ta clé API Kavita. | *(Vide)* |
 | `TRANSLATION_PROVIDER` | Moteur de traduction actif (`GOOGLE`, `DEEPL`, `AZURE`, ou `NONE` pour désactiver). | `GOOGLE` |
 | `AZURE_API_KEY` | Ta clé d'API Microsoft Azure Translator (Moteur principal). | *(Vide)* |
@@ -481,10 +497,12 @@ MetaKavita est conçu en priorité comme un **outil de gestion interne (backoffi
 #### 🔒 Mesures de Sécurité Intégrées
 Bien que pensé pour un usage privé, plusieurs mécanismes de protection sont intégrés à l'application pour limiter les risques :
 * **Authentification** : Verrouillage par mot de passe protégé contre les attaques temporelles (`secrets.compare_digest`) et ralentissement anti-force brute.
-* **Sécurité des Sessions** : Cookies de session configurés avec les attributs `HttpOnly` et `SameSite=Lax`.
-* **Protection Proxy** : Liste blanche dynamique de domaines sur l'endpoint `/api/proxy-image` pour prévenir les vulnérabilités SSRF (Server-Side Request Forgery).
+* **Protection CSRF (v1.6+)** : jeton CSRF de session validé sur les POST mutatifs (`X-CSRF-Token` / champ form) ; le frontend injecte le header sur les `fetch` mutatifs. Le webhook reste exempt (auth par jeton).
+* **Sécurité des Sessions** : Cookies `HttpOnly` + `SameSite=Lax` (`SESSION_COOKIE_SECURE=1` optionnel derrière HTTPS). `SECRET_KEY` générée au premier démarrage — jamais de fallback public hardcodé.
+* **Durcissement SSRF (v1.6+)** : allowlist d'URL partagée pour téléchargement de couvertures et `/api/proxy-image` (http(s) uniquement, pas de credentials/localhost/IPs privées ; jusqu'à 3 redirects avec re-validation à chaque hop ; MIME `image/*`).
+* **XSS modal couvertures (v1.6+)** : résultats construits via APIs DOM (`textContent`) — pas d'interpolation HTML distante.
 * **Protection Webhook** : Authentification des appels webhook exigeant un jeton cryptographique (`WEBHOOK_TOKEN`) réinitialisable à la demande.
-* **Masquage des Identifiants** : Censure des clés API dans l'interface web.
+* **Masquage des Identifiants** : Censure des clés API dans l'interface web ; les logs d'auth Kavita n'affichent plus de préfixe de clé.
 
 #### ⚠️ Avertissement en Cas d'Exposition Publique
 L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vous choisissez d'exposer directement MetaKavita sur Internet, vous le faites sous votre propre responsabilité.
@@ -506,7 +524,7 @@ Community feedback that shaped MetaKavita — thank you!
 
 | Contributor | Contributions |
 | :--- | :--- |
-| [**LazyGeniusMan**](https://github.com/LazyGeniusMan) | MangaBaka API hardening (`schema=full`, `type=novel` filter, tag/genre & MAL parsing), official Book/LN provider feedback, `KAVITA_EXTERNAL_URL` (Docker internal API vs public UI URL), Traefik / Socket.IO CORS origin reports. |
+| [**LazyGeniusMan**](https://github.com/LazyGeniusMan) | MangaBaka API hardening (`schema=full`, `type=novel` filter, tag/genre & MAL parsing), official Book/LN provider feedback, `KAVITA_EXTERNAL_URL` (Docker internal API vs public UI URL), Traefik / Socket.IO CORS origin reports, configurable `MAX_TAGS` feedback. |
 | [**SqueezedByte**](https://github.com/SqueezedByte) | KOReader / Kamare crash report (`localizedName` nulling), Kavita force-update read-timeout reports → `KAVITA_HTTP_TIMEOUT` + 2-pass soft-success. |
 | [**ThoughtzThruKeyz**](https://github.com/ThoughtzThruKeyz) | Publisher metadata feature request, ComicVine scraping feedback, disable-translation option (`NONE`), series / localized title configuration ideas. |
 | [**randrini**](https://github.com/randrini) | Free Google Translate (`googletrans`) integration request. |
@@ -515,7 +533,7 @@ Community feedback that shaped MetaKavita — thank you!
 
 ## ⚠️ Notes, Tech Stack & Full Documentation
 
-*   **Security First / Sécurité d'abord :** `SECRET_KEY` and `WEBHOOK_TOKEN` are cryptographically generated on first launch. Keep them private. *(Générés de façon cryptographique au premier démarrage — gardez-les secrets.)*
+*   **Security First / Sécurité d'abord :** `SECRET_KEY` and `WEBHOOK_TOKEN` are cryptographically generated on first launch (no public hardcoded `SECRET_KEY` fallback). Keep them private. *(Générés de façon cryptographique au premier démarrage, sans fallback public hardcodé — gardez-les secrets.)*
 *   **Tech Stack :** Python 3.11, Flask, Gunicorn (Eventlet WSGI), Flask-SocketIO, Curl-Cffi, BeautifulSoup4, Regex.
 
 ### 📖 Full Documentation / Documentation Complète

@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from config_manager import get_max_genres, get_max_tags
 
 class AnilistScraper(BaseScraper):
     id = "ANILIST"
@@ -134,8 +135,12 @@ class AnilistScraper(BaseScraper):
             'alternative_titles': alt_titles,
             'summary': data.get('description', '') or '',
             'cover_url': data.get('coverImage', {}).get('extraLarge'),
-            'genres': data.get('genres', []),
-            'tags': [t['name'] for t in data.get('tags', []) if isinstance(t, dict) and t.get('name')],
+            'genres': (data.get('genres') or [])[:get_max_genres()],
+            'tags': [
+                t['name']
+                for t in data.get('tags', [])
+                if isinstance(t, dict) and t.get('name')
+            ][:get_max_tags()],
             'year': data.get('startDate', {}).get('year'),
             'status': data.get('status'),
             'staff': data.get('staff', {}).get('edges', []),

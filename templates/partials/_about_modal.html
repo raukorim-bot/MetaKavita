@@ -1,0 +1,28 @@
+	<!-- MODAL À PROPOS -->
+	<div id="aboutModal" class="modal-overlay" onclick="if(event.target===this) closeAboutModal()" style="display: none;">
+		<div class="modal-content" style="max-width: 520px;">
+			<div class="modal-header">
+				<h3 class="m-0">{{ t.about_title }}</h3>
+				<button type="button" class="close-btn" onclick="closeAboutModal()">&times;</button>
+			</div>
+			<div class="about-modal-body" style="font-size: 13px; line-height: 1.6;">
+				<p class="about-version text-muted" style="margin: 0 0 12px;">MetaKavita <strong>v{{ app_version }}</strong></p>
+				<p style="margin: 0 0 14px;">{{ t.about_body }}</p>
+				<p class="about-kavita-support" style="margin: 0 0 16px;">{{ t.about_kavita_support }}</p>
+				<div class="about-links" style="display: flex; flex-direction: column; gap: 8px;">
+					<a href="{{ kavita_plus_url }}" target="_blank" rel="noopener noreferrer" class="btn-icon about-link about-link-kavita">{{ t.about_kavita_plus }}</a>
+					<a href="https://wiki.kavitareader.com/donating/" target="_blank" rel="noopener noreferrer" class="btn-icon about-link about-link-kavita">{{ t.about_kavita_donate }}</a>
+					<a href="https://opencollective.com/Kavita#backer" target="_blank" rel="noopener noreferrer" class="btn-icon about-link about-link-kavita">Open Collective — Kavita</a>
+					<hr class="about-links-sep" aria-hidden="true">
+					<a href="https://github.com/raukorim-bot/MetaKavita" target="_blank" rel="noopener noreferrer" class="btn-icon about-link">{{ t.about_github }}</a>
+					<a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank" rel="noopener noreferrer" class="btn-icon about-link">{{ t.about_issues }}</a>
+					<a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer" class="btn-icon bmc-link about-link">☕ {{ t.buy_me_coffee }}</a>
+				</div>
+			</div>
+			<div class="modal-footer" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: flex-end;">
+				<button type="button" class="btn-primary" onclick="closeAboutModal()" style="padding: 8px 20px;">
+					{{ t.get('changelog_btn_got_it', "J'ai compris !") }}
+				</button>
+			</div>
+		</div>
+	</div>

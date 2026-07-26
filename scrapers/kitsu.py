@@ -1,14 +1,17 @@
 import requests
 import logging
 import unicodedata
-import difflib
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from config_manager import get_max_tags
+
 
 def normalize_str(s):
-    if not s: return ""
+    if not s:
+        return ""
     return "".join(c for c in unicodedata.normalize('NFD', s.lower()) if unicodedata.category(c) != 'Mn').strip()
+
 
 class KitsuScraper(BaseScraper):
     id = "KITSU"
@@ -17,6 +20,7 @@ class KitsuScraper(BaseScraper):
     rate_limit = 1.5
     proxy_domains = ["kitsu.io", "media.kitsu.app", "media.kitsu.io"]
     has_direct_id_support = True
+    uses_unified_scoring = True
 
     translations = {
         "fr": {
@@ -38,9 +42,76 @@ class KitsuScraper(BaseScraper):
             return url.split('/manga/')[-1].split('/')[0].split('?')[0]
         return None
 
+    def _build_candidate(self, manga: dict, included: Optional[List] = None) -> Optional[Dict[str, Any]]:
+        if not manga or not isinstance(manga, dict):
+            return None
+        attrs = manga.get('attributes', {}) or {}
+
+        raw_status = attrs.get('status', '')
+        status = "RELEASING"
+        if raw_status == "finished":
+            status = "FINISHED"
+        elif raw_status in ["tba", "unreleased", "hiatus"]:
+            status = "HIATUS"
+        elif raw_status == "cancelled":
+            status = "CANCELLED"
+
+        year = None
+        if attrs.get('startDate'):
+            try:
+                year = int(attrs.get('startDate')[:4])
+            except (TypeError, ValueError):
+                year = None
+
+        format_type = None
+        manga_type = (attrs.get('mangaType') or '').lower()
+        if manga_type in ['manhwa', 'manhua', 'webtoon']:
+            format_type = 'webtoon'
+        elif manga_type == 'manga':
+            format_type = 'manga'
+
+        age_rating = "safe"
+        raw_age = attrs.get('ageRating', '')
+        if raw_age in ['R', 'R18']:
+            age_rating = "pornographic"
+        elif raw_age == 'PG':
+            age_rating = "suggestive"
+
+        tags = []
+        for item in (included or []):
+            if item.get('type') == 'categories':
+                title = item.get('attributes', {}).get('title')
+                if title:
+                    tags.append(title)
+
+        poster = attrs.get('posterImage') or {}
+        cover_url = None
+        if isinstance(poster, dict):
+            cover_url = poster.get('original') or poster.get('large')
+
+        alt_titles = []
+        if isinstance(attrs.get('titles'), dict):
+            alt_titles = [t for t in attrs.get('titles').values() if t]
+
+        return {
+            'title': attrs.get('canonicalTitle', '') or '',
+            'alternative_titles': alt_titles,
+            'summary': attrs.get('synopsis', '') or '',
+            'cover_url': cover_url,
+            'genres': [],
+            'tags': tags[:get_max_tags()],
+            'year': year,
+            'status': status,
+            'staff': [],
+            'publisher': None,
+            'age_rating': age_rating,
+            'format': format_type,
+            'url': f"https://kitsu.io/manga/{manga.get('id')}"
+        }
+
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         headers = {"Accept": "application/vnd.api+json"}
-        
+
         try:
             if is_id:
                 logging.info(self.t("direct_id").format(query))
@@ -50,100 +121,55 @@ class KitsuScraper(BaseScraper):
                 else:
                     url = "https://kitsu.io/api/edge/manga"
                     params = {"filter[slug]": query, "include": "categories"}
-                    
+
                 res = requests.get(url, params=params, headers=headers, timeout=10)
-                if res.status_code != 200: return None
-                
+                if res.status_code != 200:
+                    return None
+
                 json_res = res.json()
                 if isinstance(json_res.get('data'), list):
-                    if not json_res['data']: return None
+                    if not json_res['data']:
+                        return None
                     best_match = json_res['data'][0]
                 else:
                     best_match = json_res.get('data')
-                    
-                if not best_match: return None
 
-            else:
-                clean = clean_title(query, library_type=library_type)
-                logging.info(self.t("search_title").format(clean))
-                url = "https://kitsu.io/api/edge/manga"
-                params = {"filter[text]": clean, "page[limit]": 5, "include": "categories"}
+                if not best_match:
+                    return None
+                candidate = self._build_candidate(best_match, json_res.get('included', []))
+                return attach_match_score(candidate, 1.0) if candidate else None
 
-                res = requests.get(url, params=params, headers=headers, timeout=10)
-                if res.status_code != 200: return None
+            clean = clean_title(query, library_type=library_type)
+            logging.info(self.t("search_title").format(clean))
+            url = "https://kitsu.io/api/edge/manga"
+            params = {"filter[text]": clean, "page[limit]": 5, "include": "categories"}
 
-                json_res = res.json()
-                data_list = json_res.get('data', [])
-                if not data_list: return None
+            res = requests.get(url, params=params, headers=headers, timeout=10)
+            if res.status_code != 200:
+                return None
 
-                norm_query = normalize_str(clean)
-                best_match = None
-                
-                for manga in data_list:
-                    attrs = manga.get('attributes', {})
-                    titles_to_check = [attrs.get('canonicalTitle', '')]
-                    if isinstance(attrs.get('titles'), dict):
-                        titles_to_check.extend(attrs['titles'].values())
-                        
-                    for t in titles_to_check:
-                        norm_t = normalize_str(str(t))
-                        if not norm_t: continue
-                        is_substring = (norm_query in norm_t or norm_t in norm_query) if (len(norm_query) >= 3 and len(norm_t) >= 3) else False
-                        ratio = difflib.SequenceMatcher(None, norm_query, norm_t).ratio()
-                        
-                        if is_substring or ratio >= 0.80:
-                            best_match = manga
-                            break
-                    if best_match: break
+            json_res = res.json()
+            data_list = json_res.get('data', [])
+            if not data_list:
+                return None
 
-                if not best_match: return None
-                
-            attrs = best_match.get('attributes', {})
-            raw_status = attrs.get('status', '')
-            status = "RELEASING"
-            if raw_status == "finished": status = "FINISHED"
-            elif raw_status in ["tba", "unreleased", "hiatus"]: status = "HIATUS"
-            elif raw_status == "cancelled": status = "CANCELLED"
+            included = json_res.get('included', [])
+            best_candidate = None
+            best_score = -1.0
 
-            year = None
-            if attrs.get('startDate'): year = int(attrs.get('startDate')[:4])
+            for manga in data_list:
+                candidate = self._build_candidate(manga, included)
+                if not candidate:
+                    continue
+                score = score_candidate(candidate, clean, existing_metadata)
+                if score > best_score:
+                    best_score = score
+                    best_candidate = candidate
 
-            format_type = None
-            manga_type = attrs.get('mangaType', '').lower()
-            if manga_type in ['manhwa', 'manhua', 'webtoon']: format_type = 'webtoon'
-            elif manga_type == 'manga': format_type = 'manga'
+            if not best_candidate or best_score < MATCH_ACCEPT_THRESHOLD:
+                return None
+            return attach_match_score(best_candidate, best_score)
 
-            age_rating = "safe"
-            raw_age = attrs.get('ageRating', '')
-            if raw_age in ['R', 'R18']: age_rating = "pornographic"
-            elif raw_age == 'PG': age_rating = "suggestive"
-
-            tags = []
-            for item in json_res.get('included', []):
-                if item.get('type') == 'categories':
-                    tags.append(item.get('attributes', {}).get('title'))
-
-            cover_url = attrs.get('posterImage', {}).get('original') or attrs.get('posterImage', {}).get('large')
-
-            alt_titles = []
-            if isinstance(attrs.get('titles'), dict):
-                alt_titles = [t for t in attrs.get('titles').values() if t]
-
-            return {
-                'title': attrs.get('canonicalTitle', ''),
-                'alternative_titles': alt_titles,
-                'summary': attrs.get('synopsis', ''),
-                'cover_url': cover_url,
-                'genres': [], 
-                'tags': tags[:15],
-                'year': year,
-                'status': status,
-                'staff': [], 
-                'publisher': None,
-                'age_rating': age_rating,
-                'format': format_type,
-                'url': f"https://kitsu.io/manga/{best_match.get('id')}"
-            }
         except Exception as e:
             logging.error(self.t("err").format(e))
             return None

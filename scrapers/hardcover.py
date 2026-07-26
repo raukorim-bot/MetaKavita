@@ -4,7 +4,7 @@ from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 from .base import BaseScraper
 from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
-from config_manager import load_config
+from config_manager import load_config, get_max_genres
 
 # --- OUTILS DE SCORING AVANCÉ ---
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -207,6 +207,11 @@ class HardcoverScraper(BaseScraper):
         except Exception as e:
             logging.error(self.t("err").format(e))
             return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
 
     def _build_candidate(self, b: dict) -> Optional[Dict[str, Any]]:
         """Méthode interne pour transformer un document Hardcover en dictionnaire candidat standardisé."""
@@ -264,7 +269,7 @@ class HardcoverScraper(BaseScraper):
             'alternative_titles': alt_titles,
             'summary': summary,
             'cover_url': cover_url,
-            'genres': genres[:5] if genres else ["Fiction"],
+            'genres': genres[:get_max_genres()] if genres else ["Fiction"],
             'tags': ["Hardcover"],
             'year': year,
             'status': 'FINISHED',
@@ -360,5 +365,10 @@ class HardcoverScraper(BaseScraper):
                                     })
         except Exception as e:
             logging.error(self.t("covers_err").format(e))
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
 
         return covers[:4]

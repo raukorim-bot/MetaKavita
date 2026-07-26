@@ -35,7 +35,16 @@ def login():
         user_input = request.form.get('password', '')
         real_password = config.get('ADMIN_PASSWORD', '')
 
-        if secrets.compare_digest(user_input.encode('utf-8'), real_password.encode('utf-8')):
+        # compare_digest exige des longueurs égales ; sinon ValueError → traiter comme échec
+        try:
+            password_ok = secrets.compare_digest(
+                user_input.encode('utf-8'),
+                real_password.encode('utf-8'),
+            )
+        except (TypeError, ValueError):
+            password_ok = False
+
+        if password_ok:
             session.permanent = True
             session['logged_in'] = True
             return redirect(url_for('pages.index'))

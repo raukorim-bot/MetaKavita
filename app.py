@@ -21,6 +21,7 @@ eventlet.monkey_patch()
 
 import os
 import logging
+import secrets
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, request, session, redirect, url_for, make_response
@@ -37,7 +38,23 @@ from services.changelog_service import get_current_version
 from services.background_tasks import start_background_workers
 
 app = Flask(__name__)
-app.config['SECRET_KEY'] = load_config().get('SECRET_KEY', 'kavita-secret-key')
+# SECRET_KEY : toujours fournie par load_config() (générée au 1er boot).
+# Jamais de fallback hardcodé public (ex-L1 audit).
+_boot_config = load_config()
+_secret_key = (_boot_config.get("SECRET_KEY") or "").strip()
+if not _secret_key:
+    _secret_key = secrets.token_hex(24)
+    logging.error(
+        "[Security] SECRET_KEY absente après load_config — clé éphémère générée pour ce process uniquement. "
+        "Vérifiez data/config.json."
+    )
+app.config['SECRET_KEY'] = _secret_key
+# Cookie de session : Lax réduit le CSRF cross-site classique ; Secure à activer
+# derrière HTTPS via reverse-proxy (SESSION_COOKIE_SECURE=1).
+app.config['SESSION_COOKIE_SAMESITE'] = 'Lax'
+app.config['SESSION_COOKIE_HTTPONLY'] = True
+if str(os.environ.get('SESSION_COOKIE_SECURE', '')).lower() in ('1', 'true', 'yes'):
+    app.config['SESSION_COOKIE_SECURE'] = True
 
 # --- CORS WHITELIST (Docker env CORS_ALLOWED_ORIGINS) ---
 # Origins explicites uniquement ; liste vide = Same-Origin (on ne passe pas le
@@ -115,7 +132,7 @@ def _apply_cors_headers(response):
     response.headers["Access-Control-Allow-Origin"] = origin.strip().rstrip("/")
     response.headers["Access-Control-Allow-Credentials"] = "true"
     response.headers["Access-Control-Allow-Headers"] = (
-        "Content-Type, Authorization, X-Requested-With"
+        "Content-Type, Authorization, X-Requested-With, X-CSRF-Token"
     )
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
     response.headers.add("Vary", "Origin")
@@ -153,6 +170,12 @@ def require_login():
     if admin_pwd and not session.get('logged_in'):
         return redirect(url_for('auth.login'))
 
+
+@app.before_request
+def csrf_protect():
+    from csrf_utils import csrf_protect_before_request
+    return csrf_protect_before_request()
+
 # --- ENREGISTREMENT DES BLUEPRINTS (ROUTES HTTP PAR DOMAINE) ---
 from routes.auth import auth_bp
 from routes.pages import pages_bp
@@ -176,8 +199,10 @@ APP_VERSION = get_current_version()
 
 @app.context_processor
 def inject_globals():
+    from csrf_utils import ensure_csrf_token
     return {
-        'app_version': APP_VERSION
+        'app_version': APP_VERSION,
+        'csrf_token': ensure_csrf_token(),
     }
 
 # --- DÉMARRAGE DES WORKERS DE FOND (file de sync + auto-sync périodique) ---

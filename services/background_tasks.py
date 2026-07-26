@@ -27,21 +27,27 @@ sync_queue = queue.Queue()
 def _worker():
     while True:
         item = sync_queue.get()
-        if item is None:
-            break
-        series_id, series_name, force_update = item
+        try:
+            if item is None:
+                break
+            series_id, series_name, force_update = item
 
-        config = load_config()
-        t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
+            config = load_config()
+            t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
 
-        remaining = sync_queue.qsize()
-        logging.info(t.get('log_worker_start').format(series_name, remaining))
+            remaining = sync_queue.qsize()
+            logging.info(t.get('log_worker_start').format(series_name, remaining))
 
-        # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
-        enrich_series(series_id, series_name, force_update)
+            # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
+            enrich_series(series_id, series_name, force_update)
 
-        if sync_queue.empty():
-            logging.info(t.get('log_batch_finished'))
+            if sync_queue.empty():
+                logging.info(t.get('log_batch_finished'))
+        finally:
+            # Toujours appeler task_done() pour chaque get() réussi (sauf sentinel
+            # de shutdown). Sinon unfinished_tasks croît et tout futur join() bloque.
+            if item is not None:
+                sync_queue.task_done()
 
 
 def _auto_sync_worker():

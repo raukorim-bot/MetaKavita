@@ -1,12 +1,20 @@
 import logging
 import base64
 import json
+import time
 import requests
 from curl_cffi import requests as cffi_requests
 
-from typing import Optional
+from typing import Optional, Tuple
 
 from config_manager import get_kavita_http_timeout
+from secure_logging import safe_exc_str
+
+# RE-LOCK : 1 retry max, pause courte, timeout retry plafonné — ne pas doubler
+# un KAVITA_HTTP_TIMEOUT de 60–120s sur le chemin chaud d'enrichissement.
+_RELOCK_MAX_ATTEMPTS = 2
+_RELOCK_RETRY_DELAY_S = 0.5
+_RELOCK_RETRY_TIMEOUT_CAP_S = 20
 
 
 class KavitaAPI:
@@ -39,12 +47,77 @@ class KavitaAPI:
             return int(self._write_timeout_override)
         return get_kavita_http_timeout()
 
+    def _post_relock(
+        self,
+        url: str,
+        payload: dict,
+        *,
+        label: str,
+        write_timeout: int,
+    ) -> Tuple[bool, str]:
+        """POST de re-lock avec un seul retry léger (pas de re-write / re-scrape).
+
+        Returns:
+            (sealed, detail) — sealed=True si verrous posés ; False = soft-fail
+            (données déjà écrites à l'étape 1, verrous éventuellement ouverts).
+        """
+        last_detail = "re-lock échoué"
+        for attempt in range(1, _RELOCK_MAX_ATTEMPTS + 1):
+            timeout = (
+                write_timeout
+                if attempt == 1
+                else min(int(write_timeout), _RELOCK_RETRY_TIMEOUT_CAP_S)
+            )
+            if attempt > 1:
+                logging.info(
+                    "🔁 [AUDIT KAVITA] RE-LOCK retry %s/%s (%s, timeout=%ss)",
+                    attempt,
+                    _RELOCK_MAX_ATTEMPTS,
+                    label,
+                    timeout,
+                )
+                time.sleep(_RELOCK_RETRY_DELAY_S)
+            try:
+                res = requests.post(
+                    url, json=payload, headers=self.headers, timeout=timeout
+                )
+                logging.info(
+                    f"   📥 Réponse Kavita (Code {res.status_code}) : {res.text}"
+                )
+                if res.status_code == 200:
+                    return True, "Succès"
+                last_detail = f"HTTP {res.status_code}: {res.text}"
+                logging.warning(
+                    "⚠️ [AUDIT KAVITA] RE-LOCK %s tentative %s → %s",
+                    label,
+                    attempt,
+                    last_detail,
+                )
+            except Exception as lock_err:
+                last_detail = str(lock_err)
+                logging.warning(
+                    "⚠️ [AUDIT KAVITA] RE-LOCK %s tentative %s échouée (%s)",
+                    label,
+                    attempt,
+                    lock_err,
+                )
+
+        logging.warning(
+            "⚠️ [AUDIT KAVITA] Écriture %s OK, mais RE-LOCK a échoué après %s tentatives (%s) — "
+            "données déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync "
+            "(risque d'écrasement par un scan fichiers Kavita).",
+            label,
+            _RELOCK_MAX_ATTEMPTS,
+            last_detail,
+        )
+        return False, last_detail
+
     def authenticate(self) -> bool:
         """
         S'authentifie auprès du serveur Kavita et récupère un jeton JWT Bearer.
         Configure les en-têtes HTTP par défaut pour les requêtes ultérieures.
         """
-        logging.info(f"[DEBUG] Auth tentée avec URL: '{self.url}' et Key: '{self.api_key[:5]}...'")
+        logging.info("[DEBUG] Auth Kavita tentée avec URL: '%s' (clé API non loguée).", self.url)
         if not self.api_key or not self.url:
             return False
 
@@ -64,10 +137,12 @@ class KavitaAPI:
             return True
         except requests.exceptions.HTTPError as e:
             # Sécurité : on masque la clé API en cas d'erreur de journalisation
-            logging.error(f"[Erreur Auth] Le serveur Kavita a rejeté la requête (Code {e.response.status_code}).")
+            code = e.response.status_code if e.response is not None else "?"
+            logging.error("[Erreur Auth] Le serveur Kavita a rejeté la requête (Code %s).", code)
             return False
         except Exception as e:
-            logging.error(f"[Erreur Auth] {e}")
+            # Ne jamais logger str(e) brut : urllib3 inclut souvent ?apiKey= dans le message
+            logging.error("[Erreur Auth] %s (hôte=%s)", safe_exc_str(e), self.url)
             return False
 
     def get_libraries(self) -> list:
@@ -251,35 +326,16 @@ class KavitaAPI:
             payload_lock = {"seriesMetadata": metadata}
             logging.info("👉 [AUDIT KAVITA] Envoi METADATA (Étape 2 : RE-LOCK)")
 
-            try:
-                res_lock = requests.post(
-                    f"{self.url}/api/Series/metadata",
-                    json=payload_lock,
-                    headers=self.headers,
-                    timeout=write_timeout,
-                )
-                logging.info(f"   📥 Réponse Kavita (Code {res_lock.status_code}) : {res_lock.text}")
-                if res_lock.status_code != 200:
-                    logging.warning(
-                        "⚠️ [AUDIT KAVITA] Écriture metadata OK, mais RE-LOCK HTTP %s — "
-                        "métadonnées déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync. "
-                        "Réponse: %s",
-                        res_lock.status_code,
-                        res_lock.text,
-                    )
-                    return True, f"Succès (écriture OK ; re-lock HTTP {res_lock.status_code})"
-            except Exception as lock_err:
-                # Faux négatif classique sous charge (HDD / force-update) : l'étape 1 a déjà
-                # écrit les métadonnées ; un timeout sur le re-lock ne doit pas marquer
-                # la série en échec (cf. issue SqueezedByte).
-                logging.warning(
-                    "⚠️ [AUDIT KAVITA] Écriture metadata OK, mais RE-LOCK a échoué (%s) — "
-                    "métadonnées déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync.",
-                    lock_err,
-                )
-                return True, f"Succès (écriture OK ; re-lock échoué: {lock_err})"
-
-            return True, "Succès"
+            sealed, lock_detail = self._post_relock(
+                f"{self.url}/api/Series/metadata",
+                payload_lock,
+                label="metadata",
+                write_timeout=write_timeout,
+            )
+            if sealed:
+                return True, "Succès"
+            # Soft-success : l'étape 1 a déjà persisté les valeurs (cf. issue SqueezedByte).
+            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})"
         except Exception as e:
             logging.error(f"❌ [AUDIT KAVITA] Crash Metadata : {e}")
             return False, str(e)
@@ -386,42 +442,37 @@ class KavitaAPI:
 
             # Passage 2 : Application du verrou de sécurité
             logging.info("👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 2 : RE-LOCK)")
-            try:
-                res_lock = requests.post(url, json=payload_lock, headers=self.headers, timeout=write_timeout)
-                logging.info(f"   📥 Réponse Kavita (Code {res_lock.status_code}) : {res_lock.text}")
-                if res_lock.status_code != 200:
-                    logging.warning(
-                        "⚠️ [AUDIT KAVITA] Écriture générale OK, mais RE-LOCK HTTP %s — "
-                        "champs déjà persistés ; verrous éventuellement ouverts jusqu'au prochain sync.",
-                        res_lock.status_code,
-                    )
-                    return True, f"Succès (écriture OK ; re-lock HTTP {res_lock.status_code})"
-            except Exception as lock_err:
-                logging.warning(
-                    "⚠️ [AUDIT KAVITA] Écriture générale OK, mais RE-LOCK a échoué (%s) — "
-                    "champs déjà persistés ; verrous éventuellement ouverts jusqu'au prochain sync.",
-                    lock_err,
-                )
-                return True, f"Succès (écriture OK ; re-lock échoué: {lock_err})"
-
-            return True, "Succès"
+            sealed, lock_detail = self._post_relock(
+                url,
+                payload_lock,
+                label="général",
+                write_timeout=write_timeout,
+            )
+            if sealed:
+                return True, "Succès"
+            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})"
         except Exception as e:
             logging.error(f"❌ [AUDIT KAVITA] Crash General : {e}")
             return False, str(e)
 
     def upload_series_cover(self, series_id, cover_url):
-        if not self.token and not self.authenticate(): 
+        if not self.token and not self.authenticate():
             return False, "Non authentifié"
-        if not cover_url: 
+        if not cover_url:
             return False, "URL de couverture invalide"
-            
+
         try:
             from scrapers import ScraperRegistry
             from urllib.parse import urlparse
-            
+            from url_allowlist import validate_proxied_image_url, fetch_with_safe_redirects
+
+            allowed_domains = ScraperRegistry.get_all_proxy_domains()
+            ok, reason, domain = validate_proxied_image_url(cover_url, allowed_domains)
+            if not ok:
+                logging.warning("[Upload Cover] URL refusée (%s) : %s", reason, cover_url)
+                return False, f"URL de couverture refusée ({reason})"
+
             parsed = urlparse(cover_url)
-            domain = parsed.netloc.lower().split(':')[0]
-            
             # Détection propre de l'extension (.jpg, .png, .webp)
             ext = "jpg"
             if "." in parsed.path:
@@ -432,26 +483,42 @@ class KavitaAPI:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
             }
-            
+
             # Application du Referer si le domaine source exige un bypass hotlink
             for scraper in ScraperRegistry.get_all():
                 if any(domain == d or domain.endswith('.' + d) for d in getattr(scraper, 'proxy_domains', [])):
                     if getattr(scraper, 'proxy_referer', None):
                         headers["Referer"] = scraper.proxy_referer
                     break
-            
-            # 1. Téléchargement de l'image source avec bypass Cloudflare
-            img_res = cffi_requests.get(cover_url, headers=headers, impersonate="chrome110", timeout=15)
-            if img_res.status_code != 200:
+
+            # 1. Téléchargement — redirects suivis uniquement vers des hôtes re-validés
+            def _cffi_get(u, **kw):
+                return cffi_requests.get(u, impersonate="chrome110", **kw)
+
+            img_res, fetch_reason, final_url = fetch_with_safe_redirects(
+                _cffi_get,
+                cover_url,
+                allowed_domains,
+                max_hops=3,
+                headers=headers,
+                timeout=15,
+            )
+            if img_res is None:
+                if fetch_reason == "Client HTTP sans contrôle de redirect":
+                    logging.warning("[Upload Cover] curl_cffi sans allow_redirects — fetch annulé par sécurité")
+                    return False, "Téléchargement couverture indisponible (client HTTP trop ancien)"
+                return False, f"Téléchargement couverture refusé ({fetch_reason})"
+
+            if getattr(img_res, "status_code", None) != 200:
                 return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
-            
+
             # 2. Conversion en Base64 pur (sans préfixe Data URI)
             img_base64 = base64.b64encode(img_res.content).decode('utf-8')
             if img_base64.startswith("data:"):
                 comma_idx = img_base64.find(',')
                 if comma_idx >= 0:
                     img_base64 = img_base64[comma_idx + 1:]
-            
+
             # 3. Payload base64 uniquement — Kavita 0.8+ interprète fileName comme un chemin
             # temporaire côté serveur (upload-by-url), pas comme le nom de sortie. L'envoyer
             # avec du base64 déclenche "Invalid Filename" dans CreateThumbnail().
@@ -461,38 +528,83 @@ class KavitaAPI:
                 "url": img_base64,
                 "lockCover": True
             }
-            
+
             res = requests.post(upload_url, json=payload, headers=self.headers, timeout=self._write_timeout())
-            
+
             if res.status_code != 200:
-                logging.error(f"[DEBUG] Erreur Upload Cover Kavita : {res.text}")
-                return False, f"Code {res.status_code} : {res.text}"
-                
+                logging.error("[DEBUG] Erreur Upload Cover Kavita : code %s", res.status_code)
+                return False, f"Code {res.status_code}"
+
             return True, "Couverture mise à jour et verrouillée avec succès"
-            
+
         except Exception as e:
-            logging.error(f"[Erreur Upload Cover] {e}")
-            return False, str(e)
+            logging.error("[Erreur Upload Cover] %s", safe_exc_str(e))
+            return False, "Erreur téléchargement couverture"
 
     def update_series_external_ids(self, series_id: int, anilist_id=None, mal_id=None, mangabaka_id=None) -> tuple:
         """
-        Associe les identifiants uniques des plateformes externes (AniList, MyAnimeList, MangaBaka) à une série.
-        Target: POST /api/Series/update
+        Associe les identifiants uniques des plateformes externes (AniList, MyAnimeList, MangaBaka)
+        à une série via POST /api/Series/update.
+
+        ⚠️ Ne JAMAIS envoyer un payload partiel (id + IDs seuls) : Kavita nullifie
+        `localizedName` et réinitialise les verrous name/sortName/localizedName si ces
+        champs sont absents (même bug que celui corrigé dans `update_series_general`).
+        On snapshot GET /api/Series/{id} et on réinjecte name / sortName / localizedName /
+        verrous + IDs externes existants avant d'écraser uniquement les IDs fournis.
         """
         if not self.token and not self.authenticate():
             return False, "Non authentifié"
 
-        payload = {"id": int(series_id)}
-        if anilist_id: payload["aniListId"] = int(anilist_id)
-        if mal_id: payload["malId"] = int(mal_id)
-        if mangabaka_id: payload["mangaBakaId"] = int(mangabaka_id)
+        def _coerce_ext_id(raw):
+            if raw is None or raw is False:
+                return None
+            if isinstance(raw, bool):
+                return None
+            try:
+                value = int(str(raw).strip())
+            except (TypeError, ValueError):
+                logging.warning("[Update IDs] Identifiant externe ignoré (non numérique) : %r", raw)
+                return None
+            return value if value > 0 else None
 
-        if len(payload) == 1:
+        new_anilist = _coerce_ext_id(anilist_id)
+        new_mal = _coerce_ext_id(mal_id)
+        new_mangabaka = _coerce_ext_id(mangabaka_id)
+
+        if new_anilist is None and new_mal is None and new_mangabaka is None:
             return True, "Aucun ID à mettre à jour"
+
+        current = self.get_series(series_id)
+        if not current:
+            return False, (
+                "Impossible de récupérer l'état actuel de la série "
+                "(GET /api/Series/{id} a échoué) — mise à jour des IDs externes annulée "
+                "par sécurité pour éviter d'écraser localizedName/verrous existants."
+            )
+
+        payload = {
+            "id": int(series_id),
+            "name": current.get("name"),
+            "sortName": current.get("sortName"),
+            "localizedName": current.get("localizedName"),
+            "nameLocked": bool(current.get("nameLocked", False)),
+            "sortNameLocked": bool(current.get("sortNameLocked", False)),
+            "localizedNameLocked": bool(current.get("localizedNameLocked", False)),
+            "aniListId": current.get("aniListId"),
+            "malId": current.get("malId"),
+            "mangaBakaId": current.get("mangaBakaId"),
+        }
+
+        if new_anilist is not None:
+            payload["aniListId"] = new_anilist
+        if new_mal is not None:
+            payload["malId"] = new_mal
+        if new_mangabaka is not None:
+            payload["mangaBakaId"] = new_mangabaka
 
         try:
             url = f"{self.url}/api/Series/update"
-            res = requests.post(url, json=payload, headers=self.headers, timeout=10)
+            res = requests.post(url, json=payload, headers=self.headers, timeout=self._write_timeout())
             return (True, "Succès") if res.status_code == 200 else (False, f"Code {res.status_code} : {res.text}")
         except Exception as e:
             logging.error(f"[Erreur Update IDs] {e}")
@@ -553,8 +665,9 @@ class KavitaAPI:
             if meta.get('genres') and isinstance(meta.get('genres'), list):
                 existing['genres'] = [g.get('title') for g in meta.get('genres', []) if isinstance(g, dict) and g.get('title')]
 
-            # Extraction du titre alternatif (localizedName)
-            if meta.get('localizedName'):
-                existing['localized_name'] = meta.get('localizedName')
+        # localizedName vit sur SeriesDto (GET /api/Series/{id}), PAS sur Series/metadata.
+        series = self.get_series(series_id)
+        if series and isinstance(series, dict) and series.get('localizedName'):
+            existing['localized_name'] = series.get('localizedName')
 
         return existing

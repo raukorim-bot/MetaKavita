@@ -7,8 +7,9 @@ import difflib
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title
-from config_manager import load_config
+from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from config_manager import load_config, get_max_tags
+from secure_logging import safe_exc_str
 
 PRIMARY_PUBLISHERS = ["dc comics", "marvel", "image", "dark horse", "vertigo", "dargaud", "dupuis", "casterman", "le lombard", "glénat", "delcourt", "urban comics", "hachette", "boom! studios", "dynamite", "idw", "titan books", "fantagraphics"]
 
@@ -53,11 +54,12 @@ class ComicVineScraper(BaseScraper):
     display_name = "ComicVine (Ultime BD/Comics)"
     supported_types = {"Comic"}
     rate_limit = 1.2
-    proxy_domains = ["comicvine.gamespot.com", "gamespot.com"]
+    # API + CDN image historique ComicVine (pas le domaine parent gamespot.com).
+    proxy_domains = ["comicvine.gamespot.com", "static.comicvine.com"]
     has_direct_id_support = True
     requires_proxy = True
     needs_api_key = True
-    
+    uses_unified_scoring = True 
     translations = {
         "fr": {
             "err_missing": "❌ Clé API ComicVine manquante. Veuillez la configurer dans les paramètres.",
@@ -162,7 +164,7 @@ class ComicVineScraper(BaseScraper):
                     vol_results = res_v.json().get("results", [])
                     matched_volume = self._evaluate_volume_candidates(vol_results, cleaned_query)
             except Exception as e:
-                logging.error(self.t("err_search").format(e))
+                logging.error(self.t("err_search").format(safe_exc_str(e)))
 
             # 🎯 PASSE 2 : Si pas de résultat et présence d'un deux-points, recherche sans le sous-titre
             if not matched_volume and ":" in cleaned_query:
@@ -192,7 +194,7 @@ class ComicVineScraper(BaseScraper):
                         s_results = res_s.json().get("results", [])
                         matched_volume = self._evaluate_volume_candidates(s_results, cleaned_query)
                 except Exception as e:
-                    logging.error(self.t("err_search").format(e))
+                    logging.error(self.t("err_search").format(safe_exc_str(e)))
 
             if matched_volume:
                 volume_id = matched_volume.get("id")
@@ -346,13 +348,13 @@ class ComicVineScraper(BaseScraper):
             
         final_title = volume_name if volume_name else issue_name
             
-        return {
+        candidate = {
             'title': final_title,
             'alternative_titles': [],
             'summary': final_summary.strip(),
             'cover_url': final_cover,
             'genres': ["Comic Book"],
-            'tags': tags[:15],
+            'tags': tags[:get_max_tags()],
             'year': year,
             'status': "FINISHED",
             'staff': staff_credits, 
@@ -361,6 +363,13 @@ class ComicVineScraper(BaseScraper):
             'format': "comic",
             'url': site_url
         }
+        if is_id:
+            return attach_match_score(candidate, 1.0)
+        clean_q = clean_title(query, library_type=library_type) or query
+        score = score_candidate(candidate, clean_q, existing_metadata)
+        if score < MATCH_ACCEPT_THRESHOLD:
+            return None
+        return attach_match_score(candidate, score)
 
     def fetch_covers(self, query: str, library_type: str = "Comic") -> List[Dict[str, str]]:
         covers = []

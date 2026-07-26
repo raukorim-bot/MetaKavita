@@ -5,6 +5,7 @@ import time
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
 from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
+from config_manager import get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
 
@@ -165,7 +166,7 @@ class OpenLibraryScraper(BaseScraper):
                     continue
 
                 clean_s = s.strip().capitalize()
-                if len(genres) < 5 and clean_s not in genres:
+                if len(genres) < get_max_genres() and clean_s not in genres:
                     genres.append(clean_s)
                 if clean_s not in tags:
                     tags.append(clean_s)
@@ -178,8 +179,8 @@ class OpenLibraryScraper(BaseScraper):
             'alternative_titles': alt_titles,
             'summary': summary,
             'cover_url': cover_url,
-            'genres': genres[:5] if genres else ["Fiction"],
-            'tags': tags[:15],
+            'genres': genres[:get_max_genres()] if genres else ["Fiction"],
+            'tags': tags[:get_max_tags()],
             'year': year,
             'status': 'FINISHED',
             'staff': staff,

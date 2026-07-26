@@ -4,7 +4,7 @@ import re
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
-from config_manager import load_config
+from config_manager import load_config, get_max_tags
 
 class MangaDexScraper(BaseScraper):
     id = "MANGADEX"
@@ -116,7 +116,7 @@ class MangaDexScraper(BaseScraper):
             'summary': summary or "",
             'cover_url': cover_url,
             'genres': ["Manga"],
-            'tags': tags[:15],
+            'tags': tags[:get_max_tags()],
             'year': year,
             'status': status,
             'staff': staff,

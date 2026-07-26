@@ -246,6 +246,9 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         _, p0_data = call_provider(p0, current_query, is_id_search_forced, current_existing)
         if p0_data and has_useful_data(p0_data):
             accepted.append((0, p0, p0_data))
+            # Snapshot obligatoire pour le contexte wave-2 (ISBN/auteurs/IDs).
+            # apply_accepted() en fin de run ré-absorbe aussi — double absorb
+            # intentionnel et idempotent (ne pas retirer ce bloc).
             absorb_candidate(p0_data)
 
         # Vague 2 (parallèle) : providers restants sur un instantané figé du contexte.
@@ -278,7 +281,26 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     # --- 1ER PASSAGE CLASSIQUE ---
     run_cascade(query, is_forced_id)
 
-    # --- 2ÈME PASSAGE : TITRE DE SECOURS (TRADUCTION) ---
+    # --- 2ÈME PASSAGE : repli titre/alt si ID/URL forcé a échoué ---
+    # `fallback_query` est calculé par enrichment_engine (alt title ou nom de série).
+    # Sans ce passage, un forced_id/URL invalide restait en NOT_FOUND alors qu'une
+    # recherche textuelle aurait pu réussir.
+    if (
+        not base_provider_set
+        and is_forced_id
+        and fallback_query
+        and str(fallback_query).strip()
+        and str(fallback_query).strip().lower() != str(query).strip().lower()
+    ):
+        fb = str(fallback_query).strip()
+        msg_id_fallback = t.get(
+            'log_forced_id_fallback',
+            "🔄 [Fallback] ID/URL forcé '{0}' sans résultat. Nouvelle tentative avec : '{1}'",
+        )
+        logging.info(msg_id_fallback.format(query, fb))
+        run_cascade(fb, False)
+
+    # --- 3ÈME PASSAGE : TITRE DE SECOURS (TRADUCTION) ---
     # Si on n'a rien trouvé + Option cochée + Ce n'est pas un ID forcé
     if not base_provider_set and config.get('TITLE_FALLBACK_TRANSLATION') and not is_forced_id:
         from translator import translate_text

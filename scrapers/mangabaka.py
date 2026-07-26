@@ -3,7 +3,7 @@ import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, MATCH_ACCEPT_THRESHOLD, attach_match_score
-from config_manager import load_config
+from config_manager import load_config, get_max_tags, get_max_genres
 from kavita_constants import normalize_provider_status
 
 class MangaBakaScraper(BaseScraper):
@@ -11,7 +11,7 @@ class MangaBakaScraper(BaseScraper):
     display_name = "MangaBaka (API / Rapide)"
     supported_types = {"Manga", "Book"}
     rate_limit = 2.5
-    proxy_domains = ["mangabaka.org"]
+    proxy_domains = ["mangabaka.org", "api.mangabaka.org"]
     has_direct_id_support = True
     uses_unified_scoring = True
 
@@ -234,8 +234,8 @@ class MangaBakaScraper(BaseScraper):
             'title': fetched_title or (alt_titles[0] if alt_titles else ""),
             'summary': data.get('description', '') or '',
             'cover_url': cover_url,
-            'genres': genres_list,
-            'tags': tags_list[:15],
+            'genres': genres_list[:get_max_genres()],
+            'tags': tags_list[:get_max_tags()],
             'year': year,
             'status': mb_status,
             'staff': staff,
