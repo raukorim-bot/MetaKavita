@@ -136,9 +136,10 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 MetaKavita talks to **third-party APIs and websites** (AniList, MangaDex, MangaBaka, ComicVine, and many others). Those services are run by people and communities — often for free. Please use them responsibly:
 
 1. **Let MetaKavita pace itself.** Built-in per-provider rate limiting spaces requests correctly. Do not try to “speed things up” by running several MetaKavita instances against the same providers, hammering Sync on the same series, or stacking overlapping giant batches.
-2. **Avoid pointless load.** Prefer a single planned enrich pass over endless re-syncs of already-completed series. Keep Smart Completion / Smart Scoring / title fallback on when you need them — but remember each option can mean **more** provider calls per series.
-3. **Large libraries → overnight.** For a first full library fill or a huge force-batch (hundreds/thousands of series), start it in the evening and let it run quietly overnight. You’ll wake up to a filled library, and providers won’t take a daytime spike of traffic.
-4. **Daily ops stay light.** After the initial fill, prefer Auto-Sync / webhooks for new series instead of re-processing the whole collection every week.
+2. **Expect ~8 seconds per series with everything on.** With Smart Scoring, Smart Completion, title fallback, auto-cover, and a full provider cascade, a realistic wall-clock benchmark is around **~8 s/series**. That can feel slow — it isn’t: each series triggers many remote calls (search + details + Kavita writes), spaced so providers stay happy. **Want it faster?** Configure only **one** provider (and turn off options you don’t need). Quality vs speed is a dial you control.
+3. **Avoid pointless load.** Prefer a single planned enrich pass over endless re-syncs of already-completed series. Keep Smart Completion / Smart Scoring / title fallback on when you need them — but remember each option can mean **more** provider calls per series.
+4. **Large libraries → overnight.** For a first full library fill or a huge force-batch (hundreds/thousands of series), start it in the evening and let it run quietly overnight. You’ll wake up to a filled library, and providers won’t take a daytime spike of traffic.
+5. **Daily ops stay light.** After the initial fill, prefer Auto-Sync / webhooks for new series instead of re-processing the whole collection every week.
 
 > Being a good neighbor keeps these APIs usable for everyone — including your future self.
 
@@ -396,9 +397,10 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 MetaKavita interroge des **API et sites tiers** (AniList, MangaDex, MangaBaka, ComicVine, et bien d’autres). Ces services sont maintenus par des équipes et des communautés — souvent gratuitement. Merci de les utiliser correctement :
 
 1. **Laissez MetaKavita cadencer les requêtes.** Le rate-limiting intégré (par fournisseur) espace déjà les appels. N’essayez pas d’« accélérer » en lançant plusieurs instances MetaKavita sur les mêmes providers, en martelant Sync sur la même série, ou en empilant plusieurs gros batchs qui se chevauchent.
-2. **Évitez la charge inutile.** Préférez un passage d’enrichissement planifié à des re-syncs sans fin de séries déjà `COMPLETED`. Smart Completion / Smart Scoring / title fallback sont utiles — mais chaque option peut signifier **plus** d’appels providers par série.
-3. **Grosse bibliothèque → la nuit.** Pour un premier remplissage complet ou un force-batch massif (des centaines / milliers de séries), lancez-le le soir et laissez-le tourner tranquillement pendant la nuit. Au réveil, la bibliothèque est remplie — sans pic de trafic diurne chez les providers.
-4. **Le quotidien reste léger.** Après le premier remplissage, privilégiez Auto-Sync / webhooks pour les nouvelles séries plutôt que de retraiter toute la collection chaque semaine.
+2. **Comptez ~8 secondes par série avec tout activé.** Avec Smart Scoring, Complétion intelligente, title fallback, auto-cover et une cascade complète de providers, un benchmark réaliste tourne autour de **~8 s/série**. Ça peut paraître long — ce n’est pas le cas : chaque série déclenche beaucoup d’appels distants (recherche + fiches + écritures Kavita), espacés pour ne pas malmener les providers. **Vous voulez aller plus vite ?** Ne configurez qu’**un seul** provider (et désactivez les options dont vous n’avez pas besoin). Qualité vs vitesse, c’est vous qui réglez le curseur.
+3. **Évitez la charge inutile.** Préférez un passage d’enrichissement planifié à des re-syncs sans fin de séries déjà `COMPLETED`. Smart Completion / Smart Scoring / title fallback sont utiles — mais chaque option peut signifier **plus** d’appels providers par série.
+4. **Grosse bibliothèque → la nuit.** Pour un premier remplissage complet ou un force-batch massif (des centaines / milliers de séries), lancez-le le soir et laissez-le tourner tranquillement pendant la nuit. Au réveil, la bibliothèque est remplie — sans pic de trafic diurne chez les providers.
+5. **Le quotidien reste léger.** Après le premier remplissage, privilégiez Auto-Sync / webhooks pour les nouvelles séries plutôt que de retraiter toute la collection chaque semaine.
 
 > Être un bon voisin, c’est garder ces API utilisables pour tout le monde — y compris pour vous demain.
 
