@@ -28,6 +28,8 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **C54. Non-root Container with PUID/PGID (unreleased, issue #15):** Dedicated `metakavita` user (default 1000:1000); linuxserver.io-style entrypoint applies `PUID`/`PGID` at runtime, takes ownership of `/app/data` (existing root-owned installs repaired automatically), then drops privileges with `gosu`. Gunicorn stays PID 1 for clean `docker stop`. `HEALTHCHECK` added, tolerant of redirects so it survives the upcoming auth gate.
+- [x] **C55. `.dockerignore` (unreleased, issue #15):** Stops `COPY . .` baking a local `data/config.json` — live `SECRET_KEY`, `WEBHOOK_TOKEN`, API keys — into image layers on local builds (published ghcr images unaffected). Also drops virtualenvs, `.git/` and tests: 268 MB → 185 MB.
 - [x] **BDTheque.com comics provider (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ (distinct from `BEDETHEQUE` / bedetheque.com). AJAX series search, series page scrape, Magic Input, unified scoring, covers.
 - [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
 - [x] **Reliability barometer (v1.6.1):** Sidebar unlock + slider for match accept threshold (`0.30`–`1.00`, default `0.60`); `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; runtime via `get_match_accept_threshold()`.
@@ -150,6 +152,8 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **C54. Conteneur non-root avec PUID/PGID (non publié, issue #15) :** utilisateur dédié `metakavita` (défaut 1000:1000) ; entrypoint façon linuxserver.io appliquant `PUID`/`PGID` au démarrage, reprenant la propriété de `/app/data` (installations root existantes réparées automatiquement), puis abandon des privilèges via `gosu`. Gunicorn reste PID 1 pour un `docker stop` propre. `HEALTHCHECK` ajouté, tolérant aux redirections pour survivre au futur gate d'authentification.
+- [x] **C55. `.dockerignore` (non publié, issue #15) :** empêche `COPY . .` de figer un `data/config.json` local — `SECRET_KEY`, `WEBHOOK_TOKEN` et clés d'API réels — dans les couches de l'image lors des builds locaux (images ghcr publiées non concernées). Exclut aussi les virtualenvs, `.git/` et les tests : 268 Mo → 185 Mo.
 - [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche série, Magic Input, scoring unifié, covers.
 - [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.
 - [x] **Baromètre de fiabilité (v1.6.1) :** case + curseur sidebar pour le seuil d’acceptation (`0.30`–`1.00`, défaut `0.60`) ; `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; runtime via `get_match_accept_threshold()`.

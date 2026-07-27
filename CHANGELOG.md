@@ -1,3 +1,19 @@
+## [1.6.2] - Unreleased (Security Hardening)
+
+EN
+### 🔒 Security
+* **C54. Non-root container with PUID/PGID** — The image no longer runs as root. It ships a dedicated `metakavita` user defaulting to **1000:1000**, and a linuxserver.io-style entrypoint applies `PUID`/`PGID` at *runtime* before dropping privileges with `gosu`, so a bind-mounted `./data` owned by any uid keeps working. Gunicorn still runs as PID 1, so `docker stop` reaches it directly and shuts down cleanly. **Upgrading:** an existing `data/` is root-owned from previous versions — the entrypoint takes ownership of it automatically on every start, including sideloaded scrapers under `data/scrapers/`. A `HEALTHCHECK` is included; it only asserts the server answers HTTP, deliberately tolerating redirects so it stays valid once authentication is enforced.
+* **C55. `.dockerignore` added** — `COPY . .` previously copied whatever was in the build context. On any machine where the application had been run, that included `data/config.json` with a live `SECRET_KEY`, `WEBHOOK_TOKEN` and API keys, baked into an image layer. Published `ghcr.io` images were never affected (CI builds from a clean checkout), but local builds were. Also drops local virtualenvs, `.git/` and the test suite from the image — 268 MB → 185 MB.
+
+---
+
+FR
+### 🔒 Sécurité
+* **C54. Conteneur non-root avec PUID/PGID** — L'image ne tourne plus en root. Elle embarque un utilisateur dédié `metakavita` par défaut en **1000:1000**, et un entrypoint façon linuxserver.io applique `PUID`/`PGID` au *démarrage* avant d'abandonner les privilèges via `gosu` : un `./data` monté et possédé par n'importe quel uid continue donc de fonctionner. Gunicorn reste PID 1, donc `docker stop` l'atteint directement et l'arrêt est propre. **Mise à jour :** un `data/` existant appartient à root depuis les versions précédentes — l'entrypoint en reprend la propriété automatiquement à chaque démarrage, y compris les scrapers sideloadés dans `data/scrapers/`. Un `HEALTHCHECK` est fourni ; il vérifie uniquement que le serveur répond en HTTP, en tolérant volontairement les redirections pour rester valable une fois l'authentification en place.
+* **C55. Ajout d'un `.dockerignore`** — `COPY . .` copiait auparavant tout le contenu du contexte de build. Sur une machine où l'application avait déjà tourné, cela incluait `data/config.json` avec un `SECRET_KEY`, un `WEBHOOK_TOKEN` et des clés d'API réels, figés dans une couche d'image. Les images publiées sur `ghcr.io` n'ont jamais été concernées (la CI build depuis un checkout propre), mais les builds locaux l'étaient. Exclut aussi les virtualenvs locaux, `.git/` et la suite de tests — 268 Mo → 185 Mo.
+
+---
+
 ## [1.6.1] - 2026-07-26 (Comic Flexible + Playful Stats + Batch QoS + Wikidata + Reliability)
 
 EN

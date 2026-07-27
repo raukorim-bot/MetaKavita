@@ -1,0 +1,12 @@
+# entrypoint.sh must keep LF endings in the working tree on every platform.
+#
+# It is copied into the image and executed by /bin/sh. If a clone made on Windows
+# converts it to CRLF, the shebang becomes "#!/bin/sh\r" and the container dies at
+# startup with an unhelpful "no such file or directory" — a failure that only ever
+# reproduces for contributors building on Windows, which makes it disproportionately
+# annoying to diagnose.
+#
+# Scoped to this one file rather than `*.sh` on purpose: debug/download_wikidata_dump.sh
+# is currently stored with CRLF endings, and a blanket rule would silently rewrite it
+# the next time anyone renormalized the tree.
+/entrypoint.sh text eol=lf

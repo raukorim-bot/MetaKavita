@@ -172,6 +172,8 @@ services:
       - "5010:5010"
     environment:
       - ADMIN_PASSWORD=your_secure_password
+      # - PUID=1000    # Host user id that should own ./data (run `id -u`)
+      # - PGID=1000    # Host group id that should own ./data (run `id -g`)
       # - ROOT_PATH=/metakavita # Optional subpath for reverse proxies
       # - CORS_ALLOWED_ORIGINS=https://metakavita.home.local.ltd # Explicit HTTPS origins for Socket.IO / AJAX
       # - MAX_TAGS=15    # Power-user: max tags written to Kavita (1–100)
@@ -199,6 +201,7 @@ docker compose up -d --build
 | Variable | Description | Default Value |
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | Secures the dashboard with a password. | *(Empty = No Auth)* |
+| `PUID` / `PGID` | User and group id the application runs as, and which owns everything under `/app/data`. Set these to the owner of your bind-mounted `./data` folder (`id -u` / `id -g`) if it is not `1000:1000`. The container starts as root only long enough to apply them, then drops privileges. | `1000` / `1000` |
 | `ROOT_PATH` | Custom URL subpath when hosted behind a reverse proxy (e.g. `/metakavita`). | *(Empty)* |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated explicit origins allowed for CORS (HTTP + Socket.IO), e.g. `https://metakavita.home.local.ltd`. Empty = Same-Origin only. `*` is rejected. Does not replace proper reverse-proxy WebSocket upgrade config. | *(Empty)* |
 | `KAVITA_URL` | Kavita URL used by MetaKavita for API calls (can be an internal Docker hostname, e.g. `http://kavita:5000`). | *(Empty)* |
@@ -448,6 +451,8 @@ services:
       - "5010:5010"
     environment:
       - ADMIN_PASSWORD=votre_mot_de_passe_securise
+      # - PUID=1000    # UID hôte qui doit posséder ./data (`id -u`)
+      # - PGID=1000    # GID hôte qui doit posséder ./data (`id -g`)
       # - ROOT_PATH=/metakavita # Optionnel : pour hébergement en sous-dossier
       # - CORS_ALLOWED_ORIGINS=https://metakavita.home.local.ltd # Origins HTTPS explicites pour Socket.IO / AJAX
       # - MAX_TAGS=15    # Power-user : max tags écrits dans Kavita (1–100)
@@ -475,6 +480,7 @@ docker compose up -d --build
 | Variable | Description | Valeur par défaut |
 | :--- | :--- | :--- |
 | `ADMIN_PASSWORD` | Sécurise l'interface par mot de passe. | *(Vide = Pas d'Auth)* |
+| `PUID` / `PGID` | UID et GID sous lesquels tourne l'application, et propriétaires de tout le contenu de `/app/data`. À renseigner avec le propriétaire de votre dossier `./data` monté (`id -u` / `id -g`) s'il n'est pas `1000:1000`. Le conteneur ne démarre en root que le temps de les appliquer, puis abandonne ses privilèges. | `1000` / `1000` |
 | `ROOT_PATH` | Sous-chemin d'URL lors de l'exposition derrière un reverse proxy (ex: `/metakavita`). | *(Vide)* |
 | `CORS_ALLOWED_ORIGINS` | Origins CORS explicites séparées par des virgules (HTTP + Socket.IO), ex: `https://metakavita.home.local.ltd`. Vide = Same-Origin uniquement. `*` est rejeté. Ne remplace pas une config reverse-proxy correcte pour l'upgrade WebSocket. | *(Vide)* |
 | `KAVITA_URL` | URL Kavita utilisée par MetaKavita pour les appels API (peut être un hostname Docker interne, ex: `http://kavita:5000`). | *(Vide)* |
