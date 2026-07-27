@@ -1,3 +1,17 @@
+## [1.6.2] - Unreleased (Security Hardening)
+
+EN
+### 📚 Documentation
+* **C56. Custom scraper RCE warning** — `CUSTOM_SCRAPERS.md` now opens with a prominent warning, in French and English, that a `.py` dropped into `data/scrapers/` is imported and executed at startup with the application's full privileges: no sandbox, no validation. Spells out what a malicious scraper can actually reach (`config.json` and therefore `SECRET_KEY` / `WEBHOOK_TOKEN` / every API key, any file the container can see, arbitrary outbound connections, and widening the image-proxy allowlist via `proxy_domains`), gives non-programmers concrete red flags to look for, calls out AI-generated code specifically, and states plainly that no third-party scraper is vetted by anyone until the community repository exists. A short version with a link is added to both README security sections.
+
+---
+
+FR
+### 📚 Documentation
+* **C56. Avertissement RCE sur les scrapers personnalisés** — `CUSTOM_SCRAPERS.md` s'ouvre désormais sur un avertissement bien visible, en français et en anglais : un `.py` déposé dans `data/scrapers/` est importé et exécuté au démarrage avec tous les droits de l'application, sans bac à sable ni validation. Détaille ce qu'un scraper malveillant peut réellement atteindre (`config.json` et donc `SECRET_KEY` / `WEBHOOK_TOKEN` / toutes les clés d'API, n'importe quel fichier visible du conteneur, des connexions sortantes arbitraires, et l'élargissement de l'allowlist du proxy d'images via `proxy_domains`), donne des signaux d'alarme concrets pour les non-développeurs, vise explicitement le code généré par IA, et précise sans détour qu'aucun scraper tiers n'est vérifié tant que le dépôt communautaire n'existe pas. Une version courte avec lien est ajoutée aux deux sections sécurité du README.
+
+---
+
 ## [1.6.1] - 2026-07-26 (Comic Flexible + Playful Stats + Batch QoS + Wikidata + Reliability)
 
 EN
