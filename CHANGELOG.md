@@ -1,3 +1,17 @@
+## [1.6.2] - Unreleased (Security Hardening)
+
+EN
+### 🔒 Security
+* **BF46. Dependency CVE bumps** — `gunicorn` `21.2.0` → `23.0.0` and `requests` `2.31.0` → `2.33.1`. Clears five known advisories: two request-smuggling issues in Gunicorn (`PYSEC-2026-1433`, `PYSEC-2026-1434`, both fixed in 22.0.0) and three in Requests (`PYSEC-2026-1873`, `PYSEC-2026-1872`, `PYSEC-2026-2275`, the last only fixed in 2.33.0). No public API change in either package for the way MetaKavita uses them. `googletrans` is deliberately left at `4.0.0-rc1`.
+
+---
+
+FR
+### 🔒 Sécurité
+* **BF46. Montée de versions (CVE)** — `gunicorn` `21.2.0` → `23.0.0` et `requests` `2.31.0` → `2.33.1`. Corrige cinq vulnérabilités connues : deux failles de *request smuggling* dans Gunicorn (`PYSEC-2026-1433`, `PYSEC-2026-1434`, corrigées en 22.0.0) et trois dans Requests (`PYSEC-2026-1873`, `PYSEC-2026-1872`, `PYSEC-2026-2275`, cette dernière uniquement corrigée en 2.33.0). Aucun changement d'API publique pour l'usage qu'en fait MetaKavita. `googletrans` reste volontairement en `4.0.0-rc1`.
+
+---
+
 ## [1.6.1] - 2026-07-26 (Comic Flexible + Playful Stats + Batch QoS + Wikidata + Reliability)
 
 EN
