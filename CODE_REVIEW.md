@@ -479,6 +479,7 @@ clamp toute valeur absente ou mal formée (`None`, str, bool, NaN…), ce qui em
 | `shikimori.py` | Manga | non | Pré-filtre par titre (gratuit) avant de déclencher `/roles` (3ᵉ requête HTTP, staff) uniquement sur les candidats plausibles, pour limiter le coût de `score_candidate()` |
 | `manganews.py` | Manga | non | Scraping HTML (VF), contourne Cloudflare ; pré-filtre par titre puis récupère la fiche détaillée (staff) des 3 meilleurs candidats seulement, pour limiter la charge sur le site |
 | `bedetheque.py` | Comic (franco-belge) | non | Scraping HTML avec jeton CSRF, gère variantes d'articles ("Le", "La"...) |
+| `bdtheque.py` | Comic (franco-belge) | non | **bdtheque.com** (pas bedetheque) : AJAX `/ajax/search/series/`, parse fiche `/series/{id}/{slug}` |
 | `comicvine.py` | Comic | **oui** | 4 passes de recherche en cascade (volume → sans sous-titre → `/search` → issue), bonus/malus éditeurs US majeurs |
 | `googlebooks.py` | Book/Comic | non (clé optionnelle) | Recherche prioritaire par ISBN Kavita |
 | `hardcover.py` | Book/Comic | **oui** | GraphQL, expérimental (le nom de la classe le dit explicitement) |

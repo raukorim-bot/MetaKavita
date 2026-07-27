@@ -133,6 +133,8 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Localized Titles Policy (v1.6+, issue #12)**: Config modal + env for `LOCALIZED_TITLE_MODE`/`LANGS`; per-series `alt_title_langs`; AniList/MangaDex/Kitsu structured `titles[]`. Controls Kavita `localizedName` only — never rewrites `name`.
 *   **Comic Flexible (v1.6.1, C35)**: Kavita library type ID 5 uses Comic providers first, then Manga providers if no useful hit; cover search unions both families.
 *   **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Replaces Jikan. Manga + light novels (Book).
+*   **BDTheque.com (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ Franco-Belgian comics (distinct from Bédéthèque / `BEDETHEQUE`).
+*   **Kavita library sync filter (v1.6.1):** Config → Planning checkboxes; `DISABLED_LIBRARIES` denylist (empty = all on).
 *   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
 *   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck; batch progress bar; collapsible Scraping Options.
 *   **Reliability barometer (v1.6.1)**: Optional sidebar slider for match accept threshold (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`); default remains `0.60` via `get_match_accept_threshold()`.
@@ -218,7 +220,7 @@ docker compose up -d --build
 | `MAL_API_KEY` | MyAnimeList **Client ID** (not a secret token) from https://myanimelist.net/apiconfig — sent as `X-MAL-CLIENT-ID`. | _(empty)_ |
 | `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
 | `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
-| `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
+| `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `BDTHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Fallback comic source 1. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Fallback comic source 2. | `NONE` |
 | `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, `WIKIDATA`). | `GOOGLEBOOKS` |
@@ -231,6 +233,7 @@ docker compose up -d --build
 | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
+| `DISABLED_LIBRARIES` | Comma-separated Kavita library IDs to exclude from sync/UI (denylist). Empty = all enabled. | _(empty)_ |
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
 | `AUTO_READING_DIR` | Auto-detect and set Manga/Webtoon reading direction. | `false` |
 
@@ -406,6 +409,8 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Politique des titres localisés (v1.6+, issue #12)** : modal Config + env `LOCALIZED_TITLE_MODE`/`LANGS` ; override `alt_title_langs` par série ; `titles[]` structurés AniList/MangaDex/Kitsu. Contrôle uniquement `localizedName` — jamais de réécriture de `name`.
 *   **Comic Flexible (v1.6.1, C35)** : l’ID Kavita 5 utilise d’abord les providers Comic, puis Manga si aucun hit utile ; recherche de couvertures = union des deux familles.
 *   **MyAnimeList API officielle (v1.6.1)** : provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Remplace Jikan. Manga + light novels (Book).
+*   **BDTheque.com (v1.6.1)** : provider `BDTHEQUE` pour les BD franco-belges sur https://www.bdtheque.com/ (distinct de Bédéthèque / `BEDETHEQUE`).
+*   **Filtre bibliothèques Kavita (v1.6.1)** : cases à cocher Config → Planification ; dénylist `DISABLED_LIBRARIES` (vide = tout actif).
 *   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
 *   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto ; barre de progression batch ; Options de Scraping pliables.
 *   **Baromètre de fiabilité (v1.6.1)** : curseur sidebar optionnel pour le seuil d’acceptation (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`) ; défaut `0.60` via `get_match_accept_threshold()`.
@@ -491,7 +496,7 @@ docker compose up -d --build
 | `MAL_API_KEY` | **Client ID** MyAnimeList (pas un token secret) depuis https://myanimelist.net/apiconfig — envoyé en `X-MAL-CLIENT-ID`. | _(vide)_ |
 | `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
 | `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
-| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
+| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `BDTHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
 | `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, `WIKIDATA`). | `GOOGLEBOOKS` |
@@ -504,6 +509,7 @@ docker compose up -d --build
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
+| `DISABLED_LIBRARIES` | IDs de bibliothèques Kavita à exclure (dénylist, virgules). Vide = toutes actives. | _(vide)_ |
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
 | `AUTO_READING_DIR` | Configurer automatiquement le sens de lecture. | `false` |
 

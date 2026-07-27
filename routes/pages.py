@@ -9,7 +9,13 @@ import logging
 
 from flask import Blueprint, request, render_template
 
-from config_manager import load_config, get_kavita_ui_url, get_kavita_plus_url
+from config_manager import (
+    load_config,
+    get_kavita_ui_url,
+    get_kavita_plus_url,
+    filter_enabled_libraries,
+    get_disabled_library_ids,
+)
 from db_manager import get_all_cached_data, clean_orphaned_cache, get_provider_stats, get_lifetime_stats
 from kavita_api import KavitaAPI
 from translations import translations
@@ -23,21 +29,29 @@ pages_bp = Blueprint('pages', __name__)
 def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     series_list = []
     libraries = []
+    all_libraries = []
 
     ui_lang = config.get('UI_LANG', 'fr')
     t = translations.get(ui_lang, translations['fr'])
+    disabled_ids = get_disabled_library_ids(config)
 
     if config.get('KAVITA_API_KEY') and config.get('KAVITA_URL'):
         kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
 
         if kavita.authenticate():
-            libraries = kavita.get_libraries()
-            if libraries:
-                series_list = kavita.get_all_series(library_id=selected_lib)
+            all_libraries = kavita.get_libraries()
+            libraries = filter_enabled_libraries(all_libraries, config)
+            if selected_lib and not any(str(lib.get("id")) == str(selected_lib) for lib in libraries):
+                # Biblio désactivée ou inconnue : retomber sur « toutes » (actives)
+                selected_lib = None
+            if all_libraries:
+                series_list = kavita.get_all_series(library_id=selected_lib) if libraries else []
 
                 if not selected_lib:
-                    active_ids = {s['id'] for s in series_list}
-                    cleaned = clean_orphaned_cache(active_ids)
+                    # Inventaire complet Kavita (y compris biblio désactivées) pour ne pas
+                    # effacer le cache des séries temporairement hors sync.
+                    full_ids = {s['id'] for s in kavita.get_all_series(respect_disabled_filter=False)}
+                    cleaned = clean_orphaned_cache(full_ids)
                     if cleaned > 0:
                         logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")
             else:
@@ -90,6 +104,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
 
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
+                           all_libraries=all_libraries, disabled_library_ids=disabled_ids,
                            t=t, stats=stats,
                            lifetime=get_lifetime_stats(),
                            kavita_ui_url=get_kavita_ui_url(config),

@@ -7,7 +7,7 @@ from curl_cffi import requests as cffi_requests
 
 from typing import Optional, Tuple
 
-from config_manager import get_kavita_http_timeout
+from config_manager import get_kavita_http_timeout, filter_enabled_libraries, is_library_enabled
 from secure_logging import safe_exc_str
 
 # RE-LOCK : 1 retry max, pause courte, timeout retry plafonné — ne pas doubler
@@ -187,10 +187,13 @@ class KavitaAPI:
         # Type Manga / Webtoon / Image par défaut
         return "Manga"
 
-    def get_all_series(self, library_id=None) -> list:
+    def get_all_series(self, library_id=None, respect_disabled_filter=True) -> list:
         """
         Récupère l'ensemble des séries d'une bibliothèque spécifique ou de l'instance complète.
         Purge le cache mémoire de type de bibliothèque avant l'exécution.
+
+        respect_disabled_filter: si True (défaut), ignore les bibliothèques listées dans
+        DISABLED_LIBRARIES. Passer False pour un inventaire complet (ex. purge cache orphelin).
         """
         if not self.token and not self.authenticate():
             return []
@@ -199,7 +202,14 @@ class KavitaAPI:
             self.__class__._series_lib_type_cache.clear()
 
             all_libs = self.get_libraries()
-            libraries_to_scan = [lib for lib in all_libs if str(lib['id']) == str(library_id)] if library_id else all_libs
+            if respect_disabled_filter:
+                all_libs = filter_enabled_libraries(all_libs)
+                if library_id and not is_library_enabled(library_id):
+                    return []
+            if library_id:
+                libraries_to_scan = [lib for lib in all_libs if str(lib['id']) == str(library_id)]
+            else:
+                libraries_to_scan = all_libs
             unique_series = {}
 
             for lib in libraries_to_scan:

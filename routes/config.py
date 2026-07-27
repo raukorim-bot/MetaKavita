@@ -9,8 +9,9 @@ import secrets
 
 from flask import Blueprint, request, jsonify
 
-from config_manager import load_config, save_config, CONFIG_LOCK
+from config_manager import load_config, save_config, CONFIG_LOCK, format_disabled_libraries
 from scrapers import ScraperRegistry
+from kavita_api import KavitaAPI
 
 config_bp = Blueprint('config', __name__)
 
@@ -24,6 +25,19 @@ def save_config_ajax():
     # et l'une écraserait silencieusement les changements de l'autre.
     with CONFIG_LOCK:
         config = load_config()
+
+        # Sauvegarde partielle : cascades uniquement (providersModal)
+        _PROVIDER_KEYS = (
+            'PROVIDER_1', 'PROVIDER_2', 'PROVIDER_3',
+            'COMIC_PROVIDER_1', 'COMIC_PROVIDER_2', 'COMIC_PROVIDER_3',
+            'BOOK_PROVIDER_1', 'BOOK_PROVIDER_2', 'BOOK_PROVIDER_3',
+        )
+        if request.form.get('PROVIDERS_SAVE') == '1':
+            for key in _PROVIDER_KEYS:
+                if key in request.form:
+                    config[key] = request.form.get(key, 'NONE').strip()
+            save_config(config)
+            return jsonify(success=True)
 
         config['TRANSLATION_PROVIDER'] = request.form.get('TRANSLATION_PROVIDER', 'GOOGLE').strip()
         config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
@@ -63,17 +77,11 @@ def save_config_ajax():
         config['LOCALIZED_TITLE_MODE'] = loc_mode if loc_mode in ('all', 'prefer', 'none') else 'all'
         config['LOCALIZED_TITLE_LANGS'] = request.form.get('LOCALIZED_TITLE_LANGS', '').strip()
 
-        config['PROVIDER_1'] = request.form.get('PROVIDER_1', 'MANGABAKA').strip()
-        config['PROVIDER_2'] = request.form.get('PROVIDER_2', 'KITSU').strip()
-        config['PROVIDER_3'] = request.form.get('PROVIDER_3', 'ANILIST').strip()
-
-        config['COMIC_PROVIDER_1'] = request.form.get('COMIC_PROVIDER_1', 'COMICVINE').strip()
-        config['COMIC_PROVIDER_2'] = request.form.get('COMIC_PROVIDER_2', 'ANILIST').strip()
-        config['COMIC_PROVIDER_3'] = request.form.get('COMIC_PROVIDER_3', 'NONE').strip()
-
-        config['BOOK_PROVIDER_1'] = request.form.get('BOOK_PROVIDER_1', 'GOOGLEBOOKS').strip()
-        config['BOOK_PROVIDER_2'] = request.form.get('BOOK_PROVIDER_2', 'OPENLIBRARY').strip()
-        config['BOOK_PROVIDER_3'] = request.form.get('BOOK_PROVIDER_3', 'NONE').strip()
+        # Cascades absentes du form Config : ne pas écraser les valeurs existantes
+        if any(k in request.form for k in _PROVIDER_KEYS):
+            for key in _PROVIDER_KEYS:
+                if key in request.form:
+                    config[key] = request.form.get(key, 'NONE').strip()
 
         config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
         config['SMART_SCORING'] = request.form.get('SMART_SCORING') == 'true'
@@ -93,6 +101,27 @@ def save_config_ajax():
             config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))
         except ValueError:
             config['AUTO_SYNC_INTERVAL'] = 0
+
+        # Bibliothèques à synchroniser : checkboxes ENABLED_LIBRARY + re-fetch Kavita
+        if request.form.get('SYNC_LIBRARIES_PRESENT') == '1':
+            enabled_ids = {
+                str(x).strip()
+                for x in request.form.getlist('ENABLED_LIBRARY')
+                if str(x).strip()
+            }
+            all_ids = set()
+            try:
+                if config.get('KAVITA_URL') and config.get('KAVITA_API_KEY'):
+                    kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
+                    if kavita.authenticate():
+                        all_ids = {str(lib.get('id')) for lib in (kavita.get_libraries() or []) if lib.get('id') is not None}
+            except Exception as e:
+                logging.warning("[Config] Impossible de recharger les bibliothèques Kavita : %s", e)
+            if all_ids:
+                config['DISABLED_LIBRARIES'] = format_disabled_libraries(all_ids - enabled_ids)
+            elif not enabled_ids and not all_ids:
+                # Pas de biblio joignable : ne pas écraser la dénylist existante
+                pass
 
         config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
         config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'

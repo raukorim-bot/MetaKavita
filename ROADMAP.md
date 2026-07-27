@@ -22,12 +22,13 @@
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
 - [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
 - [ ] **C8. Resiliency & Rate-Limiting Control:** Add an automatic exponential backoff retry mechanism to prevent API blocks (429 errors) during very large batches.
-- [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) — deferred; live `WIKIDATA` provider ships without offline DB for now.
+- [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) when API rate limits or offline labs matter.
 - [ ] **C40. Support the Developer (Donations):** Add a non-intrusive "Buy Me a Coffee" or "Ko-fi" link in the GitHub README and the application's sidebar footer to allow the community to support the project.
 
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **BDTheque.com comics provider (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ (distinct from `BEDETHEQUE` / bedetheque.com). AJAX series search, series page scrape, Magic Input, unified scoring, covers.
 - [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
 - [x] **Reliability barometer (v1.6.1):** Sidebar unlock + slider for match accept threshold (`0.30`–`1.00`, default `0.60`); `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; runtime via `get_match_accept_threshold()`.
 - [x] **Batch progress bar (v1.6.1):** `done / total` above batch buttons; Socket.IO `batch_progress` from worker `qsize()`; hides on finish/Stop.
@@ -143,12 +144,13 @@
 - [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
 - [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
 - [ ] **C8. Gestion de la Résilience d'API :** Système de retry automatique avec attente exponentielle pour contourner le rate limiting lors des très gros batchs.
-- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel — reporté ; le provider live `WIKIDATA` est livré sans base offline pour l’instant.
+- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel quand les quotas API ou un labo hors-ligne importent.
 - [ ] **C40. Soutien au développeur (Dons) :** Ajouter un lien discret "Buy Me a Coffee" ou "Ko-fi" dans le README GitHub et le pied de page de l'interface pour permettre à la communauté de soutenir le projet.
 
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche série, Magic Input, scoring unifié, covers.
 - [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.
 - [x] **Baromètre de fiabilité (v1.6.1) :** case + curseur sidebar pour le seuil d’acceptation (`0.30`–`1.00`, défaut `0.60`) ; `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; runtime via `get_match_accept_threshold()`.
 - [x] **Barre de progression batch (v1.6.1) :** jauge `fait / total` au-dessus des boutons ; Socket.IO `batch_progress` depuis le `qsize()` worker ; disparaît en fin de lot / Stop.

@@ -1,10 +1,12 @@
                             <div class="series-item" data-status="{{ series.status }}">
                                 <div class="series-row">
-                                    <div class="series-info">
+                                    <div class="series-title-line">
                                         <input type="checkbox" name="selected_series" value="{{ series.id }}" class="series-cb">
                                         <a href="{{ kavita_ui_url }}/library/{{ series.libraryId }}/series/{{ series.id }}" target="_blank" class="series-link">
                                             <span class="series-name">{{ series.name }}</span>
                                         </a>
+                                    </div>
+                                    <div class="series-status">
                                         {% if series.status == 'COMPLETED' %}
                                             <span class="badge badge-completed">{{ t.filter_completed }}</span>
                                         {% elif series.status == 'NOT_FOUND' %}
@@ -16,13 +18,13 @@
                                         {% endif %}
                                     </div>
                                     <div class="series-actions">
-                                        <button type="button" class="btn-icon" onclick="toggleIgnore('{{ series.id }}', this)" title="{% if series.status == 'IGNORED' %}{{ t.unignore_btn }}{% else %}{{ t.ignore_btn }}{% endif %}">
+                                        <button type="button" class="btn-icon" data-action="ignore" onclick="toggleIgnore('{{ series.id }}', this)" title="{% if series.status == 'IGNORED' %}{{ t.unignore_btn }}{% else %}{{ t.ignore_btn }}{% endif %}">
                                             {% if series.status == 'IGNORED' %}🔄{% else %}🚫{% endif %}
                                         </button>
-                                        <button type="button" class="btn-icon" onclick="openCoverModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.manage_covers }}">🖼️</button>
-                                        <button type="button" class="btn-opt" onclick="togglePanel('panel-{{ series.id }}')">{{ t.options }}</button>
-                                        <button type="button" class="btn-sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>
-                                        <span class="loading" style="display: none;">{{ t.processing }}</span>
+                                        <button type="button" class="btn-icon" data-action="covers" onclick="openCoverModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.manage_covers }}">🖼️</button>
+                                        <button type="button" class="btn-opt" data-action="options" onclick="togglePanel('panel-{{ series.id }}')">{{ t.options }}</button>
+                                        <button type="button" class="btn-sync" data-action="sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>
+                                        <span class="loading" data-action="loading" style="display: none;">{{ t.processing }}</span>
                                     </div>
                                 </div>
                                 

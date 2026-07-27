@@ -186,6 +186,23 @@ document.addEventListener('change', function(e) {
 });
 
 // --- SYNCHRONISATION ---
+function getSeriesActionEls(btn) {
+    const actions = btn.closest('.series-actions') || btn.parentElement;
+    return {
+        actions,
+        optionsBtn: actions ? actions.querySelector('[data-action="options"]') : null,
+        loading: actions ? actions.querySelector('[data-action="loading"], .loading') : null,
+    };
+}
+
+function setSeriesSyncBusy(btn, busy) {
+    const { optionsBtn, loading } = getSeriesActionEls(btn);
+    btn.style.display = busy ? 'none' : 'inline-block';
+    if (optionsBtn) optionsBtn.style.display = busy ? 'none' : 'inline-block';
+    if (loading) loading.style.display = busy ? 'inline-block' : 'none';
+    return loading;
+}
+
 function syncSingle(id, name, btn) {
     const forcedIdInput = document.getElementById('id-' + id);
     const altTitleInput = document.getElementById('title-' + id);
@@ -207,10 +224,7 @@ function syncSingle(id, name, btn) {
             return cb && cb.checked;
         }).join(',');
         
-        btn.style.display = 'none';
-        btn.previousElementSibling.style.display = 'none'; 
-        let loading = btn.nextElementSibling;
-        loading.style.display = 'inline-block';
+        const loading = setSeriesSyncBusy(btn, true);
         
         // Envoi au serveur incluant publisher_pref + alt_title_langs
         fetch(getRootPath() + '/save-override', {
@@ -224,9 +238,7 @@ function syncSingle(id, name, btn) {
         })
         .then(() => proceedSyncSingle(id, name, btn, loading))
         .catch(() => {
-            loading.style.display = 'none';
-            btn.style.display = 'inline-block';
-            btn.previousElementSibling.style.display = 'inline-block';
+            setSeriesSyncBusy(btn, false);
             btn.innerText = "❌ Fail";
             setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
         });
@@ -237,17 +249,12 @@ function syncSingle(id, name, btn) {
 
 function proceedSyncSingle(id, name, btn, loadingElem) {
     let loading = loadingElem;
-    if(!loading) {
-        btn.style.display = 'none';
-        btn.previousElementSibling.style.display = 'none'; 
-        loading = btn.nextElementSibling;
-        loading.style.display = 'inline-block';
+    if (!loading) {
+        loading = setSeriesSyncBusy(btn, true);
     }
 
     const restoreBtn = () => {
-        loading.style.display = 'none';
-        btn.style.display = 'inline-block';
-        btn.previousElementSibling.style.display = 'inline-block';
+        setSeriesSyncBusy(btn, false);
     };
 
     fetch(getRootPath() + '/force-sync', {
@@ -399,7 +406,7 @@ function resetErrors(btn) {
                     badge.innerText = window.AppTranslations.filter_pending;
                 }
                 
-                const ignoreBtn = item.querySelector('.series-actions .btn-icon');
+                const ignoreBtn = item.querySelector('.series-actions [data-action="ignore"]');
                 if (ignoreBtn) {
                     ignoreBtn.innerText = '🚫';
                     ignoreBtn.title = window.AppTranslations.ignore_btn;
@@ -429,8 +436,8 @@ function loadLibrary(libraryId) {
                 contentArea.innerHTML = newContent.innerHTML;
             }
             
-            const currentStats = document.querySelectorAll('.sidebar .card')[0];
-            const newStats = doc.querySelectorAll('.sidebar .card')[0];
+            const currentStats = document.querySelector('.sidebar .sidebar-stats-card');
+            const newStats = doc.querySelector('.sidebar .sidebar-stats-card');
             if (currentStats && newStats) {
                 currentStats.innerHTML = newStats.innerHTML;
             }
@@ -537,7 +544,7 @@ async function ignoreSelection() {
                         badge.className = 'badge badge-ignored';
                         badge.innerText = window.AppTranslations.filter_ignored;
                     }
-                    const ignoreBtn = seriesItem.querySelector('.series-actions .btn-icon');
+                    const ignoreBtn = seriesItem.querySelector('.series-actions [data-action="ignore"]');
                     if (ignoreBtn) {
                         ignoreBtn.innerText = '🔄';
                         ignoreBtn.title = window.AppTranslations.unignore_btn;

@@ -6,7 +6,7 @@
     <meta name="csrf-token" content="{{ csrf_token }}">
     <title>MetaKavita Dashboard</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
     <script>
@@ -138,12 +138,12 @@
                     </div>
                 </form>
                 {% else %}
-                <div class="card" style="flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center;">
-                    <div style="font-size: 50px; margin-bottom: 20px;">{% if error_msg %}🔌{% else %}👋{% endif %}</div>
-                    <h2 style="color: var(--text-muted); margin-bottom: 10px;">
+                <div class="card welcome-card">
+                    <div class="welcome-icon">{% if error_msg %}🔌{% else %}👋{% endif %}</div>
+                    <h2 class="welcome-title">
                         {% if error_msg %}Impossible de se connecter{% else %}Bienvenue sur MetaKavita{% endif %}
                     </h2>
-                    <p style="color: var(--danger); font-weight: 600; font-size: 15px; max-width: 400px;">
+                    <p class="welcome-text {% if error_msg %}welcome-text-error{% endif %}">
                         {{ error_msg if error_msg else "Veuillez configurer votre URL et votre Clé API Kavita dans le menu de gauche pour commencer." }}
                     </p>
                 </div>
@@ -153,6 +153,8 @@
     </div>
 
     {% include "partials/_config_modal.html" %}
+
+    {% include "partials/_providers_modal.html" %}
 
     {% include "partials/_cover_modal.html" %}
 

@@ -72,6 +72,8 @@ def load_config():
             "MATCH_THRESHOLD_CUSTOM": False,
             "MATCH_ACCEPT_THRESHOLD": 0.60,
             "AUTO_SYNC_INTERVAL": 0,
+            # Dénylist d'IDs de bibliothèques Kavita (virgules). Vide = toutes actives.
+            "DISABLED_LIBRARIES": "",
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
@@ -132,6 +134,7 @@ def load_config():
             "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
             "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE",
             "LOCALIZED_TITLE_MODE", "LOCALIZED_TITLE_LANGS",
+            "DISABLED_LIBRARIES",
             "PROVIDER_1", "PROVIDER_2", "PROVIDER_3",
             "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
             "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
@@ -141,6 +144,9 @@ def load_config():
         mode = (config.get("LOCALIZED_TITLE_MODE") or "all").strip().lower()
         config["LOCALIZED_TITLE_MODE"] = mode if mode in ("all", "prefer", "none") else "all"
         config["LOCALIZED_TITLE_LANGS"] = (config.get("LOCALIZED_TITLE_LANGS") or "").strip()
+        config["DISABLED_LIBRARIES"] = ",".join(
+            sorted(parse_library_id_list(config.get("DISABLED_LIBRARIES")), key=_library_id_sort_key)
+        )
 
         for env_key, env_val in os.environ.items():
             if env_key.endswith("_API_KEY") and env_key not in config:
@@ -212,6 +218,61 @@ def _parse_positive_int(raw, default=60, minimum=5, maximum=600) -> int:
     if value < minimum or value > maximum:
         return default
     return value
+
+
+def _library_id_sort_key(value: str):
+    s = str(value)
+    return (0, int(s)) if s.isdigit() else (1, s.lower())
+
+
+def parse_library_id_list(raw) -> set:
+    """Parse une liste d'IDs biblio (virgules / points-virgules / espaces) → set[str]."""
+    if raw is None:
+        return set()
+    if isinstance(raw, (list, tuple, set)):
+        return {str(x).strip() for x in raw if str(x).strip()}
+    text = str(raw).strip()
+    if not text:
+        return set()
+    parts = []
+    for chunk in text.replace(";", ",").split(","):
+        chunk = chunk.strip()
+        if chunk:
+            parts.append(chunk)
+    return set(parts)
+
+
+def get_disabled_library_ids(config=None) -> set:
+    """IDs de bibliothèques Kavita exclus de la sync / UI (dénylist)."""
+    if config is None:
+        config = load_config()
+    return parse_library_id_list(config.get("DISABLED_LIBRARIES"))
+
+
+def is_library_enabled(library_id, config=None) -> bool:
+    """True si la bibliothèque n'est pas dans DISABLED_LIBRARIES."""
+    if library_id is None or library_id == "":
+        return True
+    disabled = get_disabled_library_ids(config)
+    if not disabled:
+        return True
+    return str(library_id) not in disabled
+
+
+def filter_enabled_libraries(libraries, config=None) -> list:
+    """Conserve uniquement les bibliothèques absentes de la dénylist."""
+    if not libraries:
+        return []
+    disabled = get_disabled_library_ids(config)
+    if not disabled:
+        return list(libraries)
+    return [lib for lib in libraries if str(lib.get("id")) not in disabled]
+
+
+def format_disabled_libraries(ids) -> str:
+    """Sérialise un iterable d'IDs en chaîne config DISABLED_LIBRARIES."""
+    cleaned = parse_library_id_list(ids)
+    return ",".join(sorted(cleaned, key=_library_id_sort_key))
 
 
 def get_kavita_http_timeout(config=None) -> int:

@@ -1,8 +1,10 @@
 """
 C7 — Statistiques ludiques pour la page /stats.
 
-- Compteurs lifetime (`series_enriched`, `matches_won`) : estimations fun (temps, cafés…).
-- Cache SQLite : état actuel de la bibliothèque (file, placard, overrides…).
+- Compteurs lifetime (`series_enriched`, `matches_won`) : télémétrie pure.
+- Estimations fun (temps, cafés…) : volume organique = max(lifetime, cache / podium),
+  pour rester crédible même si la télémétrie a démarré après coup.
+- Cache SQLite : état actuel (file, placard, overrides…).
 - Podium : `provider_stats` (un win par match utile).
 """
 
@@ -11,24 +13,47 @@ from typing import Optional
 from scrapers import ScraperRegistry
 
 # Constantes d'estimation (pas exposées en UI)
-STATS_MINUTES_PER_SERIES = 4
+# Recherche + remplissage manuel d'une fiche ≈ 6 min ; comparer un hit provider ≈ 90 s.
+STATS_MINUTES_PER_SERIES = 6
+STATS_MINUTES_PER_MATCH = 1.5
 STATS_MINUTES_PER_COFFEE = 5
-STATS_CHARS_PER_SUMMARY = 400
+STATS_CHARS_PER_SUMMARY = 420
 STATS_DEEPL_EUR_PER_1K = 0.02
 STATS_MINUTES_PER_NETFLIX = 45
-STATS_PAGES_PER_SERIES = 180
+STATS_PAGES_PER_SERIES = 160
 STATS_BMC_COFFEE_EUR = 3.0
 
 
 def _format_duration(total_minutes: int) -> dict:
-    hours = total_minutes // 60
-    minutes = total_minutes % 60
+    total_minutes = max(0, int(total_minutes))
+    days = total_minutes // (60 * 24)
+    rem = total_minutes % (60 * 24)
+    hours = rem // 60
+    minutes = rem % 60
+
+    if days:
+        display = f"{days}j {hours}h {minutes:02d}m"
+    elif hours:
+        display = f"{hours}h {minutes:02d}m"
+    else:
+        display = f"{minutes} min"
+
     return {
         "total_minutes": total_minutes,
+        "days": days,
         "hours": hours,
         "minutes": minutes,
-        "display": f"{hours}h {minutes:02d}m" if hours else f"{minutes} min",
+        "display": display,
     }
+
+
+def _estimate_minutes(series_count: int, match_count: int) -> int:
+    """Temps manuel évité : fiche série + comparaison des matchs utiles."""
+    raw = (
+        max(0, series_count) * STATS_MINUTES_PER_SERIES
+        + max(0, match_count) * STATS_MINUTES_PER_MATCH
+    )
+    return int(round(raw))
 
 
 def _library_score(completed, pending, not_found, ignored, total) -> int:
@@ -76,8 +101,9 @@ def compute_playful_stats(
     """
     Métriques ludiques + données pour Chart.js.
 
-    `lifetime` : {series_enriched, matches_won} — source des estimations fun.
+    `lifetime` : {series_enriched, matches_won, series_missed} — compteurs purs.
     `cached_data` : état actuel (file, placard, overrides, donut).
+    Estimations fun : plancher sur le cache / podium si lifetime est en retard.
     """
     cached_data = cached_data or {}
     provider_wins = provider_wins or {}
@@ -86,7 +112,6 @@ def compute_playful_stats(
     series_enriched = int(lifetime.get("series_enriched") or 0)
     matches_won = int(lifetime.get("matches_won") or 0)
     series_missed = int(lifetime.get("series_missed") or 0)
-    avg_matches = round(matches_won / series_enriched, 2) if series_enriched else 0.0
     lifetime_attempts = series_enriched + series_missed
     lifetime_hit_rate = round(100.0 * series_enriched / lifetime_attempts, 1) if lifetime_attempts else 0.0
 
@@ -101,13 +126,28 @@ def compute_playful_stats(
     success_rate = round(100.0 * completed / decided, 1) if decided else 0.0
     completion_pct = round(100.0 * completed / total, 1) if total else 0.0
 
-    # --- Estimations fun basées sur lifetime ---
-    time_minutes = series_enriched * STATS_MINUTES_PER_SERIES
+    provider_wins_total = sum(int(w) for w in provider_wins.values() if w)
+
+    # Volume organique pour les estimations : jamais sous le réel visible
+    estimate_series = max(series_enriched, completed)
+    estimate_matches = max(matches_won, provider_wins_total)
+    estimates_use_cache_floor = (
+        estimate_series > series_enriched or estimate_matches > matches_won
+    )
+    if series_enriched:
+        avg_matches = round(matches_won / series_enriched, 2)
+    elif estimate_series:
+        avg_matches = round(estimate_matches / estimate_series, 2)
+    else:
+        avg_matches = 0.0
+
+    # --- Estimations fun ---
+    time_minutes = _estimate_minutes(estimate_series, estimate_matches)
     duration = _format_duration(time_minutes)
-    coffees = time_minutes / STATS_MINUTES_PER_COFFEE if time_minutes else 0.0
-    deepl_eur = (series_enriched * STATS_CHARS_PER_SUMMARY * STATS_DEEPL_EUR_PER_1K) / 1000.0
+    coffees = round(time_minutes / STATS_MINUTES_PER_COFFEE, 1) if time_minutes else 0.0
+    deepl_eur = (estimate_series * STATS_CHARS_PER_SUMMARY * STATS_DEEPL_EUR_PER_1K) / 1000.0
     netflix_eps = round(time_minutes / STATS_MINUTES_PER_NETFLIX, 1) if time_minutes else 0.0
-    manga_pages = series_enriched * STATS_PAGES_PER_SERIES
+    manga_pages = estimate_series * STATS_PAGES_PER_SERIES
     bmc_coffees = round(deepl_eur / STATS_BMC_COFFEE_EUR, 1) if deepl_eur else 0.0
 
     manual_overrides = sum(1 for v in cached_data.values() if _is_manual_override(v))
@@ -156,7 +196,11 @@ def compute_playful_stats(
         pid, wins = ranked[-1]
         underdog = {"id": pid, "name": _provider_display_name(pid), "wins": wins}
 
-    # Données Chart.js (JSON-friendly)
+    # Hit rate organique : lifetime si dispo, sinon cache decided
+    organic_hit_rate = lifetime_hit_rate
+    if lifetime_attempts == 0 and decided:
+        organic_hit_rate = success_rate
+
     charts = {
         "status": {
             "labels": ["COMPLETED", "PENDING", "NOT_FOUND", "IGNORED"],
@@ -172,7 +216,11 @@ def compute_playful_stats(
         },
         "hit_miss": {
             "labels": ["hit", "miss"],
-            "values": [series_enriched, series_missed],
+            "values": (
+                [series_enriched, series_missed]
+                if lifetime_attempts
+                else [completed, not_found]
+            ),
         },
     }
 
@@ -181,14 +229,17 @@ def compute_playful_stats(
         "matches_won": matches_won,
         "series_missed": series_missed,
         "avg_matches": avg_matches,
-        "lifetime_hit_rate": lifetime_hit_rate,
+        "lifetime_hit_rate": organic_hit_rate,
+        "estimate_series": estimate_series,
+        "estimate_matches": estimate_matches,
+        "estimates_use_cache_floor": estimates_use_cache_floor,
         "completed": completed,
         "pending": pending,
         "not_found": not_found,
         "ignored": ignored,
         "total": total,
         "time_saved": duration,
-        "coffees_avoided": round(coffees, 1),
+        "coffees_avoided": coffees,
         "deepl_eur_saved": round(deepl_eur, 2),
         "success_rate": success_rate,
         "completion_pct": completion_pct,

@@ -222,6 +222,7 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 | :--- | :--- | :--- | :--- |
 | `ANILIST` | AniList | Manga, Comic, Book | GraphQL API, spin-off penalties, native `AniListId` mapping. |
 | `BEDETHEQUE` | Bédéthèque | Comic | Franco-Belgian BD scraper, `curl_cffi` CSRF bypass. |
+| `BDTHEQUE` | BDTheque.com | Comic | Franco-Belgian BD (bdtheque.com, not bedetheque). AJAX search + series page parse. |
 | `COMICVINE` | ComicVine | Comic | API Key required. Primary publisher weighting, Issue #1 fallback. |
 | `GOOGLEBOOKS` | Google Books | Book, Comic | API Key required. Dynamic `langRestrict`, ISBN targeting. |
 | `HARDCOVER` | Hardcover (Exp) | Book, Comic | API Key required. Hasura GraphQL API & Typesense search. |
@@ -231,6 +232,7 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 | `MANGADEX` | MangaDex | Manga | Content rating filters (`erotica`), oneshot penalties. |
 | `MANGAUPDATES`| MangaUpdates | Manga | `hit_title` matching, Publisher Preference support. |
 | `OPENLIBRARY` | Open Library | Book, Comic | ISBN support, anti-429 retries, Google Disclaimer bypass. |
+| `MAL` | MyAnimeList | Manga, Book | Official API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY`). |
 | `SHIKIMORI` | Shikimori | Manga | Multilingual title matching, `/roles` staff extraction. |
 | `WIKIDATA` | Wikidata | Manga, Comic, Book | SPARQL + Entity API; Magic Input Q-id; shared `wikidata_map`. |
 
@@ -499,6 +501,7 @@ renvoie n'importe quoi) ne puisse pas faire planter l'enrichissement. Voir `CUST
 | :--- | :--- | :--- |
 | `ANILIST` | AniList | API GraphQL, scoring des candidats contre les spin-offs. |
 | `BEDETHEQUE` | Bédéthèque | Contournement CSRF `curl_cffi`, match exact de séries franco-belges. |
+| `BDTHEQUE` | BDTheque.com | BD franco-belge (bdtheque.com, pas bedetheque). Recherche AJAX + parse fiche série. |
 | `COMICVINE` | ComicVine | API Key. Recherche `filter=name:`, priorisation des éditeurs majeurs. |
 | `GOOGLEBOOKS` | Google Books | API Key. Replis dynamiques par langue (`langRestrict`), ISBN. |
 | `HARDCOVER` | Hardcover (Exp) | API Key. GraphQL Hasura + Moteur Typesense. |
@@ -509,6 +512,8 @@ renvoie n'importe quoi) ne puisse pas faire planter l'enrichissement. Voir `CUST
 | `MANGAUPDATES`| MangaUpdates | Scraping par `hit_title`, support de la Préférence d'Éditeur. |
 | `OPENLIBRARY` | Open Library | Clés Work (`OL...W`) & ISBNs, contournement Disclaimer Google Books. |
 | `SHIKIMORI` | Shikimori | API Multilingue, extraction `/roles` du staff. |
+| `MAL` | MyAnimeList | API officielle v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY`). |
+| `WIKIDATA` | Wikidata | SPARQL + Entity API ; Magic Input Q-id ; `wikidata_map`. |
 
 ---
 

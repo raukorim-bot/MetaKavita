@@ -38,6 +38,56 @@ function closeConfigModal() {
     document.getElementById('configModal').style.display = 'none';
 }
 
+function openProvidersModal() {
+    const modal = document.getElementById('providersModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeProvidersModal() {
+    const modal = document.getElementById('providersModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function saveProvidersConfig() {
+    const form = document.getElementById('providersForm');
+    if (!form) return;
+    const formData = new FormData(form);
+    formData.append('PROVIDERS_SAVE', '1');
+
+    const btn = form.querySelector('button[type="submit"]');
+    const originalText = btn ? btn.innerText : '';
+    if (btn) btn.innerText = '⏳...';
+
+    fetch(getRootPath() + '/save-config', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    })
+    .then(data => {
+        if (data.success) {
+            if (btn) {
+                btn.innerText = '✅ OK';
+                setTimeout(() => {
+                    if (btn) btn.innerText = originalText;
+                    closeProvidersModal();
+                }, 700);
+            } else {
+                closeProvidersModal();
+            }
+        } else {
+            if (btn) btn.innerText = originalText;
+            alert('Erreur de sauvegarde');
+        }
+    })
+    .catch(() => {
+        if (btn) btn.innerText = originalText;
+        alert('Erreur réseau');
+    });
+}
+
 // --- BAROMÈTRE DE FIABILITÉ (seuil de match) ---
 let _matchThresholdSaveTimer = null;
 
@@ -113,17 +163,59 @@ function saveConfig() {
             if (newLang && currentLang !== newLang) {
                 window.location.reload();
             }
-        } else if (btn) {
-            btn.innerText = "❌";
-            setTimeout(() => { btn.innerText = originalText; }, 2000);
+        } else {
+            if (btn) btn.innerText = originalText;
+            alert("Erreur de sauvegarde");
         }
     })
     .catch(() => {
-        if (btn) {
-            btn.innerText = "❌";
-            setTimeout(() => { btn.innerText = originalText; }, 2000);
-        }
+        if (btn) btn.innerText = originalText;
+        alert("Erreur réseau");
     });
+}
+
+/** Sauvegarde puis recharge pour appliquer le filtre de bibliothèques (toolbar / liste). */
+function saveConfigAndReloadLibraries() {
+    const form = document.getElementById('configForm');
+    if (!form) return;
+    const formData = new FormData(form);
+
+    const smartScoring = document.getElementById('sidebar_smart_scoring');
+    const smartCompletion = document.getElementById('sidebar_smart_completion');
+    const autoCover = document.getElementById('sidebar_auto_cover');
+    const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
+    const resetContext = document.getElementById('sidebar_reset_context');
+    const matchThresholdCustom = document.getElementById('sidebar_match_threshold_custom');
+    const matchAcceptThreshold = document.getElementById('sidebar_match_accept_threshold');
+    if (resetContext) formData.append('RESET_CONTEXT_ON_FORCE', resetContext.checked ? 'true' : 'false');
+    if (smartScoring) formData.append('SMART_SCORING', smartScoring.checked ? 'true' : 'false');
+    if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
+    if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
+    if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
+    if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
+    if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
+
+    const titleFallback = document.getElementById('config_title_fallback');
+    if (titleFallback) formData.append('TITLE_FALLBACK_TRANSLATION', titleFallback.checked ? 'true' : 'false');
+    const playfulStats = document.getElementById('config_playful_stats');
+    if (playfulStats) formData.append('ENABLE_PLAYFUL_STATS', playfulStats.checked ? 'true' : 'false');
+
+    fetch(getRootPath() + '/save-config', {
+        method: 'POST',
+        body: formData
+    })
+    .then(res => {
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        return res.json();
+    })
+    .then(data => {
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert("Erreur de sauvegarde");
+        }
+    })
+    .catch(() => alert("Erreur réseau"));
 }
 
 // --- GESTION DES MENUS PROVIDERS ---

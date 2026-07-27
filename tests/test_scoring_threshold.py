@@ -78,7 +78,7 @@ def test_all_score_candidate_scrapers_declare_uses_unified_scoring():
     expected_ids = {
         "MANGABAKA", "ANILIST", "GOOGLEBOOKS", "HARDCOVER", "OPENLIBRARY",
         "MANGADEX", "MANGAUPDATES", "MANGANEWS", "SHIKIMORI",
-        "KITSU", "COMICVINE", "BEDETHEQUE", "WIKIDATA", "MAL",
+        "KITSU", "COMICVINE", "BEDETHEQUE", "BDTHEQUE", "WIKIDATA", "MAL",
     }
     for scraper_id in expected_ids:
         scraper = ScraperRegistry.get(scraper_id)

@@ -1,11 +1,11 @@
 	<!-- MODAL À PROPOS -->
 	<div id="aboutModal" class="modal-overlay" onclick="if(event.target===this) closeAboutModal()" style="display: none;">
-		<div class="modal-content" style="max-width: 520px;">
-			<div class="modal-header">
+		<div class="modal-content modal-shell">
+			<div class="modal-header modal-header--accent">
 				<h3 class="m-0">{{ t.about_title }}</h3>
 				<button type="button" class="close-btn" onclick="closeAboutModal()">&times;</button>
 			</div>
-			<div class="about-modal-body" style="font-size: 13px; line-height: 1.6;">
+			<div class="modal-scroll-body about-modal-body">
 				<p class="about-version text-muted" style="margin: 0 0 12px;">MetaKavita <strong>v{{ app_version }}</strong></p>
 				<p style="margin: 0 0 14px;">{{ t.about_body }}</p>
 				<p class="about-kavita-support" style="margin: 0 0 16px;">{{ t.about_kavita_support }}</p>
@@ -19,7 +19,7 @@
 					<a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer" class="btn-icon bmc-link about-link">☕ {{ t.buy_me_coffee }}</a>
 				</div>
 			</div>
-			<div class="modal-footer" style="margin-top: 15px; border-top: 1px solid var(--border-color); padding-top: 12px; display: flex; justify-content: flex-end;">
+			<div class="modal-footer">
 				<button type="button" class="btn-primary" onclick="closeAboutModal()" style="padding: 8px 20px;">
 					{{ t.get('changelog_btn_got_it', "J'ai compris !") }}
 				</button>

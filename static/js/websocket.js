@@ -117,7 +117,7 @@ function uncheckSeriesForBatchResume(item) {
     socket.on('enrichment_stats', function(payload) {
         if (!payload) return;
         if (payload.lifetime) {
-            applyLife(payload.lifetime);
+            applyLifetime(payload.lifetime);
         } else {
             bump(enrichedEl, payload.series_enriched_delta || 0);
             bump(matchesEl, payload.matches_won_delta || 0);

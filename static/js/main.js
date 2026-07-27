@@ -139,6 +139,9 @@ document.addEventListener('keydown', (event) => {
         closeHelpMenu();
         closeAboutModal();
         closeChangelogModal();
+        if (typeof closeCoverModal === 'function') closeCoverModal();
+        if (typeof closeProvidersModal === 'function') closeProvidersModal();
+        if (typeof closeConfigModal === 'function') closeConfigModal();
     }
 });
 

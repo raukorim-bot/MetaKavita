@@ -1,27 +1,27 @@
             <aside class="sidebar">
                 
                 <!-- BLOC 1: STATISTIQUES -->
-                <div class="card">
+                <div class="card sidebar-stats-card card-tint-teal">
                     <h3 class="section-title">{{ t.stats_title }}</h3>
-                    <div style="display: flex; justify-content: space-between; text-align: center; margin-bottom: 10px; flex-wrap: wrap;">
-                        <div style="flex: 1;">
-                            <h4 style="margin:0; color: var(--success); font-size: 1.2rem;">{{ stats.completed }}</h4>
-                            <small class="text-muted">{{ t.stats_enriched }}</small>
+                    <div class="sidebar-stats">
+                        <div class="sidebar-stat">
+                            <span class="sidebar-stat-val" style="color: var(--success);">{{ stats.completed }}</span>
+                            <span class="sidebar-stat-label">{{ t.stats_enriched }}</span>
                         </div>
-                        <div style="flex: 1;">
-                            <h4 style="margin:0; color: var(--danger); font-size: 1.2rem;">{{ stats.not_found }}</h4>
-                            <small class="text-muted">{{ t.stats_errors }}</small>
+                        <div class="sidebar-stat">
+                            <span class="sidebar-stat-val" style="color: var(--danger);">{{ stats.not_found }}</span>
+                            <span class="sidebar-stat-label">{{ t.stats_errors }}</span>
                         </div>
-                        <div style="flex: 1;">
-                            <h4 style="margin:0; color: var(--warning); font-size: 1.2rem;">{{ stats.pending }}</h4>
-                            <small class="text-muted">{{ t.stats_pending }}</small>
+                        <div class="sidebar-stat">
+                            <span class="sidebar-stat-val" style="color: var(--warning);">{{ stats.pending }}</span>
+                            <span class="sidebar-stat-label">{{ t.stats_pending }}</span>
                         </div>
-                        <div style="flex: 1;">
-                            <h4 style="margin:0; color: var(--secondary); font-size: 1.2rem;">{{ stats.ignored }}</h4>
-                            <small class="text-muted">{{ t.stats_ignored }}</small>
+                        <div class="sidebar-stat">
+                            <span class="sidebar-stat-val" style="color: var(--text-muted);">{{ stats.ignored }}</span>
+                            <span class="sidebar-stat-label">{{ t.stats_ignored }}</span>
                         </div>
                     </div>
-                    <div style="width: 100%; background: var(--bg-input); height: 8px; border-radius: 4px; overflow: hidden; display: flex;">
+                    <div class="sidebar-stats-bar">
                         {% if stats.total > 0 %}
                         <div style="width: {{ (stats.completed / stats.total) * 100 }}%; background: var(--success);"></div>
                         <div style="width: {{ (stats.not_found / stats.total) * 100 }}%; background: var(--danger);"></div>
@@ -29,13 +29,14 @@
                         <div style="width: {{ (stats.ignored / stats.total) * 100 }}%; background: var(--secondary);"></div>
                         {% endif %}
                     </div>
-                    <a href="{{ url_for('pages.stats') }}" class="btn-secondary block-link w-100 text-center mt-3" style="font-size: 12px; padding: 6px;">{{ t.open_stats }}</a>
+                    <a href="{{ url_for('pages.stats') }}" class="btn-secondary block-link w-100 text-center mt-3 btn-open-stats">{{ t.open_stats }}</a>
                 </div>
 
                 <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
-                <div class="card">
+                <div class="card card-tint-violet scraping-options-card">
                     <details class="scraping-options-details" id="scrapingOptionsDetails">
                     <summary class="section-title scraping-options-summary" style="cursor: pointer; list-style: none; user-select: none;">{{ t.options }}</summary>
+                    <div class="scraping-options-body">
                     <div class="form-group" style="padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3); margin-bottom: 12px;">
                         <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
                             <input type="checkbox" id="sidebar_smart_scoring" value="true" {% if config.get('SMART_SCORING', True) %}checked{% endif %} onchange="saveConfig()"> 
@@ -113,6 +114,12 @@
                             background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
                         }
                     </style>
+                    <div class="form-group" style="margin-bottom: 12px;">
+                        <button type="button" class="btn-primary w-100" onclick="openProvidersModal()" style="padding: 10px 12px; font-size: 13px;">
+                            {{ t.open_providers_modal }}
+                        </button>
+                        <p class="field-hint" style="margin-top: 6px;">{{ t.open_providers_modal_hint }}</p>
+                    </div>
                     <div class="form-group" style="margin-bottom: 10px;">
                         <label class="checkbox-label">
                             <input type="checkbox" id="sidebar_auto_cover" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
@@ -159,6 +166,7 @@
                             <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-alt_titles" value="alt_titles" checked> Titres Alternatifs</label>
                         </div>
                     </details>
+                    </div>
                     </details>
                 </div>
 
@@ -170,7 +178,7 @@
                 {% endif %}
                 
                 <!-- BLOC 3: TERMINAL DE LOGS -->
-                <div class="logs-container card" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
+                <div class="logs-container card card-tint-sky" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
                     <h3 class="section-title m-0 mb-2">{{ t.live_logs }}</h3>
                     <div id="log-console" class="log-console" style="flex: 1;">
                         <div class="log-line text-muted">{{ t.waiting }}</div>

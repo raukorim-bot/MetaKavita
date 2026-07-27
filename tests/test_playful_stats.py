@@ -1,12 +1,18 @@
 """
-C7 — Stats ludiques : compteurs lifetime, formules, Chart data, flag ON.
+C7 — Stats ludiques : compteurs lifetime, formules organiques, Chart data.
 """
 import os
 
 import pytest
 from flask import Flask
 
-from services.stats_service import compute_playful_stats
+from services.stats_service import (
+    STATS_MINUTES_PER_MATCH,
+    STATS_MINUTES_PER_SERIES,
+    _estimate_minutes,
+    _format_duration,
+    compute_playful_stats,
+)
 
 
 def test_record_enrichment_telemetry(isolated_db):
@@ -57,6 +63,20 @@ def test_broadcast_enrichment_stats_emits_lifetime(monkeypatch, isolated_db):
     assert captured["payload"]["lifetime"]["series_missed"] == 0
 
 
+def test_format_duration_days_and_hours():
+    assert _format_duration(0)["display"] == "0 min"
+    assert _format_duration(45)["display"] == "45 min"
+    assert _format_duration(90)["display"] == "1h 30m"
+    d = _format_duration(60 * 24 + 90)
+    assert d["days"] == 1
+    assert d["display"] == "1j 1h 30m"
+
+
+def test_estimate_minutes_includes_matches():
+    assert _estimate_minutes(10, 0) == 10 * STATS_MINUTES_PER_SERIES
+    assert _estimate_minutes(10, 25) == int(round(10 * STATS_MINUTES_PER_SERIES + 25 * STATS_MINUTES_PER_MATCH))
+
+
 def test_compute_playful_stats_uses_lifetime_not_cache_completed():
     cache = {
         1: {"status": "COMPLETED", "forced_id": "", "forced_provider": "AUTO", "targeted_fields": "ALL", "alt_title_langs": "", "publisher_pref": "GLOBAL"},
@@ -75,13 +95,54 @@ def test_compute_playful_stats_uses_lifetime_not_cache_completed():
     assert playful["series_missed"] == 5
     assert playful["lifetime_hit_rate"] == round(100.0 * 10 / 15, 1)
     assert playful["avg_matches"] == 2.5
-    assert playful["time_saved"]["total_minutes"] == 40
+    assert playful["estimate_series"] == 10
+    assert playful["estimate_matches"] == 25
+    assert playful["estimates_use_cache_floor"] is False
+    assert playful["time_saved"]["total_minutes"] == _estimate_minutes(10, 25)
     assert playful["completed"] == 2
     assert playful["charts"]["lifetime"]["values"] == [10, 25, 5]
     assert playful["charts"]["hit_miss"]["values"] == [10, 5]
     assert playful["charts"]["status"]["values"] == [2, 1, 1, 1]
     assert playful["champion"]["id"] == "ANILIST"
     assert playful["underdog"]["id"] == "KITSU"
+
+
+def test_compute_playful_stats_floors_estimates_on_cache_when_lifetime_empty():
+    """Ancienne install : cache plein, télémétrie lifetime encore à 0."""
+    cache = {
+        i: {
+            "status": "COMPLETED",
+            "forced_id": "",
+            "forced_provider": "AUTO",
+            "targeted_fields": "ALL",
+            "alt_title_langs": "",
+            "publisher_pref": "GLOBAL",
+        }
+        for i in range(1, 6)
+    }
+    cache[6] = {
+        "status": "NOT_FOUND",
+        "forced_id": "",
+        "forced_provider": "AUTO",
+        "targeted_fields": "ALL",
+        "alt_title_langs": "",
+        "publisher_pref": "GLOBAL",
+    }
+    wins = {"ANILIST": 8, "KITSU": 2}
+
+    playful = compute_playful_stats(cache, wins, {})
+
+    assert playful["series_enriched"] == 0
+    assert playful["matches_won"] == 0
+    assert playful["estimate_series"] == 5
+    assert playful["estimate_matches"] == 10
+    assert playful["estimates_use_cache_floor"] is True
+    assert playful["time_saved"]["total_minutes"] == _estimate_minutes(5, 10)
+    assert playful["time_saved"]["total_minutes"] > 0
+    assert playful["coffees_avoided"] > 0
+    assert playful["manga_pages"] == 5 * 160
+    assert playful["lifetime_hit_rate"] == round(100.0 * 5 / 6, 1)
+    assert playful["charts"]["hit_miss"]["values"] == [5, 1]
 
 
 def test_compute_playful_stats_empty():
@@ -116,8 +177,9 @@ def test_stats_page_hides_playful_when_disabled(pages_client, isolated_db, monke
     response = pages_client.get("/stats")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Tableau de bord ludique" not in html
+    assert "chartStatus" not in html
     assert "chart.js" not in html.lower()
+    assert "Temps gagné" not in html
 
 
 def test_stats_page_shows_charts_and_lifetime(pages_client, isolated_db, monkeypatch):
@@ -128,11 +190,11 @@ def test_stats_page_shows_charts_and_lifetime(pages_client, isolated_db, monkeyp
     response = pages_client.get("/stats")
     assert response.status_code == 200
     html = response.get_data(as_text=True)
-    assert "Tableau de bord ludique" in html
     assert "chart.js" in html.lower()
     assert "chartStatus" in html
     assert "chartHitMiss" in html
     assert "Séries enrichies" in html
     assert "Matchs réussis" in html
-    assert "Introuvables" in html
+    assert "Temps gagné" in html
+    assert "data-count-minutes" in html
     assert "Cafés pour le dev" in html

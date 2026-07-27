@@ -1,6 +1,9 @@
 # --- Dossier de données généré (Contient config, db et logs) ---
 data/
 
+# Essais / scratch perso (ne pas commit)
+dev_local/
+
 # Configuration et secrets (TRÈS IMPORTANT)
 config.json
 docker-compose.yml
@@ -12,7 +15,6 @@ cache.db
 *.log
 metakavita.log
 nautiljon_dump.html
-debug/build_nautiljon_wayback.py
 debug/build_wikidata_subset.py
 
 # Environnements virtuels (si dev local hors docker)

@@ -3,571 +3,1000 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MetaKavita Statistiques</title>
+    <title>MetaKavita · {{ t.stats_global }}</title>
     <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
-    <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=Fraunces:opsz,wght@9..144,600;9..144,700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script>
-        const savedTheme = localStorage.getItem('theme') || 'dark';
-        document.documentElement.setAttribute('data-theme', savedTheme);
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
     </script>
     <style>
-        .stats-shell {
-            width: 100%;
-            max-width: {% if playful_enabled %}1120px{% else %}640px{% endif %};
-            margin: 0 auto;
-            padding: 8px 0 48px;
+        :root {
+            --stats-ink: var(--text-main);
+            --stats-muted: var(--text-muted);
+            --stats-teal: #2dd4bf;
+            --stats-amber: #fbbf24;
+            --stats-coral: #fb7185;
+            --stats-sky: #38bdf8;
+            --stats-lime: #a3e635;
         }
-        .stats-hero {
-            position: relative;
-            overflow: hidden;
-            border-radius: 18px;
-            padding: 36px 32px 28px;
-            text-align: left;
-            background:
-                radial-gradient(ellipse 80% 60% at 100% 0%, color-mix(in srgb, var(--primary) 28%, transparent), transparent 55%),
-                radial-gradient(ellipse 60% 50% at 0% 100%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 50%),
-                var(--bg-card);
-            border: 1px solid var(--border-color, var(--border));
-            box-shadow: 0 18px 40px rgba(0, 0, 0, 0.18);
-        }
-        .stats-hero h1 {
-            font-family: "Fraunces", Georgia, serif;
-            font-size: clamp(1.6rem, 3vw, 2.15rem);
-            font-weight: 700;
-            margin: 0 0 8px;
-            letter-spacing: -0.02em;
-            color: var(--text-main, var(--text));
-        }
-        .stats-hero .hero-sub {
-            margin: 0 0 28px;
-            color: var(--text-muted);
-            font-size: 0.95rem;
-            max-width: 42ch;
-            line-height: 1.45;
-        }
-        .hero-kpis {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-            gap: 14px;
-        }
-        .hero-kpi {
-            background: color-mix(in srgb, var(--bg-input) 88%, transparent);
-            border: 1px solid color-mix(in srgb, var(--border-color, var(--border)) 80%, transparent);
-            border-radius: 14px;
-            padding: 16px 18px;
-            backdrop-filter: blur(6px);
-        }
-        .hero-kpi .kpi-val {
-            font-family: "Fraunces", Georgia, serif;
-            font-size: 2rem;
-            font-weight: 700;
-            margin: 0;
-            line-height: 1.1;
-            color: var(--primary);
-        }
-        .hero-kpi.kpi-matches .kpi-val { color: var(--accent); }
-        .hero-kpi.kpi-miss .kpi-val { color: var(--danger); }
-        .hero-kpi.kpi-ok .kpi-val { color: var(--success); }
-        .hero-kpi .kpi-label {
-            margin: 6px 0 0;
-            font-size: 0.78rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.04em;
-            color: var(--text-muted);
-        }
-        .charts-row {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 16px;
-            margin-top: 20px;
-        }
-        .chart-panel {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color, var(--border));
-            border-radius: 16px;
-            padding: 20px 18px 16px;
-            text-align: left;
-        }
-        .chart-panel h3 {
-            font-family: "DM Sans", sans-serif;
-            font-size: 0.95rem;
-            font-weight: 600;
-            margin: 0 0 12px;
-            color: var(--text-main, var(--text));
-        }
-        .chart-wrap {
-            position: relative;
-            height: 220px;
-        }
-        .stats-section-title {
-            font-family: "Fraunces", Georgia, serif;
-            font-size: 1.25rem;
-            margin: 32px 0 14px;
-            text-align: left;
-            color: var(--text-main, var(--text));
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-            gap: 12px;
-            text-align: left;
-        }
-        .stat-card {
-            background: var(--bg-card);
-            border: 1px solid var(--border-color, var(--border));
-            border-radius: 14px;
-            padding: 16px;
-            min-height: 108px;
-            transition: transform 0.18s ease, border-color 0.18s ease;
-        }
-        .stat-card:hover {
-            transform: translateY(-2px);
-            border-color: color-mix(in srgb, var(--primary) 45%, var(--border-color, var(--border)));
-        }
-        .stat-card .stat-value {
-            font-family: "Fraunces", Georgia, serif;
-            font-size: 1.45rem;
-            font-weight: 700;
-            margin: 0 0 4px;
-            color: var(--primary);
-            line-height: 1.15;
-            word-break: break-word;
-        }
-        .stat-card .stat-label {
-            font-weight: 600;
-            font-size: 0.82rem;
-            margin: 0 0 6px;
-            color: var(--text-main, var(--text));
-        }
-        .stat-card .stat-hint {
-            font-size: 0.72rem;
-            color: var(--text-muted);
-            margin: 0;
-            line-height: 1.35;
-        }
-        .stat-card.stat-bmc .stat-value { color: var(--accent); }
-        .stat-card.stat-wide { grid-column: 1 / -1; }
-        .podium-row { margin-top: 10px; }
-        .podium-bar-track {
-            width: 100%;
-            height: 8px;
-            background: var(--bg-input);
-            border-radius: 6px;
-            overflow: hidden;
-            margin-top: 4px;
-        }
-        .podium-bar-fill {
-            height: 100%;
-            background: linear-gradient(90deg, var(--primary), var(--accent));
-            border-radius: 6px;
-        }
-        .podium-meta {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.78rem;
-            font-weight: 600;
-        }
-        .stats-disclaimer {
-            font-size: 0.72rem;
-            color: var(--text-muted);
-            margin-top: 20px;
-            line-height: 1.45;
-            text-align: left;
-        }
-        .stats-backbar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 18px;
-        }
-        .stats-backbar .logo-mini {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            font-family: "Fraunces", Georgia, serif;
-            font-weight: 700;
-            font-size: 1.05rem;
-            color: var(--text-main, var(--text));
-        }
-        .stats-backbar .logo-mini img { width: 28px; height: 28px; border-radius: 6px; }
-        /* style.css fige le dashboard (100vh + overflow:hidden) — /stats doit scroller */
-        html {
-            height: auto;
-            overflow-x: hidden;
-            overflow-y: auto;
-        }
+        html { height: auto; overflow-x: hidden; overflow-y: auto; scroll-behavior: smooth; }
         body {
-            font-family: "DM Sans", system-ui, sans-serif;
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
             height: auto !important;
             min-height: 100vh;
             overflow-x: hidden !important;
             overflow-y: auto !important;
+            background: #07090f;
+            color: var(--stats-ink);
+        }
+        [data-theme="light"] body {
+            background: #f1f5f9;
+        }
+        .dashboard-wrapper, .content {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            padding: 0 !important;
+            background: transparent !important;
+        }
+
+        /* ---- Sticky top ---- */
+        .stats-nav {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            background: color-mix(in srgb, #07090f 78%, transparent);
+            backdrop-filter: blur(14px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        [data-theme="light"] .stats-nav {
+            background: color-mix(in srgb, #f8fafc 85%, transparent);
+            border-bottom-color: rgba(15,23,42,0.08);
+        }
+        .stats-nav .logo-mini {
+            display: flex; align-items: center; gap: 10px;
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            font-weight: 700; font-size: 1.05rem;
+        }
+        .stats-nav .logo-mini img { width: 28px; height: 28px; border-radius: 7px; }
+        .stats-nav-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .stats-nav .btn-primary { padding: 8px 14px; font-size: 13px; text-decoration: none; }
+
+        /* ---- Chapters ---- */
+        .stats-story { width: 100%; }
+        .stats-chapter {
+            position: relative;
+            min-height: min(100dvh, 920px);
+            display: flex;
+            align-items: center;
+            padding: clamp(48px, 8vw, 96px) clamp(16px, 5vw, 64px);
+            overflow: hidden;
+        }
+        .stats-chapter::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.9;
+        }
+        .chapter-inner {
+            position: relative;
+            z-index: 1;
+            width: min(1100px, 100%);
+            margin: 0 auto;
+        }
+        .chapter-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            color: var(--chapter-accent, var(--stats-sky));
+        }
+        .chapter-kicker::before {
+            content: "";
+            width: 28px; height: 2px;
+            background: currentColor;
+            border-radius: 2px;
+        }
+        .chapter-title {
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            font-size: clamp(1.85rem, 4.5vw, 3.4rem);
+            font-weight: 700;
+            letter-spacing: -0.045em;
+            line-height: 1.08;
+            margin: 0 0 12px;
+            max-width: 16ch;
+        }
+        .chapter-sub {
+            margin: 0 0 36px;
+            color: var(--stats-muted);
+            font-size: clamp(0.95rem, 1.6vw, 1.1rem);
+            line-height: 1.5;
+            max-width: 48ch;
+        }
+
+        /* Hero */
+        .chapter-hero {
+            min-height: 100dvh;
+            text-align: center;
+            justify-content: center;
+        }
+        .chapter-hero::before {
             background:
-                radial-gradient(ellipse 70% 40% at 50% -10%, color-mix(in srgb, var(--primary) 12%, transparent), transparent),
-                var(--bg-app);
+                radial-gradient(ellipse 70% 55% at 50% 20%, rgba(45, 212, 191, 0.22), transparent 55%),
+                radial-gradient(ellipse 50% 40% at 80% 80%, rgba(56, 189, 248, 0.18), transparent 50%),
+                radial-gradient(ellipse 40% 35% at 15% 70%, rgba(251, 113, 133, 0.14), transparent 45%);
         }
-        .dashboard-wrapper {
-            height: auto !important;
-            min-height: 100vh;
-            overflow: visible !important;
+        .chapter-hero .chapter-inner { text-align: center; }
+        .chapter-hero .chapter-title {
+            max-width: none;
+            margin-left: auto; margin-right: auto;
+            background: linear-gradient(115deg, #fff 10%, var(--stats-teal) 45%, var(--stats-sky) 80%);
+            -webkit-background-clip: text;
+            background-clip: text;
+            color: transparent;
         }
-        .content {
-            overflow: visible !important;
-            height: auto !important;
-            min-height: 0;
+        [data-theme="light"] .chapter-hero .chapter-title {
+            background: linear-gradient(115deg, #0f172a 10%, #0d9488 50%, #0284c7 85%);
+            -webkit-background-clip: text;
+            background-clip: text;
         }
-        @media (max-width: 640px) {
-            .stats-hero { padding: 24px 18px; }
-            .chart-wrap { height: 200px; }
+        .chapter-hero .chapter-sub { margin-left: auto; margin-right: auto; }
+        .hero-score {
+            margin: 28px auto 18px;
+            width: min(280px, 70vw);
+            aspect-ratio: 1;
+            border-radius: 50%;
+            display: grid;
+            place-items: center;
+            background:
+                radial-gradient(circle at 35% 30%, rgba(255,255,255,0.12), transparent 45%),
+                conic-gradient(from 210deg, var(--stats-teal), var(--stats-sky), var(--stats-coral), var(--stats-amber), var(--stats-teal));
+            padding: 6px;
+            box-shadow: 0 0 80px rgba(45, 212, 191, 0.25);
+        }
+        .hero-score-inner {
+            width: 100%; height: 100%;
+            border-radius: 50%;
+            background: #0a0d16;
+            display: flex; flex-direction: column;
+            align-items: center; justify-content: center;
+            gap: 4px;
+        }
+        [data-theme="light"] .hero-score-inner { background: #fff; }
+        .hero-score-value {
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            font-size: clamp(3rem, 10vw, 4.5rem);
+            font-weight: 700;
+            line-height: 1;
+            color: var(--stats-teal);
+        }
+        .hero-score-label {
+            font-size: 0.75rem;
+            font-weight: 700;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            color: var(--stats-muted);
+        }
+        .scroll-hint {
+            margin-top: 40px;
+            font-size: 0.8rem;
+            color: var(--stats-muted);
+            animation: bounceHint 2.2s ease-in-out infinite;
+        }
+        .scroll-hint span { display: inline-block; margin-top: 8px; font-size: 1.2rem; opacity: 0.7; }
+        @keyframes bounceHint {
+            0%, 100% { transform: translateY(0); opacity: 0.55; }
+            50% { transform: translateY(8px); opacity: 1; }
+        }
+
+        /* Chapter color themes */
+        .chapter-lifetime::before {
+            background:
+                radial-gradient(ellipse 60% 50% at 10% 40%, rgba(56, 189, 248, 0.2), transparent 55%),
+                radial-gradient(ellipse 50% 40% at 90% 70%, rgba(99, 102, 241, 0.12), transparent 50%);
+        }
+        .chapter-lifetime { --chapter-accent: var(--stats-sky); }
+        .chapter-time::before {
+            background:
+                radial-gradient(ellipse 55% 45% at 85% 30%, rgba(251, 191, 36, 0.22), transparent 55%),
+                radial-gradient(ellipse 45% 40% at 10% 80%, rgba(45, 212, 191, 0.12), transparent 50%);
+        }
+        .chapter-time { --chapter-accent: var(--stats-amber); }
+        .chapter-library::before {
+            background:
+                radial-gradient(ellipse 55% 50% at 20% 20%, rgba(45, 212, 191, 0.18), transparent 55%),
+                radial-gradient(ellipse 45% 40% at 80% 85%, rgba(16, 185, 129, 0.12), transparent 50%);
+        }
+        .chapter-library { --chapter-accent: var(--stats-teal); }
+        .chapter-craft::before {
+            background:
+                radial-gradient(ellipse 55% 45% at 75% 25%, rgba(251, 113, 133, 0.2), transparent 55%),
+                radial-gradient(ellipse 40% 35% at 15% 75%, rgba(244, 114, 182, 0.1), transparent 50%);
+        }
+        .chapter-craft { --chapter-accent: var(--stats-coral); }
+        .chapter-providers::before {
+            background:
+                radial-gradient(ellipse 55% 45% at 30% 30%, rgba(167, 139, 250, 0.2), transparent 55%),
+                radial-gradient(ellipse 45% 40% at 90% 70%, rgba(56, 189, 248, 0.12), transparent 50%);
+        }
+        .chapter-providers { --chapter-accent: #a78bfa; }
+        .chapter-summary {
+            min-height: auto;
+            padding-bottom: 80px;
+            --chapter-accent: var(--stats-lime);
+        }
+        .chapter-summary::before {
+            background: radial-gradient(ellipse 70% 40% at 50% 0%, rgba(163, 230, 53, 0.12), transparent 55%);
+        }
+
+        /* Metric mosaics */
+        .metric-mosaic {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 14px;
+        }
+        .metric-tile {
+            grid-column: span 4;
+            position: relative;
+            border-radius: 20px;
+            padding: 22px 22px 20px;
+            background: color-mix(in srgb, var(--bg-card, #12151f) 88%, transparent);
+            border: 1px solid rgba(255,255,255,0.07);
+            box-shadow: 0 18px 40px rgba(0,0,0,0.22);
+            overflow: hidden;
+            min-height: 140px;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            transition: transform 0.35s ease, border-color 0.35s ease;
+        }
+        [data-theme="light"] .metric-tile {
+            background: rgba(255,255,255,0.92);
+            border-color: rgba(15,23,42,0.08);
+            box-shadow: 0 12px 28px rgba(15,23,42,0.08);
+        }
+        .metric-tile:hover {
+            transform: translateY(-4px);
+            border-color: color-mix(in srgb, var(--tile-accent, var(--stats-sky)) 55%, transparent);
+        }
+        .metric-tile.span-3 { grid-column: span 3; }
+        .metric-tile.span-6 { grid-column: span 6; }
+        .metric-tile.span-8 { grid-column: span 8; }
+        .metric-tile.span-12 { grid-column: span 12; }
+        .metric-tile.featured {
+            min-height: 220px;
+            background:
+                linear-gradient(145deg, color-mix(in srgb, var(--tile-accent, var(--stats-teal)) 18%, transparent), transparent 55%),
+                color-mix(in srgb, var(--bg-card, #12151f) 92%, transparent);
+        }
+        .metric-tile .glow {
+            position: absolute; inset: auto -20% -40% auto;
+            width: 180px; height: 180px; border-radius: 50%;
+            background: radial-gradient(circle, color-mix(in srgb, var(--tile-accent, var(--stats-sky)) 35%, transparent), transparent 70%);
+            pointer-events: none;
+        }
+        .metric-value {
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            font-size: clamp(2rem, 4vw, 3.2rem);
+            font-weight: 700;
+            line-height: 1;
+            margin: 0 0 8px;
+            color: var(--tile-accent, var(--stats-sky));
+            letter-spacing: -0.02em;
+        }
+        .metric-tile.featured .metric-value { font-size: clamp(2.6rem, 6vw, 4.2rem); }
+        .metric-label {
+            font-weight: 700;
+            font-size: 0.95rem;
+            margin: 0 0 4px;
+        }
+        .metric-hint {
+            margin: 0;
+            font-size: 0.78rem;
+            color: var(--stats-muted);
+            line-height: 1.4;
+            max-width: 36ch;
+        }
+
+        .charts-stage {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 14px;
+            margin-top: 8px;
+        }
+        .chart-card {
+            border-radius: 18px;
+            padding: 18px;
+            background: color-mix(in srgb, var(--bg-card, #12151f) 90%, transparent);
+            border: 1px solid rgba(255,255,255,0.07);
+            min-height: 260px;
+        }
+        [data-theme="light"] .chart-card {
+            background: #fff;
+            border-color: rgba(15,23,42,0.08);
+        }
+        .chart-card h3 {
+            margin: 0 0 12px;
+            font-size: 0.9rem;
+            font-weight: 650;
+        }
+        .chart-wrap { position: relative; height: 210px; }
+
+        .podium-stage { margin-top: 18px; display: flex; flex-direction: column; gap: 12px; }
+        .podium-item {
+            display: grid;
+            grid-template-columns: 36px 1fr auto;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 14px;
+            border-radius: 14px;
+            background: color-mix(in srgb, var(--bg-card, #12151f) 88%, transparent);
+            border: 1px solid rgba(255,255,255,0.06);
+        }
+        .podium-rank {
+            width: 36px; height: 36px; border-radius: 50%;
+            display: grid; place-items: center;
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            font-weight: 700;
+            background: color-mix(in srgb, #a78bfa 25%, transparent);
+            color: #c4b5fd;
+        }
+        .podium-item:nth-child(1) .podium-rank { background: color-mix(in srgb, var(--stats-amber) 35%, transparent); color: var(--stats-amber); }
+        .podium-item:nth-child(2) .podium-rank { background: color-mix(in srgb, #94a3b8 30%, transparent); color: #e2e8f0; }
+        .podium-item:nth-child(3) .podium-rank { background: color-mix(in srgb, #d97706 28%, transparent); color: #fdba74; }
+        .podium-name { font-weight: 650; }
+        .podium-wins { font-size: 0.85rem; color: var(--stats-muted); font-weight: 600; }
+        .podium-bar {
+            grid-column: 2 / -1;
+            height: 7px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.06);
+            overflow: hidden;
+        }
+        .podium-bar > i {
+            display: block; height: 100%;
+            width: 0;
+            border-radius: inherit;
+            background: linear-gradient(90deg, #a78bfa, var(--stats-sky));
+            transition: width 1.1s cubic-bezier(.2,.8,.2,1);
+        }
+
+        /* Summary table */
+        .summary-table-wrap {
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.08);
+            background: color-mix(in srgb, var(--bg-card, #12151f) 92%, transparent);
+            overflow: auto;
+            max-width: 100%;
+        }
+        [data-theme="light"] .summary-table-wrap {
+            background: #fff;
+            border-color: rgba(15,23,42,0.08);
+        }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            min-width: 520px;
+        }
+        .summary-table th, .summary-table td {
+            padding: 12px 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        [data-theme="light"] .summary-table th,
+        [data-theme="light"] .summary-table td {
+            border-bottom-color: rgba(15,23,42,0.06);
+        }
+        .summary-table th {
+            font-size: 0.72rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--stats-muted);
+            background: rgba(255,255,255,0.03);
+            position: sticky; top: 0;
+        }
+        .summary-table tr:last-child td { border-bottom: none; }
+        .summary-table tbody tr { transition: background 0.2s; }
+        .summary-table tbody tr:hover { background: rgba(45, 212, 191, 0.06); }
+        .cat-pill {
+            display: inline-block;
+            padding: 3px 9px;
+            border-radius: 999px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+        .cat-lifetime { background: rgba(56,189,248,0.15); color: var(--stats-sky); }
+        .cat-fun { background: rgba(251,191,36,0.15); color: var(--stats-amber); }
+        .cat-cache { background: rgba(45,212,191,0.15); color: var(--stats-teal); }
+        .cat-craft { background: rgba(251,113,133,0.15); color: var(--stats-coral); }
+        .cat-providers { background: rgba(167,139,250,0.15); color: #c4b5fd; }
+        .summary-value { font-family: "Bricolage Grotesque", system-ui, sans-serif; font-weight: 650; font-size: 1.05rem; }
+
+        .stats-disclaimer {
+            margin: 28px 0 0;
+            font-size: 0.75rem;
+            color: var(--stats-muted);
+            line-height: 1.5;
+            max-width: 70ch;
+        }
+
+        /* Reveal animations */
+        .reveal {
+            opacity: 0;
+            transform: translateY(36px);
+            transition: opacity 0.7s ease, transform 0.7s cubic-bezier(.2,.8,.2,1);
+        }
+        .reveal.is-in {
+            opacity: 1;
+            transform: none;
+        }
+        .reveal-delay-1 { transition-delay: 0.08s; }
+        .reveal-delay-2 { transition-delay: 0.16s; }
+        .reveal-delay-3 { transition-delay: 0.24s; }
+        .reveal-delay-4 { transition-delay: 0.32s; }
+
+        @media (max-width: 900px) {
+            .metric-tile, .metric-tile.span-3, .metric-tile.span-6, .metric-tile.span-8 { grid-column: span 6; }
+            .charts-stage { grid-template-columns: 1fr; }
+        }
+        @media (max-width: 560px) {
+            .stats-chapter { min-height: auto; padding: 56px 16px; }
+            .chapter-hero { min-height: 100dvh; }
+            .metric-tile, .metric-tile.span-3, .metric-tile.span-6, .metric-tile.span-8, .metric-tile.span-12 {
+                grid-column: span 12;
+            }
+            .metric-tile.featured { min-height: 180px; }
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .reveal { opacity: 1; transform: none; transition: none; }
+            .scroll-hint { animation: none; }
+            html { scroll-behavior: auto; }
         }
     </style>
 </head>
 <body>
-    <div class="dashboard-wrapper">
-        <main class="content" style="display:block; padding: 24px 16px;">
-            <div class="stats-shell">
-                <div class="stats-backbar">
-                    <div class="logo-mini">
-                        <img src="{{ url_for('static', filename='logo.png') }}" alt="">
-                        MetaKavita
+{% set p = playful if (playful_enabled and playful) else none %}
+{% set score = p.library_score if p else ( ((completed / total) * 100)|round|int if total else 0 ) %}
+
+<div class="dashboard-wrapper">
+    <nav class="stats-nav">
+        <div class="logo-mini">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+            MetaKavita
+        </div>
+        <div class="stats-nav-actions">
+            <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.stats_back }}</a>
+        </div>
+    </nav>
+
+    <main class="content stats-story">
+        <!-- HERO -->
+        <section class="stats-chapter chapter-hero">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal" style="--chapter-accent: var(--stats-teal); justify-content: center;">{{ t.stats_global }}</p>
+                <h1 class="chapter-title reveal reveal-delay-1">{{ t.stats_hero_title }}</h1>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_hero_sub }}</p>
+                <div class="hero-score reveal reveal-delay-3">
+                    <div class="hero-score-inner">
+                        <div class="hero-score-value" data-count="{{ score }}" data-suffix="/100">0</div>
+                        <div class="hero-score-label">{{ t.stats_score_eyebrow }}</div>
                     </div>
-                    <a href="{{ url_for('pages.index') }}" class="btn-primary block-link" style="padding: 8px 14px; font-size: 13px;">{{ t.stats_back }}</a>
                 </div>
+                <p class="scroll-hint reveal reveal-delay-4">{{ t.stats_scroll_hint }}<br><span>↓</span></p>
+            </div>
+        </section>
 
-                <section class="stats-hero">
-                    <h1>{{ t.stats_global }}</h1>
-                    <p class="hero-sub">{{ t.stats_hero_sub }}</p>
-                    <div class="hero-kpis">
-                        {% if playful_enabled and playful %}
-                        <div class="hero-kpi">
-                            <p class="kpi-val">{{ playful.series_enriched }}</p>
-                            <p class="kpi-label">{{ t.playful_lifetime_series }}</p>
-                        </div>
-                        <div class="hero-kpi kpi-matches">
-                            <p class="kpi-val">{{ playful.matches_won }}</p>
-                            <p class="kpi-label">{{ t.playful_lifetime_matches }}</p>
-                        </div>
-                        <div class="hero-kpi kpi-miss">
-                            <p class="kpi-val">{{ playful.series_missed }}</p>
-                            <p class="kpi-label">{{ t.playful_lifetime_missed }}</p>
-                        </div>
-                        <div class="hero-kpi">
-                            <p class="kpi-val">{{ playful.lifetime_hit_rate }}%</p>
-                            <p class="kpi-label">{{ t.playful_lifetime_hit_rate }}</p>
-                        </div>
-                        <div class="hero-kpi">
-                            <p class="kpi-val">{{ playful.avg_matches }}</p>
-                            <p class="kpi-label">{{ t.playful_avg_matches }}</p>
-                        </div>
-                        {% endif %}
-                        <div class="hero-kpi kpi-ok">
-                            <p class="kpi-val">{{ completed }}</p>
-                            <p class="kpi-label">{{ t.stats_ok }}</p>
-                        </div>
-                        <div class="hero-kpi">
-                            <p class="kpi-val">{{ total }}</p>
-                            <p class="kpi-label">{{ t.stats_cache }}</p>
-                        </div>
-                        <div class="hero-kpi">
-                            <p class="kpi-val">{{ pending }}</p>
-                            <p class="kpi-label">{{ t.stats_wait }}</p>
-                        </div>
-                        <div class="hero-kpi">
-                            <p class="kpi-val">{{ not_found }}</p>
-                            <p class="kpi-label">{{ t.stats_err }}</p>
-                        </div>
-                    </div>
-                </section>
+        {% if p %}
+        <!-- LIFETIME -->
+        <section class="stats-chapter chapter-lifetime">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_lifetime }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.stats_chapter_lifetime_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_lifetime_sub }}</p>
+                <div class="metric-mosaic">
+                    <article class="metric-tile featured span-8 reveal" style="--tile-accent: var(--stats-sky);">
+                        <div class="glow"></div>
+                        <p class="metric-value" data-count="{{ p.series_enriched }}">0</p>
+                        <p class="metric-label">{{ t.playful_lifetime_series }}</p>
+                        <p class="metric-hint">{{ t.playful_lifetime_hit_rate }} · {{ p.lifetime_hit_rate }}%</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: #a78bfa;">
+                        <div class="glow"></div>
+                        <p class="metric-value" data-count="{{ p.matches_won }}">0</p>
+                        <p class="metric-label">{{ t.playful_lifetime_matches }}</p>
+                        <p class="metric-hint">{{ t.playful_avg_matches }} · {{ p.avg_matches }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: var(--stats-coral);">
+                        <p class="metric-value" data-count="{{ p.series_missed }}">0</p>
+                        <p class="metric-label">{{ t.playful_lifetime_missed }}</p>
+                        <p class="metric-hint">{{ t.playful_mysteries_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: var(--stats-teal);">
+                        <p class="metric-value"><span data-count="{{ p.lifetime_hit_rate }}" data-decimals="1">0</span>%</p>
+                        <p class="metric-label">{{ t.playful_lifetime_hit_rate }}</p>
+                        <p class="metric-hint">{{ t.playful_success_rate_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: var(--stats-amber);">
+                        <p class="metric-value" data-count="{{ p.avg_matches }}" data-decimals="2">0</p>
+                        <p class="metric-label">{{ t.playful_avg_matches }}</p>
+                        <p class="metric-hint">{{ t.playful_total_wins_hint }}</p>
+                    </article>
+                </div>
+            </div>
+        </section>
 
-                {% if playful_enabled and playful %}
-                <div class="charts-row">
-                    <div class="chart-panel">
+        <!-- TIME SAVED -->
+        <section class="stats-chapter chapter-time">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_time }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.stats_chapter_time_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_time_sub }}{% if p.estimates_use_cache_floor %} {{ t.playful_estimates_floor_note }}{% endif %}</p>
+                <div class="metric-mosaic">
+                    <article class="metric-tile featured span-6 reveal" style="--tile-accent: var(--stats-amber);">
+                        <div class="glow"></div>
+                        <p class="metric-value" data-count-minutes="{{ p.time_saved.total_minutes }}">{{ p.time_saved.display }}</p>
+                        <p class="metric-label">{{ t.playful_time_saved }}</p>
+                        <p class="metric-hint">{{ t.playful_time_saved_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-6 reveal reveal-delay-1" style="--tile-accent: #fdba74;">
+                        <div class="glow"></div>
+                        <p class="metric-value" data-count="{{ p.coffees_avoided }}" data-decimals="1">0</p>
+                        <p class="metric-label">{{ t.playful_coffees }}</p>
+                        <p class="metric-hint">{{ t.playful_coffees_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: var(--stats-teal);">
+                        <p class="metric-value">€<span data-count="{{ p.deepl_eur_saved }}" data-decimals="2">0</span></p>
+                        <p class="metric-label">{{ t.playful_deepl }}</p>
+                        <p class="metric-hint">{{ t.playful_deepl_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: #fb7185;">
+                        <p class="metric-value" data-count="{{ p.bmc_coffees }}" data-decimals="1">0</p>
+                        <p class="metric-label">{{ t.playful_bmc }}</p>
+                        <p class="metric-hint">{{ t.playful_bmc_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: var(--stats-sky);">
+                        <p class="metric-value" data-count="{{ p.netflix_episodes }}" data-decimals="1">0</p>
+                        <p class="metric-label">{{ t.playful_netflix }}</p>
+                        <p class="metric-hint">{{ t.playful_netflix_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-12 reveal" style="--tile-accent: var(--stats-lime);">
+                        <p class="metric-value" data-count="{{ p.manga_pages }}">0</p>
+                        <p class="metric-label">{{ t.playful_pages }}</p>
+                        <p class="metric-hint">{{ t.playful_pages_hint }}</p>
+                    </article>
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        <!-- LIBRARY / CACHE -->
+        <section class="stats-chapter chapter-library">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_library }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.stats_chapter_library_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_library_sub }}</p>
+                <div class="metric-mosaic">
+                    <article class="metric-tile featured span-6 reveal" style="--tile-accent: var(--stats-teal);">
+                        <div class="glow"></div>
+                        <p class="metric-value" data-count="{{ completed }}">0</p>
+                        <p class="metric-label">{{ t.stats_ok }}</p>
+                        <p class="metric-hint">{% if p %}{{ t.playful_completion }} · {{ p.completion_pct }}%{% else %}{{ t.stats_cache }} · {{ total }}{% endif %}</p>
+                    </article>
+                    <article class="metric-tile span-3 reveal reveal-delay-1" style="--tile-accent: var(--stats-amber);">
+                        <p class="metric-value" data-count="{{ pending }}">0</p>
+                        <p class="metric-label">{{ t.stats_wait }}</p>
+                        <p class="metric-hint">{{ t.playful_queue_hint if p else '' }}</p>
+                    </article>
+                    <article class="metric-tile span-3 reveal reveal-delay-2" style="--tile-accent: var(--stats-coral);">
+                        <p class="metric-value" data-count="{{ not_found }}">0</p>
+                        <p class="metric-label">{{ t.stats_err }}</p>
+                        <p class="metric-hint">{{ t.playful_mysteries_hint if p else '' }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: #94a3b8;">
+                        <p class="metric-value" data-count="{{ ignored }}">0</p>
+                        <p class="metric-label">{{ t.stats_ignored }}</p>
+                        <p class="metric-hint">{{ t.playful_closet_hint if p else '' }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: var(--stats-sky);">
+                        <p class="metric-value" data-count="{{ total }}">0</p>
+                        <p class="metric-label">{{ t.stats_cache }}</p>
+                        <p class="metric-hint">{% if p %}{{ t.playful_success_rate }} · {{ p.success_rate }}%{% endif %}</p>
+                    </article>
+                    {% if p %}
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: var(--stats-lime);">
+                        <p class="metric-value"><span data-count="{{ p.automation_rate }}" data-decimals="1">0</span>%</p>
+                        <p class="metric-label">{{ t.playful_automation }}</p>
+                        <p class="metric-hint">{{ t.playful_automation_hint }}</p>
+                    </article>
+                    {% endif %}
+                </div>
+                {% if p %}
+                <div class="charts-stage reveal" style="margin-top: 22px;">
+                    <div class="chart-card">
                         <h3>{{ t.playful_chart_status }}</h3>
                         <div class="chart-wrap"><canvas id="chartStatus"></canvas></div>
                     </div>
-                    <div class="chart-panel">
-                        <h3>{{ t.playful_chart_providers }}</h3>
-                        <div class="chart-wrap"><canvas id="chartProviders"></canvas></div>
-                    </div>
-                    <div class="chart-panel">
-                        <h3>{{ t.playful_chart_lifetime }}</h3>
-                        <div class="chart-wrap"><canvas id="chartLifetime"></canvas></div>
-                    </div>
-                    <div class="chart-panel">
+                    <div class="chart-card">
                         <h3>{{ t.playful_chart_hit_miss }}</h3>
                         <div class="chart-wrap"><canvas id="chartHitMiss"></canvas></div>
                     </div>
                 </div>
-
-                <h2 class="stats-section-title">{{ t.playful_stats_title }}</h2>
-                <div class="stats-grid">
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.time_saved.display }}</p>
-                        <p class="stat-label">{{ t.playful_time_saved }}</p>
-                        <p class="stat-hint">{{ t.playful_time_saved_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.coffees_avoided }}</p>
-                        <p class="stat-label">{{ t.playful_coffees }}</p>
-                        <p class="stat-hint">{{ t.playful_coffees_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">€{{ '%.2f'|format(playful.deepl_eur_saved) }}</p>
-                        <p class="stat-label">{{ t.playful_deepl }}</p>
-                        <p class="stat-hint">{{ t.playful_deepl_hint }}</p>
-                    </div>
-                    <div class="stat-card stat-bmc">
-                        <p class="stat-value">{{ playful.bmc_coffees }}</p>
-                        <p class="stat-label">{{ t.playful_bmc }}</p>
-                        <p class="stat-hint">{{ t.playful_bmc_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.netflix_episodes }}</p>
-                        <p class="stat-label">{{ t.playful_netflix }}</p>
-                        <p class="stat-hint">{{ t.playful_netflix_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.manga_pages }}</p>
-                        <p class="stat-label">{{ t.playful_pages }}</p>
-                        <p class="stat-hint">{{ t.playful_pages_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.success_rate }}%</p>
-                        <p class="stat-label">{{ t.playful_success_rate }}</p>
-                        <p class="stat-hint">{{ t.playful_success_rate_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.completion_pct }}%</p>
-                        <p class="stat-label">{{ t.playful_completion }}</p>
-                        <p class="stat-hint">{{ t.playful_completion_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.library_score }}/100</p>
-                        <p class="stat-label">{{ t.playful_library_score }}</p>
-                        <p class="stat-hint">{{ t.playful_library_score_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.automation_rate }}%</p>
-                        <p class="stat-label">{{ t.playful_automation }}</p>
-                        <p class="stat-hint">{{ t.playful_automation_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.mysteries }}</p>
-                        <p class="stat-label">{{ t.playful_mysteries }}</p>
-                        <p class="stat-hint">{{ t.playful_mysteries_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.queue }}</p>
-                        <p class="stat-label">{{ t.playful_queue }}</p>
-                        <p class="stat-hint">{{ t.playful_queue_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.closet }}</p>
-                        <p class="stat-label">{{ t.playful_closet }}</p>
-                        <p class="stat-hint">{{ t.playful_closet_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.manual_overrides }}</p>
-                        <p class="stat-label">{{ t.playful_manual }}</p>
-                        <p class="stat-hint">{{ t.playful_manual_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.forced_ids }}</p>
-                        <p class="stat-label">{{ t.playful_forced_ids }}</p>
-                        <p class="stat-hint">{{ t.playful_forced_ids_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.forced_providers }}</p>
-                        <p class="stat-label">{{ t.playful_forced_providers }}</p>
-                        <p class="stat-hint">{{ t.playful_forced_providers_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.alt_lang_crafts }}</p>
-                        <p class="stat-label">{{ t.playful_alt_langs }}</p>
-                        <p class="stat-hint">{{ t.playful_alt_langs_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.protected_covers }}</p>
-                        <p class="stat-label">{{ t.playful_covers }}</p>
-                        <p class="stat-hint">{{ t.playful_covers_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.surgical }}</p>
-                        <p class="stat-label">{{ t.playful_surgical }}</p>
-                        <p class="stat-hint">{{ t.playful_surgical_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.pub_localized }} / {{ playful.pub_original }}</p>
-                        <p class="stat-label">{{ t.playful_publisher_split }}</p>
-                        <p class="stat-hint">{{ t.playful_publisher_split_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{{ playful.provider_diversity }}</p>
-                        <p class="stat-label">{{ t.playful_diversity }}</p>
-                        <p class="stat-hint">{{ t.playful_diversity_hint }}</p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{% if playful.champion %}{{ playful.champion.name }}{% else %}—{% endif %}</p>
-                        <p class="stat-label">{{ t.playful_champion }}</p>
-                        <p class="stat-hint">
-                            {% if playful.champion %}{{ t.playful_champion_hint.format(playful.champion.wins) }}{% else %}{{ t.playful_no_provider_data }}{% endif %}
-                        </p>
-                    </div>
-                    <div class="stat-card">
-                        <p class="stat-value">{% if playful.underdog %}{{ playful.underdog.name }}{% else %}—{% endif %}</p>
-                        <p class="stat-label">{{ t.playful_underdog }}</p>
-                        <p class="stat-hint">
-                            {% if playful.underdog %}{{ t.playful_underdog_hint.format(playful.underdog.wins) }}{% else %}{{ t.playful_no_provider_data }}{% endif %}
-                        </p>
-                    </div>
-                    <div class="stat-card stat-wide">
-                        <p class="stat-label">{{ t.playful_podium }}</p>
-                        {% if playful.podium %}
-                            {% for p in playful.podium %}
-                            <div class="podium-row">
-                                <div class="podium-meta">
-                                    <span>{{ loop.index }}. {{ p.name }}</span>
-                                    <span>{{ p.wins }} · {{ p.pct }}%</span>
-                                </div>
-                                <div class="podium-bar-track">
-                                    <div class="podium-bar-fill" style="width: {{ p.pct }}%;"></div>
-                                </div>
-                            </div>
-                            {% endfor %}
-                        {% else %}
-                            <p class="stat-hint">{{ t.playful_no_provider_data }}</p>
-                        {% endif %}
-                    </div>
-                </div>
-                <p class="stats-disclaimer">{{ t.playful_disclaimer }}</p>
                 {% endif %}
             </div>
-        </main>
-    </div>
+        </section>
 
-    {% if playful_enabled and playful %}
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
-    <script>
-    (function () {
-        const charts = {{ playful.charts | tojson }};
-        const labelsStatus = {{ [t.stats_enriched, t.stats_pending, t.stats_errors, t.stats_ignored] | tojson }};
-        const labelsLifetime = {{ [t.playful_lifetime_series, t.playful_lifetime_matches, t.playful_lifetime_missed] | tojson }};
-        const labelsHitMiss = {{ [t.playful_lifetime_series, t.playful_lifetime_missed] | tojson }};
-        const css = getComputedStyle(document.documentElement);
-        const primary = css.getPropertyValue('--primary').trim() || '#3b82f6';
-        const success = css.getPropertyValue('--success').trim() || '#10b981';
-        const warning = css.getPropertyValue('--warning').trim() || '#f59e0b';
-        const danger = css.getPropertyValue('--danger').trim() || '#ef4444';
-        const accent = css.getPropertyValue('--accent').trim() || '#8b5cf6';
-        const muted = css.getPropertyValue('--text-muted').trim() || '#94a3b8';
-        const grid = 'rgba(148, 163, 184, 0.18)';
+        {% if p %}
+        <!-- CRAFT -->
+        <section class="stats-chapter chapter-craft">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_craft }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.stats_chapter_craft_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_craft_sub }}</p>
+                <div class="metric-mosaic">
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: var(--stats-coral);">
+                        <p class="metric-value" data-count="{{ p.manual_overrides }}">0</p>
+                        <p class="metric-label">{{ t.playful_manual }}</p>
+                        <p class="metric-hint">{{ t.playful_manual_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: #fb7185;">
+                        <p class="metric-value" data-count="{{ p.forced_ids }}">0</p>
+                        <p class="metric-label">{{ t.playful_forced_ids }}</p>
+                        <p class="metric-hint">{{ t.playful_forced_ids_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: #f472b6;">
+                        <p class="metric-value" data-count="{{ p.forced_providers }}">0</p>
+                        <p class="metric-label">{{ t.playful_forced_providers }}</p>
+                        <p class="metric-hint">{{ t.playful_forced_providers_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: #fda4af;">
+                        <p class="metric-value" data-count="{{ p.alt_lang_crafts }}">0</p>
+                        <p class="metric-label">{{ t.playful_alt_langs }}</p>
+                        <p class="metric-hint">{{ t.playful_alt_langs_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: var(--stats-amber);">
+                        <p class="metric-value" data-count="{{ p.protected_covers }}">0</p>
+                        <p class="metric-label">{{ t.playful_covers }}</p>
+                        <p class="metric-hint">{{ t.playful_covers_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: #fbbf24;">
+                        <p class="metric-value" data-count="{{ p.surgical }}">0</p>
+                        <p class="metric-label">{{ t.playful_surgical }}</p>
+                        <p class="metric-hint">{{ t.playful_surgical_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-12 reveal" style="--tile-accent: #fdba74;">
+                        <p class="metric-value">{{ p.pub_localized }} / {{ p.pub_original }}</p>
+                        <p class="metric-label">{{ t.playful_publisher_split }}</p>
+                        <p class="metric-hint">{{ t.playful_publisher_split_hint }}</p>
+                    </article>
+                </div>
+            </div>
+        </section>
 
-        Chart.defaults.color = muted;
-        Chart.defaults.font.family = "'DM Sans', system-ui, sans-serif";
+        <!-- PROVIDERS -->
+        <section class="stats-chapter chapter-providers">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_providers }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.stats_chapter_providers_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_providers_sub }}</p>
+                <div class="metric-mosaic" style="margin-bottom: 18px;">
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: #c4b5fd;">
+                        <p class="metric-value">{% if p.champion %}{{ p.champion.name }}{% else %}—{% endif %}</p>
+                        <p class="metric-label">{{ t.playful_champion }}</p>
+                        <p class="metric-hint">{% if p.champion %}{{ t.playful_champion_hint.format(p.champion.wins) }}{% else %}{{ t.playful_no_provider_data }}{% endif %}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: var(--stats-sky);">
+                        <p class="metric-value" data-count="{{ p.provider_diversity }}">0</p>
+                        <p class="metric-label">{{ t.playful_diversity }}</p>
+                        <p class="metric-hint">{{ t.playful_diversity_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: #a78bfa;">
+                        <p class="metric-value">{% if p.underdog %}{{ p.underdog.name }}{% else %}—{% endif %}</p>
+                        <p class="metric-label">{{ t.playful_underdog }}</p>
+                        <p class="metric-hint">{% if p.underdog %}{{ t.playful_underdog_hint.format(p.underdog.wins) }}{% else %}{{ t.playful_no_provider_data }}{% endif %}</p>
+                    </article>
+                </div>
+                <div class="charts-stage reveal">
+                    <div class="chart-card">
+                        <h3>{{ t.playful_chart_providers }}</h3>
+                        <div class="chart-wrap"><canvas id="chartProviders"></canvas></div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>{{ t.playful_chart_lifetime }}</h3>
+                        <div class="chart-wrap"><canvas id="chartLifetime"></canvas></div>
+                    </div>
+                </div>
+                <div class="podium-stage reveal reveal-delay-1">
+                    {% if p.podium %}
+                        {% for row in p.podium %}
+                        <div class="podium-item">
+                            <div class="podium-rank">{{ loop.index }}</div>
+                            <div>
+                                <div class="podium-name">{{ row.name }}</div>
+                                <div class="podium-wins">{{ row.wins }} · {{ row.pct }}%</div>
+                            </div>
+                            <div></div>
+                            <div class="podium-bar"><i data-bar="{{ row.pct }}"></i></div>
+                        </div>
+                        {% endfor %}
+                    {% else %}
+                        <p class="metric-hint">{{ t.playful_no_provider_data }}</p>
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+        {% endif %}
 
-        const statusEl = document.getElementById('chartStatus');
-        if (statusEl) {
-            new Chart(statusEl, {
-                type: 'doughnut',
-                data: {
-                    labels: labelsStatus,
-                    datasets: [{
-                        data: charts.status.values,
-                        backgroundColor: [success, warning, danger, muted],
-                        borderWidth: 0,
-                        hoverOffset: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '62%',
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14 } }
-                    }
-                }
-            });
+        <!-- SUMMARY TABLE -->
+        <section class="stats-chapter chapter-summary" id="summary">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_summary }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1" style="max-width: 18ch;">{{ t.stats_chapter_summary_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_summary_sub }}</p>
+                <div class="summary-table-wrap reveal reveal-delay-3">
+                    <table class="summary-table">
+                        <thead>
+                            <tr>
+                                <th>{{ t.stats_table_metric }}</th>
+                                <th>{{ t.stats_table_value }}</th>
+                                <th>{{ t.stats_table_category }}</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if p %}
+                            <tr><td>{{ t.playful_lifetime_series }}</td><td class="summary-value">{{ p.series_enriched }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_lifetime_matches }}</td><td class="summary-value">{{ p.matches_won }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_lifetime_missed }}</td><td class="summary-value">{{ p.series_missed }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_lifetime_hit_rate }}</td><td class="summary-value">{{ p.lifetime_hit_rate }}%</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_avg_matches }}</td><td class="summary-value">{{ p.avg_matches }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_time_saved }}</td><td class="summary-value">{{ p.time_saved.display }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
+                            <tr><td>{{ t.playful_coffees }}</td><td class="summary-value">{{ p.coffees_avoided }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
+                            <tr><td>{{ t.playful_deepl }}</td><td class="summary-value">€{{ '%.2f'|format(p.deepl_eur_saved) }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
+                            <tr><td>{{ t.playful_bmc }}</td><td class="summary-value">{{ p.bmc_coffees }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
+                            <tr><td>{{ t.playful_netflix }}</td><td class="summary-value">{{ p.netflix_episodes }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
+                            <tr><td>{{ t.playful_pages }}</td><td class="summary-value">{{ p.manga_pages }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
+                            <tr><td>{{ t.playful_library_score }}</td><td class="summary-value">{{ p.library_score }}/100</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.playful_success_rate }}</td><td class="summary-value">{{ p.success_rate }}%</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.playful_completion }}</td><td class="summary-value">{{ p.completion_pct }}%</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.playful_automation }}</td><td class="summary-value">{{ p.automation_rate }}%</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            {% endif %}
+                            <tr><td>{{ t.stats_ok }}</td><td class="summary-value">{{ completed }}</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.stats_wait }}</td><td class="summary-value">{{ pending }}</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.stats_err }}</td><td class="summary-value">{{ not_found }}</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.stats_ignored }}</td><td class="summary-value">{{ ignored }}</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            <tr><td>{{ t.stats_cache }}</td><td class="summary-value">{{ total }}</td><td><span class="cat-pill cat-cache">{{ t.stats_cat_cache }}</span></td></tr>
+                            {% if p %}
+                            <tr><td>{{ t.playful_manual }}</td><td class="summary-value">{{ p.manual_overrides }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_forced_ids }}</td><td class="summary-value">{{ p.forced_ids }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_forced_providers }}</td><td class="summary-value">{{ p.forced_providers }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_alt_langs }}</td><td class="summary-value">{{ p.alt_lang_crafts }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_covers }}</td><td class="summary-value">{{ p.protected_covers }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_surgical }}</td><td class="summary-value">{{ p.surgical }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_publisher_split }}</td><td class="summary-value">{{ p.pub_localized }} / {{ p.pub_original }}</td><td><span class="cat-pill cat-craft">{{ t.stats_cat_craft }}</span></td></tr>
+                            <tr><td>{{ t.playful_champion }}</td><td class="summary-value">{% if p.champion %}{{ p.champion.name }} ({{ p.champion.wins }}){% else %}—{% endif %}</td><td><span class="cat-pill cat-providers">{{ t.stats_cat_providers }}</span></td></tr>
+                            <tr><td>{{ t.playful_underdog }}</td><td class="summary-value">{% if p.underdog %}{{ p.underdog.name }} ({{ p.underdog.wins }}){% else %}—{% endif %}</td><td><span class="cat-pill cat-providers">{{ t.stats_cat_providers }}</span></td></tr>
+                            <tr><td>{{ t.playful_diversity }}</td><td class="summary-value">{{ p.provider_diversity }}</td><td><span class="cat-pill cat-providers">{{ t.stats_cat_providers }}</span></td></tr>
+                            <tr><td>{{ t.playful_total_wins }}</td><td class="summary-value">{{ p.total_wins }}</td><td><span class="cat-pill cat-providers">{{ t.stats_cat_providers }}</span></td></tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+                {% if p %}
+                <p class="stats-disclaimer reveal">{{ t.playful_disclaimer }}</p>
+                {% endif %}
+            </div>
+        </section>
+    </main>
+</div>
+
+<script>
+(function () {
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const counted = new WeakSet();
+
+    function formatMinutes(total) {
+        total = Math.max(0, Math.round(total));
+        const days = Math.floor(total / (60 * 24));
+        const rem = total % (60 * 24);
+        const hours = Math.floor(rem / 60);
+        const minutes = rem % 60;
+        if (days) return days + 'j ' + hours + 'h ' + String(minutes).padStart(2, '0') + 'm';
+        if (hours) return hours + 'h ' + String(minutes).padStart(2, '0') + 'm';
+        return minutes + ' min';
+    }
+
+    function animateCount(el) {
+        if (counted.has(el)) return;
+        counted.add(el);
+        const target = parseFloat(el.getAttribute('data-count') || '0');
+        const decimals = parseInt(el.getAttribute('data-decimals') || '0', 10);
+        const suffix = el.getAttribute('data-suffix') || '';
+        if (reduce || !isFinite(target)) {
+            el.textContent = (decimals ? target.toFixed(decimals) : String(Math.round(target))) + suffix;
+            return;
         }
-
-        const hitMissEl = document.getElementById('chartHitMiss');
-        if (hitMissEl) {
-            new Chart(hitMissEl, {
-                type: 'doughnut',
-                data: {
-                    labels: labelsHitMiss,
-                    datasets: [{
-                        data: charts.hit_miss.values,
-                        backgroundColor: [success, danger],
-                        borderWidth: 0,
-                        hoverOffset: 6
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    cutout: '62%',
-                    plugins: {
-                        legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14 } }
-                    }
-                }
-            });
+        const duration = 1100;
+        const start = performance.now();
+        function frame(now) {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            const val = target * eased;
+            el.textContent = (decimals ? val.toFixed(decimals) : String(Math.round(val))) + suffix;
+            if (t < 1) requestAnimationFrame(frame);
         }
+        requestAnimationFrame(frame);
+    }
 
-        const provEl = document.getElementById('chartProviders');
-        if (provEl) {
-            const hasData = (charts.providers.values || []).some(v => v > 0);
-            new Chart(provEl, {
-                type: 'bar',
-                data: {
-                    labels: hasData ? charts.providers.labels : ['—'],
-                    datasets: [{
-                        data: hasData ? charts.providers.values : [0],
-                        backgroundColor: primary,
-                        borderRadius: 8,
-                        maxBarThickness: 36
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    indexAxis: 'y',
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        x: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } },
-                        y: { grid: { display: false } }
-                    }
-                }
-            });
+    function animateMinutes(el) {
+        if (counted.has(el)) return;
+        counted.add(el);
+        const target = parseFloat(el.getAttribute('data-count-minutes') || '0');
+        if (reduce || !isFinite(target)) {
+            el.textContent = formatMinutes(target);
+            return;
         }
+        const duration = 1200;
+        const start = performance.now();
+        function frame(now) {
+            const t = Math.min(1, (now - start) / duration);
+            const eased = 1 - Math.pow(1 - t, 3);
+            el.textContent = formatMinutes(target * eased);
+            if (t < 1) requestAnimationFrame(frame);
+            else el.textContent = formatMinutes(target);
+        }
+        requestAnimationFrame(frame);
+    }
 
-        const lifeEl = document.getElementById('chartLifetime');
-        if (lifeEl) {
-            new Chart(lifeEl, {
-                type: 'bar',
-                data: {
-                    labels: labelsLifetime,
-                    datasets: [{
-                        data: charts.lifetime.values,
-                        backgroundColor: [primary, accent, danger],
-                        borderRadius: 10,
-                        maxBarThickness: 48
-                    }]
-                },
-                options: {
-                    responsive: true,
-                    maintainAspectRatio: false,
-                    plugins: { legend: { display: false } },
-                    scales: {
-                        y: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } },
-                        x: { grid: { display: false } }
-                    }
+    function activateChapter(chapter) {
+        chapter.querySelectorAll('.reveal').forEach((r) => r.classList.add('is-in'));
+        chapter.querySelectorAll('[data-count]').forEach(animateCount);
+        chapter.querySelectorAll('[data-count-minutes]').forEach(animateMinutes);
+        chapter.querySelectorAll('[data-bar]').forEach((bar) => {
+            bar.style.width = (bar.getAttribute('data-bar') || '0') + '%';
+        });
+    }
+
+    if (reduce) {
+        document.querySelectorAll('.stats-chapter').forEach(activateChapter);
+        return;
+    }
+
+    const chapterIo = new IntersectionObserver((entries) => {
+        entries.forEach((entry) => {
+            if (!entry.isIntersecting) return;
+            activateChapter(entry.target);
+            chapterIo.unobserve(entry.target);
+        });
+    }, { threshold: 0.22, rootMargin: '0px 0px -6% 0px' });
+
+    document.querySelectorAll('.stats-chapter').forEach((ch) => chapterIo.observe(ch));
+})();
+</script>
+
+{% if p %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js"></script>
+<script>
+(function () {
+    const charts = {{ p.charts | tojson }};
+    const labelsStatus = {{ [t.stats_enriched, t.stats_pending, t.stats_errors, t.stats_ignored] | tojson }};
+    const labelsLifetime = {{ [t.playful_lifetime_series, t.playful_lifetime_matches, t.playful_lifetime_missed] | tojson }};
+    const labelsHitMiss = {{ [t.playful_lifetime_series, t.playful_lifetime_missed] | tojson }};
+    const muted = getComputedStyle(document.documentElement).getPropertyValue('--text-muted').trim() || '#94a3b8';
+    const grid = 'rgba(148, 163, 184, 0.16)';
+    Chart.defaults.color = muted;
+    Chart.defaults.font.family = "'Bricolage Grotesque', system-ui, sans-serif";
+
+    const statusEl = document.getElementById('chartStatus');
+    if (statusEl) {
+        new Chart(statusEl, {
+            type: 'doughnut',
+            data: {
+                labels: labelsStatus,
+                datasets: [{
+                    data: charts.status.values,
+                    backgroundColor: ['#2dd4bf', '#fbbf24', '#fb7185', '#94a3b8'],
+                    borderWidth: 0,
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '64%',
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14 } } }
+            }
+        });
+    }
+
+    const hitMissEl = document.getElementById('chartHitMiss');
+    if (hitMissEl) {
+        new Chart(hitMissEl, {
+            type: 'doughnut',
+            data: {
+                labels: labelsHitMiss,
+                datasets: [{
+                    data: charts.hit_miss.values,
+                    backgroundColor: ['#2dd4bf', '#fb7185'],
+                    borderWidth: 0,
+                    hoverOffset: 8
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '64%',
+                plugins: { legend: { position: 'bottom', labels: { boxWidth: 10, padding: 14 } } }
+            }
+        });
+    }
+
+    const provEl = document.getElementById('chartProviders');
+    if (provEl) {
+        const hasData = (charts.providers.values || []).some(v => v > 0);
+        new Chart(provEl, {
+            type: 'bar',
+            data: {
+                labels: hasData ? charts.providers.labels : ['—'],
+                datasets: [{
+                    data: hasData ? charts.providers.values : [0],
+                    backgroundColor: '#a78bfa',
+                    borderRadius: 10,
+                    maxBarThickness: 34
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                indexAxis: 'y',
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } },
+                    y: { grid: { display: false } }
                 }
-            });
-        }
-    })();
-    </script>
-    {% endif %}
+            }
+        });
+    }
+
+    const lifeEl = document.getElementById('chartLifetime');
+    if (lifeEl) {
+        new Chart(lifeEl, {
+            type: 'bar',
+            data: {
+                labels: labelsLifetime,
+                datasets: [{
+                    data: charts.lifetime.values,
+                    backgroundColor: ['#38bdf8', '#a78bfa', '#fb7185'],
+                    borderRadius: 12,
+                    maxBarThickness: 48
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    y: { beginAtZero: true, grid: { color: grid }, ticks: { precision: 0 } },
+                    x: { grid: { display: false } }
+                }
+            }
+        });
+    }
+})();
+</script>
+{% endif %}
 </body>
 </html>

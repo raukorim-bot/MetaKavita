@@ -15,7 +15,7 @@ import secrets
 
 from flask import Blueprint, request, jsonify, Response
 
-from config_manager import load_config
+from config_manager import load_config, is_library_enabled
 from db_manager import get_all_cached_data, reset_errors
 from kavita_api import KavitaAPI
 from translations import translations
@@ -165,6 +165,24 @@ def webhook():
     force_update = str(force_param).lower() in ['true', '1', 'yes'] if force_param is not None else False
 
     if series_id and series_name:
+        # Respecte DISABLED_LIBRARIES : pas d'enrichissement hors périmètre sync
+        try:
+            kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+            series = kavita.get_series(series_id) if kavita.authenticate() else None
+            lib_id = (series or {}).get('libraryId')
+            if lib_id is not None and not is_library_enabled(lib_id, config):
+                logging.info(
+                    "⏸️ [Webhook] Série '%s' (ID: %s) ignorée — bibliothèque %s désactivée.",
+                    series_name, series_id, lib_id,
+                )
+                return jsonify(
+                    success=True,
+                    message="Bibliothèque désactivée — événement ignoré",
+                    skipped=True,
+                ), 200
+        except Exception as e:
+            logging.warning("⚠️ [Webhook] Impossible de vérifier la bibliothèque : %s", e)
+
         sync_queue.put((series_id, series_name, force_update))
         mode_str = " (⚠️ Mode Forcé)" if force_update else ""
         logging.info(f"⚡ [Webhook] Événement reçu ! Série '{series_name}' (ID: {series_id}){mode_str} ajoutée à la file.")
