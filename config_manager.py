@@ -347,3 +347,31 @@ def save_config(data):
             os.makedirs(DATA_DIR)
         with open(CONFIG_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
+
+        # Restrict the file to its owner (0600).
+        #
+        # config.json is the single most sensitive file the application owns: it holds
+        # SECRET_KEY (forging a session cookie is game over), WEBHOOK_TOKEN, the Kavita
+        # API key, and every translation-provider key. It is created with the process
+        # umask, which on a default Docker image means 0644 — world-readable. On a NAS
+        # this directory is usually a bind mount that other containers and other users
+        # can see, so "readable by anyone on the host" is a realistic exposure, not a
+        # theoretical one.
+        #
+        # Applied on every save rather than only at creation, because a file restored
+        # from a backup, copied from another host, or written by an older version will
+        # otherwise keep its permissive mode forever.
+        #
+        # Deliberately best-effort: chmod is a no-op on Windows and fails outright on
+        # some CIFS/SMB and FAT-backed bind mounts. Losing the hardening there is
+        # acceptable; losing the user's configuration because a chmod raised is not, so
+        # this must never be allowed to propagate.
+        try:
+            os.chmod(CONFIG_FILE, 0o600)
+        except OSError as chmod_err:
+            logging.debug(
+                "[Config] chmod 600 impossible sur %s (%s) — sans conséquence sur la "
+                "sauvegarde, mais les permissions du fichier restent celles du système "
+                "de fichiers.",
+                CONFIG_FILE, chmod_err,
+            )

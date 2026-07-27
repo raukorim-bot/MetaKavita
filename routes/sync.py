@@ -150,10 +150,39 @@ def export_errors():
 @sync_bp.route('/webhook', methods=['POST'])
 def webhook():
     config = load_config()
-    token = request.args.get('token')
     webhook_token = config.get('WEBHOOK_TOKEN', '')
 
-    if not token or not webhook_token or not secrets.compare_digest(token, webhook_token):
+    # The token may arrive either as the `X-Webhook-Token` header or as the historical
+    # `?token=` query parameter.
+    #
+    # The header is preferred and is what new integrations should use, because a query
+    # string is echoed into places a secret should never reach: reverse-proxy and web
+    # server access logs (nginx and Traefik both log the full request line by default),
+    # browser history, and `Referer` headers on any onward request. A header is not
+    # logged by default anywhere in that chain.
+    #
+    # The query form is deliberately kept working. Existing users have already pasted
+    # `?token=...` URLs into their Kavita webhook settings, and breaking those silently
+    # would stop their automation with no error they could see — so this is additive,
+    # and the header simply wins when both are present.
+    token = request.headers.get('X-Webhook-Token') or request.args.get('token')
+
+    # `secrets.compare_digest` raises TypeError on `str` arguments containing
+    # non-ASCII characters, so a token with an accent or an emoji in it would turn a
+    # failed authentication into an unhandled 500. Comparing the UTF-8 bytes avoids
+    # that entirely while keeping the constant-time property, and mirrors the same
+    # defensive pattern already used in routes/auth.py.
+    token_ok = False
+    if token and webhook_token:
+        try:
+            token_ok = secrets.compare_digest(
+                token.encode('utf-8'),
+                webhook_token.encode('utf-8'),
+            )
+        except (TypeError, ValueError):
+            token_ok = False
+
+    if not token_ok:
         logging.warning("🚨 [Sécurité] Tentative d'accès au webhook bloquée (Jeton invalide).")
         return jsonify(success=False, message="Unauthorized"), 401
 

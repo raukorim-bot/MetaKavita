@@ -28,6 +28,7 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **BF47–BF49. Misc Hardening (unreleased, issue #15):** 5 MB streamed cap on `/api/proxy-image` (413 past the limit, redirect hops closed as followed); webhook accepts `X-Webhook-Token` with `?token=` kept working and byte-wise token comparison; `config.json` written 0600 on every save, best-effort.
 - [x] **BDTheque.com comics provider (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ (distinct from `BEDETHEQUE` / bedetheque.com). AJAX series search, series page scrape, Magic Input, unified scoring, covers.
 - [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
 - [x] **Reliability barometer (v1.6.1):** Sidebar unlock + slider for match accept threshold (`0.30`–`1.00`, default `0.60`); `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; runtime via `get_match_accept_threshold()`.
@@ -150,6 +151,7 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **BF47–BF49. Durcissements divers (non publié, issue #15) :** plafond de 5 Mo en flux sur `/api/proxy-image` (413 au-delà, hops de redirection fermés au fil de l'eau) ; webhook acceptant `X-Webhook-Token` avec `?token=` conservé et comparaison du jeton en octets ; `config.json` écrit en 0600 à chaque sauvegarde, best-effort.
 - [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche série, Magic Input, scoring unifié, covers.
 - [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.
 - [x] **Baromètre de fiabilité (v1.6.1) :** case + curseur sidebar pour le seuil d’acceptation (`0.30`–`1.00`, défaut `0.60`) ; `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; runtime via `get_match_accept_threshold()`.

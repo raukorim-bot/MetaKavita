@@ -268,7 +268,19 @@ Since Kavita does not natively provide outgoing Webhooks for library updates, Me
 
 #### 2. Webhook Endpoint for Custom Scripts & External Pipelines
 For advanced workflows (e.g., n8n, Node-RED, or custom download post-processing scripts), MetaKavita exposes a dedicated endpoint to trigger instant processing for a specific series:
+`POST http://<your-metakavita-ip>:5010/webhook`
+
+The token can be sent two ways. **Prefer the header** — a token in the query string gets written to reverse-proxy access logs, browser history and `Referer` headers, none of which are places a secret should live:
+
+```
+X-Webhook-Token: <YOUR_WEBHOOK_TOKEN>
+```
+
+The historical query form still works and is not deprecated, so existing integrations keep running untouched:
+
 `POST http://<your-metakavita-ip>:5010/webhook?token=<YOUR_WEBHOOK_TOKEN>`
+
+If both are supplied, the header wins.
 
 You can view your ready-to-use Webhook URL or generate a new token anytime directly inside the **Config Modal** (under the Planning section).
 
@@ -544,7 +556,19 @@ Comme Kavita ne propose pas nativement de Webhooks sortants lors des ajouts de b
 
 #### 2. Endpoint Webhook pour Scripts Tiers
 Pour les besoins d'automatisation avancés (ex: workflows n8n, Node-RED, ou scripts de post-traitement post-téléchargement), MetaKavita expose un endpoint dédié permettant de forcer l'enrichissement immédiat d'une série spécifique :
+`POST http://<ton-ip-metakavita>:5010/webhook`
+
+Le jeton peut être transmis de deux façons. **Privilégiez l'en-tête** : un jeton placé dans la chaîne de requête se retrouve dans les logs d'accès des reverse proxies, l'historique du navigateur et les en-têtes `Referer` — autant d'endroits où un secret n'a pas sa place :
+
+```
+X-Webhook-Token: <TON_WEBHOOK_TOKEN>
+```
+
+La forme historique en paramètre d'URL reste fonctionnelle et n'est pas dépréciée : les intégrations existantes continuent de marcher sans modification.
+
 `POST http://<ton-ip-metakavita>:5010/webhook?token=<TON_WEBHOOK_TOKEN>`
+
+Si les deux sont fournis, l'en-tête est prioritaire.
 
 Vous pouvez consulter votre URL Webhook prête à l'emploi ou régénérer un jeton à tout moment directement depuis la **Modal Config** (dans la section Planification).
 
