@@ -28,6 +28,7 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **BF50. Test Suite DB Isolation (unreleased):** `test_scraper_max_caps.py`'s end-to-end enrichment test reached the real `data/cache.db` through an unmocked `record_enrichment_telemetry()`, inflating the lifetime counters and adding a fake `FAKE` provider to the C7 podium on every run. Now uses the existing `isolated_db` fixture.
 - [x] **C56. Custom Scraper RCE Warning (unreleased, issue #15):** Prominent FR + EN warning at the top of `CUSTOM_SCRAPERS.md` — sideloading a `.py` into `data/scrapers/` is arbitrary code execution at startup with the app's privileges (config secrets, filesystem, outbound network, `proxy_domains` allowlist widening). Concrete red flags for non-programmers, explicit caution on AI-generated code, trust model stated. Short linked version in both README security sections.
 - [x] **BDTheque.com comics provider (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ (distinct from `BEDETHEQUE` / bedetheque.com). AJAX series search, series page scrape, Magic Input, unified scoring, covers.
 - [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
@@ -151,6 +152,7 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **BF50. Isolation de la base dans les tests (non publié) :** le test d'enrichissement bout-en-bout de `test_scraper_max_caps.py` atteignait le vrai `data/cache.db` via un `record_enrichment_telemetry()` non mocké, gonflant les compteurs lifetime et ajoutant un provider fictif `FAKE` au podium C7 à chaque exécution. Utilise désormais la fixture existante `isolated_db`.
 - [x] **C56. Avertissement RCE scrapers personnalisés (non publié, issue #15) :** avertissement FR + EN bien visible en tête de `CUSTOM_SCRAPERS.md` — déposer un `.py` dans `data/scrapers/` revient à exécuter du code arbitraire au démarrage avec les droits de l'app (secrets de config, système de fichiers, réseau sortant, élargissement de l'allowlist `proxy_domains`). Signaux d'alarme concrets pour non-développeurs, mise en garde explicite sur le code généré par IA, modèle de confiance énoncé. Version courte avec lien dans les deux sections sécurité du README.
 - [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche série, Magic Input, scoring unifié, covers.
 - [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.
