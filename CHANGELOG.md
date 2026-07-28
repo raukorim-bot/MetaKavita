@@ -2,13 +2,25 @@
 
 EN
 ### 🔒 Security
+<<<<<<< HEAD
 * **BF46. Dependency CVE bumps** — `gunicorn` `21.2.0` → `23.0.0` and `requests` `2.31.0` → `2.33.1`. Clears five known advisories: two request-smuggling issues in Gunicorn (`PYSEC-2026-1433`, `PYSEC-2026-1434`, both fixed in 22.0.0) and three in Requests (`PYSEC-2026-1873`, `PYSEC-2026-1872`, `PYSEC-2026-2275`, the last only fixed in 2.33.0). No public API change in either package for the way MetaKavita uses them. `googletrans` is deliberately left at `4.0.0-rc1`.
+=======
+* **BF47. `/api/proxy-image` size cap** — The proxy now streams the remote response and refuses anything over **5 MB** with a `413`, instead of buffering the whole body into memory with `res.content`. An allowlisted host serving a very large file could previously exhaust the container's memory, which under `gunicorn -w 1` takes down the whole application. `Content-Length` is checked first as a cheap early reject; the running byte total is what actually enforces the limit, since that header can be absent or untrue. Redirect hops are now closed as they are followed (`url_allowlist.fetch_with_safe_redirects`), which matters once responses are streamed.
+* **BF48. Webhook token as a header** — `/webhook` accepts `X-Webhook-Token` in addition to the existing `?token=` query parameter, which keeps working unchanged. The header is preferred because a query string ends up in reverse-proxy access logs, browser history and `Referer` headers. Token comparison now runs on UTF-8 bytes, so a non-ASCII token returns a clean `401` instead of raising inside `secrets.compare_digest`.
+* **BF49. `config.json` written 0600** — `save_config()` restricts the file to its owner after every write. It holds `SECRET_KEY`, `WEBHOOK_TOKEN` and every API key, and was previously created with the process umask (0644 — world-readable — on a default Docker image). Applied on every save so a file restored from a backup or written by an older version is repaired too. Best-effort: `chmod` is skipped silently on Windows and on filesystems that refuse it, and can never fail a save.
+>>>>>>> pr-17
 
 ---
 
 FR
 ### 🔒 Sécurité
+<<<<<<< HEAD
 * **BF46. Montée de versions (CVE)** — `gunicorn` `21.2.0` → `23.0.0` et `requests` `2.31.0` → `2.33.1`. Corrige cinq vulnérabilités connues : deux failles de *request smuggling* dans Gunicorn (`PYSEC-2026-1433`, `PYSEC-2026-1434`, corrigées en 22.0.0) et trois dans Requests (`PYSEC-2026-1873`, `PYSEC-2026-1872`, `PYSEC-2026-2275`, cette dernière uniquement corrigée en 2.33.0). Aucun changement d'API publique pour l'usage qu'en fait MetaKavita. `googletrans` reste volontairement en `4.0.0-rc1`.
+=======
+* **BF47. Plafond de taille sur `/api/proxy-image`** — Le proxy lit désormais la réponse distante en flux et refuse au-delà de **5 Mo** avec un `413`, au lieu de charger tout le corps en mémoire via `res.content`. Un hôte autorisé servant un très gros fichier pouvait épuiser la mémoire du conteneur — ce qui, sous `gunicorn -w 1`, emporte toute l'application. Le `Content-Length` sert de refus précoce peu coûteux ; c'est le total courant des octets lus qui applique réellement la limite, cet en-tête pouvant être absent ou mensonger. Les hops de redirection sont maintenant fermés au fil de leur suivi (`url_allowlist.fetch_with_safe_redirects`), ce qui compte dès lors que les réponses sont streamées.
+* **BF48. Jeton du webhook en en-tête** — `/webhook` accepte `X-Webhook-Token` en plus du paramètre `?token=` existant, qui continue de fonctionner à l'identique. L'en-tête est recommandé car une chaîne de requête se retrouve dans les logs d'accès des reverse proxies, l'historique du navigateur et les en-têtes `Referer`. La comparaison se fait désormais sur les octets UTF-8 : un jeton non-ASCII renvoie un `401` propre au lieu de faire lever `secrets.compare_digest`.
+* **BF49. `config.json` écrit en 0600** — `save_config()` restreint le fichier à son propriétaire après chaque écriture. Il contient `SECRET_KEY`, `WEBHOOK_TOKEN` et toutes les clés d'API, et était créé avec l'umask du processus (0644 — lisible par tous — sur une image Docker par défaut). Réappliqué à chaque sauvegarde, afin de corriger aussi un fichier restauré d'une sauvegarde ou écrit par une version antérieure. Best-effort : le `chmod` est ignoré silencieusement sous Windows et sur les systèmes de fichiers qui le refusent, et ne peut jamais faire échouer une sauvegarde.
+>>>>>>> pr-17
 
 ---
 

@@ -119,6 +119,15 @@ def fetch_with_safe_redirects(
         if status in (301, 302, 303, 307, 308):
             headers = getattr(res, "headers", {}) or {}
             loc = headers.get("Location") or headers.get("location")
+            # The intermediate hop is finished with either way, so release it before
+            # moving on. This matters once a caller passes `stream=True` (the image
+            # proxy does, to enforce its size cap): a streaming response holds its
+            # connection open until the body is read or the response is closed, so
+            # abandoning one per redirect would leak a connection — and under the
+            # single-worker eventlet deployment, a greenthread with it.
+            closer = getattr(res, "close", None)
+            if callable(closer):
+                closer()
             if not loc:
                 return None, "Redirect sans Location", current
             current = urljoin(current, loc)
