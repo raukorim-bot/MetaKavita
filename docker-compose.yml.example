@@ -8,10 +8,21 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
+      # --- Permissions du dossier data / data folder ownership ---
+      # Le conteneur tourne en utilisateur non-root (1000:1000 par défaut).
+      # Si votre dossier ./data appartient à un autre utilisateur, renseignez
+      # votre UID/GID (`id -u` / `id -g`) — sinon, laissez commenté.
+      #
+      # The container runs as a non-root user (1000:1000 by default). If your
+      # ./data folder is owned by a different user, set your own UID/GID here
+      # (`id -u` / `id -g`) — otherwise leave commented out.
+      # - PUID=1000
+      # - PGID=1000
+
       # --- Variables Optionnelles / Optional Variables ---
       # Toutes ces valeurs peuvent être configurées plus tard, directement depuis l'interface Web.
       # All these values can be configured later directly from the Web UI.
-      
+
       # - KAVITA_URL=http://ton-kavita:5001
       # - KAVITA_API_KEY=ta_cle_api_kavita
       # - DEEPL_API_KEY=ta_cle_api_deepl

@@ -1,0 +1,55 @@
+# Build context exclusions.
+#
+# `COPY . .` in the Dockerfile copies whatever happens to be in the build context.
+# Without this file that includes anything .gitignore hides but that still exists
+# on the machine doing the build — and two of those are actively harmful:
+#
+#   data/    On any machine where the application has been run once, this holds a
+#            real config.json containing SECRET_KEY, WEBHOOK_TOKEN and every API
+#            key. Baked into an image layer they are readable by anyone who can
+#            pull that image, and deleting the file in a later layer would not
+#            remove it from history. The published ghcr.io images are not affected
+#            (CI builds from a clean checkout where data/ does not exist), but a
+#            local `docker build` is, and that is exactly how someone tests a
+#            change before pushing it.
+#
+#   .venv/   A local development virtualenv is easily 90 MB of Linux-incompatible
+#            or simply redundant packages, copied in and then shadowed by the real
+#            `pip install`. Pure image bloat.
+#
+# Everything else here is build speed and image size: a smaller context also means
+# fewer spurious cache invalidations on the COPY layer.
+
+# Version control
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Runtime data — secrets live here (see above)
+data/
+
+# Local virtualenvs
+.venv/
+venv/
+env/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# Test suite and dev-only dependencies: not needed to run the application
+tests/
+pytest.ini
+requirements-dev.txt
+.pytest_cache/
+
+# README screenshots — displayed on GitHub, never served by the application
+assets/
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
