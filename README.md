@@ -314,6 +314,14 @@ Although designed for internal management, several security hardening controls a
 * **Token Protection**: Webhooks require a cryptographically generated authorization token (`WEBHOOK_TOKEN`) with on-demand UI token rotation.
 * **Credential Masking**: API keys are censored in the HTML DOM; Kavita auth logs never print API key prefixes.
 
+> #### 🚨 Custom scrapers execute arbitrary code
+> A `.py` file placed in `data/scrapers/` is **not configuration** — it is imported and run at
+> startup with the application's full privileges. There is no sandbox. A malicious scraper can
+> read `config.json` (and with it your `SECRET_KEY`, `WEBHOOK_TOKEN` and every API key), reach
+> any file the container can, and open outbound network connections. Only install scrapers whose
+> origin you trust, and read them first — including AI-generated ones.
+> **See the full warning in [CUSTOM_SCRAPERS.md](CUSTOM_SCRAPERS.md).**
+
 #### ⚠️ Important Notice for Public Web Exposure
 The presence of built-in security features **does not guarantee absolute immunity against external threats**. Exposing MetaKavita directly to the open internet is done at your own risk.
 
@@ -604,6 +612,15 @@ Bien que pensé pour un usage privé, plusieurs mécanismes de protection sont i
 * **XSS modal couvertures (v1.6+)** : résultats construits via APIs DOM (`textContent`) — pas d'interpolation HTML distante.
 * **Protection Webhook** : Authentification des appels webhook exigeant un jeton cryptographique (`WEBHOOK_TOKEN`) réinitialisable à la demande.
 * **Masquage des Identifiants** : Censure des clés API dans l'interface web ; les logs d'auth Kavita n'affichent plus de préfixe de clé.
+
+> #### 🚨 Les scrapers personnalisés exécutent du code arbitraire
+> Un fichier `.py` déposé dans `data/scrapers/` **n'est pas de la configuration** : il est importé
+> et exécuté au démarrage avec tous les droits de l'application. Il n'y a aucun bac à sable. Un
+> scraper malveillant peut lire `config.json` (et donc votre `SECRET_KEY`, votre `WEBHOOK_TOKEN`
+> et toutes vos clés d'API), accéder à n'importe quel fichier visible du conteneur et ouvrir des
+> connexions réseau sortantes. N'installez que des scrapers dont vous connaissez la provenance,
+> et lisez-les avant — y compris ceux générés par une IA.
+> **Avertissement complet dans [CUSTOM_SCRAPERS.md](CUSTOM_SCRAPERS.md).**
 
 #### ⚠️ Avertissement en Cas d'Exposition Publique
 L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vous choisissez d'exposer directement MetaKavita sur Internet, vous le faites sous votre propre responsabilité.
