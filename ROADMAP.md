@@ -28,6 +28,7 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **C57. Health Endpoint `/healthz` (unreleased, issue #15):** Unauthenticated liveness probe returning `{status, version}`; whitelisted in `require_login` so it survives the auth gate. Dockerfile `HEALTHCHECK` retargeted from `/login` (any status < 500) to `/healthz` (strict 200). Reads no config, no DB, never calls Kavita — a Kavita outage must not restart a healthy container.
 - [x] **C56. Custom Scraper RCE Warning (unreleased, issue #15):** Prominent FR + EN warning at the top of `CUSTOM_SCRAPERS.md` — sideloading a `.py` into `data/scrapers/` is arbitrary code execution at startup with the app's privileges (config secrets, filesystem, outbound network, `proxy_domains` allowlist widening). Concrete red flags for non-programmers, explicit caution on AI-generated code, trust model stated. Short linked version in both README security sections.
 - [x] **BDTheque.com comics provider (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ (distinct from `BEDETHEQUE` / bedetheque.com). AJAX series search, series page scrape, Magic Input, unified scoring, covers.
 - [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
@@ -151,6 +152,7 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **C57. Endpoint de santé `/healthz` (non publié, issue #15) :** sonde de liveness non authentifiée renvoyant `{status, version}` ; whitelistée dans `require_login` pour survivre au gate d'authentification. `HEALTHCHECK` du Dockerfile repointé de `/login` (tout statut < 500) vers `/healthz` (200 strict). Ne lit aucune config, aucune base, n'appelle jamais Kavita — une panne de Kavita ne doit pas redémarrer un conteneur sain.
 - [x] **C56. Avertissement RCE scrapers personnalisés (non publié, issue #15) :** avertissement FR + EN bien visible en tête de `CUSTOM_SCRAPERS.md` — déposer un `.py` dans `data/scrapers/` revient à exécuter du code arbitraire au démarrage avec les droits de l'app (secrets de config, système de fichiers, réseau sortant, élargissement de l'allowlist `proxy_domains`). Signaux d'alarme concrets pour non-développeurs, mise en garde explicite sur le code généré par IA, modèle de confiance énoncé. Version courte avec lien dans les deux sections sécurité du README.
 - [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche série, Magic Input, scoring unifié, covers.
 - [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.

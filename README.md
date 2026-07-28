@@ -297,6 +297,12 @@ You can view your ready-to-use Webhook URL or generate a new token anytime direc
 ```
 *(Setting `"force": true` in the JSON or adding `&force=true` to the URL triggers a forced re-scrape, overwriting existing metadata even if already marked as completed).*
 
+#### 3. Health Endpoint
+
+`GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
+
+A liveness probe for orchestrators — it is what the Docker `HEALTHCHECK` targets, and it works with Kubernetes, Portainer, Uptime Kuma and the like. Unauthenticated by design, so it keeps answering once a password is set. It touches no configuration, no database and never contacts Kavita: it reports only that the application is running and routing, not that its dependencies are up. That is deliberate — a Kavita outage should not make a healthy MetaKavita container restart in a loop.
+
 ---
 
 ### 🛡️ Security Disclaimer & Deployment Best Practices
@@ -595,6 +601,12 @@ Vous pouvez consulter votre URL Webhook prête à l'emploi ou régénérer un je
 }
 ```
 *(Définir `"force": true` dans le JSON ou ajouter `&force=true` dans l'URL déclenche un ré-enrichissement forcé, écrasant les métadonnées existantes même si la fiche était marquée comme complétée).*
+
+#### 3. Endpoint de santé
+
+`GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
+
+Sonde de liveness pour les orchestrateurs — c'est la cible du `HEALTHCHECK` Docker, et elle fonctionne aussi avec Kubernetes, Portainer, Uptime Kuma, etc. Non authentifiée par conception, afin de continuer à répondre une fois un mot de passe défini. Elle ne lit aucune configuration, n'ouvre aucune base et ne contacte jamais Kavita : elle indique seulement que l'application tourne et route, pas que ses dépendances sont disponibles. C'est délibéré — une panne de Kavita ne doit pas faire redémarrer en boucle un conteneur MetaKavita parfaitement sain.
 
 ---
 
