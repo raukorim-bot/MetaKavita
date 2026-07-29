@@ -53,11 +53,11 @@ def _provider_payload():
 
 def _patch_enrichment(mocker, isolated_db, config, cache=None):
     mocker.patch.object(enrichment_engine, "load_config", return_value=config)
-    mocker.patch.object(enrichment_engine, "get_max_genres", side_effect=lambda c=None: 5)
-    mocker.patch.object(enrichment_engine, "get_max_tags", side_effect=lambda c=None: 15)
+    mocker.patch("services.kavita_payload.get_max_genres", side_effect=lambda c=None: 5)
+    mocker.patch("services.kavita_payload.get_max_tags", side_effect=lambda c=None: 15)
     mocker.patch.object(enrichment_engine, "get_all_cached_data", side_effect=isolated_db.get_all_cached_data)
     mocker.patch.object(enrichment_engine, "update_status")
-    mocker.patch.object(enrichment_engine, "translate_text", side_effect=lambda text, *a, **k: text)
+    mocker.patch("services.kavita_payload.translate_text", side_effect=lambda text, *a, **k: text)
 
     class FakeScraper:
         id = "FAKE"

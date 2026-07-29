@@ -64,11 +64,11 @@ class _MangaFake(BaseScraper):
 
 
 def _patch_kavita_basics(mocker, isolated_db):
-    mocker.patch.object(enrichment_engine, "get_max_genres", side_effect=lambda c=None: 5)
-    mocker.patch.object(enrichment_engine, "get_max_tags", side_effect=lambda c=None: 15)
+    mocker.patch("services.kavita_payload.get_max_genres", side_effect=lambda c=None: 5)
+    mocker.patch("services.kavita_payload.get_max_tags", side_effect=lambda c=None: 15)
     mocker.patch.object(enrichment_engine, "get_all_cached_data", side_effect=isolated_db.get_all_cached_data)
     mocker.patch.object(enrichment_engine, "update_status")
-    mocker.patch.object(enrichment_engine, "translate_text", side_effect=lambda text, *a, **k: text)
+    mocker.patch("services.kavita_payload.translate_text", side_effect=lambda text, *a, **k: text)
 
     mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
     mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={
