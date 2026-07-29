@@ -24,6 +24,24 @@ from scrapers import ScraperRegistry
 from scrapers.utils import library_type_for_scraper
 
 
+def _reject_unauthenticated(event_name):
+    """True (et socket fermée) si l'émetteur n'a pas de session valide.
+
+    Défense en profondeur : le rejet à la connexion ci-dessous suffit en théorie,
+    mais il ne tient qu'à la bonne interprétation d'un paquet de refus par le
+    client. Chaque handler qui déclenche un travail réel vérifie donc lui-même,
+    pour qu'un client qui émettrait avant d'avoir été éjecté ne fasse rien.
+    """
+    if auth_manager.is_authenticated():
+        return False
+    logging.warning(
+        "🚨 [Sécurité] Événement WebSocket '%s' rejeté (Non authentifié) IP: %s",
+        event_name, request.remote_addr,
+    )
+    disconnect()
+    return True
+
+
 @socketio.on('connect')
 def handle_connect():
     """Refuse toute connexion WebSocket non authentifiée.
@@ -37,20 +55,33 @@ def handle_connect():
     Fail-closed comme le gate HTTP : on exige une session, au lieu de l'ancien
     comportement qui ne vérifiait quoi que ce soit que si un `ADMIN_PASSWORD`
     était renseigné.
+
+    ⚠️ Le refus se fait par `return False`, seule forme documentée par
+    Flask-SocketIO pour rejeter un handshake : le serveur répond alors
+    `connect_error` et n'acquitte jamais la connexion. Un `disconnect()` posé ici
+    laissait au contraire le serveur acquitter la connexion puis envoyer un
+    paquet de fermeture — deux paquets dont l'ordre d'interprétation côté client
+    décidait si une fenêtre d'émission existait ou non.
     """
     if not auth_manager.is_authenticated():
         logging.warning(
             "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: %s",
             request.remote_addr,
         )
-        disconnect()
-        return
+        return False
 
-    # Compteur + résumé file review manuelle (mode C29)
+    # Compteur + résumé file review manuelle (mode C29).
+    #
+    # Émis vers le seul `sid` qui vient de se connecter, jamais en diffusion : la
+    # file de review est un état de session, et un `socketio.emit()` sans
+    # destinataire l'enverrait à toutes les sockets ouvertes. Sans conséquence
+    # avec le compte unique d'aujourd'hui, mais la table `users` accepte déjà N
+    # comptes — autant ne pas laisser la fuite s'installer d'avance.
+    sid = request.sid
     try:
         from db_manager import count_pending_reviews, list_pending_reviews
         n = count_pending_reviews()
-        socketio.emit("manual_review_pending_count", {"count": n})
+        socketio.emit("manual_review_pending_count", {"count": n}, to=sid)
         if n:
             summary = []
             for r in list_pending_reviews(limit=30):
@@ -60,7 +91,11 @@ def handle_connect():
                     "series_name": r["series_name"],
                     "state": r["state"],
                 })
-            socketio.emit("manual_review_queue_summary", {"reviews": summary, "count": n})
+            socketio.emit(
+                "manual_review_queue_summary",
+                {"reviews": summary, "count": n},
+                to=sid,
+            )
     except Exception as exc:
         logging.debug("manual_review connect emit skipped: %s", exc)
 
@@ -68,6 +103,9 @@ def handle_connect():
 @socketio.on('fetch_covers_stream')
 def handle_fetch_covers_stream(data):
     """Sert les couvertures en streaming direct (flush immédiat Eventlet)."""
+    if _reject_unauthenticated('fetch_covers_stream'):
+        return
+
     series_id = data.get('series_id')
     query = data.get('query')
     if not series_id or not query: return
@@ -81,6 +119,10 @@ def handle_fetch_covers_stream(data):
 
     target_scrapers = ScraperRegistry.get_by_type(library_type) or ScraperRegistry.get_by_type("Manga")
     script_root = request.script_root or ""
+    # Capturé ici : les tâches de fond ci-dessous tournent hors contexte de
+    # requête, `request.sid` n'y serait plus lisible. Les couvertures répondent à
+    # la recherche d'un client précis et n'ont rien à faire chez les autres.
+    sid = request.sid
 
     total_scrapers = len(target_scrapers)
     finished_counter = [0]
@@ -98,12 +140,12 @@ def handle_fetch_covers_stream(data):
                         c['display_url'] = c['url']
                     results.append(c)
 
-                # Émission vers le client web
+                # Émission vers le client web à l'origine de la recherche
                 socketio.emit('cover_stream_data', {
                     'series_id': int(series_id),
                     'provider': scraper.display_name,
                     'covers': results
-                })
+                }, to=sid)
                 # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket sur le réseau
                 socketio.sleep(0)
         except Exception as e:
@@ -111,7 +153,7 @@ def handle_fetch_covers_stream(data):
         finally:
             finished_counter[0] += 1
             if finished_counter[0] >= total_scrapers:
-                socketio.emit('cover_stream_complete', {'series_id': int(series_id)})
+                socketio.emit('cover_stream_complete', {'series_id': int(series_id)}, to=sid)
                 socketio.sleep(0)
 
     for scraper in target_scrapers:

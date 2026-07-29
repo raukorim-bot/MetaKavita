@@ -33,11 +33,17 @@ def setup():
     Accessible UNIQUEMENT tant qu'aucun compte n'existe. Sans ce garde-fou,
     l'écran resterait un moyen non authentifié de créer un second compte — donc
     un contournement complet de l'authentification.
+
+    Sur une instance qui tournait avec l'ancien `ADMIN_PASSWORD`, cet écran exige
+    en plus ce mot de passe comme preuve de propriété : voir
+    `auth_manager.legacy_proof_required`.
     """
     t, config = _t()
 
     if not auth_manager.setup_required():
         return redirect(url_for('auth.login'))
+
+    legacy_required = auth_manager.legacy_proof_required()
 
     error = None
     if request.method == 'POST':
@@ -45,7 +51,19 @@ def setup():
         password = request.form.get('password', '')
         confirm = request.form.get('password_confirm', '')
 
-        if password != confirm:
+        # Le verrouillage est consulté d'abord et vaut aussi pour cet écran :
+        # depuis qu'il vérifie un secret, il est devenu une cible de force brute
+        # au même titre que /login.
+        locked, remaining = auth_manager.is_locked_out()
+        if locked:
+            minutes = max(1, (remaining + 59) // 60)
+            error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
+        elif legacy_required and not auth_manager.verify_legacy_password(
+            request.form.get('legacy_password', '')
+        ):
+            auth_manager.register_failed_attempt()
+            error = t.get('setup_err_legacy_password')
+        elif password != confirm:
             error = t.get('setup_err_password_mismatch')
         else:
             ok, err_key = auth_manager.create_user(username, password)
@@ -57,6 +75,9 @@ def setup():
 
                 user = auth_manager.verify_credentials(username, password)
                 if user:
+                    # Le compte est créé : plus rien ne justifie de garder le
+                    # propriétaire à distance du verrou déclenché par une rafale.
+                    auth_manager.clear_failed_attempts()
                     auth_manager.login_session(user)
                     auth_manager.record_login(user['id'])
                     return redirect(url_for('pages.index'))
@@ -70,6 +91,7 @@ def setup():
         t=t,
         config=config,
         min_password_length=auth_manager.MIN_PASSWORD_LENGTH,
+        legacy_required=legacy_required,
     )
 
 

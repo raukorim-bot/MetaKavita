@@ -118,25 +118,44 @@ def load_config():
                 except OSError as bak_err:
                     logging.error("[Config] Impossible de sauvegarder config.json.bak : %s", bak_err)
 
-        needs_save = False
-        if not config_parse_failed:
-            if not config.get("SECRET_KEY"):
-                config["SECRET_KEY"] = secrets.token_hex(24)
-                needs_save = True
-            if not config.get("WEBHOOK_TOKEN"):
-                config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
-                needs_save = True
+        # --- FUSION DE L'ENVIRONNEMENT -------------------------------------
+        # Précédence : config.json > variable d'environnement > défaut.
+        #
+        # L'environnement SÈME donc ce que le fichier ne contient pas encore, il
+        # ne l'écrase jamais. C'est ce qui permet de préconfigurer une instance
+        # neuve depuis docker-compose sans renier la promesse « je le change dans
+        # l'interface et ça reste changé » : dès qu'une clé est dans config.json,
+        # c'est elle qui fait autorité, y compris contre la variable d'origine.
+        #
+        # ⚠️ CE BLOC DOIT RESTER AVANT LA GÉNÉRATION DES SECRETS, plus bas, qui
+        # écrit config.json au premier démarrage. C'est l'inversion de ces deux
+        # étapes qui rendait la TOTALITÉ des variables d'environnement inopérantes :
+        # le fichier était écrit avec les défauts avant que l'environnement soit
+        # lu, donc au démarrage suivant chaque clé existait déjà dans le fichier
+        # et le repli `os.getenv` n'était plus jamais atteint. `UI_LANG`,
+        # `KAVITA_URL`, `KAVITA_API_KEY`, `PROVIDER_1`, `MAX_TAGS`… étaient tous
+        # ignorés en silence, y compris au tout premier démarrage — le seul moment
+        # où ils avaient une chance de servir.
 
-            if needs_save:
-                save_config(config)
-        else:
-            # Secrets éphémères en mémoire seulement — ne pas écraser le fichier corrompu
-            if not config.get("SECRET_KEY"):
-                config["SECRET_KEY"] = secrets.token_hex(24)
-            if not config.get("WEBHOOK_TOKEN"):
-                config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
-
-        config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", os.getenv("ADMIN_PASSWORD", config.get("ADMIN_PASSWORD", "")))
+        # `ADMIN_PASSWORD` n'est volontairement PAS semé depuis l'environnement.
+        # La clé est supprimée (l'accès est protégé par le compte créé au premier
+        # démarrage) et n'est plus lue que pour la migration des installations qui
+        # la contiennent encore, où elle sert de preuve de propriété sur l'écran de
+        # setup. La semer aurait deux conséquences fâcheuses : réécrire un mot de
+        # passe en clair sur le disque d'une installation neuve, et surtout rendre
+        # `auth_manager.purge_legacy_admin_password()` inopérant — il vide la clé
+        # dans config.json, mais la variable d'environnement la ferait réapparaître
+        # au chargement suivant, donc l'écran de setup réclamerait indéfiniment une
+        # preuve censée être à usage unique.
+        config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", "")
+        if os.getenv("ADMIN_PASSWORD") and not config["ADMIN_PASSWORD"]:
+            logging.warning(
+                "[Config] ADMIN_PASSWORD est défini dans l'environnement mais cette "
+                "variable est supprimée : l'accès est protégé par le compte créé au "
+                "premier démarrage. Pour préconfigurer ce compte sans passer par "
+                "l'écran de configuration, utilisez ADMIN_PASSWORD_HASH "
+                "(cf. `python debug/hash_password.py`)."
+            )
 
         for key in [
             "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
@@ -204,6 +223,31 @@ def load_config():
                 os.getenv("MATCH_ACCEPT_THRESHOLD", config.get("MATCH_ACCEPT_THRESHOLD", 0.60)),
             )
         )
+
+        # --- SECRETS ET PREMIÈRE PERSISTANCE -------------------------------
+        # Volontairement en DERNIER : l'écriture qui suit fige config.json, et
+        # tout ce qui n'a pas encore été fusionné à cet instant serait figé à sa
+        # valeur par défaut pour toujours (cf. l'avertissement plus haut).
+        needs_save = False
+        if not config_parse_failed:
+            if not config.get("SECRET_KEY"):
+                config["SECRET_KEY"] = secrets.token_hex(24)
+                needs_save = True
+            if not config.get("WEBHOOK_TOKEN"):
+                config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
+                needs_save = True
+
+            if needs_save:
+                # Premier démarrage : le fichier créé ici contient donc déjà les
+                # valeurs demandées par l'environnement, qui deviennent du même
+                # coup visibles et modifiables depuis l'interface web.
+                save_config(config)
+        else:
+            # Secrets éphémères en mémoire seulement — ne pas écraser le fichier corrompu
+            if not config.get("SECRET_KEY"):
+                config["SECRET_KEY"] = secrets.token_hex(24)
+            if not config.get("WEBHOOK_TOKEN"):
+                config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
 
         return config
 

@@ -28,13 +28,16 @@ services:
       #
       # Reverse proxy : laissez 1 si MetaKavita est derrière nginx/Traefik/Caddy.
       # METTEZ 0 si vous y accédez directement — sinon l'en-tête X-Forwarded-For
-      # est fourni par le client et le verrouillage anti-force-brute peut être
-      # contourné en le faisant varier.
+      # est fourni par le client et le verrouillage par IP peut être esquivé en
+      # le faisant varier. Un plafond global (20 échecs par quart d'heure) borne
+      # la force brute dans tous les cas, mais il verrouille alors l'écran de
+      # connexion pour tout le monde.
       #
       # Reverse proxy: leave at 1 if MetaKavita sits behind nginx/Traefik/Caddy.
       # SET IT TO 0 if you reach it directly — otherwise X-Forwarded-For is
-      # supplied by the client and the brute-force lockout can be bypassed by
-      # rotating it.
+      # supplied by the client and the per-IP lockout can be evaded by rotating
+      # it. A global cap (20 failures per 15 minutes) bounds brute-force in every
+      # case, but it locks the login screen for everyone when it trips.
       # - TRUSTED_PROXY_COUNT=1
       #
       # Déploiement pré-provisionné : générez un hachage avec

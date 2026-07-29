@@ -203,12 +203,14 @@ docker compose up -d --build
 
 *MetaKavita features a Zero-Hardcode API Key engine. Any scraper declaring `needs_api_key = True` will automatically listen to its corresponding environment variable and dynamically render its input field in the UI.*
 
+> **Precedence: `config.json` > environment variable > default.** An environment variable **seeds** a setting the configuration file does not hold yet — it never overrides one you have already changed in the Web UI. On a first run, the variables you set are written into `config.json`, so they both take effect and become editable from the interface; from then on, the interface has the last word.
+
 | Variable | Description | Default Value |
 | :--- | :--- | :--- |
 | `ADMIN_USERNAME` | Username for the account seeded from `ADMIN_PASSWORD_HASH`. Ignored if an account already exists. | `admin` |
-| `ADMIN_PASSWORD_HASH` | Pre-hashed password used to create the first account at startup, skipping the setup screen. Generate with `python debug/hash_password.py`. Ignored once any account exists, so it can never overwrite a real password. | *(Empty)* |
-| `TRUSTED_PROXY_COUNT` | `1` (default) trusts `X-Forwarded-*` from one reverse proxy. **Set to `0` when MetaKavita is reachable directly**, otherwise the header is attacker-controlled and the login lockout can be bypassed by rotating it. | `1` |
-| ~~`ADMIN_PASSWORD`~~ | **Removed.** Replaced by the first-run account setup. Any value left in `config.json` is deleted once you create your account. | — |
+| `ADMIN_PASSWORD_HASH` | Pre-hashed password used to create the first account at startup, skipping the setup screen. Generate with `python debug/hash_password.py`. Ignored once any account exists, so it can never overwrite a real password. A value that is not a hash — a plaintext password, for instance — is refused with an error in the log instead of creating an account no password can open. | *(Empty)* |
+| `TRUSTED_PROXY_COUNT` | `1` (default) trusts `X-Forwarded-*` from one reverse proxy. **Set to `0` when MetaKavita is reachable directly**, otherwise the header is attacker-controlled and the *per-IP* lockout can be evaded by rotating it. A global cap (20 failed logins per 15 minutes, all addresses combined) applies in every configuration, so brute-force stays bounded either way — but when it trips it locks the login screen for everyone, including you. | `1` |
+| ~~`ADMIN_PASSWORD`~~ | **Removed.** Replaced by the first-run account setup. If a value is still in `config.json`, the setup screen asks for it once as proof that you already had access to this instance — so an upgrade never leaves a protected instance open to whoever reaches `/setup` first. It is deleted as soon as your account is created. Lost it? Blank that line in `data/config.json` and reload the page. | — |
 | `PUID` / `PGID` | User and group id the application runs as, and which owns everything under `/app/data`. Set these to the owner of your bind-mounted `./data` folder (`id -u` / `id -g`) if it is not `1000:1000`. The container starts as root only long enough to apply them, then drops privileges. | `1000` / `1000` |
 | `ROOT_PATH` | Custom URL subpath when hosted behind a reverse proxy (e.g. `/metakavita`). | *(Empty)* |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated explicit origins allowed for CORS (HTTP + Socket.IO), e.g. `https://metakavita.home.local.ltd`. Empty = Same-Origin only. `*` is rejected. Does not replace proper reverse-proxy WebSocket upgrade config. | *(Empty)* |
@@ -344,7 +346,7 @@ The presence of built-in security features **does not guarantee absolute immunit
 2. **Secondary Authentication Layer**: Combine the built-in login with an external authentication gateway (e.g., Authelia, Authentik, Cloudflare Access, or HTTP Basic Auth).
 3. **Network Restrictions / VPN**: Restrict access to trusted IP ranges or keep access restricted to a private VPN whenever possible.
 4. **Strong Passwords**: Choose a long, complex password on the first-run setup screen. Authentication is always enforced — there is no configuration in which the dashboard is served without a login.
-5. **Set `TRUSTED_PROXY_COUNT=0` if you are not behind a reverse proxy**, so the brute-force lockout counts the real client address instead of a header the client controls.
+5. **Set `TRUSTED_PROXY_COUNT=0` if you are not behind a reverse proxy**, so the brute-force lockout counts the real client address instead of a header the client controls. A global cap bounds brute-force even when this is misconfigured, but it can only do so by locking the login screen for everyone for up to 15 minutes — the per-IP lockout is what stops an attacker without delaying you.
 
 > **Disclaimer**: MetaKavita is provided "as-is" without warranty of any kind. The maintainers assume no liability for data loss, unauthorized access, or security incidents resulting from public exposure or network misconfiguration.
 
@@ -517,12 +519,14 @@ docker compose up -d --build
 
 *MetaKavita dispose d'un moteur de clés d'API dynamique (Zero-Hardcode). Tout scraper déclarant `needs_api_key = True` écoutera automatiquement sa variable d'environnement et affichera son champ de saisie dans l'UI.*
 
+> **Précédence : `config.json` > variable d'environnement > défaut.** Une variable d'environnement **sème** un réglage que le fichier de configuration ne contient pas encore — elle n'écrase jamais un réglage que vous avez déjà modifié dans l'interface web. Au premier démarrage, les variables que vous avez posées sont écrites dans `config.json` : elles prennent donc effet *et* deviennent modifiables depuis l'interface, qui a le dernier mot ensuite.
+
 | Variable | Description | Valeur par défaut |
 | :--- | :--- | :--- |
 | `ADMIN_USERNAME` | Nom du compte amorcé depuis `ADMIN_PASSWORD_HASH`. Ignoré si un compte existe déjà. | `admin` |
-| `ADMIN_PASSWORD_HASH` | Mot de passe pré-haché servant à créer le premier compte au démarrage, sans passer par l'écran de configuration. À générer avec `python debug/hash_password.py`. Ignoré dès qu'un compte existe : il ne peut donc jamais écraser un mot de passe réel. | *(Vide)* |
-| `TRUSTED_PROXY_COUNT` | `1` (défaut) fait confiance aux en-têtes `X-Forwarded-*` d'un reverse proxy. **Mettre `0` si MetaKavita est joignable directement**, sinon l'en-tête est fourni par le client et le verrouillage de connexion peut être contourné en le faisant varier. | `1` |
-| ~~`ADMIN_PASSWORD`~~ | **Supprimé.** Remplacé par la création de compte au premier démarrage. Toute valeur restée dans `config.json` est effacée dès que vous créez votre compte. | — |
+| `ADMIN_PASSWORD_HASH` | Mot de passe pré-haché servant à créer le premier compte au démarrage, sans passer par l'écran de configuration. À générer avec `python debug/hash_password.py`. Ignoré dès qu'un compte existe : il ne peut donc jamais écraser un mot de passe réel. Une valeur qui n'est pas un hachage — un mot de passe en clair, par exemple — est refusée avec une erreur dans le journal, plutôt que de créer un compte qu'aucun mot de passe n'ouvre. | *(Vide)* |
+| `TRUSTED_PROXY_COUNT` | `1` (défaut) fait confiance aux en-têtes `X-Forwarded-*` d'un reverse proxy. **Mettre `0` si MetaKavita est joignable directement**, sinon l'en-tête est fourni par le client et le verrouillage *par IP* peut être esquivé en le faisant varier. Un plafond global (20 échecs de connexion par quart d'heure, toutes adresses confondues) s'applique dans toutes les configurations : la force brute reste donc bornée quoi qu'il arrive — mais lorsqu'il se déclenche, l'écran de connexion est verrouillé pour tout le monde, vous compris. | `1` |
+| ~~`ADMIN_PASSWORD`~~ | **Supprimé.** Remplacé par la création de compte au premier démarrage. Si une valeur subsiste dans `config.json`, l'écran de configuration la demande une dernière fois comme preuve que vous aviez déjà accès à cette instance — une mise à jour ne laisse donc jamais une instance protégée à la disposition du premier arrivé sur `/setup`. Elle est effacée dès que votre compte est créé. Perdue ? Videz cette ligne dans `data/config.json` puis rechargez la page. | — |
 | `PUID` / `PGID` | UID et GID sous lesquels tourne l'application, et propriétaires de tout le contenu de `/app/data`. À renseigner avec le propriétaire de votre dossier `./data` monté (`id -u` / `id -g`) s'il n'est pas `1000:1000`. Le conteneur ne démarre en root que le temps de les appliquer, puis abandonne ses privilèges. | `1000` / `1000` |
 | `ROOT_PATH` | Sous-chemin d'URL lors de l'exposition derrière un reverse proxy (ex: `/metakavita`). | *(Vide)* |
 | `CORS_ALLOWED_ORIGINS` | Origins CORS explicites séparées par des virgules (HTTP + Socket.IO), ex: `https://metakavita.home.local.ltd`. Vide = Same-Origin uniquement. `*` est rejeté. Ne remplace pas une config reverse-proxy correcte pour l'upgrade WebSocket. | *(Vide)* |
@@ -659,7 +663,7 @@ L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vo
 2. **Authentification Renforcée** : Associez l'accès à un portail de sécurité ou SSO (ex: Authelia, Authentik, Cloudflare Access ou authentification HTTP de base).
 3. **Restriction d'Accès / VPN** : Restreignez l'accès aux seules adresses IP de confiance ou privilégiez un accès via VPN.
 4. **Mot de Passe Fort** : Choisissez un mot de passe long et complexe sur l'écran de configuration initial. L'authentification est toujours active — il n'existe aucune configuration dans laquelle l'interface est servie sans connexion.
-5. **Mettez `TRUSTED_PROXY_COUNT=0` si vous n'êtes pas derrière un reverse proxy**, afin que le verrouillage anti-force-brute compte la véritable adresse du client et non un en-tête qu'il contrôle.
+5. **Mettez `TRUSTED_PROXY_COUNT=0` si vous n'êtes pas derrière un reverse proxy**, afin que le verrouillage anti-force-brute compte la véritable adresse du client et non un en-tête qu'il contrôle. Un plafond global borne la force brute même si ce réglage est erroné, mais il ne peut le faire qu'en verrouillant l'écran de connexion pour tout le monde pendant un quart d'heure : c'est le verrouillage par IP qui arrête un attaquant sans vous retarder.
 
 > **Avertissement de responsabilité** : MetaKavita est fourni "en l'état", sans aucune garantie. Les développeurs et contributeurs déclinent toute responsabilité en cas d'altération de données, d'intrusion ou d'incident de sécurité découlant d'une exposition publique ou d'une erreur de configuration.
 

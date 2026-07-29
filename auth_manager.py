@@ -17,8 +17,10 @@ patchant qu'une seule globale.
 
 import logging
 import os
+import secrets
 import sqlite3
 import time
+from collections import deque
 from datetime import datetime, timezone
 
 from flask import redirect, request, session, url_for
@@ -56,10 +58,47 @@ PASSWORD_HASH_METHOD = "pbkdf2:sha256"
 # agressif pousse surtout les gens vers des mots de passe notés sur un post-it.
 MIN_PASSWORD_LENGTH = 8
 
+# Hachage factice servant à égaliser le coût d'un nom d'utilisateur inconnu
+# (voir `verify_credentials`). Calculé une seule fois, à la première tentative
+# ratée, et mémorisé.
+#
+# ⚠️ NE PAS le recalculer à chaque appel : `generate_password_hash` est un KDF
+# complet (600 000 itérations pbkdf2 sous Werkzeug 3). Le générer puis le
+# vérifier coûtait DEUX KDF pour un nom inconnu contre UN pour un compte
+# existant — l'écart de latence que la manœuvre prétendait effacer était donc
+# simplement inversé, et le chemin le moins cher pour un attaquant devenait
+# deux fois plus lourd pour le worker eventlet unique.
+#
+# Paresseux et non calculé à l'import : la suite pytest importe ce module dans
+# presque tous ses fichiers, et une installation qui n'a jamais d'échec de
+# connexion n'a aucune raison de payer ce calcul.
+_dummy_password_hash = None
+
 
 # --- VERROUILLAGE PAR IP ---------------------------------------------------
 MAX_FAILED_ATTEMPTS = 5
 LOCKOUT_SECONDS = 15 * 60
+
+# Plafond GLOBAL, toutes IP confondues, sur la même fenêtre glissante.
+#
+# Le compteur par IP ci-dessous ne vaut que si l'IP est fiable, et elle ne l'est
+# pas toujours : avec `TRUSTED_PROXY_COUNT=1` (le défaut, cf. plus bas), c'est
+# `X-Forwarded-For` qui fait autorité, et en exposition directe cet en-tête est
+# fourni par le client. Le faire varier à chaque requête suffisait donc à ce
+# qu'aucun compteur n'atteigne jamais 5 : brute-force illimité, et — plus grave
+# sur ce déploiement — hachage illimité sur le worker eventlet unique.
+#
+# Ce plafond global ne peut pas être contourné par rotation d'IP puisqu'il n'en
+# regarde aucune. Il est volontairement 4× plus haut que le seuil par IP : un
+# utilisateur légitime qui se trompe ne l'atteint jamais, alors qu'un attaquant
+# se retrouve borné à 20 essais par quart d'heure quelle que soit sa capacité à
+# maquiller son adresse.
+GLOBAL_MAX_FAILED_ATTEMPTS = 20
+
+# Nombre maximal d'IP suivies simultanément. Sans plafond, chaque adresse
+# usurpée laisserait une entrée permanente : le compteur censé freiner
+# l'attaquant deviendrait lui-même sa charge utile.
+MAX_TRACKED_IPS = 1024
 
 # État en mémoire : {ip: (nombre_d_échecs, timestamp_du_dernier_échec)}.
 #
@@ -74,6 +113,9 @@ LOCKOUT_SECONDS = 15 * 60
 # peut pas s'en servir pour réarmer son compteur.
 _failed_attempts = {}
 
+# Horodatages des échecs récents, toutes IP confondues, pour le plafond global.
+_global_failures = deque()
+
 
 def _now():
     return time.time()
@@ -86,14 +128,18 @@ def _client_ip():
     valeur de `X-Forwarded-For`. C'est correct DERRIÈRE un reverse proxy, et
     dangereux sans : l'application écoute sur `0.0.0.0` (choix explicite du
     mainteneur pour l'extension Companion), donc en exposition directe cet
-    en-tête est fourni par le client lui-même. Un attaquant n'aurait qu'à le
-    faire varier à chaque requête pour que le compteur par IP n'atteigne jamais
-    5 et que le verrouillage ne se déclenche jamais.
+    en-tête est fourni par le client lui-même. Un attaquant n'a qu'à le faire
+    varier à chaque requête pour qu'aucun compteur par IP n'atteigne jamais 5.
 
     `TRUSTED_PROXY_COUNT` tranche : `1` (défaut) conserve le comportement
     actuel, correct derrière un reverse proxy ; `0` ignore l'en-tête et impute
     la tentative au pair TCP réel, ce qu'il faut en exposition directe. Voir
     aussi `app.py`, qui utilise la même valeur pour construire `ProxyFix`.
+
+    Le réglage reste donc à faire, mais il n'est plus la seule chose qui sépare
+    l'application d'un brute-force illimité : `GLOBAL_MAX_FAILED_ATTEMPTS` borne
+    les tentatives sans regarder aucune adresse, et cette borne-là tient même
+    quand celle-ci est maquillée.
     """
     if get_trusted_proxy_count() == 0:
         # `werkzeug.middleware.proxy_fix` conserve l'adresse réelle ici lorsqu'il
@@ -128,48 +174,105 @@ def get_trusted_proxy_count() -> int:
     return 1
 
 
+def _prune_failed_attempts(now):
+    """Oublie les IP dont la fenêtre est expirée, puis borne la taille du suivi."""
+    for ip, (_, last_attempt) in list(_failed_attempts.items()):
+        if now - last_attempt >= LOCKOUT_SECONDS:
+            _failed_attempts.pop(ip, None)
+    # Filet de sécurité : si autant d'IP distinctes échouent dans la même
+    # fenêtre, c'est déjà une rotation d'adresses, et le plafond global fait le
+    # travail. On sacrifie les entrées les plus anciennes plutôt que la mémoire.
+    while len(_failed_attempts) > MAX_TRACKED_IPS:
+        oldest = min(_failed_attempts, key=lambda key: _failed_attempts[key][1])
+        _failed_attempts.pop(oldest, None)
+
+
+def _global_lockout_remaining(now):
+    """Secondes restantes imposées par le plafond global (0 si non atteint)."""
+    while _global_failures and now - _global_failures[0] >= LOCKOUT_SECONDS:
+        _global_failures.popleft()
+    if len(_global_failures) < GLOBAL_MAX_FAILED_ATTEMPTS:
+        return 0
+    # La fenêtre est glissante : le verrou se lève quand l'échec le plus ancien
+    # sort de la fenêtre, donc au plus tard 15 minutes après la dernière rafale.
+    return max(1, int(LOCKOUT_SECONDS - (now - _global_failures[0])))
+
+
 def is_locked_out(ip=None):
-    """(verrouillé: bool, secondes_restantes: int) pour cette IP."""
+    """(verrouillé: bool, secondes_restantes: int) pour cette IP.
+
+    Deux verrous, on retient le plus contraignant : celui de l'IP, et le plafond
+    global qui reste opposable même quand l'adresse est maquillée.
+    """
+    now = _now()
+    remaining = _global_lockout_remaining(now)
+
     ip = ip or _client_ip()
     entry = _failed_attempts.get(ip)
-    if not entry:
-        return False, 0
-    attempts, last_attempt = entry
-    if attempts < MAX_FAILED_ATTEMPTS:
-        return False, 0
-    elapsed = _now() - last_attempt
-    if elapsed >= LOCKOUT_SECONDS:
-        # Fenêtre expirée : on repart de zéro. Le verrouillage est TEMPORAIRE —
-        # exigence explicite du mainteneur, pour qu'une faute de frappe ne
-        # bannisse pas définitivement un utilisateur légitime.
-        _failed_attempts.pop(ip, None)
-        return False, 0
-    return True, int(LOCKOUT_SECONDS - elapsed)
+    if entry:
+        attempts, last_attempt = entry
+        if attempts >= MAX_FAILED_ATTEMPTS:
+            elapsed = now - last_attempt
+            if elapsed >= LOCKOUT_SECONDS:
+                # Fenêtre expirée : on repart de zéro. Le verrouillage est
+                # TEMPORAIRE — exigence explicite du mainteneur, pour qu'une
+                # faute de frappe ne bannisse pas définitivement un utilisateur
+                # légitime.
+                _failed_attempts.pop(ip, None)
+            else:
+                remaining = max(remaining, int(LOCKOUT_SECONDS - elapsed))
+
+    return remaining > 0, remaining
 
 
 def register_failed_attempt(ip=None):
     """Incrémente le compteur d'échecs et retourne le nombre de tentatives."""
+    now = _now()
     ip = ip or _client_ip()
     attempts, _ = _failed_attempts.get(ip, (0, 0.0))
     attempts += 1
-    _failed_attempts[ip] = (attempts, _now())
+    _failed_attempts[ip] = (attempts, now)
+    _global_failures.append(now)
+    _prune_failed_attempts(now)
+    _global_lockout_remaining(now)  # purge la fenêtre glissante
+
     if attempts >= MAX_FAILED_ATTEMPTS:
         logging.warning(
             "🚨 [Sécurité] %s tentatives de connexion échouées depuis %s — "
             "verrouillage %s minutes.",
             attempts, ip, LOCKOUT_SECONDS // 60,
         )
+    elif len(_global_failures) >= GLOBAL_MAX_FAILED_ATTEMPTS:
+        # Ce cas-là signale presque toujours une rotation d'adresses : le seuil
+        # global est atteint alors qu'aucune IP n'a échoué 5 fois.
+        logging.warning(
+            "🚨 [Sécurité] %s tentatives de connexion échouées toutes adresses "
+            "confondues en moins de %s minutes — verrouillage global. Si cette "
+            "instance n'est pas derrière un reverse proxy, posez "
+            "TRUSTED_PROXY_COUNT=0 pour que le verrouillage par IP redevienne "
+            "fiable.",
+            len(_global_failures), LOCKOUT_SECONDS // 60,
+        )
     return attempts
 
 
 def clear_failed_attempts(ip=None):
-    """Remet le compteur à zéro (connexion réussie)."""
+    """Remet les compteurs à zéro (connexion réussie).
+
+    Le compteur global est purgé lui aussi : celui qui vient de fournir le bon
+    mot de passe est le propriétaire, et le laisser verrouillé par la rafale
+    d'un attaquant transformerait la protection en déni de service. La
+    contrepartie est bornée — un attaquant ne regagne des essais qu'à condition
+    que le propriétaire se connecte entre-temps.
+    """
     _failed_attempts.pop(ip or _client_ip(), None)
+    _global_failures.clear()
 
 
 def reset_lockout_state():
     """Vide tout l'état de verrouillage. Réservé aux tests."""
     _failed_attempts.clear()
+    _global_failures.clear()
 
 
 # --- STOCKAGE --------------------------------------------------------------
@@ -266,6 +369,16 @@ def create_user(username, password):
         return False, "setup_err_generic"
 
 
+def _get_dummy_password_hash():
+    """Hachage factice mémorisé, pour l'égalisation de temps de `verify_credentials`."""
+    global _dummy_password_hash
+    if _dummy_password_hash is None:
+        _dummy_password_hash = generate_password_hash(
+            "no-such-account", method=PASSWORD_HASH_METHOD
+        )
+    return _dummy_password_hash
+
+
 def verify_credentials(username, password):
     """Retourne {id, username} si le couple est valide, sinon None."""
     username = (username or "").strip()
@@ -286,13 +399,11 @@ def verify_credentials(username, password):
         return None
 
     if not row:
-        # Aucun compte de ce nom. On hache quand même une valeur bidon pour que
-        # « utilisateur inconnu » et « mot de passe faux » coûtent le même temps :
-        # sans cela, l'écart de latence révèle quels noms existent.
-        check_password_hash(
-            generate_password_hash("timing-equalizer", method=PASSWORD_HASH_METHOD),
-            "timing-equalizer",
-        )
+        # Aucun compte de ce nom. On vérifie quand même le mot de passe fourni
+        # contre un hachage factice pour que « utilisateur inconnu » et « mot de
+        # passe faux » coûtent exactement le même temps — un seul KDF de part et
+        # d'autre. Sans cela, l'écart de latence révèle quels noms existent.
+        check_password_hash(_get_dummy_password_hash(), password)
         return None
 
     user_id, real_username, password_hash = row
@@ -314,6 +425,26 @@ def record_login(user_id):
         logging.warning("[Auth] last_login non mis à jour : %s", e)
 
 
+def _looks_like_password_hash(value) -> bool:
+    """True si `value` a la forme d'un hachage Werkzeug (`méthode$sel$empreinte`).
+
+    Contrôle de forme uniquement — il ne s'agit pas de valider la robustesse du
+    hachage, mais de distinguer un hachage d'un mot de passe en clair collé par
+    erreur dans `ADMIN_PASSWORD_HASH`. La confusion avec l'ancien
+    `ADMIN_PASSWORD` est facile à commettre, et sa conséquence est brutale : le
+    compte serait créé, aucun mot de passe ne l'ouvrirait jamais
+    (`check_password_hash` renvoie False sur une valeur qui n'est pas un
+    hachage), et l'écran de setup se fermerait définitivement puisqu'un compte
+    existe désormais. L'instance deviendrait inutilisable sans intervention dans
+    la base.
+    """
+    parts = (value or "").split("$")
+    if len(parts) != 3 or not all(parts):
+        return False
+    method = parts[0]
+    return method.startswith(("pbkdf2:", "scrypt:")) or method in ("pbkdf2", "scrypt")
+
+
 def seed_user_from_env():
     """Crée le compte initial depuis `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH`.
 
@@ -330,10 +461,25 @@ def seed_user_from_env():
     doit s'appliquer au premier démarrage avant toute requête.
 
     Sans effet si un compte existe déjà — cette fonction ne peut pas écraser un
-    mot de passe existant.
+    mot de passe existant. Sans effet non plus si la valeur n'a pas la forme d'un
+    hachage : mieux vaut laisser l'écran de setup ouvert qu'un compte inouvrable
+    (voir `_looks_like_password_hash`).
     """
     password_hash = (os.environ.get("ADMIN_PASSWORD_HASH") or "").strip()
     if not password_hash:
+        return False
+    if not _looks_like_password_hash(password_hash):
+        # On ne journalise JAMAIS la valeur : si l'utilisateur y a mis un mot de
+        # passe en clair, l'écrire dans data/metakavita.log ne ferait que le
+        # recopier ailleurs. Seule sa longueur est utile au diagnostic.
+        logging.error(
+            "[Auth] ADMIN_PASSWORD_HASH ignoré : la valeur fournie (%s caractères) "
+            "n'a pas la forme d'un hachage Werkzeug « %s$sel$empreinte ». Cette "
+            "variable attend un HACHAGE, pas un mot de passe — générez-le avec "
+            "`python debug/hash_password.py`. Aucun compte n'a été créé, l'écran "
+            "de setup reste donc disponible.",
+            len(password_hash), PASSWORD_HASH_METHOD,
+        )
         return False
     if user_count() != 0:
         return False
@@ -358,6 +504,61 @@ def seed_user_from_env():
         username,
     )
     return True
+
+
+def legacy_admin_password() -> str:
+    """`ADMIN_PASSWORD` encore présent dans config.json, sinon "".
+
+    Import local de `config_manager`, comme `purge_legacy_admin_password` : ce
+    module est importé par `tests/conftest.py` sans que la configuration soit
+    forcément initialisée.
+    """
+    from config_manager import load_config
+
+    # `str()` défensif : config.json est éditable à la main, et une valeur
+    # numérique y ferait échouer l'encodage UTF-8 de la comparaison.
+    return str(load_config().get("ADMIN_PASSWORD") or "")
+
+
+def legacy_proof_required() -> bool:
+    """True si l'écran de setup doit exiger l'ancien mot de passe.
+
+    Ferme la fenêtre de revendication de la mise à niveau. Sur une instance
+    existante, la table `users` est vide au premier démarrage de cette version :
+    `setup_required()` est donc vrai et `/setup` s'ouvre à tout le réseau, alors
+    que l'ancien `ADMIN_PASSWORD` ne protège plus rien puisqu'il n'est
+    volontairement pas repris. Une instance jusque-là protégée devenait ainsi
+    accessible au premier visiteur, qui repartait avec le contrôle complet — donc
+    avec l'écriture de métadonnées sur toute la bibliothèque Kavita.
+
+    Exiger l'ancien mot de passe rétablit la continuité : il ne sert pas à
+    authentifier une session (il a vécu en clair sur le disque, il est considéré
+    comme compromis), seulement à prouver qu'on avait déjà accès à cette
+    instance. Il est ensuite effacé par `purge_legacy_admin_password`, ce qui rend
+    la preuve utilisable une seule fois.
+
+    ⚠️ Une installation NEUVE n'a rien à prouver : il n'existe aucun secret
+    partagé, donc le premier arrivé revendique l'instance. C'est inhérent au
+    premier démarrage — la seule parade est de pré-provisionner le compte avec
+    `ADMIN_PASSWORD_HASH`.
+    """
+    return bool(legacy_admin_password())
+
+
+def verify_legacy_password(candidate) -> bool:
+    """Compare en temps constant l'ancien mot de passe en clair.
+
+    Comparaison sur les octets UTF-8 : `secrets.compare_digest` lève TypeError
+    sur des `str` non ASCII, et un ancien mot de passe accentué transformerait
+    alors un refus en erreur 500. Même motif défensif que `routes/sync.py`.
+    """
+    expected = legacy_admin_password()
+    if not expected or not candidate:
+        return False
+    try:
+        return secrets.compare_digest(expected.encode("utf-8"), candidate.encode("utf-8"))
+    except (TypeError, ValueError):
+        return False
 
 
 def purge_legacy_admin_password():

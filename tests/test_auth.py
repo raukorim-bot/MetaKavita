@@ -29,6 +29,22 @@ def _clean_lockout_state():
     auth_manager.reset_lockout_state()
 
 
+@pytest.fixture(autouse=True)
+def _isolated_config_file(tmp_path, monkeypatch):
+    """Aucun test de ce fichier ne doit lire le `data/config.json` du dépôt.
+
+    L'écran de setup consulte `ADMIN_PASSWORD` pour décider s'il exige la preuve
+    de propriété (`auth_manager.legacy_proof_required`) : sans cette isolation,
+    le résultat de la suite dépendrait de la configuration de la machine qui la
+    lance. Même tmp_path que la fixture `isolated_config` ci-dessous, qui peut
+    donc continuer d'écrire dans ce même fichier.
+    """
+    import config_manager
+
+    monkeypatch.setattr(config_manager, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(config_manager, "CONFIG_FILE", str(tmp_path / "config.json"))
+
+
 @pytest.fixture
 def auth_app(isolated_db, monkeypatch):
     """App Flask ad hoc : blueprint auth + les deux gates, dans le bon ordre."""
@@ -65,12 +81,17 @@ def client(auth_app):
     return auth_app.test_client()
 
 
-def _complete_setup(client, username="admin", password="correct horse"):
-    return client.post("/setup", data={
+def _complete_setup(client, username="admin", password="correct horse", legacy_password=None):
+    """POST /setup. `legacy_password` n'est envoyé que si le test le fournit —
+    l'écran ne le réclame que sur une instance qui avait un `ADMIN_PASSWORD`."""
+    data = {
         "username": username,
         "password": password,
         "password_confirm": password,
-    }, follow_redirects=False)
+    }
+    if legacy_password is not None:
+        data["legacy_password"] = legacy_password
+    return client.post("/setup", data=data, follow_redirects=False)
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +149,54 @@ def test_short_password_is_refused(isolated_db):
     assert ok is False
     assert err == "setup_err_password_too_short"
     assert auth_manager.user_count() == 0
+
+
+# ---------------------------------------------------------------------------
+# Égalisation du temps de réponse
+# ---------------------------------------------------------------------------
+
+def test_the_dummy_hash_is_computed_once(isolated_db):
+    """Le hachage factice est un KDF complet : le recalculer à chaque tentative
+    ferait d'un nom inconnu le chemin le PLUS coûteux, sur un worker unique."""
+    first = auth_manager._get_dummy_password_hash()
+    assert auth_manager._get_dummy_password_hash() is first
+
+
+def test_unknown_and_wrong_password_cost_the_same_number_of_hashes(isolated_db, monkeypatch):
+    """Un nom inconnu et un mot de passe faux doivent coûter UN KDF chacun.
+
+    C'est la propriété que l'égalisation cherche à obtenir : si les deux chemins
+    ne font pas le même travail, l'écart de latence dit à l'attaquant quels
+    comptes existent — et l'ancienne version, qui générait un hachage avant de le
+    vérifier, en faisait deux pour un nom inconnu contre un seul pour un compte
+    réel.
+    """
+    from werkzeug import security as werkzeug_security
+
+    auth_manager.create_user("admin", "correct horse")
+    auth_manager._get_dummy_password_hash()  # préchauffage hors mesure
+
+    calls = {"generate": 0, "check": 0}
+
+    def counting_generate(*args, **kwargs):
+        calls["generate"] += 1
+        return werkzeug_security.generate_password_hash(*args, **kwargs)
+
+    def counting_check(*args, **kwargs):
+        calls["check"] += 1
+        return werkzeug_security.check_password_hash(*args, **kwargs)
+
+    monkeypatch.setattr(auth_manager, "generate_password_hash", counting_generate)
+    monkeypatch.setattr(auth_manager, "check_password_hash", counting_check)
+
+    assert auth_manager.verify_credentials("ghost", "whatever") is None
+    unknown_user = dict(calls)
+
+    calls["generate"] = calls["check"] = 0
+    assert auth_manager.verify_credentials("admin", "wrong password") is None
+    wrong_password = dict(calls)
+
+    assert unknown_user == wrong_password == {"generate": 0, "check": 1}
 
 
 # ---------------------------------------------------------------------------
@@ -348,6 +417,113 @@ def test_lockout_is_per_ip(client):
 
 
 # ---------------------------------------------------------------------------
+# Plafond global (rotation d'IP)
+# ---------------------------------------------------------------------------
+
+def test_rotating_the_ip_cannot_defeat_the_lockout(client):
+    """Le constat le plus important de cette section.
+
+    Avec `TRUSTED_PROXY_COUNT=1` (le défaut), `X-Forwarded-For` fait autorité, et
+    en exposition directe c'est le client qui le fournit. Changer d'IP à chaque
+    tentative permettait donc de ne jamais atteindre 5 échecs sur une même
+    adresse : brute-force illimité, et autant de hachages imposés au worker
+    unique. Le plafond global doit rendre cette rotation inopérante.
+    """
+    _complete_setup(client)
+    client.get("/logout")
+
+    for i in range(auth_manager.GLOBAL_MAX_FAILED_ATTEMPTS):
+        res = client.post(
+            "/login",
+            data={"username": "admin", "password": "wrong"},
+            environ_overrides={"REMOTE_ADDR": f"10.0.{i // 256}.{i % 256}"},
+        )
+        assert res.status_code == 200
+
+    # Aucune adresse n'a échoué 5 fois…
+    assert auth_manager._failed_attempts, "chaque IP ne doit avoir échoué qu'une fois"
+    assert all(
+        attempts < auth_manager.MAX_FAILED_ATTEMPTS
+        for attempts, _ in auth_manager._failed_attempts.values()
+    )
+
+    # …et pourtant une adresse jamais vue est verrouillée.
+    locked, remaining = auth_manager.is_locked_out("203.0.113.7")
+    assert locked is True
+    assert 0 < remaining <= auth_manager.LOCKOUT_SECONDS
+
+
+def test_the_global_lockout_refuses_even_the_correct_password(client):
+    _complete_setup(client)
+    client.get("/logout")
+
+    # Échecs enregistrés directement : le POST HTTP est déjà couvert par le test
+    # ci-dessus, et chaque tentative réelle coûte un KDF complet à la suite.
+    for i in range(auth_manager.GLOBAL_MAX_FAILED_ATTEMPTS):
+        auth_manager.register_failed_attempt(f"10.1.{i // 256}.{i % 256}")
+
+    res = client.post(
+        "/login",
+        data={"username": "admin", "password": "correct horse"},
+        environ_overrides={"REMOTE_ADDR": "198.51.100.4"},
+    )
+    assert res.status_code == 200, "doit réafficher le formulaire, pas rediriger"
+    assert client.get("/").status_code == 302, "aucune session ne doit être ouverte"
+
+
+def test_the_global_lockout_is_a_sliding_window(monkeypatch):
+    """Temporaire comme le verrou par IP : sinon une rafale bannirait le
+    propriétaire pour de bon."""
+    for i in range(auth_manager.GLOBAL_MAX_FAILED_ATTEMPTS):
+        auth_manager.register_failed_attempt(f"10.2.{i // 256}.{i % 256}")
+    assert auth_manager.is_locked_out("203.0.113.7")[0] is True
+
+    real_now = auth_manager._now()
+    monkeypatch.setattr(
+        auth_manager, "_now", lambda: real_now + auth_manager.LOCKOUT_SECONDS + 1
+    )
+    assert auth_manager.is_locked_out("203.0.113.7")[0] is False
+
+
+def test_a_successful_login_clears_the_global_counter(client):
+    """Sinon la rafale d'un attaquant verrouillerait le propriétaire pendant 15
+    minutes : la protection deviendrait le déni de service."""
+    _complete_setup(client)
+    client.get("/logout")
+
+    for i in range(auth_manager.GLOBAL_MAX_FAILED_ATTEMPTS - 1):
+        auth_manager.register_failed_attempt(f"10.3.{i // 256}.{i % 256}")
+
+    res = client.post("/login", data={"username": "admin", "password": "correct horse"})
+    assert res.status_code == 302
+    assert not auth_manager._global_failures
+    assert auth_manager.is_locked_out("203.0.113.7")[0] is False
+
+
+def test_expired_and_excess_ip_entries_are_forgotten(monkeypatch):
+    """Le suivi par IP ne doit pas devenir la charge utile de l'attaquant."""
+    real_now = auth_manager._now()
+
+    auth_manager.register_failed_attempt("10.4.0.1")
+    assert "10.4.0.1" in auth_manager._failed_attempts
+
+    # Une entrée dont la fenêtre est expirée disparaît au prochain échec.
+    monkeypatch.setattr(
+        auth_manager, "_now", lambda: real_now + auth_manager.LOCKOUT_SECONDS + 1
+    )
+    auth_manager.register_failed_attempt("10.4.0.2")
+    assert "10.4.0.1" not in auth_manager._failed_attempts
+
+    # Et le nombre d'IP suivies reste borné même dans la même fenêtre. Plafond
+    # abaissé pour le test : la propriété testée est la borne, pas sa valeur.
+    monkeypatch.undo()
+    monkeypatch.setattr(auth_manager, "MAX_TRACKED_IPS", 10)
+    for i in range(30):
+        auth_manager.register_failed_attempt(f"172.16.0.{i}")
+    assert len(auth_manager._failed_attempts) <= 10
+
+
+# ---------------------------------------------------------------------------
 # TRUSTED_PROXY_COUNT
 # ---------------------------------------------------------------------------
 
@@ -401,7 +577,12 @@ def test_legacy_admin_password_is_not_imported(client, isolated_config):
     assert "/setup" in res.headers["Location"]
 
     # …et cet ancien mot de passe ne permet pas de se connecter.
-    _complete_setup(client, username="admin", password="brand new password")
+    _complete_setup(
+        client,
+        username="admin",
+        password="brand new password",
+        legacy_password="legacy-plaintext",
+    )
     client.get("/logout")
     res = client.post("/login", data={"username": "admin", "password": "legacy-plaintext"})
     assert res.status_code == 200
@@ -411,7 +592,7 @@ def test_legacy_admin_password_is_not_imported(client, isolated_config):
 def test_legacy_admin_password_is_erased_after_setup(client, isolated_config):
     isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
 
-    _complete_setup(client)
+    _complete_setup(client, legacy_password="legacy-plaintext")
 
     with open(isolated_config.CONFIG_FILE, encoding="utf-8") as f:
         saved = json.load(f)
@@ -437,9 +618,106 @@ def test_purge_is_best_effort_and_never_breaks_setup(client, isolated_config, mo
     })
     monkeypatch.setattr(config_manager, "save_config", boom)
 
-    res = _complete_setup(client)
+    res = _complete_setup(client, legacy_password="legacy")
     assert res.status_code == 302
     assert auth_manager.user_count() == 1
+
+
+# ---------------------------------------------------------------------------
+# Preuve de propriété à la mise à niveau
+# ---------------------------------------------------------------------------
+
+def test_a_fresh_install_demands_no_proof(client, isolated_config):
+    """Aucun secret partagé n'existe : il n'y a rien à prouver."""
+    isolated_config.save_config({"SECRET_KEY": "k"})
+
+    assert auth_manager.legacy_proof_required() is False
+    assert _complete_setup(client).status_code == 302
+    assert auth_manager.user_count() == 1
+
+
+def test_setup_demands_the_legacy_password_when_one_exists(client, isolated_config):
+    """Le cœur du correctif.
+
+    Sur une instance déjà en service, la table `users` est vide au premier
+    démarrage de cette version : `/setup` s'ouvre donc à tout le réseau alors que
+    l'ancien `ADMIN_PASSWORD` ne protège plus rien. Sans preuve de propriété, le
+    premier visiteur revendique l'instance — et repart avec l'écriture de
+    métadonnées sur toute la bibliothèque Kavita.
+    """
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+
+    assert auth_manager.legacy_proof_required() is True
+
+    res = _complete_setup(client, username="attacker", password="attacker password")
+    assert res.status_code == 200, "doit réafficher le formulaire, pas rediriger"
+    assert auth_manager.user_count() == 0
+    assert auth_manager.setup_required() is True
+
+
+def test_setup_refuses_a_wrong_legacy_password_and_counts_the_attempt(client, isolated_config):
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+
+    res = _complete_setup(client, legacy_password="not-it")
+    assert res.status_code == 200
+    assert auth_manager.user_count() == 0
+    assert auth_manager._failed_attempts, (
+        "cet écran vérifie désormais un secret : il doit alimenter le compteur "
+        "d'échecs, sinon il offre une force brute illimitée"
+    )
+
+
+def test_the_legacy_proof_is_subject_to_the_lockout(client, isolated_config):
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+
+    for _ in range(auth_manager.MAX_FAILED_ATTEMPTS):
+        _complete_setup(client, legacy_password="wrong")
+
+    assert auth_manager.is_locked_out("127.0.0.1")[0] is True
+
+    res = _complete_setup(client, legacy_password="legacy-plaintext")
+    assert res.status_code == 200, "le verrou doit tenir face à la bonne valeur"
+    assert auth_manager.user_count() == 0
+
+
+def test_a_valid_proof_creates_the_account_and_cannot_be_replayed(client, isolated_config):
+    """La preuve est à usage unique : l'ancien mot de passe est effacé juste
+    après, et l'écran de setup se ferme puisqu'un compte existe."""
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+
+    res = _complete_setup(client, legacy_password="legacy-plaintext")
+    assert res.status_code == 302
+    assert auth_manager.user_count() == 1
+    assert auth_manager.legacy_proof_required() is False
+
+    client.get("/logout")
+    res = client.post("/setup", data={
+        "username": "second",
+        "password": "second password",
+        "password_confirm": "second password",
+        "legacy_password": "legacy-plaintext",
+    })
+    assert res.status_code == 302
+    assert "/login" in res.headers["Location"]
+    assert auth_manager.user_count() == 1
+
+
+def test_an_accented_legacy_password_is_compared_without_crashing(client, isolated_config):
+    """`secrets.compare_digest` lève TypeError sur des `str` non ASCII : un refus
+    deviendrait une 500, et un accent rendrait la preuve impossible à fournir."""
+    isolated_config.save_config({"ADMIN_PASSWORD": "clé-privée-éàü", "SECRET_KEY": "k"})
+
+    assert auth_manager.verify_legacy_password("mauvais") is False
+    assert auth_manager.verify_legacy_password("clé-privée-éàü") is True
+    assert _complete_setup(client, legacy_password="clé-privée-éàü").status_code == 302
+
+
+def test_the_legacy_field_appears_only_when_a_proof_is_required(client, isolated_config):
+    isolated_config.save_config({"SECRET_KEY": "k"})
+    assert b'name="legacy_password"' not in client.get("/setup").data
+
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+    assert b'name="legacy_password"' in client.get("/setup").data
 
 
 # ---------------------------------------------------------------------------
@@ -493,6 +771,39 @@ def test_seeding_is_a_no_op_without_the_variable(isolated_db, monkeypatch):
     monkeypatch.delenv("ADMIN_PASSWORD_HASH", raising=False)
     assert auth_manager.seed_user_from_env() is False
     assert auth_manager.setup_required() is True
+
+
+@pytest.mark.parametrize("bogus", [
+    "un-mot-de-passe-en-clair",
+    "pbkdf2:sha256:600000$il-manque-un-segment",
+    "pas-une-methode$sel$empreinte",
+    "$$",
+])
+def test_seeding_refuses_a_value_that_is_not_a_hash(isolated_db, monkeypatch, bogus):
+    """La confusion avec l'ancien `ADMIN_PASSWORD` est facile à commettre.
+
+    Créer le compte quand même serait le pire des deux mondes : aucun mot de
+    passe ne l'ouvrirait (`check_password_hash` refuse une valeur qui n'est pas
+    un hachage) et l'écran de setup se fermerait pour toujours puisqu'un compte
+    existe. L'amorçage doit donc échouer et laisser le setup accessible.
+    """
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", bogus)
+
+    assert auth_manager.seed_user_from_env() is False
+    assert auth_manager.user_count() == 0
+    assert auth_manager.setup_required() is True
+
+
+def test_a_rejected_seed_value_is_never_written_to_the_logs(isolated_db, monkeypatch, caplog):
+    """Si l'utilisateur y a mis son mot de passe en clair, le journaliser ne
+    ferait que le recopier dans data/metakavita.log."""
+    monkeypatch.setenv("ADMIN_PASSWORD_HASH", "tr3s-secret-en-clair")
+
+    with caplog.at_level("ERROR"):
+        assert auth_manager.seed_user_from_env() is False
+
+    assert "ADMIN_PASSWORD_HASH" in caplog.text, "l'erreur doit rester diagnosticable"
+    assert "tr3s-secret-en-clair" not in caplog.text
 
 
 # ---------------------------------------------------------------------------

@@ -166,6 +166,9 @@ translations = {
         "setup_err_password_too_short": "❌ Mot de passe trop court.",
         "setup_err_password_mismatch": "❌ Les deux mots de passe ne correspondent pas.",
         "setup_err_generic": "❌ Création du compte impossible. Consultez les logs.",
+        "setup_legacy_label": "Ancien mot de passe (ADMIN_PASSWORD)",
+        "setup_legacy_hint": "Cette instance était protégée par un mot de passe unique. Saisissez-le une dernière fois pour prouver que vous en êtes le propriétaire ; il sera ensuite supprimé de config.json. Si vous l'avez perdu, videz la ligne \"ADMIN_PASSWORD\" de data/config.json puis rechargez cette page.",
+        "setup_err_legacy_password": "❌ Ancien mot de passe incorrect.",
 
         # --- 5. STATISTIQUES ---
         "stats_title": "📊 Statistiques",
@@ -726,6 +729,9 @@ translations = {
         "setup_err_password_too_short": "❌ Password is too short.",
         "setup_err_password_mismatch": "❌ The two passwords do not match.",
         "setup_err_generic": "❌ Could not create the account. Check the logs.",
+        "setup_legacy_label": "Previous password (ADMIN_PASSWORD)",
+        "setup_legacy_hint": "This instance was protected by a single shared password. Enter it one last time to prove you own this instance; it will then be deleted from config.json. If you lost it, blank the \"ADMIN_PASSWORD\" line in data/config.json and reload this page.",
+        "setup_err_legacy_password": "❌ Incorrect previous password.",
 
         # --- 5. STATISTIQUES ---
         "stats_title": "📊 Statistics",
