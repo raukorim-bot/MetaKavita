@@ -13,6 +13,9 @@ EN
 ### 🧪 Tests
 * **BF50. The test suite no longer writes to the real database** — `test_scraper_max_caps.py::test_enrichment_engine_caps_genres_and_tags_before_kavita` is the only test in that file that runs `enrich_series()` end to end, and its success path calls `record_enrichment_telemetry()`. That call was not mocked, and it opens `db_manager.DB_FILE` directly — so every run of the suite wrote into the repository's real `data/cache.db`, incrementing `series_enriched` and `matches_won` and accumulating wins for a fictitious `FAKE` provider that the C7 statistics podium would then display as a genuine scraper. Adding the existing `isolated_db` fixture redirects it to a throwaway database.
 
+### 🩺 Operations
+* **C57. `GET /healthz` liveness endpoint** — Returns `{"status": "ok", "version": …}` and nothing else. Whitelisted in `require_login`, so it keeps answering `200` once a password is set, which is what makes it usable as the container's `HEALTHCHECK` target — that check previously had to hit `/login` and accept any status below 500, because no route reliably returned `200`. It now demands exactly `200`, so a routing regression is caught instead of passing as a `404`. The endpoint reads no configuration, opens no database connection and never contacts Kavita: it reports that the application is alive and routing, not that its dependencies are up, so a Kavita outage cannot put a healthy container into a restart loop.
+
 ### ✨ Highlights
 * **Manual Review Mode (C29)** — Silent scrape queue: candidates land as PENDING_REVIEW without writing to Kavita. Pick modal with score gradient, keys 1–3, weak (below-threshold) band in red; optional edit-before-confirm; lifetime telemetry + session recap.
 * **Reliability barometer** — Sidebar checkbox unlocks a match-accept threshold slider (`0.30`–`1.00`, default `0.60`). Off = fixed tested default. Config: `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; scrapers use `get_match_accept_threshold()`.
@@ -51,6 +54,9 @@ FR
 
 ### 🧪 Tests
 * **BF50. La suite de tests n’écrit plus dans la vraie base** — `test_scraper_max_caps.py::test_enrichment_engine_caps_genres_and_tags_before_kavita` est le seul test du fichier à traverser `enrich_series()` de bout en bout, et son chemin de succès appelle `record_enrichment_telemetry()`. Cet appel n’était pas mocké et ouvre directement `db_manager.DB_FILE` : chaque exécution de la suite écrivait donc dans le vrai `data/cache.db` du dépôt, incrémentant `series_enriched` et `matches_won` et accumulant des victoires pour un provider fictif `FAKE` que le podium des statistiques C7 affichait ensuite comme un vrai scraper. L’ajout de la fixture existante `isolated_db` le redirige vers une base jetable.
+
+### 🩺 Exploitation
+* **C57. Endpoint de liveness `GET /healthz`** — Renvoie `{"status": "ok", "version": …}` et rien d’autre. Whitelisté dans `require_login`, il continue donc de répondre `200` une fois un mot de passe défini — c’est ce qui le rend utilisable comme cible du `HEALTHCHECK` du conteneur, lequel devait auparavant interroger `/login` et accepter tout statut inférieur à 500, faute de route renvoyant `200` de façon fiable. Il exige désormais exactement `200`, ce qui permet d’attraper une régression de routage au lieu de la laisser passer pour un `404`. L’endpoint ne lit aucune configuration, n’ouvre aucune base et ne contacte jamais Kavita : il signale que l’application est vivante et route, pas que ses dépendances sont disponibles — une panne de Kavita ne peut donc pas placer un conteneur sain en boucle de redémarrage.
 
 ### ✨ Points forts
 * **Mode Review Manuelle (C29)** — File de scrape silencieuse : les candidats arrivent en PENDING_REVIEW sans écrire dans Kavita. Modale de pick avec gradient de score, touches 1–3, bande faible (sous seuil) en rouge ; édition optionnelle avant confirm ; télémétrie lifetime + récap de session.

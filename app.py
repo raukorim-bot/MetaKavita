@@ -161,7 +161,13 @@ def require_login():
     # Gardez cette liste synchronisée avec les noms définis dans routes/*.py.
     if request.method == "OPTIONS":
         return None
-    if request.endpoint in ['auth.login', 'static', 'sync.webhook']:
+    # 'misc.healthz' : sonde de liveness du conteneur. Elle doit rester
+    # accessible sans session, sinon le HEALTHCHECK du Dockerfile reçoit un 302
+    # dès qu'un mot de passe est défini et Docker marque un conteneur parfaitement
+    # sain comme unhealthy — puis le redémarre en boucle si une restart policy est
+    # active. L'endpoint ne renvoie que {status, version} : rien qui ne soit déjà
+    # public via le titre de l'UI et /api/changelog.
+    if request.endpoint in ['auth.login', 'static', 'sync.webhook', 'misc.healthz']:
         return
 
     config = load_config()

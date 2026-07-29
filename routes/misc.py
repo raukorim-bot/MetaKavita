@@ -164,3 +164,39 @@ def get_changelog_api():
         "version": get_current_version(),
         "changelog": get_full_changelog_html()
     })
+
+
+@misc_bp.route('/healthz', methods=['GET'])
+def healthz():
+    """Liveness probe for orchestrators (Docker HEALTHCHECK, Kubernetes, Portainer).
+
+    ⚠️ Endpoint réel : 'misc.healthz'. Whitelisté dans `require_login` (app.py) —
+    gardez ce nom synchronisé si vous le renommez, sinon le healthcheck du
+    conteneur commencera à recevoir des 302 dès qu'un mot de passe est défini.
+
+    Deliberately does nothing. It reads no configuration, opens no database
+    connection and never contacts Kavita, for two reasons:
+
+    1. A healthcheck runs every 30 seconds forever. Anything it touches, it
+       touches thousands of times a day, and under `gunicorn -w 1` with the
+       eventlet worker a probe that blocks on I/O competes with real requests.
+    2. A liveness probe should answer "is this process alive and routing?", not
+       "are its dependencies up". If it also checked Kavita, a Kavita outage
+       would mark MetaKavita unhealthy and a restart policy would then restart a
+       perfectly healthy container, repeatedly, for a fault it cannot fix.
+
+    Returning HTTP 200 at all is therefore the entire signal: Flask routed the
+    request, so the WSGI server is accepting connections and the eventlet loop
+    is turning.
+
+    The version is included because it costs nothing — `get_current_version()`
+    is memoised in the process after the first call — and makes the endpoint
+    useful for upgrade monitoring. It is the same version already shown in the
+    UI title and in `/api/changelog`, so this exposes nothing new; the endpoint
+    is nonetheless unauthenticated by design, so nothing that is not already
+    public should ever be added to this payload.
+    """
+    return jsonify({
+        "status": "ok",
+        "version": get_current_version(),
+    })

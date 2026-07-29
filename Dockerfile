@@ -28,22 +28,23 @@ RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 5010
 
-# Liveness only — is the WSGI server accepting and answering HTTP at all.
+# Liveness probe against the dedicated /healthz endpoint.
 #
-# Deliberately tolerant of the response *code*. Every route in the application
-# either redirects to the login page or is POST-only, and once the authentication
-# work lands (issue #15) that will be true unconditionally. A check demanding 200
-# would therefore start reporting a perfectly healthy container as unhealthy the
-# moment a password is set. Any answer below 500 proves the process is alive,
-# eventlet is looping and Flask is routing, which is what a healthcheck is for.
+# This previously hit /login and accepted any status below 500, because there was
+# no unauthenticated route that reliably answered 200 — every endpoint either
+# redirects to the login page or is POST-only. That check was correct but blunt:
+# "below 500" also passes for a 404, so a routing regression could have gone
+# unnoticed. /healthz (misc.healthz) is whitelisted in `require_login`, so it
+# answers 200 whether or not a password is set, and the check can demand exactly
+# that.
 #
-# Uses the interpreter already in the image instead of adding curl or wget, which
-# would mean another package in the final layer purely for this.
-# `http.client` is used rather than urllib because it does not raise on 4xx/5xx,
-# which keeps this a single expression: the status is inspected directly, and any
-# genuine failure (connection refused, timeout) raises and exits non-zero anyway.
+# Uses the interpreter already in the image rather than adding curl or wget, which
+# would mean another package in the final layer purely for this. `http.client`
+# rather than urllib because it does not raise on 4xx/5xx, which keeps this a
+# single expression — the status is inspected directly, and any genuine failure
+# (connection refused, timeout) raises and exits non-zero anyway.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
-    CMD python -c "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',5010,timeout=4); c.request('GET','/login'); sys.exit(0 if c.getresponse().status < 500 else 1)"
+    CMD python -c "import http.client,sys; c=http.client.HTTPConnection('127.0.0.1',5010,timeout=4); c.request('GET','/healthz'); sys.exit(0 if c.getresponse().status == 200 else 1)"
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 
