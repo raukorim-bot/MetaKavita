@@ -29,6 +29,7 @@ from flask import Flask, request, session, redirect, url_for, make_response
 
 from auth_manager import (
     get_trusted_proxy_count,
+    is_authenticated,
     login_gate,
     seed_user_from_env,
     setup_gate,
@@ -253,7 +254,7 @@ def inject_globals():
     return {
         'app_version': APP_VERSION,
         'csrf_token': ensure_csrf_token(),
-        'is_authenticated': auth_manager.is_authenticated(),
+        'is_authenticated': is_authenticated(),
     }
 
 # --- DÃ‰MARRAGE DES WORKERS DE FOND (file de sync + auto-sync pÃ©riodique) ---
