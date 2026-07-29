@@ -1,4 +1,4 @@
-            <aside class="sidebar">
+﻿            <aside class="sidebar">
                 
                 <!-- BLOC 1: STATISTIQUES -->
                 <div class="card sidebar-stats-card card-tint-teal">
@@ -36,7 +36,7 @@
                     <a href="{{ url_for('pages.stats') }}" class="btn-secondary block-link w-100 text-center mt-3 btn-open-stats">{{ t.open_stats }}</a>
                 </div>
 
-                <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
+                <!-- BLOC 2: STRATÃ‰GIE DE SCRAPING -->
                 <div class="card card-tint-violet scraping-options-card">
                     <details class="scraping-options-details" id="scrapingOptionsDetails">
                     <summary class="section-title scraping-options-summary">
@@ -143,15 +143,15 @@
                                     <button type="button" class="btn-secondary" onclick="setBatchTargetedFields(false)">{{ t.fields_uncheck_all }}</button>
                                 </div>
                                 <div id="batchFieldsGrid" class="batch-fields-grid">
-                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-summary" value="summary" checked> Résumé</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-summary" value="summary" checked> RÃ©sumÃ©</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-cover" value="cover" checked> Couverture</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-staff" value="staff" checked> Auteurs/Staff</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-genres" value="genres" checked> Genres</label>
-                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-tags" value="tags" checked> Thèmes/Persos</label>
-                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-year" value="year" checked> Année</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-tags" value="tags" checked> ThÃ¨mes/Persos</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-year" value="year" checked> AnnÃ©e</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-status" value="status" checked> Statut</label>
-                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-publisher" value="publisher" checked> Éditeur</label>
-                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-age" value="age" checked> Âge</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-publisher" value="publisher" checked> Ã‰diteur</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-age" value="age" checked> Ã‚ge</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-format" value="format" checked> Sens lecture</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-weblinks" value="weblinks" checked> Liens & IDs</label>
                                     <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-alt_titles" value="alt_titles" checked> Titres Alternatifs</label>
@@ -177,14 +177,14 @@
                     </div>
                 </div>
 
-                <!-- PIED DE LA BARRE LATÉRALE -->
+                <!-- PIED DE LA BARRE LATÃ‰RALE -->
                 <div class="sidebar-footer">
 					<p>{{ t.dev_by }} <a href="https://github.com/raukorim-bot" target="_blank" rel="noopener noreferrer">Raukorim</a></p>
 					<p>
 						<a href="https://github.com/raukorim-bot/MetaKavita" target="_blank" rel="noopener noreferrer">MetaKavita v{{ app_version }}</a> | 
 						<a href="https://github.com/raukorim-bot/MetaKavita/issues" target="_blank" rel="noopener noreferrer">{{ t.report_bug }}</a>
 					</p>
-                    {% if config.get('ADMIN_PASSWORD') %}
+                    {% if is_authenticated %}
                     <a href="{{ url_for('auth.logout') }}" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
                     {% endif %}
                 </div>

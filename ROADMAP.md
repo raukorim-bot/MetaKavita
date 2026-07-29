@@ -28,6 +28,7 @@
 ---
 
 ### âœ¨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **C58. Full User/Password Authentication (unreleased, issue #15):** `users` table + `auth_manager.py`; forced `/setup` on first run; fail-closed gates (HTTP **and** Socket.IO); legacy plaintext `ADMIN_PASSWORD` never imported and erased after setup; `TRUSTED_PROXY_COUNT` (0/1) driving both `ProxyFix` and the lockout key; 5-attempt / 15-minute temporary per-IP lockout; optional `ADMIN_PASSWORD_HASH` seeding with `debug/hash_password.py`; explicit 7-day session lifetime.
 - [x] **C57. Health Endpoint `/healthz` (unreleased, issue #15):** Unauthenticated liveness probe returning `{status, version}`; whitelisted in `require_login` so it survives the auth gate. Dockerfile `HEALTHCHECK` retargeted from `/login` (any status < 500) to `/healthz` (strict 200). Reads no config, no DB, never calls Kavita — a Kavita outage must not restart a healthy container.
 - [x] **BF50. Test Suite DB Isolation (unreleased):** `test_scraper_max_caps.py`'s end-to-end enrichment test reached the real `data/cache.db` through an unmocked `record_enrichment_telemetry()`, inflating the lifetime counters and adding a fake `FAKE` provider to the C7 podium on every run. Now uses the existing `isolated_db` fixture.
 - [x] **C29. Manual Review Mode (v1.6.1, local WIP):** Scrape â†’ pending queue â†’ pick modal (score gradient, keys 1â€“3, weak red) + optional edit, telemetry, session recap â€” not Event-pause worker.
@@ -155,6 +156,7 @@
 ---
 
 ### âœ¨ DerniÃ¨res NouveautÃ©s (v1.5.6 Ã  v1.6.1)
+- [x] **C58. Authentification utilisateur/mot de passe complète (non publié, issue #15) :** table `users` + `auth_manager.py` ; `/setup` forcé au premier démarrage ; gates fail-closed (HTTP **et** Socket.IO) ; ancien `ADMIN_PASSWORD` en clair jamais importé et effacé après le setup ; `TRUSTED_PROXY_COUNT` (0/1) pilotant `ProxyFix` et la clé de verrouillage ; verrouillage par IP temporaire 5 tentatives / 15 minutes ; amorçage optionnel `ADMIN_PASSWORD_HASH` via `debug/hash_password.py` ; durée de session explicite de 7 jours.
 - [x] **C57. Endpoint de santé `/healthz` (non publié, issue #15) :** sonde de liveness non authentifiée renvoyant `{status, version}` ; whitelistée dans `require_login` pour survivre au gate d'authentification. `HEALTHCHECK` du Dockerfile repointé de `/login` (tout statut < 500) vers `/healthz` (200 strict). Ne lit aucune config, aucune base, n'appelle jamais Kavita — une panne de Kavita ne doit pas redémarrer un conteneur sain.
 - [x] **BF50. Isolation de la base dans les tests (non publiÃ©) :** le test d'enrichissement bout-en-bout de `test_scraper_max_caps.py` atteignait le vrai `data/cache.db` via un `record_enrichment_telemetry()` non mockÃ©, gonflant les compteurs lifetime et ajoutant un provider fictif `FAKE` au podium C7 Ã  chaque exÃ©cution. Utilise dÃ©sormais la fixture existante `isolated_db`.
 - [x] **C29. Mode Review Manuelle (v1.6.1, WIP local) :** scrape â†’ file pending â†’ modale pick (gradient de score, touches 1â€“3, bande faible rouge) + Ã©dition optionnelle, tÃ©lÃ©mÃ©trie, rÃ©cap de session â€” pas le worker Event-pause.

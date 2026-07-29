@@ -19,6 +19,34 @@ services:
       # - PUID=1000
       # - PGID=1000
 
+      # --- Authentification / Authentication ---
+      # Au premier démarrage, MetaKavita ouvre un écran de configuration qui vous
+      # fait créer votre compte. Rien à renseigner ici pour un usage normal.
+      #
+      # On first run, MetaKavita opens a setup screen where you create your
+      # account. Nothing to set here for a normal install.
+      #
+      # Reverse proxy : laissez 1 si MetaKavita est derrière nginx/Traefik/Caddy.
+      # METTEZ 0 si vous y accédez directement — sinon l'en-tête X-Forwarded-For
+      # est fourni par le client et le verrouillage anti-force-brute peut être
+      # contourné en le faisant varier.
+      #
+      # Reverse proxy: leave at 1 if MetaKavita sits behind nginx/Traefik/Caddy.
+      # SET IT TO 0 if you reach it directly — otherwise X-Forwarded-For is
+      # supplied by the client and the brute-force lockout can be bypassed by
+      # rotating it.
+      # - TRUSTED_PROXY_COUNT=1
+      #
+      # Déploiement pré-provisionné : générez un hachage avec
+      # `python debug/hash_password.py` pour sauter l'écran de configuration.
+      # Ignoré si un compte existe déjà.
+      #
+      # Pre-provisioned deploy: generate a hash with
+      # `python debug/hash_password.py` to skip the setup screen.
+      # Ignored once an account exists.
+      # - ADMIN_USERNAME=admin
+      # - ADMIN_PASSWORD_HASH=pbkdf2:sha256:...
+
       # --- Variables Optionnelles / Optional Variables ---
       # Toutes ces valeurs peuvent être configurées plus tard, directement depuis l'interface Web.
       # All these values can be configured later directly from the Web UI.

@@ -171,7 +171,12 @@ services:
     ports:
       - "5010:5010"
     environment:
-      - ADMIN_PASSWORD=your_secure_password
+      # First run opens a setup screen where you create your account.
+      # To skip it (pre-provisioned deploys), generate a hash with
+      # `python debug/hash_password.py` and set:
+      # - ADMIN_USERNAME=admin
+      # - ADMIN_PASSWORD_HASH=pbkdf2:sha256:...
+      # - TRUSTED_PROXY_COUNT=0   # set to 0 if NOT behind a reverse proxy
       # - PUID=1000    # Host user id that should own ./data (run `id -u`)
       # - PGID=1000    # Host group id that should own ./data (run `id -g`)
       # - ROOT_PATH=/metakavita # Optional subpath for reverse proxies
@@ -200,7 +205,10 @@ docker compose up -d --build
 
 | Variable | Description | Default Value |
 | :--- | :--- | :--- |
-| `ADMIN_PASSWORD` | Secures the dashboard with a password. | *(Empty = No Auth)* |
+| `ADMIN_USERNAME` | Username for the account seeded from `ADMIN_PASSWORD_HASH`. Ignored if an account already exists. | `admin` |
+| `ADMIN_PASSWORD_HASH` | Pre-hashed password used to create the first account at startup, skipping the setup screen. Generate with `python debug/hash_password.py`. Ignored once any account exists, so it can never overwrite a real password. | *(Empty)* |
+| `TRUSTED_PROXY_COUNT` | `1` (default) trusts `X-Forwarded-*` from one reverse proxy. **Set to `0` when MetaKavita is reachable directly**, otherwise the header is attacker-controlled and the login lockout can be bypassed by rotating it. | `1` |
+| ~~`ADMIN_PASSWORD`~~ | **Removed.** Replaced by the first-run account setup. Any value left in `config.json` is deleted once you create your account. | — |
 | `PUID` / `PGID` | User and group id the application runs as, and which owns everything under `/app/data`. Set these to the owner of your bind-mounted `./data` folder (`id -u` / `id -g`) if it is not `1000:1000`. The container starts as root only long enough to apply them, then drops privileges. | `1000` / `1000` |
 | `ROOT_PATH` | Custom URL subpath when hosted behind a reverse proxy (e.g. `/metakavita`). | *(Empty)* |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated explicit origins allowed for CORS (HTTP + Socket.IO), e.g. `https://metakavita.home.local.ltd`. Empty = Same-Origin only. `*` is rejected. Does not replace proper reverse-proxy WebSocket upgrade config. | *(Empty)* |
@@ -335,7 +343,8 @@ The presence of built-in security features **does not guarantee absolute immunit
 1. **Reverse Proxy & HTTPS**: Always host MetaKavita behind a Reverse Proxy (Nginx, Traefik, Caddy) enforcing valid HTTPS/TLS encryption.
 2. **Secondary Authentication Layer**: Combine the built-in login with an external authentication gateway (e.g., Authelia, Authentik, Cloudflare Access, or HTTP Basic Auth).
 3. **Network Restrictions / VPN**: Restrict access to trusted IP ranges or keep access restricted to a private VPN whenever possible.
-4. **Strong Passwords**: Define a long, complex `ADMIN_PASSWORD` in your container environment variables.
+4. **Strong Passwords**: Choose a long, complex password on the first-run setup screen. Authentication is always enforced — there is no configuration in which the dashboard is served without a login.
+5. **Set `TRUSTED_PROXY_COUNT=0` if you are not behind a reverse proxy**, so the brute-force lockout counts the real client address instead of a header the client controls.
 
 > **Disclaimer**: MetaKavita is provided "as-is" without warranty of any kind. The maintainers assume no liability for data loss, unauthorized access, or security incidents resulting from public exposure or network misconfiguration.
 
@@ -476,7 +485,12 @@ services:
     ports:
       - "5010:5010"
     environment:
-      - ADMIN_PASSWORD=votre_mot_de_passe_securise
+      # Au premier démarrage, un écran de configuration vous fait créer votre compte.
+      # Pour l'ignorer (déploiements pré-provisionnés), générez un hachage avec
+      # `python debug/hash_password.py` puis renseignez :
+      # - ADMIN_USERNAME=admin
+      # - ADMIN_PASSWORD_HASH=pbkdf2:sha256:...
+      # - TRUSTED_PROXY_COUNT=0   # 0 si vous n'êtes PAS derrière un reverse proxy
       # - PUID=1000    # UID hôte qui doit posséder ./data (`id -u`)
       # - PGID=1000    # GID hôte qui doit posséder ./data (`id -g`)
       # - ROOT_PATH=/metakavita # Optionnel : pour hébergement en sous-dossier
@@ -505,7 +519,10 @@ docker compose up -d --build
 
 | Variable | Description | Valeur par défaut |
 | :--- | :--- | :--- |
-| `ADMIN_PASSWORD` | Sécurise l'interface par mot de passe. | *(Vide = Pas d'Auth)* |
+| `ADMIN_USERNAME` | Nom du compte amorcé depuis `ADMIN_PASSWORD_HASH`. Ignoré si un compte existe déjà. | `admin` |
+| `ADMIN_PASSWORD_HASH` | Mot de passe pré-haché servant à créer le premier compte au démarrage, sans passer par l'écran de configuration. À générer avec `python debug/hash_password.py`. Ignoré dès qu'un compte existe : il ne peut donc jamais écraser un mot de passe réel. | *(Vide)* |
+| `TRUSTED_PROXY_COUNT` | `1` (défaut) fait confiance aux en-têtes `X-Forwarded-*` d'un reverse proxy. **Mettre `0` si MetaKavita est joignable directement**, sinon l'en-tête est fourni par le client et le verrouillage de connexion peut être contourné en le faisant varier. | `1` |
+| ~~`ADMIN_PASSWORD`~~ | **Supprimé.** Remplacé par la création de compte au premier démarrage. Toute valeur restée dans `config.json` est effacée dès que vous créez votre compte. | — |
 | `PUID` / `PGID` | UID et GID sous lesquels tourne l'application, et propriétaires de tout le contenu de `/app/data`. À renseigner avec le propriétaire de votre dossier `./data` monté (`id -u` / `id -g`) s'il n'est pas `1000:1000`. Le conteneur ne démarre en root que le temps de les appliquer, puis abandonne ses privilèges. | `1000` / `1000` |
 | `ROOT_PATH` | Sous-chemin d'URL lors de l'exposition derrière un reverse proxy (ex: `/metakavita`). | *(Vide)* |
 | `CORS_ALLOWED_ORIGINS` | Origins CORS explicites séparées par des virgules (HTTP + Socket.IO), ex: `https://metakavita.home.local.ltd`. Vide = Same-Origin uniquement. `*` est rejeté. Ne remplace pas une config reverse-proxy correcte pour l'upgrade WebSocket. | *(Vide)* |
@@ -641,7 +658,8 @@ L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vo
 1. **Reverse Proxy & HTTPS** : Hébergez systématiquement l'application derrière un Reverse Proxy (Nginx, Traefik, Caddy) configuré avec un certificat HTTPS/TLS valide.
 2. **Authentification Renforcée** : Associez l'accès à un portail de sécurité ou SSO (ex: Authelia, Authentik, Cloudflare Access ou authentification HTTP de base).
 3. **Restriction d'Accès / VPN** : Restreignez l'accès aux seules adresses IP de confiance ou privilégiez un accès via VPN.
-4. **Mot de Passe Fort** : Définissez un paramètre `ADMIN_PASSWORD` complexe dans l'environnement de votre conteneur.
+4. **Mot de Passe Fort** : Choisissez un mot de passe long et complexe sur l'écran de configuration initial. L'authentification est toujours active — il n'existe aucune configuration dans laquelle l'interface est servie sans connexion.
+5. **Mettez `TRUSTED_PROXY_COUNT=0` si vous n'êtes pas derrière un reverse proxy**, afin que le verrouillage anti-force-brute compte la véritable adresse du client et non un en-tête qu'il contrôle.
 
 > **Avertissement de responsabilité** : MetaKavita est fourni "en l'état", sans aucune garantie. Les développeurs et contributeurs déclinent toute responsabilité en cas d'altération de données, d'intrusion ou d'incident de sécurité découlant d'une exposition publique ou d'une erreur de configuration.
 
