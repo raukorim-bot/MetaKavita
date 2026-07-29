@@ -253,6 +253,10 @@ function proceedSyncSingle(id, name, btn, loadingElem) {
         loading = setSeriesSyncBusy(btn, true);
     }
 
+    if (typeof mrPrepareForBatch === "function") {
+        mrPrepareForBatch();
+    }
+
     const restoreBtn = () => {
         setSeriesSyncBusy(btn, false);
     };
@@ -268,6 +272,7 @@ function proceedSyncSingle(id, name, btn, loadingElem) {
     })
     .then(data => {
         restoreBtn();
+        if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
         if(data.success) {
             btn.innerText = "✅ OK";
         } else {
@@ -277,6 +282,7 @@ function proceedSyncSingle(id, name, btn, loadingElem) {
     })
     .catch(() => {
         restoreBtn();
+        if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
         btn.innerText = "❌ Fail";
         setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
     });
@@ -296,6 +302,10 @@ async function launchBatch(event) {
     }
 
     showBatchProgress(ids.length);
+
+    if (typeof mrPrepareForBatch === "function") {
+        mrPrepareForBatch();
+    }
 
     batchEnqueueAbort = false;
     if (batchEnqueueController) {
@@ -353,6 +363,8 @@ async function launchBatch(event) {
                 stopped = true;
                 break;
             }
+            // Échec réseau avant/pendant enqueue : ne pas laisser le wait MR tourner à vide
+            if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
             throw err;
         }
     }

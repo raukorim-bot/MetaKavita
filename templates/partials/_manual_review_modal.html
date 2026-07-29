@@ -1,0 +1,96 @@
+    <!-- MODAL REVIEW MANUELLE (C29) -->
+    <div id="manualReviewModal" class="modal-overlay" style="display:none;" onclick="if(event.target===this) closeManualReviewModal()">
+        <div class="modal-content modal-shell modal-large mr-modal">
+            <div class="modal-header mr-header">
+                <div class="mr-header-top">
+                    <h3 class="m-0">{{ t.mr_title }} <span id="mrQueueBadge" class="mr-queue-badge">0</span></h3>
+                    <button type="button" class="close-btn" onclick="closeManualReviewModal()" aria-label="Close">&times;</button>
+                </div>
+                <div class="mr-series-block">
+                    <div class="mr-series-meta">
+                        <span class="mr-series-label">{{ t.mr_series }}</span>
+                        <span id="mrQueuePos" class="mr-queue-pos"></span>
+                    </div>
+                    <div class="mr-series-search">
+                        <input type="text" id="mrSeriesQuery" class="mr-series-query"
+                               placeholder="{{ t.mr_research_placeholder }}"
+                               autocomplete="off"
+                               title="{{ t.mr_research_hint }}">
+                        <button type="button" class="btn-secondary mr-research-btn" id="mrResearchBtn"
+                                onclick="mrResearchCurrent()" title="{{ t.mr_research_hint }}">{{ t.mr_research }}</button>
+                    </div>
+                </div>
+                <div id="mrFusionBar" class="mr-fusion-bar" style="display:none;" aria-live="polite"></div>
+            </div>
+
+            <div id="mrPickPanel" class="modal-scroll-body mr-pick-panel">
+                <div id="mrAboveLabel" class="mr-band-label" style="display:none;">{{ t.mr_above }}</div>
+                <div id="mrAboveList" class="mr-candidate-list"></div>
+                <div id="mrBelowLabel" class="mr-band-label mr-band-weak" style="display:none;">{{ t.mr_below }}</div>
+                <div id="mrBelowList" class="mr-candidate-list"></div>
+                <p id="mrNoCandidates" class="mr-empty-hint" style="display:none;">{{ t.mr_empty }}</p>
+            </div>
+
+            <div id="mrWaitPanel" class="modal-scroll-body mr-wait-panel" style="display:none;">
+                <div class="mr-wait-card">
+                    <div class="mr-wait-spinner" aria-hidden="true"></div>
+                    <h4 class="mr-wait-title">{{ t.mr_wait_title }}</h4>
+                    <p class="mr-wait-text" id="mrWaitText">{{ t.mr_wait_text }}</p>
+                    <p class="mr-wait-hint" id="mrWaitHint">{{ t.mr_wait_hint }}</p>
+                    <p class="mr-wait-super-warn" id="mrWaitSuperWarn" style="display:none;">{{ t.mr_wait_super_warn }} <a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer">{{ t.buy_me_coffee }}</a></p>
+                </div>
+            </div>
+
+            <div id="mrEditPanel" class="modal-scroll-body mr-edit-panel" style="display:none;">
+                <h4 class="mr-edit-title">{{ t.mr_edit_title }}</h4>
+                <div id="mrEditFusionBar" class="mr-fusion-bar mr-fusion-bar-edit" style="display:none;" aria-live="polite"></div>
+                <div id="mrEditFields" class="mr-edit-grid"></div>
+            </div>
+
+            <div id="mrRecapPanel" class="modal-scroll-body mr-recap-panel" style="display:none;" data-ach-accent="teal">
+                <div class="mr-recap-chapter">
+                    <p class="mr-recap-kicker">{{ t.mr_recap_kicker }}</p>
+                    <div class="mr-recap-medal" aria-hidden="true">
+                        <div class="mr-recap-medal-ring">
+                            <div class="mr-recap-medal-inner">
+                                <span class="mr-recap-medal-art"></span>
+                                <span id="mrRecapMedalMono" class="mr-recap-medal-mono">★</span>
+                            </div>
+                        </div>
+                    </div>
+                    <h4 id="mrRecapHeroTitle" class="mr-recap-hero-title">{{ t.mr_recap_title }}</h4>
+                    <p id="mrRecapHeroFlavor" class="mr-recap-hero-flavor"></p>
+                    <div id="mrRecapBadges" class="mr-recap-badges" style="display:none;" aria-label="{{ t.mr_recap_badges_label }}"></div>
+                    <div class="mr-recap-stats">
+                        <div class="mr-recap-tile"><strong id="mrRecapDone">0</strong><span>{{ t.mr_recap_done }}</span></div>
+                        <div class="mr-recap-tile"><strong id="mrRecapSkipped">0</strong><span>{{ t.mr_recap_skipped }}</span></div>
+                        <div class="mr-recap-tile"><strong id="mrRecapTop1">0</strong><span>{{ t.mr_recap_top1 }}</span></div>
+                        <div class="mr-recap-tile"><strong id="mrRecapEdits">0</strong><span>{{ t.mr_recap_edits }}</span></div>
+                        <div class="mr-recap-tile" id="mrRecapPurgedWrap" style="display:none;"><strong id="mrRecapPurged">0</strong><span>{{ t.mr_recap_purged }}</span></div>
+                        <div class="mr-recap-tile" id="mrRecapResearchesWrap" style="display:none;"><strong id="mrRecapResearches">0</strong><span>{{ t.mr_recap_researches }}</span></div>
+                        <div class="mr-recap-tile" id="mrRecapFusionsWrap" style="display:none;"><strong id="mrRecapFusions">0</strong><span>{{ t.mr_recap_fusions }}</span></div>
+                        <div class="mr-recap-tile" id="mrRecapWeakWrap" style="display:none;"><strong id="mrRecapWeak">0</strong><span>{{ t.mr_recap_weak }}</span></div>
+                        <div class="mr-recap-tile" id="mrRecapAvgWrap" style="display:none;"><strong id="mrRecapAvgScore">—</strong><span>{{ t.mr_recap_avg_score }}</span></div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="mr-kbd-dock" id="mrKbdHint" role="note" aria-label="{{ t.mr_kbd_dock_label }}"></div>
+
+            <div class="modal-footer mr-footer">
+                <div class="mr-footer-left">
+                    <button type="button" class="btn-danger" id="mrPurgeBtn" onclick="mrPurgeQueue()">{{ t.mr_purge }}</button>
+                </div>
+                <div class="mr-footer-right">
+                    <a id="mrRecapStatsLink" class="mr-recap-stats-link" href="{{ url_for('pages.stats') }}#mr-achievements" style="display:none;">{{ t.mr_recap_stats_link }}</a>
+                    <button type="button" class="btn-secondary" id="mrLaterBtn" style="display:none;" onclick="mrReviewLater()">{{ t.mr_later }}</button>
+                    <button type="button" class="btn-secondary" id="mrWaitBtn" style="display:none;" disabled>{{ t.mr_wait_btn }}</button>
+                    <button type="button" class="btn-secondary" id="mrBackBtn" style="display:none;" onclick="mrGoBack()">{{ t.mr_back }}</button>
+                    <button type="button" class="btn-secondary" id="mrSkipBtn" onclick="mrSkipCurrent()">{{ t.mr_skip }}</button>
+                    <button type="button" class="btn-primary" id="mrConfirmBtn" style="display:none;" onclick="mrConfirmCurrent()">{{ t.mr_confirm }}</button>
+                    <button type="button" class="btn-primary" id="mrPickBtn" onclick="mrSubmitPick()">{{ t.mr_pick }}</button>
+                    <button type="button" class="btn-primary" id="mrCloseRecapBtn" style="display:none;" onclick="closeManualReviewModal()">{{ t.mr_recap_close }}</button>
+                </div>
+            </div>
+        </div>
+    </div>

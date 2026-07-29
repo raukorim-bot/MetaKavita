@@ -183,6 +183,7 @@ from routes.config import config_bp
 from routes.series import series_bp
 from routes.sync import sync_bp
 from routes.misc import misc_bp
+from routes.manual_review import manual_review_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pages_bp)
@@ -190,6 +191,7 @@ app.register_blueprint(config_bp)
 app.register_blueprint(series_bp)
 app.register_blueprint(sync_bp)
 app.register_blueprint(misc_bp)
+app.register_blueprint(manual_review_bp)
 
 # --- ENREGISTREMENT DES HANDLERS SOCKET.IO (effet de bord à l'import) ---
 import sockets.handlers  # noqa: F401

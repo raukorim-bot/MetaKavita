@@ -13,20 +13,23 @@
                             <h4 class="config-section-title">{{ t.conn_kavita }}</h4>
                             <div class="form-group">
                                 <label>{{ t.kavita_url }}</label>
-                                <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" required placeholder="http://kavita:5000">
+                                {# Pas de `required` HTML : sinon une install neuve ne peut pas
+                                   sauvegarder la langue UI (chicken-and-egg FR/EN). #}
+                                <input type="text" name="KAVITA_URL" value="{{ config.get('KAVITA_URL', '') }}" placeholder="http://kavita:5000" autocomplete="off">
                                 <small class="field-hint">{{ t.kavita_url_hint }}</small>
                             </div>
                             <div class="form-group">
                                 <label>{{ t.kavita_external_url }}</label>
-                                <input type="text" name="KAVITA_EXTERNAL_URL" value="{{ config.get('KAVITA_EXTERNAL_URL', '') }}" placeholder="https://kavita.domain.tld">
+                                <input type="text" name="KAVITA_EXTERNAL_URL" value="{{ config.get('KAVITA_EXTERNAL_URL', '') }}" placeholder="https://kavita.domain.tld" autocomplete="off">
                                 <small class="field-hint">{{ t.kavita_external_url_hint }}</small>
                             </div>
                             <div class="form-group m-0">
                                 <label>{{ t.kavita_api }}</label>
                                 <div class="password-wrapper">
-                                    <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" required>
+                                    <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value="{{ config.get('KAVITA_API_KEY', '') }}" autocomplete="off">
                                     <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="{{ t.show_hide }}">👁️</button>
                                 </div>
+                                <small class="field-hint">{{ t.kavita_creds_optional_hint }}</small>
                             </div>
                         </div>
 
@@ -88,7 +91,7 @@
                             <div class="form-group-row">
                                 <div class="form-group">
                                     <label>{{ t.ui_lang }}</label>
-                                    <select name="UI_LANG">
+                                    <select name="UI_LANG" id="uiLangSelect" onchange="saveConfig()" title="Interface language / Langue de l'interface">
                                         <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
                                         <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
                                     </select>

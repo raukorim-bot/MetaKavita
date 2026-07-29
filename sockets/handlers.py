@@ -29,6 +29,25 @@ def handle_connect():
     if config.get('ADMIN_PASSWORD') and not session.get('logged_in'):
         logging.warning(f"🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {request.remote_addr}")
         disconnect()
+        return
+
+    # Compteur + résumé file review manuelle (mode C29)
+    try:
+        from db_manager import count_pending_reviews, list_pending_reviews
+        n = count_pending_reviews()
+        socketio.emit("manual_review_pending_count", {"count": n})
+        if n:
+            summary = []
+            for r in list_pending_reviews(limit=30):
+                summary.append({
+                    "review_id": r["review_id"],
+                    "series_id": r["series_id"],
+                    "series_name": r["series_name"],
+                    "state": r["state"],
+                })
+            socketio.emit("manual_review_queue_summary", {"reviews": summary, "count": n})
+    except Exception as exc:
+        logging.debug("manual_review connect emit skipped: %s", exc)
 
 
 @socketio.on('fetch_covers_stream')

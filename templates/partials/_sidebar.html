@@ -17,6 +17,10 @@
                             <span class="sidebar-stat-label">{{ t.stats_pending }}</span>
                         </div>
                         <div class="sidebar-stat">
+                            <span class="sidebar-stat-val" style="color: #f472b6;">{{ stats.pending_review|default(0) }}</span>
+                            <span class="sidebar-stat-label">{{ t.stats_pending_review }}</span>
+                        </div>
+                        <div class="sidebar-stat">
                             <span class="sidebar-stat-val" style="color: var(--text-muted);">{{ stats.ignored }}</span>
                             <span class="sidebar-stat-label">{{ t.stats_ignored }}</span>
                         </div>
@@ -35,137 +39,125 @@
                 <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
                 <div class="card card-tint-violet scraping-options-card">
                     <details class="scraping-options-details" id="scrapingOptionsDetails">
-                    <summary class="section-title scraping-options-summary" style="cursor: pointer; list-style: none; user-select: none;">{{ t.options }}</summary>
+                    <summary class="section-title scraping-options-summary">
+                        <span class="scraping-options-summary-label">{{ t.options }}</span>
+                        <button type="button" class="scraping-opt-help-btn" aria-label="{{ t.scraping_options_help_aria }}" title="{{ t.scraping_options_help_aria }}" onclick="event.preventDefault(); event.stopPropagation(); openScrapingOptionsHelpModal();">?</button>
+                    </summary>
                     <div class="scraping-options-body">
-                    <div class="form-group" style="padding: 10px; background: rgba(139, 92, 246, 0.1); border-radius: 6px; border: 1px solid rgba(139, 92, 246, 0.3); margin-bottom: 12px;">
-                        <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
-                            <input type="checkbox" id="sidebar_smart_scoring" value="true" {% if config.get('SMART_SCORING', True) %}checked{% endif %} onchange="saveConfig()"> 
-                            {{ t.smart_scoring }}
-                        </label>
-                        <p style="font-size: 10px; color: var(--text-muted); margin: 4px 0 0 22px; line-height: 1.3;">{{ t.smart_scoring_desc }}</p>
-                        <label class="checkbox-label" style="font-size: 12px; color: var(--accent); margin-top: 8px;">
-                            <input type="checkbox" id="sidebar_smart_completion" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()"> 
-                            {{ t.smart_completion }}
-                        </label>
                         {% set match_thr = config.get('MATCH_ACCEPT_THRESHOLD', 0.60) %}
                         {% set match_custom = config.get('MATCH_THRESHOLD_CUSTOM', False) %}
-                        <div class="reliability-barometer" style="margin-top: 10px; padding-top: 8px; border-top: 1px solid rgba(139, 92, 246, 0.25);">
-                            <label class="checkbox-label" style="font-size: 12px; color: var(--accent);">
-                                <input type="checkbox" id="sidebar_match_threshold_custom" value="true" {% if match_custom %}checked{% endif %} onchange="onMatchThresholdCustomChange()">
-                                {{ t.reliability_barometer }}
+
+                        <div class="scraping-opt-cat scraping-opt-cat--match">
+                            <p class="scraping-opt-cat-title">{{ t.scraping_cat_match }}</p>
+                            <button type="button" class="btn-primary w-100 scraping-opt-providers-btn" onclick="openProvidersModal()">
+                                {{ t.open_providers_modal }}
+                            </button>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--scoring">
+                                <input type="checkbox" id="sidebar_smart_scoring" value="true" {% if config.get('SMART_SCORING', True) %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.smart_scoring }}
                             </label>
-                            <p style="font-size: 10px; color: var(--text-muted); margin: 4px 0 6px 22px; line-height: 1.3;">{{ t.reliability_barometer_desc }}</p>
-                            <div id="match_threshold_slider_wrap" style="margin-left: 22px;{% if not match_custom %} opacity: 0.45;{% endif %}">
-                                <div style="display: flex; justify-content: space-between; align-items: baseline; font-size: 10px; color: var(--text-muted); margin-bottom: 4px;">
-                                    <span>0.30</span>
-                                    <strong id="match_threshold_value" style="font-size: 12px; color: var(--accent);">{{ '%.2f'|format(match_thr|float) }}</strong>
-                                    <span>1.00</span>
-                                </div>
-                                <input type="range" id="sidebar_match_accept_threshold" class="reliability-slider"
-                                       min="0.30" max="1.00" step="0.01"
-                                       value="{{ '%.2f'|format(match_thr|float) }}"
-                                       {% if not match_custom %}disabled{% endif %}
-                                       oninput="onMatchThresholdInput(this)">
-                                <div style="display: flex; justify-content: space-between; font-size: 9px; color: var(--text-muted); margin-top: 2px;">
-                                    <span style="color: #ef4444;">{{ t.reliability_loose }}</span>
-                                    <span style="color: #22c55e;">0.60</span>
-                                    <span style="color: #3b82f6;">{{ t.reliability_strict }}</span>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--completion">
+                                <input type="checkbox" id="sidebar_smart_completion" value="true" {% if config.get('SMART_COMPLETION') %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.smart_completion }}
+                            </label>
+                            <div class="reliability-barometer scraping-opt--threshold">
+                                <label class="checkbox-label scraping-opt-check">
+                                    <input type="checkbox" id="sidebar_match_threshold_custom" value="true" {% if match_custom %}checked{% endif %} onchange="onMatchThresholdCustomChange()">
+                                    {{ t.reliability_barometer }}
+                                </label>
+                                <div id="match_threshold_slider_wrap" class="match-threshold-slider-wrap{% if not match_custom %} is-disabled{% endif %}">
+                                    <div class="match-threshold-scale">
+                                        <span>0.30</span>
+                                        <strong id="match_threshold_value">{{ '%.2f'|format(match_thr|float) }}</strong>
+                                        <span>1.00</span>
+                                    </div>
+                                    <input type="range" id="sidebar_match_accept_threshold" class="reliability-slider"
+                                           min="0.30" max="1.00" step="0.01"
+                                           value="{{ '%.2f'|format(match_thr|float) }}"
+                                           {% if not match_custom %}disabled{% endif %}
+                                           oninput="onMatchThresholdInput(this)">
+                                    <div class="match-threshold-labels">
+                                        <span class="match-threshold-loose">{{ t.reliability_loose }}</span>
+                                        <span class="match-threshold-mid">0.60</span>
+                                        <span class="match-threshold-strict">{{ t.reliability_strict }}</span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
-                    </div>
-                    <style>
-                        .reliability-slider {
-                            -webkit-appearance: none;
-                            appearance: none;
-                            width: 100%;
-                            height: 8px;
-                            border-radius: 4px;
-                            outline: none;
-                            cursor: pointer;
-                            background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
-                        }
-                        .reliability-slider:disabled { cursor: not-allowed; }
-                        .reliability-slider::-webkit-slider-thumb {
-                            -webkit-appearance: none;
-                            appearance: none;
-                            width: 14px;
-                            height: 14px;
-                            border-radius: 50%;
-                            background: #fff;
-                            border: 2px solid var(--accent, #8b5cf6);
-                            box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-                            cursor: pointer;
-                        }
-                        .reliability-slider:disabled::-webkit-slider-thumb { cursor: not-allowed; opacity: 0.7; }
-                        .reliability-slider::-moz-range-thumb {
-                            width: 14px;
-                            height: 14px;
-                            border-radius: 50%;
-                            background: #fff;
-                            border: 2px solid var(--accent, #8b5cf6);
-                            box-shadow: 0 1px 3px rgba(0,0,0,0.35);
-                            cursor: pointer;
-                        }
-                        .reliability-slider:disabled::-moz-range-thumb { cursor: not-allowed; opacity: 0.7; }
-                        .reliability-slider::-moz-range-track {
-                            height: 8px;
-                            border-radius: 4px;
-                            background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
-                        }
-                    </style>
-                    <div class="form-group" style="margin-bottom: 12px;">
-                        <button type="button" class="btn-primary w-100" onclick="openProvidersModal()" style="padding: 10px 12px; font-size: 13px;">
-                            {{ t.open_providers_modal }}
-                        </button>
-                        <p class="field-hint" style="margin-top: 6px;">{{ t.open_providers_modal_hint }}</p>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 10px;">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="sidebar_auto_cover" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()"> 
-                            {{ t.auto_cover }}
-                        </label>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 10px;">
-                        <label class="checkbox-label">
-                            <input type="checkbox" id="sidebar_auto_reading_dir" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()"> 
-                            {{ t.auto_reading_dir }}
-                        </label>
-                    </div>
-					<div class="form-group" style="margin-bottom: 10px;">
-                        <label class="checkbox-label" style="font-size: 12px;">
-                            <input type="checkbox" id="sidebar_reset_context" value="true" {% if config.get('RESET_CONTEXT_ON_FORCE') %}checked{% endif %} onchange="saveConfig()"> 
-                            {{ t.get('reset_context_on_force', "Effacer le contexte en mode forcé") }}
-                        </label>
-                    </div>
-                    <div class="form-group" style="margin-bottom: 5px; padding: 8px; background: rgba(245, 158, 11, 0.1); border-radius: 6px; border: 1px dashed var(--warning);">
-                        <label class="checkbox-label" style="color: var(--warning);">
-                            <input type="checkbox" id="sidebar_force_update" value="true"> 
-                            <strong>{{ t.force_update }}</strong>
-                        </label>
-                    </div>
-                    <details class="targeted-scraping-details batch-fields-details" style="margin-top: 10px;">
-                        <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">⚙️ {{ t.batch_targeted_fields }}</summary>
-                        <p style="font-size: 10px; color: var(--text-muted); margin: 8px 0 6px; line-height: 1.35;">{{ t.batch_targeted_fields_hint }}</p>
-                        <div style="display: flex; gap: 6px; margin-bottom: 8px;">
-                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setBatchTargetedFields(true)">{{ t.fields_check_all }}</button>
-                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setBatchTargetedFields(false)">{{ t.fields_uncheck_all }}</button>
+
+                        <div class="scraping-opt-cat scraping-opt-cat--manual">
+                            <p class="scraping-opt-cat-title">{{ t.scraping_cat_manual }}</p>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--mr-mode">
+                                <input type="checkbox" id="sidebar_manual_review_mode" value="true" {% if config.get('MANUAL_REVIEW_MODE') %}checked{% endif %} onchange="saveConfig(); if (this.checked && typeof mrTryOpenPending === 'function') mrTryOpenPending();">
+                                {{ t.manual_review_mode }}
+                            </label>
+                            <div class="scraping-opt-premium scraping-opt--mr-super">
+                                <div class="scraping-opt-premium-head">
+                                    <label class="checkbox-label scraping-opt-check scraping-opt-premium-check">
+                                        <input type="checkbox" id="sidebar_manual_review_super" value="true" {% if config.get('MANUAL_REVIEW_SUPER') %}checked{% endif %} onchange="saveConfig()">
+                                        {{ t.manual_review_super }}
+                                    </label>
+                                    <span class="scraping-opt-premium-badge">{{ t.manual_review_super_badge }}</span>
+                                </div>
+                                <p class="scraping-opt-premium-note">
+                                    {{ t.manual_review_super_warn }}
+                                    <a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer">{{ t.buy_me_coffee }}</a>
+                                </p>
+                            </div>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--mr-edit">
+                                <input type="checkbox" id="sidebar_manual_review_edit" value="true" {% if config.get('MANUAL_REVIEW_EDIT', True) %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.manual_review_edit }}
+                            </label>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--mr-sounds">
+                                <input type="checkbox" id="sidebar_manual_review_sounds" value="true" {% if config.get('MANUAL_REVIEW_SOUNDS') %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.manual_review_sounds }}
+                            </label>
+                            <button type="button" class="btn-danger scraping-opt-purge-btn" id="sidebar_mr_purge_btn" onclick="if (typeof mrPurgeQueue === 'function') mrPurgeQueue();">{{ t.mr_purge }}</button>
                         </div>
-                        <div id="batchFieldsGrid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; padding: 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border-color);">
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-summary" value="summary" checked> Résumé</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-cover" value="cover" checked> Couverture</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-staff" value="staff" checked> Auteurs/Staff</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-genres" value="genres" checked> Genres</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-tags" value="tags" checked> Thèmes/Persos</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-year" value="year" checked> Année</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-status" value="status" checked> Statut</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-publisher" value="publisher" checked> Éditeur</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-age" value="age" checked> Âge</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-format" value="format" checked> Sens lecture</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-weblinks" value="weblinks" checked> Liens & IDs</label>
-                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" class="batch-field-cb" id="batch-field-alt_titles" value="alt_titles" checked> Titres Alternatifs</label>
+
+                        <div class="scraping-opt-cat scraping-opt-cat--write">
+                            <p class="scraping-opt-cat-title">{{ t.scraping_cat_write }}</p>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--cover">
+                                <input type="checkbox" id="sidebar_auto_cover" value="true" {% if config.get('AUTO_COVER') %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.auto_cover }}
+                            </label>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--reading">
+                                <input type="checkbox" id="sidebar_auto_reading_dir" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.auto_reading_dir }}
+                            </label>
+                            <label class="checkbox-label scraping-opt-check scraping-opt--reset">
+                                <input type="checkbox" id="sidebar_reset_context" value="true" {% if config.get('RESET_CONTEXT_ON_FORCE') %}checked{% endif %} onchange="saveConfig()">
+                                {{ t.reset_context_on_force }}
+                            </label>
+                            <div class="scraping-opt-force scraping-opt--force">
+                                <label class="checkbox-label scraping-opt-check scraping-opt-force-label">
+                                    <input type="checkbox" id="sidebar_force_update" value="true">
+                                    <strong>{{ t.force_update }}</strong>
+                                </label>
+                                <p class="scraping-opt-warn">{{ t.force_update_warn }}</p>
+                            </div>
+                            <details class="targeted-scraping-details batch-fields-details scraping-opt-batch-fields scraping-opt--fields">
+                                <summary>{{ t.batch_targeted_fields }}</summary>
+                                <div class="batch-fields-actions">
+                                    <button type="button" class="btn-secondary" onclick="setBatchTargetedFields(true)">{{ t.fields_check_all }}</button>
+                                    <button type="button" class="btn-secondary" onclick="setBatchTargetedFields(false)">{{ t.fields_uncheck_all }}</button>
+                                </div>
+                                <div id="batchFieldsGrid" class="batch-fields-grid">
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-summary" value="summary" checked> Résumé</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-cover" value="cover" checked> Couverture</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-staff" value="staff" checked> Auteurs/Staff</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-genres" value="genres" checked> Genres</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-tags" value="tags" checked> Thèmes/Persos</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-year" value="year" checked> Année</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-status" value="status" checked> Statut</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-publisher" value="publisher" checked> Éditeur</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-age" value="age" checked> Âge</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-format" value="format" checked> Sens lecture</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-weblinks" value="weblinks" checked> Liens & IDs</label>
+                                    <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-alt_titles" value="alt_titles" checked> Titres Alternatifs</label>
+                                </div>
+                            </details>
                         </div>
-                    </details>
                     </div>
                     </details>
                 </div>

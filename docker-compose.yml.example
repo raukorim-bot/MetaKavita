@@ -27,7 +27,9 @@ services:
       # - KAVITA_API_KEY=ta_cle_api_kavita
       # - DEEPL_API_KEY=ta_cle_api_deepl
       # - TARGET_LANG=FR
-      # - UI_LANG=fr
+      # Fresh install tip: set English UI before first open (default is French).
+      # Install neuve : forcer l'anglais avant la 1ère ouverture (défaut = français).
+      # - UI_LANG=en
       # - PROVIDER_1=MANGABAKA
       # - PROVIDER_2=KITSU
       # - PROVIDER_3=ANILIST

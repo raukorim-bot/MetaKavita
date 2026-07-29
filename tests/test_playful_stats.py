@@ -102,7 +102,10 @@ def test_compute_playful_stats_uses_lifetime_not_cache_completed():
     assert playful["completed"] == 2
     assert playful["charts"]["lifetime"]["values"] == [10, 25, 5]
     assert playful["charts"]["hit_miss"]["values"] == [10, 5]
-    assert playful["charts"]["status"]["values"] == [2, 1, 1, 1]
+    assert playful["charts"]["status"]["values"] == [2, 1, 0, 1, 1]
+    assert playful["charts"]["status"]["labels"] == [
+        "COMPLETED", "PENDING", "PENDING_REVIEW", "NOT_FOUND", "IGNORED"
+    ]
     assert playful["champion"]["id"] == "ANILIST"
     assert playful["underdog"]["id"] == "KITSU"
 
@@ -152,9 +155,18 @@ def test_compute_playful_stats_empty():
     assert playful["series_missed"] == 0
     assert playful["lifetime_hit_rate"] == 0.0
     assert playful["avg_matches"] == 0.0
+    assert playful["manual_reviews"] == 0
+    assert playful["manual_skips"] == 0
+    assert playful["manual_avg_score"] == 0.0
+    assert playful["manual_top1_rate"] == 0.0
+    assert playful["manual_field_edits"] == 0
+    assert playful["pending_review"] == 0
     assert playful["time_saved"]["display"] == "0 min"
     assert playful["champion"] is None
     assert playful["has_provider_data"] is False
+    assert playful["mr_achievements"]["unlocked_count"] == 0
+    assert playful["mr_achievements"]["total"] > 0
+    assert "empty_session" not in {c["id"] for c in playful["mr_achievements"]["locked"]}
 
 
 @pytest.fixture
@@ -198,3 +210,5 @@ def test_stats_page_shows_charts_and_lifetime(pages_client, isolated_db, monkeyp
     assert "Temps gagné" in html
     assert "data-count-minutes" in html
     assert "Cafés pour le dev" in html
+    assert 'id="mr-achievements"' in html
+    assert "Hauts-faits" in html

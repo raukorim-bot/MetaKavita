@@ -214,8 +214,8 @@ docker compose up -d --build
 | `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
 | `AZURE_REGION` | Microsoft Azure Translator API Region (e.g. `francecentral`). | *(Empty)* |
 | `DEEPL_API_KEY` | Your DeepL Translation API Key (Fallback Translation Engine). | *(Empty)* |
-| `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! | `FR` |
-| `UI_LANG` | Dashboard interface language (`fr` or `en`). | `fr` |
+| `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! | `EN` |
+| `UI_LANG` | Dashboard interface language (`fr` or `en`). On a fresh install you can set `UI_LANG=en` in Compose before opening the UI. Language can also be changed in Settings without filling Kavita credentials first. | `en` |
 | `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | How to build Kavita `localizedName`: `all` (join unique titles with `" / "`), `prefer` (filter/order by `LOCALIZED_TITLE_LANGS`), `none` (do not write). Never rewrites Series `name`. Also in Config modal. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Comma-separated BCP-47-ish tags when mode is `prefer` (e.g. `en, ja-ro, ja`). Order = priority. Per-series override via `alt_title_langs`. | *(Empty)* |
@@ -514,7 +514,7 @@ docker compose up -d --build
 | `AZURE_REGION` | Ta région Azure Translator (ex: `francecentral`). | *(Vide)* |
 | `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction (Repli de secours). | *(Vide)* |
 | `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`...). Modifie dynamiquement la langue de recherche Google Books ! | `FR` |
-| `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). | `fr` |
+| `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). Sur une install neuve, tu peux forcer `UI_LANG=en` dans Compose avant d'ouvrir l'UI. La langue se change aussi dans Config sans devoir remplir Kavita d'abord. | `fr` |
 | `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | Construction de Kavita `localizedName` : `all` (joindre les titres uniques avec `" / "`), `prefer` (filtre/ordre via `LOCALIZED_TITLE_LANGS`), `none` (ne pas écrire). Ne réécrit jamais Series `name`. Aussi dans la modal Config. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Tags BCP-47-ish séparés par des virgules en mode `prefer` (ex. `en, ja-ro, ja`). Ordre = priorité. Override par série via `alt_title_langs`. | *(Vide)* |
@@ -645,6 +645,7 @@ And if you have not already: a ⭐ on GitHub is the cheapest way to say thanks a
 
 | Contributor | Contributions |
 | :--- | :--- |
+| [**angusmaul**](https://github.com/angusmaul) | Security hardening PRs #16–#19 (issue #15): gunicorn/requests CVE bumps (BF46), `/api/proxy-image` 5 MB stream cap (BF47), webhook `X-Webhook-Token` (BF48), `config.json` 0600 (BF49), non-root Docker PUID/PGID + HEALTHCHECK (C54), `.dockerignore` (C55), custom scraper RCE docs (C56) — plus matching unit tests. |
 | [**LazyGeniusMan**](https://github.com/LazyGeniusMan) | MangaBaka API hardening (`schema=full`, `type=novel` filter, tag/genre & MAL parsing), official Book/LN provider feedback, `KAVITA_EXTERNAL_URL` (Docker internal API vs public UI URL), Traefik / Socket.IO CORS origin reports, configurable `MAX_TAGS` feedback. |
 | [**SqueezedByte**](https://github.com/SqueezedByte) | KOReader / Kamare crash report (`localizedName` nulling), Kavita force-update read-timeout reports → `KAVITA_HTTP_TIMEOUT` + 2-pass soft-success. |
 | [**ThoughtzThruKeyz**](https://github.com/ThoughtzThruKeyz) | Publisher metadata feature request, ComicVine scraping feedback, disable-translation option (`NONE`), series / localized title configuration ideas. |

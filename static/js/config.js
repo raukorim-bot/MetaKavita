@@ -99,7 +99,7 @@ function onMatchThresholdCustomChange() {
         slider.disabled = !custom.checked;
     }
     if (wrap && custom) {
-        wrap.style.opacity = custom.checked ? '1' : '0.45';
+        wrap.classList.toggle('is-disabled', !custom.checked);
     }
     saveConfig();
 }
@@ -120,6 +120,9 @@ function saveConfig() {
     
     const smartScoring = document.getElementById('sidebar_smart_scoring');
     const smartCompletion = document.getElementById('sidebar_smart_completion');
+    const manualReviewMode = document.getElementById('sidebar_manual_review_mode');
+    const manualReviewEdit = document.getElementById('sidebar_manual_review_edit');
+    const manualReviewSounds = document.getElementById('sidebar_manual_review_sounds');
     const autoCover = document.getElementById('sidebar_auto_cover');
     const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
     const resetContext = document.getElementById('sidebar_reset_context');
@@ -128,6 +131,11 @@ function saveConfig() {
     if (resetContext) formData.append('RESET_CONTEXT_ON_FORCE', resetContext.checked ? 'true' : 'false');
     if (smartScoring) formData.append('SMART_SCORING', smartScoring.checked ? 'true' : 'false');
     if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
+    if (manualReviewMode) formData.append('MANUAL_REVIEW_MODE', manualReviewMode.checked ? 'true' : 'false');
+    if (manualReviewEdit) formData.append('MANUAL_REVIEW_EDIT', manualReviewEdit.checked ? 'true' : 'false');
+    if (manualReviewSounds) formData.append('MANUAL_REVIEW_SOUNDS', manualReviewSounds.checked ? 'true' : 'false');
+    const manualReviewSuper = document.getElementById('sidebar_manual_review_super');
+    if (manualReviewSuper) formData.append('MANUAL_REVIEW_SUPER', manualReviewSuper.checked ? 'true' : 'false');
     if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
     if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
@@ -182,6 +190,9 @@ function saveConfigAndReloadLibraries() {
 
     const smartScoring = document.getElementById('sidebar_smart_scoring');
     const smartCompletion = document.getElementById('sidebar_smart_completion');
+    const manualReviewMode = document.getElementById('sidebar_manual_review_mode');
+    const manualReviewEdit = document.getElementById('sidebar_manual_review_edit');
+    const manualReviewSounds = document.getElementById('sidebar_manual_review_sounds');
     const autoCover = document.getElementById('sidebar_auto_cover');
     const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
     const resetContext = document.getElementById('sidebar_reset_context');
@@ -190,6 +201,11 @@ function saveConfigAndReloadLibraries() {
     if (resetContext) formData.append('RESET_CONTEXT_ON_FORCE', resetContext.checked ? 'true' : 'false');
     if (smartScoring) formData.append('SMART_SCORING', smartScoring.checked ? 'true' : 'false');
     if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
+    if (manualReviewMode) formData.append('MANUAL_REVIEW_MODE', manualReviewMode.checked ? 'true' : 'false');
+    if (manualReviewEdit) formData.append('MANUAL_REVIEW_EDIT', manualReviewEdit.checked ? 'true' : 'false');
+    if (manualReviewSounds) formData.append('MANUAL_REVIEW_SOUNDS', manualReviewSounds.checked ? 'true' : 'false');
+    const manualReviewSuper = document.getElementById('sidebar_manual_review_super');
+    if (manualReviewSuper) formData.append('MANUAL_REVIEW_SUPER', manualReviewSuper.checked ? 'true' : 'false');
     if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
     if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');

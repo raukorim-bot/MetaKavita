@@ -13,6 +13,8 @@
                                             <span class="badge badge-notfound">{{ t.filter_notfound }}</span>
                                         {% elif series.status == 'IGNORED' %}
                                             <span class="badge badge-ignored">{{ t.filter_ignored }}</span>
+                                        {% elif series.status == 'PENDING_REVIEW' %}
+                                            <span class="badge badge-review">{{ t.filter_pending_review }}</span>
                                         {% else %}
                                             <span class="badge badge-pending">{{ t.filter_pending }}</span>
                                         {% endif %}

@@ -97,6 +97,7 @@ def compute_playful_stats(
     cached_data: dict,
     provider_wins: Optional[dict] = None,
     lifetime: Optional[dict] = None,
+    translations_dict: Optional[dict] = None,
 ) -> dict:
     """
     Métriques ludiques + données pour Chart.js.
@@ -104,7 +105,10 @@ def compute_playful_stats(
     `lifetime` : {series_enriched, matches_won, series_missed} — compteurs purs.
     `cached_data` : état actuel (file, placard, overrides, donut).
     Estimations fun : plancher sur le cache / podium si lifetime est en retard.
+    `translations_dict` : titres/flavors des hauts-faits MR (optionnel).
     """
+    from services.mr_achievements import evaluate_from_lifetime
+
     cached_data = cached_data or {}
     provider_wins = provider_wins or {}
     lifetime = lifetime or {}
@@ -115,9 +119,18 @@ def compute_playful_stats(
     lifetime_attempts = series_enriched + series_missed
     lifetime_hit_rate = round(100.0 * series_enriched / lifetime_attempts, 1) if lifetime_attempts else 0.0
 
+    manual_reviews = int(lifetime.get("manual_reviews") or 0)
+    manual_skips = int(lifetime.get("manual_skips") or 0)
+    manual_top1_accepts = int(lifetime.get("manual_top1_accepts") or 0)
+    manual_score_sum = float(lifetime.get("manual_score_sum") or 0)
+    manual_field_edits = int(lifetime.get("manual_field_edits") or 0)
+    manual_avg_score = (manual_score_sum / manual_reviews) if manual_reviews else 0.0
+    manual_top1_rate = (manual_top1_accepts / manual_reviews) if manual_reviews else 0.0
+
     # --- État actuel (cache) ---
     completed = sum(1 for v in cached_data.values() if v.get("status") == "COMPLETED")
     pending = sum(1 for v in cached_data.values() if v.get("status") == "PENDING")
+    pending_review = sum(1 for v in cached_data.values() if v.get("status") == "PENDING_REVIEW")
     not_found = sum(1 for v in cached_data.values() if v.get("status") == "NOT_FOUND")
     ignored = sum(1 for v in cached_data.values() if v.get("status") == "IGNORED")
     total = len(cached_data)
@@ -203,8 +216,8 @@ def compute_playful_stats(
 
     charts = {
         "status": {
-            "labels": ["COMPLETED", "PENDING", "NOT_FOUND", "IGNORED"],
-            "values": [completed, pending, not_found, ignored],
+            "labels": ["COMPLETED", "PENDING", "PENDING_REVIEW", "NOT_FOUND", "IGNORED"],
+            "values": [completed, pending, pending_review, not_found, ignored],
         },
         "providers": {
             "labels": [p["name"] for p in podium],
@@ -230,11 +243,19 @@ def compute_playful_stats(
         "series_missed": series_missed,
         "avg_matches": avg_matches,
         "lifetime_hit_rate": organic_hit_rate,
+        "manual_reviews": manual_reviews,
+        "manual_skips": manual_skips,
+        "manual_top1_accepts": manual_top1_accepts,
+        "manual_score_sum": manual_score_sum,
+        "manual_field_edits": manual_field_edits,
+        "manual_avg_score": round(manual_avg_score, 4),
+        "manual_top1_rate": round(manual_top1_rate, 4),
         "estimate_series": estimate_series,
         "estimate_matches": estimate_matches,
         "estimates_use_cache_floor": estimates_use_cache_floor,
         "completed": completed,
         "pending": pending,
+        "pending_review": pending_review,
         "not_found": not_found,
         "ignored": ignored,
         "total": total,
@@ -266,4 +287,5 @@ def compute_playful_stats(
         "podium": podium,
         "has_provider_data": bool(podium),
         "charts": charts,
+        "mr_achievements": evaluate_from_lifetime(lifetime, translations_dict),
     }

@@ -11,23 +11,29 @@ routes HTTP (`routes/sync.py::force_sync`) que depuis les workers de fond
 (`services/background_tasks.py`).
 """
 
+import json
 import logging
 import threading
 
-from config_manager import load_config, get_max_tags, get_max_genres
+from config_manager import load_config
 from db_manager import (
     get_all_cached_data,
     update_status,
-    record_enrichment_telemetry,
     record_enrichment_miss,
     get_lifetime_stats,
+    get_pending_review,
+    record_manual_review_telemetry,
 )
 from translations import translations
-from translator import translate_text
 from kavita_api import KavitaAPI
 from scrapers import ScraperRegistry
 from scrapers.utils import MATCH_SCORE_KEY
-from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kavita_format_enum
+from services.kavita_payload import (
+    build_kavita_payload,
+    apply_kavita_payload,
+    overlay_edited_preview,
+    _broadcast_enrichment_stats,
+)
 
 # --- GARDE ANTI-CONCURRENCE PAR SÉRIE ---
 # `enrich_series()` a deux points d'entrée indépendants qui peuvent s'exécuter
@@ -64,21 +70,6 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     return [f.strip() for f in str(raw).split(",") if f.strip()]
 
 
-def _broadcast_enrichment_stats(deltas):
-    """Pousse les compteurs lifetime vers le dashboard (Socket.IO)."""
-    try:
-        from extensions import socketio
-        payload = {
-            "series_enriched_delta": int((deltas or {}).get("series_enriched_delta", 0)),
-            "matches_won_delta": int((deltas or {}).get("matches_won_delta", 0)),
-            "series_missed_delta": int((deltas or {}).get("series_missed_delta", 0)),
-            "lifetime": get_lifetime_stats(),
-        }
-        socketio.emit("enrichment_stats", payload)
-    except Exception as exc:
-        logging.debug("enrichment_stats emit skipped: %s", exc)
-
-
 def _providers_from_config(config, library_type, series_name):
     """Lit COMIC_/BOOK_/PROVIDER_* selon le type, avec auto-réparation si vide."""
     if library_type == "Comic":
@@ -108,6 +99,80 @@ def _providers_from_config(config, library_type, series_name):
     return list(dict.fromkeys(providers))
 
 
+def _scraper_has_required_api_key(scraper, config) -> bool:
+    """True si le scraper n'a pas besoin de clé, ou si `{ID}_API_KEY` est renseignée."""
+    if not getattr(scraper, "needs_api_key", False):
+        return True
+    key = (config.get(f"{scraper.id}_API_KEY") or "").strip()
+    return bool(key)
+
+
+def _all_usable_provider_ids(config, library_type) -> list:
+    """Tous les scrapers du type avec clé API présente si requise."""
+    scrapers = ScraperRegistry.get_by_type(library_type) or []
+    return [s.id for s in scrapers if _scraper_has_required_api_key(s, config)]
+
+
+def expand_providers_for_super_review(config, library_type, preferred_ids=None) -> list:
+    """
+    Super Review : slots UI préférés en tête, puis tous les scrapers utilisables.
+    """
+    preferred = [p for p in (preferred_ids or []) if p and ScraperRegistry.get(p)]
+    all_ids = _all_usable_provider_ids(config, library_type)
+    usable = set(all_ids)
+    ordered = []
+    seen = set()
+    for p in preferred:
+        if p in usable and p not in seen:
+            ordered.append(p)
+            seen.add(p)
+    for p in all_ids:
+        if p not in seen:
+            ordered.append(p)
+            seen.add(p)
+    return ordered or preferred or all_ids
+
+
+def resolve_manual_review_flags(config, is_forced_id=False):
+    """
+    (manual_mode, super_review).
+
+    Super Review : toujours la file manuelle + expansion scrapers — un override
+    (forced_id / forced_provider) ne doit pas court-circuiter le parcours.
+
+    Manuel classique : ID/URL forcé → auto-apply (choix déjà explicite).
+    """
+    want_manual = bool(config.get("MANUAL_REVIEW_MODE"))
+    super_review = want_manual and bool(config.get("MANUAL_REVIEW_SUPER"))
+    manual_mode = want_manual and (super_review or not bool(is_forced_id))
+    return manual_mode, super_review
+
+
+def apply_provider_overrides(
+    providers_list,
+    *,
+    config,
+    provider_family,
+    forced_provider="AUTO",
+    super_review=False,
+):
+    """
+    Applique forced_provider : exclusif hors Super ; en Super, préfère puis expand all.
+    """
+    providers_list = list(providers_list or [])
+    fp = forced_provider or "AUTO"
+    if super_review:
+        preferred = list(providers_list)
+        if fp != "AUTO" and fp in ScraperRegistry._scrapers:
+            preferred = [fp] + [p for p in preferred if p != fp]
+        return expand_providers_for_super_review(
+            config, provider_family, preferred_ids=preferred
+        )
+    if fp != "AUTO" and fp in ScraperRegistry._scrapers:
+        return [fp]
+    return providers_list
+
+
 def _has_useful_provider_data(data):
     """Même critère que metadata_fetcher.has_useful_data (sans importer le privé)."""
     if not data:
@@ -116,6 +181,278 @@ def _has_useful_provider_data(data):
         data.get('summary') or data.get('genres') or data.get('cover_url')
         or data.get('staff') or data.get('year')
     )
+
+
+def _candidates_empty(payload):
+    if not payload or not isinstance(payload, dict):
+        return True
+    return not (payload.get("above") or payload.get("below"))
+
+
+def _scrape_manual_candidates(
+    series_id,
+    series_name,
+    search_query,
+    fallback_query,
+    *,
+    config,
+    kavita,
+    cache_data=None,
+    is_forced_id=False,
+):
+    """
+    Collecte above/below pour le mode manuel (return_candidates=True).
+
+    Retourne (candidates_payload, used_providers). Payload peut être vide.
+    """
+    from metadata_fetcher import fetch_metadata
+
+    cache_data = cache_data or {}
+    library_type = kavita.get_library_type_for_series(series_id)
+    provider_family = "Comic" if library_type in ("Comic", "ComicFlexible") else library_type
+    providers_list = _providers_from_config(config, provider_family, series_name)
+    forced_provider = cache_data.get("forced_provider", "AUTO") or "AUTO"
+    _, super_review = resolve_manual_review_flags(config, is_forced_id=is_forced_id)
+
+    if is_forced_id:
+        if str(search_query).startswith("http://") or str(search_query).startswith("https://"):
+            if forced_provider == "AUTO":
+                for s in ScraperRegistry.get_all():
+                    if s.extract_id_from_url(search_query):
+                        forced_provider = s.id
+                        break
+        elif forced_provider == "AUTO" and not super_review:
+            providers_list = [
+                p for p in providers_list
+                if getattr(ScraperRegistry.get(p), "has_direct_id_support", False)
+            ]
+
+    # Re-recherche manuelle : toujours candidats (appelée depuis research_manual_review)
+    providers_list = apply_provider_overrides(
+        providers_list,
+        config=config,
+        provider_family=provider_family,
+        forced_provider=forced_provider,
+        super_review=super_review,
+    )
+
+    smart_completion = config.get("SMART_COMPLETION", False)
+    smart_scoring = config.get("SMART_SCORING", True)
+    reset_context_on_force = config.get("RESET_CONTEXT_ON_FORCE", False)
+    # force_update N/A ici — re-recherche = toujours contexte courant sauf reset flag
+    if reset_context_on_force:
+        existing_metadata = {
+            "isbn": kavita.get_series_isbn(series_id),
+            "authors": [],
+            "publisher": None,
+            "year": None,
+            "genres": [],
+            "localized_name": None,
+            "publisher_pref": cache_data.get("publisher_pref", "GLOBAL"),
+        }
+    else:
+        existing_metadata = kavita.get_series_deep_metadata(series_id) or {}
+        existing_metadata["publisher_pref"] = cache_data.get("publisher_pref", "GLOBAL")
+
+    fetch_type = "Comic" if library_type == "ComicFlexible" else library_type
+    if forced_provider != "AUTO" and forced_provider in ScraperRegistry._scrapers:
+        scraper = ScraperRegistry.get(forced_provider)
+        st = getattr(scraper, "supported_types", set()) or set()
+        if library_type == "ComicFlexible":
+            if "Comic" in st:
+                fetch_type = "Comic"
+            elif "Manga" in st:
+                fetch_type = "Manga"
+
+    fetch_kwargs = dict(
+        fallback_query=fallback_query,
+        library_type=fetch_type,
+        is_forced_id=is_forced_id,
+        forced_provider=forced_provider,
+        existing_metadata=existing_metadata,
+        smart_scoring=smart_scoring,
+    )
+
+    candidates_payload, used_providers = fetch_metadata(
+        search_query,
+        providers_list,
+        smart_completion,
+        return_candidates=True,
+        **fetch_kwargs,
+    )
+
+    if (
+        library_type == "ComicFlexible"
+        and (forced_provider == "AUTO" or super_review)
+        and _candidates_empty(candidates_payload)
+    ):
+        manga_providers = _providers_from_config(config, "Manga", series_name)
+        if super_review:
+            manga_providers = expand_providers_for_super_review(
+                config, "Manga", preferred_ids=manga_providers
+            )
+        if manga_providers:
+            manga_payload, manga_used = fetch_metadata(
+                search_query,
+                manga_providers,
+                smart_completion,
+                return_candidates=True,
+                fallback_query=fallback_query,
+                library_type="Manga",
+                is_forced_id=is_forced_id,
+                forced_provider=forced_provider,
+                existing_metadata=existing_metadata,
+                smart_scoring=smart_scoring,
+            )
+            used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
+            candidates_payload = manga_payload
+
+    if isinstance(candidates_payload, dict):
+        candidates_payload["query"] = search_query
+    return candidates_payload or {"above": [], "below": [], "query": search_query}, used_providers or []
+
+
+def research_manual_review(review_id, query: str):
+    """
+    Re-scrape une pending review avec un nouveau titre (comme l'override
+    alternative_title), écrase les candidats, conserve le même review_id.
+
+    Retourne (ok, message_ou_detail, detail_dict|None).
+    detail = { review lite pour l'UI } si ok.
+    """
+    from db_manager import save_series_override, update_pending_review
+    from metadata_fetcher import candidate_card_for_ui
+    from models import SeriesOverride
+    from services.manual_review import (
+        translate_candidate_summaries,
+        emit_pending_count,
+        _safe_emit,
+    )
+
+    query = (query or "").strip()
+    if not query:
+        return False, "Titre de recherche vide.", None
+
+    review = get_pending_review(review_id)
+    if not review:
+        return False, "Review introuvable.", None
+
+    series_id = int(review["series_id"])
+    series_name = review.get("series_name") or str(series_id)
+
+    with _processing_lock:
+        if series_id in _processing_series_ids:
+            return False, "Déjà en cours de traitement.", None
+        _processing_series_ids.add(series_id)
+
+    config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+    try:
+        kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
+        if not kavita.authenticate():
+            return False, "Erreur Kavita.", None
+
+        cache_data = get_all_cached_data().get(series_id, {})
+        ov = SeriesOverride.from_cache_dict(series_id, cache_data)
+        ov.alternative_title = query
+        # Comme l'override titre, sans purger la review en cours.
+        save_series_override(ov, purge_pending=False, status="PENDING_REVIEW")
+
+        logging.info(
+            "[%s] 🔎 Re-recherche manuelle : « %s » (review %s)",
+            series_name,
+            query,
+            review_id,
+        )
+        candidates_payload, used_providers = _scrape_manual_candidates(
+            series_id,
+            series_name,
+            query,
+            query,
+            config=config,
+            kavita=kavita,
+            cache_data=get_all_cached_data().get(series_id, {}),
+            is_forced_id=False,
+        )
+
+        if _candidates_empty(candidates_payload):
+            logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
+            return False, "Aucun candidat pour cette recherche.", {
+                "query": query,
+                "used_providers": used_providers,
+            }
+
+        try:
+            candidates_payload, n_tr = translate_candidate_summaries(candidates_payload, config=config)
+            if n_tr:
+                logging.info(
+                    "[manual_review] %s résumé(s) traduit(s) (re-recherche %s)",
+                    n_tr,
+                    series_name,
+                )
+        except Exception as exc:
+            logging.warning("[manual_review] traduction re-recherche échouée : %s", exc)
+
+        update_pending_review(
+            review_id,
+            candidates_json=candidates_payload,
+            preview_json=None,
+            state="awaiting_pick",
+            base_provider=None,
+            chosen_score=None,
+        )
+
+        try:
+            from db_manager import record_manual_research_telemetry
+            record_manual_research_telemetry()
+        except Exception as exc:
+            logging.debug("[manual_review] research telemetry skipped: %s", exc)
+
+        def _lite(cards):
+            out = []
+            for card in cards or []:
+                ui = candidate_card_for_ui(card)
+                if ui:
+                    out.append(ui)
+            return out
+
+        lite = {
+            "review_id": review_id,
+            "series_id": series_id,
+            "series_name": series_name,
+            "state": "awaiting_pick",
+            "base_provider": None,
+            "chosen_score": None,
+            "above": _lite(candidates_payload.get("above")),
+            "below": _lite(candidates_payload.get("below")),
+            "query": candidates_payload.get("query") or query,
+            "preview": None,
+            "used_providers": used_providers,
+        }
+        _safe_emit("manual_review_refreshed", {
+            "review_id": review_id,
+            "series_id": series_id,
+            "above_count": len(lite["above"]),
+            "below_count": len(lite["below"]),
+            "query": lite["query"],
+        })
+        emit_pending_count()
+        return True, "OK", lite
+    except Exception as exc:
+        logging.error("[%s] Crash re-recherche manuelle : %s", series_name, exc)
+        return False, "Erreur interne.", None
+    finally:
+        with _processing_lock:
+            _processing_series_ids.discard(series_id)
+
+
+def _top1_provider(candidates_payload):
+    above = (candidates_payload or {}).get("above") or []
+    below = (candidates_payload or {}).get("below") or []
+    top = above if above else below
+    if not top:
+        return None
+    return top[0].get("provider")
 
 
 def enrich_series(series_id, series_name, force_update=False, targeted_fields_override=None):
@@ -183,9 +520,16 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         # --- OVERRIDE DU FOURNISSEUR & AUTO-DÉTECTION URL ---
         forced_provider = cache_data.get('forced_provider', 'AUTO')
 
+        # Super : file manuelle même avec forced_id ; expand tous scrapers même avec forced_provider.
+        # Manuel classique : ID/URL forcé → auto-apply.
+        smart_completion = config.get("SMART_COMPLETION", False)
+        smart_scoring = config.get("SMART_SCORING", True)
+        manual_mode, super_review = resolve_manual_review_flags(
+            config, is_forced_id=is_forced_id
+        )
+
         if is_forced_id:
             if search_query.startswith('http://') or search_query.startswith('https://'):
-                # 1. C'est une URL
                 if forced_provider == 'AUTO':
                     for s in ScraperRegistry.get_all():
                         if s.extract_id_from_url(search_query):
@@ -193,24 +537,42 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                             logging.info(t.get('log_auto_url_found', "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.").format(series_name, s.display_name))
                             break
             else:
-                # 2. C'est un ID Brut (ex: 86865).
-                if forced_provider == 'AUTO':
+                # ID brut : filtre ID-capable uniquement hors Super (Super expand all ensuite)
+                if forced_provider == 'AUTO' and not super_review:
                     logging.info(f"[{series_name}] 🔄 ID brut détecté en mode AUTO. Lancement de la résolution intelligente (Smart ID Match).")
                     providers_list = [p for p in providers_list if getattr(ScraperRegistry.get(p), 'has_direct_id_support', False)]
 
-        # 3. Application de l'Override
-        if forced_provider != 'AUTO' and forced_provider in ScraperRegistry._scrapers:
-            providers_list = [forced_provider]
+        before_override = list(providers_list)
+        providers_list = apply_provider_overrides(
+            providers_list,
+            config=config,
+            provider_family=provider_family,
+            forced_provider=forced_provider,
+            super_review=super_review,
+        )
+        if (
+            not super_review
+            and forced_provider != 'AUTO'
+            and forced_provider in ScraperRegistry._scrapers
+        ):
             logging.info(t.get('log_forced_provider', "[{0}] 🎯 Scraping ciblé forcé sur : {1}").format(series_name, forced_provider))
-
-        smart_completion = config.get("SMART_COMPLETION", False)
-        smart_scoring = config.get("SMART_SCORING", True)
+        elif super_review:
+            logging.info(
+                "[%s] Super Review : %d scrapers (slots %d → tous utilisables)%s.",
+                series_name,
+                len(providers_list),
+                len(before_override),
+                f", override {forced_provider} préféré" if forced_provider != "AUTO" else "",
+            )
 
         # Log protégé contre les valeurs None
         safe_providers_log = [str(p) for p in providers_list if p is not None]
         logging.info(t.get('log_scraping').format(series_name, " > ".join(safe_providers_log), search_query))
         logging.info(t.get('log_lib_type_detected', "[{0}] 📂 Type de bibliothèque détecté : {1}").format(series_name, library_type))
-        if smart_scoring:
+        if manual_mode:
+            mode_label = "Super Review" if super_review else "manuel"
+            logging.info(f"[{series_name}] 👁️ Mode {mode_label} : candidats → file de review.")
+        elif smart_scoring:
             logging.info(f"[{series_name}] 🎯 Smart Scoring activé (meilleur score gagne).")
         else:
             logging.info(f"[{series_name}] 📋 Fallback classique (ordre de la liste des fournisseurs).")
@@ -252,16 +614,79 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 elif "Manga" in st:
                     fetch_type = "Manga"
 
-        provider_data, used_providers = fetch_metadata(
-            search_query,
-            providers_list,
-            smart_completion,
+        fetch_kwargs = dict(
             fallback_query=fallback_query,
             library_type=fetch_type,
             is_forced_id=is_forced_id,
             forced_provider=forced_provider,
             existing_metadata=existing_metadata,
             smart_scoring=smart_scoring,
+        )
+
+        # ========== MODE MANUEL (C29) ==========
+        if manual_mode:
+            candidates_payload, used_providers = fetch_metadata(
+                search_query,
+                providers_list,
+                smart_completion,
+                return_candidates=True,
+                **fetch_kwargs,
+            )
+            # Comic Flexible : vague Manga si Comic above+below vides
+            if (
+                library_type == "ComicFlexible"
+                and (forced_provider == "AUTO" or super_review)
+                and _candidates_empty(candidates_payload)
+            ):
+                manga_providers = _providers_from_config(config, "Manga", series_name)
+                if super_review:
+                    manga_providers = expand_providers_for_super_review(
+                        config, "Manga", preferred_ids=manga_providers
+                    )
+                if manga_providers:
+                    logging.info(
+                        t.get(
+                            "log_flexible_manga_fallback",
+                            "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
+                        ).format(series_name, " > ".join(manga_providers))
+                    )
+                    manga_payload, manga_used = fetch_metadata(
+                        search_query,
+                        manga_providers,
+                        smart_completion,
+                        return_candidates=True,
+                        fallback_query=fallback_query,
+                        library_type="Manga",
+                        is_forced_id=is_forced_id,
+                        forced_provider=forced_provider,
+                        existing_metadata=existing_metadata,
+                        smart_scoring=smart_scoring,
+                    )
+                    used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
+                    candidates_payload = manga_payload
+
+            if _candidates_empty(candidates_payload):
+                logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
+                update_status(series_id, "NOT_FOUND")
+                _broadcast_enrichment_stats(record_enrichment_miss())
+                return False, "Introuvable.", used_providers or []
+
+            from services.manual_review import create_review_from_candidates
+
+            create_review_from_candidates(series_id, series_name, candidates_payload)
+            logging.info(
+                f"[{series_name}] 👁️ PENDING_REVIEW "
+                f"(above={len((candidates_payload or {}).get('above') or [])}, "
+                f"below={len((candidates_payload or {}).get('below') or [])})"
+            )
+            return True, "PENDING_REVIEW", used_providers or []
+
+        # ========== MODE AUTO ==========
+        provider_data, used_providers = fetch_metadata(
+            search_query,
+            providers_list,
+            smart_completion,
+            **fetch_kwargs,
         )
 
         # C35 : Comic Flexible — si la vague Comic échoue et qu'aucun provider n'est forcé,
@@ -319,213 +744,12 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 msg_found += f" + 🧩 Fusion ({', '.join(safe_fusion)})"
         logging.info(msg_found)
 
-        # =========================================================
-        # --- APPLICATION FILTRÉE DES MÉTADONNÉES
-        # =========================================================
-        localized_name_to_update = None
-        format_to_update = None
-
-        # 1. Résumé (Appartient à Series/metadata selon le Swagger de Kavita !)
-        if 'summary' in active_fields and provider_data.get('summary') and (not metadata.get('summary') or force_update):
-            target_lang = config.get('TARGET_LANG', 'FR')
-            metadata['summary'] = translate_text(provider_data['summary'], config.get('DEEPL_API_KEY'), target_lang)
-            metadata['summaryLocked'] = True
-
-        # 2. Année
-        if 'year' in active_fields and provider_data.get('year'):
-            metadata['releaseYear'] = provider_data['year']
-            metadata['releaseYearLocked'] = True
-
-        # 3. Statut de Publication
-        if 'status' in active_fields and provider_data.get('status') in PUBLICATION_STATUS_MAP:
-            metadata['publicationStatus'] = PUBLICATION_STATUS_MAP[provider_data['status']]
-            metadata['publicationStatusLocked'] = True
-
-        # 4. Genres
-        if 'genres' in active_fields and provider_data.get('genres'):
-            metadata['genres'] = [
-                {"id": 0, "title": g}
-                for g in provider_data['genres'][:get_max_genres(config)]
-            ]
-            metadata['genresLocked'] = True
-
-        # 5. Tags & Personnages
-        if 'tags' in active_fields:
-            if provider_data.get('tags'):
-                metadata['tags'] = [{"id": 0, "title": tag} for tag in provider_data['tags'][:get_max_tags(config)]]
-                metadata['tagsLocked'] = True
-            if provider_data.get('characters'):
-                characters_payload = []
-                for c in provider_data['characters']:
-                    name = None
-                    if isinstance(c, str):
-                        name = c.strip()
-                    elif isinstance(c, dict):
-                        node = c.get('node') if isinstance(c.get('node'), dict) else {}
-                        nested_name = node.get('name')
-                        if isinstance(nested_name, dict):
-                            name = (nested_name.get('full') or nested_name.get('romaji') or nested_name.get('native') or "").strip()
-                        elif isinstance(nested_name, str):
-                            name = nested_name.strip()
-                        if not name:
-                            raw = c.get('name') or c.get('full')
-                            name = str(raw).strip() if raw else ""
-                    if name:
-                        characters_payload.append({"id": 0, "name": name})
-                if characters_payload:
-                    metadata['characters'] = characters_payload
-                    metadata['characterLocked'] = True
-
-        # 6. Titres Alternatifs (Localized Name - Va vers Series/update)
-        if 'alt_titles' in active_fields:
-            from localized_titles import resolve_effective_title_policy, resolve_localized_name
-            mode, langs = resolve_effective_title_policy(
-                config, cache_data.get('alt_title_langs') or ""
-            )
-            localized_name_to_update = resolve_localized_name(
-                provider_data, mode=mode, langs=langs
-            )
-
-        # 7. Auteurs et Staff
-        if 'staff' in active_fields:
-            writers, pencillers, colorists, translators, cover_artists, editors, letterers, inkers = [], [], [], [], [], [], [], []
-            for edge in provider_data.get('staff', []):
-                role = edge.get('role', '').lower()
-                name = edge.get('node', {}).get('name', {}).get('full', '')
-                if not name: continue
-
-                entry = {"id": 0, "name": name}
-
-                if 'story' in role or 'original' in role or 'scénar' in role: writers.append(entry)
-                elif 'art' in role or 'illustration' in role or 'dessin' in role or 'pencill' in role: pencillers.append(entry)
-                elif 'color' in role or 'couleur' in role: colorists.append(entry)
-                elif 'translat' in role or 'traduct' in role: translators.append(entry)
-                elif 'cover' in role or 'couverture' in role: cover_artists.append(entry)
-                elif 'edit' in role or 'éditeur' in role or 'editeur' in role: editors.append(entry)
-                elif 'letter' in role or 'lettrage' in role: letterers.append(entry)
-                elif 'ink' in role or 'encrage' in role: inkers.append(entry)
-
-            if writers: metadata['writers'] = writers; metadata['writerLocked'] = True
-            if pencillers: metadata['pencillers'] = pencillers; metadata['pencillerLocked'] = True
-            if colorists: metadata['colorists'] = colorists; metadata['coloristLocked'] = True
-            if translators: metadata['translators'] = translators; metadata['translatorLocked'] = True
-            if cover_artists: metadata['coverArtists'] = cover_artists; metadata['coverArtistLocked'] = True
-            if editors: metadata['editors'] = editors; metadata['editorLocked'] = True
-            if letterers: metadata['letterers'] = letterers; metadata['lettererLocked'] = True
-            if inkers: metadata['inkers'] = inkers; metadata['inkerLocked'] = True
-
-        # 8. Éditeur (Maison d'édition - 'publishers' au PLURIEL comme vu sur le Swagger)
-        if 'publisher' in active_fields and provider_data.get('publisher'):
-            metadata['publishers'] = [{"id": 0, "name": provider_data['publisher']}]
-            metadata['publisherLocked'] = True
-
-        # 9. Classification d'âge
-        if 'age' in active_fields and provider_data.get('age_rating'):
-            mapped_rating = AGE_RATING_MAP.get(str(provider_data['age_rating']).lower())
-            if mapped_rating is not None:
-                metadata['ageRating'] = mapped_rating
-                metadata['ageRatingLocked'] = True
-
-        # 10. Sens de lecture (Format - Va vers Series/update)
-        if 'format' in active_fields and config.get('AUTO_READING_DIR') and provider_data.get('format'):
-            format_to_update = resolve_kavita_format_enum(provider_data['format'])
-
-        # 11. Liens externes & IDs Natifs
-        if 'weblinks' in active_fields:
-            a_id = provider_data.get('anilist_id')
-            m_id = provider_data.get('mal_id')
-            mb_id = provider_data.get('mangabaka_id')
-
-            if a_id or m_id or mb_id:
-                kavita.update_series_external_ids(series_id, a_id, m_id, mb_id)
-
-            existing_links_raw = metadata.get('webLinks')
-            links_list = [link.strip() for link in str(existing_links_raw).split(',')] if existing_links_raw else []
-
-            def add_weblink(url):
-                if url and str(url).strip() and str(url).strip() not in links_list:
-                    links_list.append(str(url).strip())
-
-            if a_id: add_weblink(f"https://anilist.co/manga/{a_id}")
-            if m_id: add_weblink(f"https://myanimelist.net/manga/{m_id}")
-            if mb_id: add_weblink(f"https://mangabaka.org/{mb_id}")
-            if provider_data.get('url'): add_weblink(provider_data['url'])
-            for link in provider_data.get('accumulated_links', []): add_weblink(link)
-
-            safe_links = [str(l) for l in links_list if l is not None and str(l).strip()]
-            if safe_links:
-                metadata['webLinks'] = ",".join(safe_links)
-
-        # 12. Langue de l'œuvre — ne pas écraser à chaque sync juste parce que
-        # TARGET_LANG a un défaut ("FR"). N'écrire que si Kavita n'a pas encore de
-        # langue, ou en force_update.
-        target_lang = (config.get('TARGET_LANG') or "").strip()
-        if target_lang:
-            current_lang = (metadata.get('language') or "").strip()
-            if force_update or not current_lang:
-                metadata['language'] = target_lang.lower()
-                metadata['languageLocked'] = True
-
-        # =========================================================
-        # --- ENVOI FINAL À KAVITA
-        # =========================================================
-        metadata['seriesId'] = int(series_id)
-        # Note : l'assainissement des champs système (created, lastModified, totalCount,
-        # maxCount, pages, wordCount) est désormais centralisé dans
-        # KavitaAPI.update_series_metadata() pour protéger tous les appelants (voir kavita_api.md).
-
-        logging.info(t.get('log_sending').format(series_name))
-
-        # 1. Envoi des Métadonnées (Auteurs, Tags, Publishers)
-        success, msg = kavita.update_series_metadata(metadata)
-
-        # 2. Envoi des Champs Généraux (Titre alternatif & Format uniquement)
-        general_ok = True
-        general_msg = ""
-        if localized_name_to_update or format_to_update:
-            general_ok, general_msg = kavita.update_series_general(
-                series_id,
-                localized_name=localized_name_to_update,
-                format_val=format_to_update
-            )
-            if not general_ok:
-                logging.error(
-                    t.get('log_kavita_refused', "[{0}] ❌ Kavita a refusé la mise à jour : {1}").format(
-                        series_name, f"champs généraux: {general_msg}"
-                    )
-                )
-
-        if success and general_ok:
-            logging.info(t.get('log_success').format(series_name))
-
-            # 3. Upload de Couverture (Format v1.4 fiable)
-            # Relecture fraîche de targeted_fields juste avant l'envoi : si l'utilisateur
-            # a appliqué une couverture manuelle pendant que ce traitement tournait,
-            # 'cover' a été retiré entre-temps par /update-cover et on ne doit pas l'écraser.
-            fresh_targeted_fields = get_all_cached_data().get(int(series_id), {}).get('targeted_fields', 'ALL') or 'ALL'
-            cover_still_targeted = fresh_targeted_fields == 'ALL' or 'cover' in fresh_targeted_fields.split(',')
-
-            if 'cover' in active_fields and cover_still_targeted and config.get('AUTO_COVER') and provider_data.get('cover_url'):
-                logging.info(t.get('log_cover_upload').format(series_name))
-                cover_success, cover_msg = kavita.upload_series_cover(series_id, provider_data['cover_url'])
-                if not cover_success:
-                    logging.warning(t.get('log_cover_fail').format(series_name, cover_msg))
-                else:
-                    logging.info(t.get('log_cover_success').format(series_name))
-            elif 'cover' in active_fields and not cover_still_targeted:
-                logging.info(f"[{series_name}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps.")
-
-            update_status(series_id, 'COMPLETED')
-            _broadcast_enrichment_stats(record_enrichment_telemetry(used_providers))
-            return True, "Succès", used_providers
-        elif success and not general_ok:
-            logging.error(
-                f"[{series_name}] Métadonnées OK mais champs généraux refusés : {general_msg}"
-            )
-            return False, f"Erreur champs généraux: {general_msg}", used_providers
-        else:
-            logging.error(t.get('log_kavita_refused').format(series_name, msg))
-            return False, f"Erreur: {msg}", used_providers
+        built = build_kavita_payload(
+            provider_data, metadata, active_fields, config, cache_data, force_update, series_id
+        )
+        return apply_kavita_payload(
+            kavita, series_id, series_name, built, active_fields, config, used_providers, t
+        )
 
     except Exception as e:
         logging.error(t.get('log_crash').format(series_name, e))
@@ -533,3 +757,185 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
     finally:
         with _processing_lock:
             _processing_series_ids.discard(sid)
+
+
+def apply_manual_review(
+    review_id,
+    base_provider,
+    include_providers=None,
+    edited_preview=None,
+    field_edits=0,
+    force_update=True,
+    fused=None,
+    weak_pick=False,
+    super_review=False,
+):
+    """
+    Applique un choix de review manuelle : merge → (overlay edits) → build → write Kavita.
+
+    Retourne (success: bool, message: str, detail: dict|None).
+    """
+    from services.manual_review import choice_and_merge, confirm_pending_review
+
+    review = get_pending_review(review_id)
+    if not review:
+        return False, "Review introuvable.", None
+
+    config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+    # Mode manuel : les cases « Fusionner » pilotent seules le comblement des trous.
+    # Indépendant du toggle sidebar SMART_COMPLETION (batch auto).
+    includes = [p for p in (include_providers or []) if p and p != base_provider]
+    smart_fusion = bool(includes)
+    if fused is None:
+        fused = smart_fusion
+    else:
+        fused = bool(fused)
+
+    try:
+        candidates_payload = json.loads(review.get("candidates_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        candidates_payload = {"above": [], "below": []}
+
+    # Si déjà awaiting_confirm avec même base, on peut re-merger ; sinon choice_and_merge
+    provider_data = choice_and_merge(
+        review_id,
+        base_provider,
+        include_providers=includes,
+        smart_fusion=smart_fusion,
+    )
+    if not provider_data:
+        return False, "Fusion impossible (provider invalide).", None
+
+    is_top1 = base_provider == _top1_provider(candidates_payload)
+    chosen_score = None
+    for band in ("above", "below"):
+        for card in candidates_payload.get(band) or []:
+            if card.get("provider") == base_provider:
+                chosen_score = card.get("score")
+                break
+        if chosen_score is not None:
+            break
+
+    provider_data = overlay_edited_preview(provider_data, edited_preview)
+    # Nettoyage clés internes avant write
+    used_providers = [provider_data.get("_provider_used") or base_provider]
+    for fp in provider_data.get("_fusion_providers") or []:
+        if fp and fp not in used_providers:
+            used_providers.append(fp)
+
+    series_id = int(review["series_id"])
+    series_name = review.get("series_name") or str(series_id)
+    cache_data = get_all_cached_data().get(series_id, {})
+    active_fields = resolve_active_fields(cache_data.get("targeted_fields", "ALL"))
+
+    kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
+    if not kavita.authenticate():
+        return False, "Erreur Kavita.", None
+
+    metadata = kavita.get_series_metadata(series_id)
+    if not metadata:
+        return False, "Erreur de métadonnées.", None
+
+    built = build_kavita_payload(
+        provider_data, metadata, active_fields, config, cache_data, force_update, series_id
+    )
+
+    # Si preview édité porte localized_name sans passer par provider overlay
+    if edited_preview and isinstance(edited_preview, dict) and "localized_name" in edited_preview:
+        built["localized_name"] = edited_preview.get("localized_name") or None
+        if built.get("preview_fields") is not None:
+            built["preview_fields"]["localized_name"] = edited_preview.get("localized_name") or ""
+
+    ok, msg, used = apply_kavita_payload(
+        kavita, series_id, series_name, built, active_fields, config, used_providers, t
+    )
+    if not ok:
+        return False, msg, {"preview": built.get("preview_fields")}
+
+    deltas = record_manual_review_telemetry(
+        chosen_score,
+        is_top1,
+        field_edits=field_edits,
+        fused=fused,
+        weak_pick=bool(weak_pick),
+        super_review=bool(super_review),
+    )
+    # Lifetime déjà mis à jour par apply (enrichment) + manual ; rebroadcast avec extras
+    _broadcast_enrichment_stats({
+        **(deltas or {}),
+        "series_enriched_delta": 0,
+        "matches_won_delta": 0,
+        "series_missed_delta": 0,
+        "lifetime": get_lifetime_stats(),
+    })
+    confirm_pending_review(review_id, new_status="COMPLETED")
+    return True, "Succès", {
+        "preview": built.get("preview_fields"),
+        "is_top1": is_top1,
+        "score": chosen_score,
+        "used_providers": used,
+    }
+
+
+def preview_manual_review(review_id, base_provider, include_providers=None):
+    """
+    Merge + build preview sans écrire Kavita. Stocke preview_json sur la review.
+    Retourne (ok, preview_fields|error_msg, built_or_none).
+    """
+    from services.manual_review import choice_and_merge
+    from db_manager import update_pending_review
+
+    review = get_pending_review(review_id)
+    if not review:
+        return False, "Review introuvable.", None
+
+    config = load_config()
+    # Mode manuel : fusion = cases cochées uniquement (pas SMART_COMPLETION sidebar).
+    includes = [p for p in (include_providers or []) if p and p != base_provider]
+    smart_fusion = bool(includes)
+    provider_data = choice_and_merge(
+        review_id,
+        base_provider,
+        include_providers=includes,
+        smart_fusion=smart_fusion,
+    )
+    if not provider_data:
+        return False, "Fusion impossible (provider invalide).", None
+
+    series_id = int(review["series_id"])
+    cache_data = get_all_cached_data().get(series_id, {})
+    active_fields = resolve_active_fields(cache_data.get("targeted_fields", "ALL"))
+
+    # Preview UI : ne pas bloquer si Kavita est momentanément indisponible.
+    # Le confirm réessaiera l'auth / écriture.
+    metadata = {}
+    try:
+        kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
+        if kavita.authenticate():
+            metadata = kavita.get_series_metadata(series_id) or {}
+    except Exception as exc:
+        logging.warning("[manual_review] preview sans métadonnées Kavita: %s", exc)
+
+    built = build_kavita_payload(
+        provider_data, metadata, active_fields, config, cache_data, True, series_id
+    )
+    preview = built.get("preview_fields") or {}
+    # Conservés hors build_kavita_payload (poppés avant envoi Kavita) pour le bandeau edit.
+    preview["_provider_used"] = provider_data.get("_provider_used") or base_provider
+    preview["_fusion_providers"] = list(provider_data.get("_fusion_providers") or [])
+    update_pending_review(review_id, preview_json=preview, state="awaiting_confirm")
+    return True, preview, built
+
+
+def skip_manual_review(review_id):
+    """Skip une pending review + broadcast compteur (via helper)."""
+    from services.manual_review import skip_pending_review
+
+    ok = skip_pending_review(review_id)
+    if ok:
+        _broadcast_enrichment_stats({
+            "manual_skips_delta": 1,
+            "lifetime": get_lifetime_stats(),
+        })
+    return ok

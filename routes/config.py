@@ -85,6 +85,10 @@ def save_config_ajax():
 
         config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
         config['SMART_SCORING'] = request.form.get('SMART_SCORING') == 'true'
+        config['MANUAL_REVIEW_MODE'] = request.form.get('MANUAL_REVIEW_MODE') == 'true'
+        config['MANUAL_REVIEW_EDIT'] = request.form.get('MANUAL_REVIEW_EDIT') == 'true'
+        config['MANUAL_REVIEW_SOUNDS'] = request.form.get('MANUAL_REVIEW_SOUNDS') == 'true'
+        config['MANUAL_REVIEW_SUPER'] = request.form.get('MANUAL_REVIEW_SUPER') == 'true'
         config['MATCH_THRESHOLD_CUSTOM'] = request.form.get('MATCH_THRESHOLD_CUSTOM') == 'true'
         try:
             config['MATCH_ACCEPT_THRESHOLD'] = float(

@@ -127,6 +127,16 @@ function closeAboutModal() {
     if (modal) modal.style.display = 'none';
 }
 
+function openScrapingOptionsHelpModal() {
+    const modal = document.getElementById('scrapingOptionsHelpModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeScrapingOptionsHelpModal() {
+    const modal = document.getElementById('scrapingOptionsHelpModal');
+    if (modal) modal.style.display = 'none';
+}
+
 document.addEventListener('click', (event) => {
     const help = document.querySelector('.topbar-help');
     if (help && !help.contains(event.target)) {
@@ -138,6 +148,7 @@ document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
         closeHelpMenu();
         closeAboutModal();
+        closeScrapingOptionsHelpModal();
         closeChangelogModal();
         if (typeof closeCoverModal === 'function') closeCoverModal();
         if (typeof closeProvidersModal === 'function') closeProvidersModal();

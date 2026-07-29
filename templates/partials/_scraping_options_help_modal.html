@@ -1,0 +1,83 @@
+	<!-- MODAL AIDE OPTIONS DE SCRAPING -->
+	<div id="scrapingOptionsHelpModal" class="modal-overlay" onclick="if(event.target===this) closeScrapingOptionsHelpModal()" style="display: none;">
+		<div class="modal-content modal-shell scraping-help-modal">
+			<div class="modal-header modal-header--accent">
+				<h3 class="m-0">{{ t.scraping_options_help_title }}</h3>
+				<button type="button" class="close-btn" onclick="closeScrapingOptionsHelpModal()">&times;</button>
+			</div>
+			<div class="modal-scroll-body scraping-help-body">
+				<section class="scraping-help-section">
+					<h4 class="scraping-help-section-title">{{ t.scraping_cat_match }}</h4>
+					<article class="scraping-help-item">
+						<h5>{{ t.open_providers_modal }}</h5>
+						<p>{{ t.scraping_help_providers }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.smart_scoring }}</h5>
+						<p>{{ t.scraping_help_smart_scoring }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.smart_completion }}</h5>
+						<p>{{ t.scraping_help_smart_completion }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.reliability_barometer }}</h5>
+						<p>{{ t.scraping_help_threshold }}</p>
+					</article>
+				</section>
+
+				<section class="scraping-help-section">
+					<h4 class="scraping-help-section-title">{{ t.scraping_cat_manual }}</h4>
+					<article class="scraping-help-item">
+						<h5>{{ t.manual_review_mode }}</h5>
+						<p>{{ t.scraping_help_manual_mode }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.manual_review_super }}</h5>
+						<p>{{ t.scraping_help_manual_super }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.manual_review_edit }}</h5>
+						<p>{{ t.scraping_help_manual_edit }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.manual_review_sounds }}</h5>
+						<p>{{ t.scraping_help_manual_sounds }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.mr_purge }}</h5>
+						<p>{{ t.scraping_help_manual_purge }}</p>
+					</article>
+				</section>
+
+				<section class="scraping-help-section">
+					<h4 class="scraping-help-section-title">{{ t.scraping_cat_write }}</h4>
+					<article class="scraping-help-item">
+						<h5>{{ t.auto_cover }}</h5>
+						<p>{{ t.scraping_help_auto_cover }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.auto_reading_dir }}</h5>
+						<p>{{ t.scraping_help_auto_reading_dir }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.reset_context_on_force }}</h5>
+						<p>{{ t.scraping_help_reset_context }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.force_update }}</h5>
+						<p>{{ t.scraping_help_force_update }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.batch_targeted_fields }}</h5>
+						<p>{{ t.scraping_help_batch_fields }}</p>
+					</article>
+				</section>
+			</div>
+			<div class="modal-footer">
+				<button type="button" class="btn-primary" onclick="closeScrapingOptionsHelpModal()" style="padding: 8px 20px;">
+					{{ t.get('changelog_btn_got_it', "J'ai compris !") }}
+				</button>
+			</div>
+		</div>
+	</div>

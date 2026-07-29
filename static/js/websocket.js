@@ -65,6 +65,10 @@ socket.on('log_update', function(msg) {
                             item.dataset.status = 'NOT_FOUND';
                             badge.className = 'badge badge-notfound';
                             badge.innerText = window.AppTranslations.filter_notfound;
+                        } else if (msg.data.includes('PENDING_REVIEW') || msg.data.includes('👁️')) {
+                            item.dataset.status = 'PENDING_REVIEW';
+                            badge.className = 'badge badge-review';
+                            badge.innerText = window.AppTranslations.filter_pending_review || 'Review';
                         }
                     }
                 }
@@ -135,5 +139,8 @@ function uncheckSeriesForBatchResume(item) {
 socket.on('batch_progress', function(payload) {
     if (typeof applyBatchProgressPayload === 'function') {
         applyBatchProgressPayload(payload);
+    }
+    if (typeof mrOnBatchProgress === 'function') {
+        mrOnBatchProgress(payload);
     }
 });

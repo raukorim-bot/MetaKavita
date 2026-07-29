@@ -226,6 +226,85 @@
                 radial-gradient(ellipse 40% 35% at 15% 75%, rgba(244, 114, 182, 0.1), transparent 50%);
         }
         .chapter-craft { --chapter-accent: var(--stats-coral); }
+        .chapter-mr-achievements::before {
+            background:
+                radial-gradient(ellipse 55% 45% at 20% 30%, rgba(45, 212, 191, 0.18), transparent 55%),
+                radial-gradient(ellipse 50% 40% at 85% 75%, rgba(251, 191, 36, 0.14), transparent 50%);
+        }
+        .chapter-mr-achievements { --chapter-accent: var(--stats-teal); }
+        .mr-ach-grid {
+            display: grid;
+            grid-template-columns: repeat(12, 1fr);
+            gap: 14px;
+            margin-top: 28px;
+        }
+        .mr-ach-card {
+            grid-column: span 4;
+            position: relative;
+            padding: 18px 18px 16px;
+            border-radius: 16px;
+            border: 1px solid color-mix(in srgb, var(--tile-accent, var(--stats-teal)) 35%, transparent);
+            background: color-mix(in srgb, var(--tile-accent, var(--stats-teal)) 10%, rgba(15, 23, 42, 0.55));
+            overflow: hidden;
+            min-height: 140px;
+        }
+        [data-theme="light"] .mr-ach-card {
+            background: color-mix(in srgb, var(--tile-accent, var(--stats-teal)) 12%, #fff);
+        }
+        .mr-ach-card.is-locked {
+            opacity: 0.42;
+            filter: grayscale(0.35);
+            border-style: dashed;
+        }
+        .mr-ach-card-mono {
+            font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.08em;
+            color: var(--tile-accent, var(--stats-teal));
+            margin-bottom: 8px;
+        }
+        .mr-ach-card-title {
+            font-size: 1.05rem;
+            font-weight: 700;
+            margin: 0 0 6px;
+            color: var(--text-primary, #e2e8f0);
+        }
+        [data-theme="light"] .mr-ach-card-title { color: #0f172a; }
+        .mr-ach-card-flavor,
+        .mr-ach-card-hint {
+            margin: 0;
+            font-size: 0.85rem;
+            line-height: 1.4;
+            color: var(--text-muted, #94a3b8);
+        }
+        .mr-ach-progress {
+            margin-top: 12px;
+            height: 4px;
+            border-radius: 999px;
+            background: rgba(148, 163, 184, 0.25);
+            overflow: hidden;
+        }
+        .mr-ach-progress > span {
+            display: block;
+            height: 100%;
+            border-radius: inherit;
+            background: var(--tile-accent, var(--stats-teal));
+            width: 0%;
+        }
+        .mr-ach-section-label {
+            grid-column: span 12;
+            margin: 8px 0 0;
+            font-size: 0.8rem;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--text-muted, #94a3b8);
+        }
+        @media (max-width: 900px) {
+            .mr-ach-card { grid-column: span 6; }
+        }
+        @media (max-width: 560px) {
+            .mr-ach-card { grid-column: span 12; }
+        }
         .chapter-providers::before {
             background:
                 radial-gradient(ellipse 55% 45% at 30% 30%, rgba(167, 139, 250, 0.2), transparent 55%),
@@ -536,10 +615,75 @@
                         <p class="metric-label">{{ t.playful_avg_matches }}</p>
                         <p class="metric-hint">{{ t.playful_total_wins_hint }}</p>
                     </article>
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: #c4b5fd;">
+                        <p class="metric-value" data-count="{{ p.manual_reviews }}">0</p>
+                        <p class="metric-label">{{ t.playful_manual_reviews }}</p>
+                        <p class="metric-hint">{{ t.playful_manual_reviews_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: #a78bfa;">
+                        <p class="metric-value" data-count="{{ p.manual_skips }}">0</p>
+                        <p class="metric-label">{{ t.playful_manual_skips }}</p>
+                        <p class="metric-hint">{{ t.playful_manual_skips_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-2" style="--tile-accent: #818cf8;">
+                        <p class="metric-value"><span data-count="{{ '%.1f'|format(p.manual_avg_score * 100) }}" data-decimals="1">0</span>%</p>
+                        <p class="metric-label">{{ t.playful_manual_avg_score }}</p>
+                        <p class="metric-hint">{{ t.playful_manual_avg_score_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal" style="--tile-accent: #6366f1;">
+                        <p class="metric-value"><span data-count="{{ '%.1f'|format(p.manual_top1_rate * 100) }}" data-decimals="1">0</span>%</p>
+                        <p class="metric-label">{{ t.playful_manual_top1 }}</p>
+                        <p class="metric-hint">{{ t.playful_manual_top1_hint }}</p>
+                    </article>
+                    <article class="metric-tile span-4 reveal reveal-delay-1" style="--tile-accent: #8b5cf6;">
+                        <p class="metric-value" data-count="{{ p.manual_field_edits }}">0</p>
+                        <p class="metric-label">{{ t.playful_manual_field_edits }}</p>
+                        <p class="metric-hint">{{ t.playful_manual_field_edits_hint }}</p>
+                    </article>
                 </div>
             </div>
         </section>
+        {% endif %}
 
+        {% set mr_ach = mr_achievements if mr_achievements else (p.mr_achievements if p else none) %}
+        {% if mr_ach %}
+        <!-- MR ACHIEVEMENTS (deep-link recap #mr-achievements, même sans playful) -->
+        <section class="stats-chapter chapter-mr-achievements" id="mr-achievements">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.stats_chapter_mr_achievements }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.stats_chapter_mr_achievements_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.stats_chapter_mr_achievements_sub }}</p>
+                <p class="chapter-sub reveal reveal-delay-2" style="margin-top: -8px;">
+                    {{ t.stats_mr_achievements_progress.format(mr_ach.unlocked_count, mr_ach.total) }}
+                </p>
+                <div class="mr-ach-grid">
+                    {% if mr_ach.unlocked %}
+                    <p class="mr-ach-section-label reveal">{{ t.stats_mr_achievements_unlocked }}</p>
+                    {% for a in mr_ach.unlocked %}
+                    <article class="mr-ach-card reveal" style="--tile-accent: {{ a.accent_hex }};">
+                        <div class="mr-ach-card-mono">{{ a.mono }}</div>
+                        <h3 class="mr-ach-card-title">{{ a.title }}</h3>
+                        <p class="mr-ach-card-flavor">{{ a.flavor }}</p>
+                    </article>
+                    {% endfor %}
+                    {% endif %}
+                    {% if mr_ach.locked %}
+                    <p class="mr-ach-section-label reveal">{{ t.stats_mr_achievements_locked }}</p>
+                    {% for a in mr_ach.locked %}
+                    <article class="mr-ach-card is-locked reveal" style="--tile-accent: {{ a.accent_hex }};">
+                        <div class="mr-ach-card-mono">{{ a.mono }}</div>
+                        <h3 class="mr-ach-card-title">{{ a.title }}</h3>
+                        <p class="mr-ach-card-hint">{{ a.hint }}</p>
+                        <div class="mr-ach-progress" aria-hidden="true"><span style="width: {{ (a.progress * 100)|round }}%;"></span></div>
+                    </article>
+                    {% endfor %}
+                    {% endif %}
+                </div>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if p %}
         <!-- TIME SAVED -->
         <section class="stats-chapter chapter-time">
             <div class="chapter-inner">
@@ -763,6 +907,11 @@
                             <tr><td>{{ t.playful_lifetime_missed }}</td><td class="summary-value">{{ p.series_missed }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
                             <tr><td>{{ t.playful_lifetime_hit_rate }}</td><td class="summary-value">{{ p.lifetime_hit_rate }}%</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
                             <tr><td>{{ t.playful_avg_matches }}</td><td class="summary-value">{{ p.avg_matches }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_manual_reviews }}</td><td class="summary-value">{{ p.manual_reviews }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_manual_skips }}</td><td class="summary-value">{{ p.manual_skips }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_manual_avg_score }}</td><td class="summary-value">{{ '%.1f'|format(p.manual_avg_score * 100) }}%</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_manual_top1 }}</td><td class="summary-value">{{ '%.1f'|format(p.manual_top1_rate * 100) }}%</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
+                            <tr><td>{{ t.playful_manual_field_edits }}</td><td class="summary-value">{{ p.manual_field_edits }}</td><td><span class="cat-pill cat-lifetime">{{ t.stats_cat_lifetime }}</span></td></tr>
                             <tr><td>{{ t.playful_time_saved }}</td><td class="summary-value">{{ p.time_saved.display }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
                             <tr><td>{{ t.playful_coffees }}</td><td class="summary-value">{{ p.coffees_avoided }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
                             <tr><td>{{ t.playful_deepl }}</td><td class="summary-value">€{{ '%.2f'|format(p.deepl_eur_saved) }}</td><td><span class="cat-pill cat-fun">{{ t.stats_cat_fun }}</span></td></tr>
@@ -884,6 +1033,15 @@
     }, { threshold: 0.22, rootMargin: '0px 0px -6% 0px' });
 
     document.querySelectorAll('.stats-chapter').forEach((ch) => chapterIo.observe(ch));
+    if (location.hash) {
+        const target = document.querySelector(location.hash);
+        if (target) {
+            requestAnimationFrame(() => {
+                target.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'start' });
+                activateChapter(target);
+            });
+        }
+    }
 })();
 </script>
 

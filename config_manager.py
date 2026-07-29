@@ -50,7 +50,7 @@ def load_config():
             "AZURE_API_KEY": "",
             "AZURE_REGION": "",
             "TARGET_LANG": "FR",
-            "UI_LANG": "fr",
+            "UI_LANG": "en",
             "PUBLISHER_PREFERENCE": "LOCALIZED",
             # Titres localizedName : all (défaut multi) | prefer | none
             "LOCALIZED_TITLE_MODE": "all",
@@ -68,6 +68,14 @@ def load_config():
             # Comparaison des providers par score (meilleur match gagne) + exécution en
             # deux vagues. Si False : fallback classique (1er provider utile de la liste).
             "SMART_SCORING": True,
+            # Mode manuel C29 : scrape → file pending_reviews → review UI (défaut off)
+            "MANUAL_REVIEW_MODE": False,
+            # Après le pick : récap éditable (on) ou apply direct (off)
+            "MANUAL_REVIEW_EDIT": True,
+            # Sons optionnels (pick / confirm / skip) — défaut off
+            "MANUAL_REVIEW_SOUNDS": False,
+            # Super Review : tous les scrapers du type (lent) — défaut off
+            "MANUAL_REVIEW_SUPER": False,
             # Baromètre de fiabilité : seuil d'acceptation des matches (défaut 0.60)
             "MATCH_THRESHOLD_CUSTOM": False,
             "MATCH_ACCEPT_THRESHOLD": 0.60,
@@ -185,6 +193,8 @@ def load_config():
             "AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
             "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE", "ENABLE_PLAYFUL_STATS",
             "MATCH_THRESHOLD_CUSTOM",
+            "MANUAL_REVIEW_MODE", "MANUAL_REVIEW_EDIT", "MANUAL_REVIEW_SOUNDS",
+            "MANUAL_REVIEW_SUPER",
         ]:
             config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
 

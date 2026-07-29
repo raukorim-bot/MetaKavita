@@ -21,6 +21,7 @@ from kavita_api import KavitaAPI
 from translations import translations
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
+from services.mr_achievements import evaluate_from_lifetime
 from services.stats_service import compute_playful_stats
 
 pages_bp = Blueprint('pages', __name__)
@@ -67,6 +68,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         'total': len(cached_info),
         'completed': sum(1 for v in cached_info.values() if v.get('status') == 'COMPLETED'),
         'pending': sum(1 for v in cached_info.values() if v.get('status') == 'PENDING'),
+        'pending_review': sum(1 for v in cached_info.values() if v.get('status') == 'PENDING_REVIEW'),
         'not_found': sum(1 for v in cached_info.values() if v.get('status') == 'NOT_FOUND'),
         'ignored': sum(1 for v in cached_info.values() if v.get('status') == 'IGNORED')
     }
@@ -130,6 +132,7 @@ def stats():
     total = len(cached_data)
     completed = sum(1 for v in cached_data.values() if v.get('status') == 'COMPLETED')
     pending = sum(1 for v in cached_data.values() if v.get('status') == 'PENDING')
+    pending_review = sum(1 for v in cached_data.values() if v.get('status') == 'PENDING_REVIEW')
     not_found = sum(1 for v in cached_data.values() if v.get('status') == 'NOT_FOUND')
     ignored = sum(1 for v in cached_data.values() if v.get('status') == 'IGNORED')
 
@@ -137,13 +140,19 @@ def stats():
     t = translations.get(ui_lang, translations['fr'])
 
     playful_enabled = bool(config.get('ENABLE_PLAYFUL_STATS', True))
+    lifetime = get_lifetime_stats()
     playful = None
     if playful_enabled:
         playful = compute_playful_stats(
             cached_data,
             get_provider_stats(),
-            get_lifetime_stats(),
+            lifetime,
+            translations_dict=t,
         )
+        mr_achievements = playful.get("mr_achievements") or evaluate_from_lifetime(lifetime, t)
+    else:
+        # Ancre #mr-achievements (lien recap MR) reste valide même sans stats playful.
+        mr_achievements = evaluate_from_lifetime(lifetime, t)
 
     return render_template(
         'stats.html',
@@ -152,8 +161,10 @@ def stats():
         total=total,
         completed=completed,
         pending=pending,
+        pending_review=pending_review,
         not_found=not_found,
         ignored=ignored,
         playful_enabled=playful_enabled,
         playful=playful,
+        mr_achievements=mr_achievements,
     )
