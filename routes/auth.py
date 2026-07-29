@@ -1,55 +1,114 @@
 """
-Blueprint d'authentification : /login, /logout.
+Blueprint d'authentification : /setup, /login, /logout.
 
 ⚠️ Noms d'endpoints : ce blueprint est enregistré sous le nom 'auth', donc les
-endpoints Flask réels sont 'auth.login' et 'auth.logout' (et non plus 'login'/
-'logout' comme avant le passage aux Blueprints). Tous les `url_for('login')`
-ont été mis à jour vers `url_for('auth.login')` dans app.py, templates/login.html
-et templates/index.html — voir DEVELOPER.md section 11.C pour la checklist à
-suivre si vous ajoutez un nouvel endpoint sensible à ce nommage (whitelist de
-`require_login` dans app.py notamment).
-"""
+endpoints Flask réels sont 'auth.setup', 'auth.login' et 'auth.logout'. Ces noms
+sont référencés dans les listes blanches de `auth_manager.py` (setup_gate /
+login_gate) : les renommer déplace la frontière de sécurité. Voir DEVELOPER.md
+section 11.C pour la checklist à suivre.
 
-import time
-import secrets
+La logique d'authentification elle-même (hachage, stockage, verrouillage IP)
+vit dans `auth_manager.py` ; ce module reste une couche HTTP fine.
+"""
 
 from flask import Blueprint, request, render_template, session, redirect, url_for
 
+import auth_manager
 from config_manager import load_config
 from translations import translations
 
 auth_bp = Blueprint('auth', __name__)
 
 
+def _t():
+    """(dictionnaire de traduction, config) pour la langue configurée."""
+    config = load_config()
+    return translations.get(config.get('UI_LANG', 'fr'), translations['fr']), config
+
+
+@auth_bp.route('/setup', methods=['GET', 'POST'])
+def setup():
+    """Création du compte au premier démarrage.
+
+    Accessible UNIQUEMENT tant qu'aucun compte n'existe. Sans ce garde-fou,
+    l'écran resterait un moyen non authentifié de créer un second compte — donc
+    un contournement complet de l'authentification.
+    """
+    t, config = _t()
+
+    if not auth_manager.setup_required():
+        return redirect(url_for('auth.login'))
+
+    error = None
+    if request.method == 'POST':
+        username = request.form.get('username', '')
+        password = request.form.get('password', '')
+        confirm = request.form.get('password_confirm', '')
+
+        if password != confirm:
+            error = t.get('setup_err_password_mismatch')
+        else:
+            ok, err_key = auth_manager.create_user(username, password)
+            if ok:
+                # L'ancien mot de passe en clair n'est jamais repris : il est
+                # supprimé maintenant qu'un vrai compte existe (choix du
+                # mainteneur — réinitialisation forcée, cf. issue #15).
+                auth_manager.purge_legacy_admin_password()
+
+                user = auth_manager.verify_credentials(username, password)
+                if user:
+                    auth_manager.login_session(user)
+                    auth_manager.record_login(user['id'])
+                    return redirect(url_for('pages.index'))
+                error = t.get('setup_err_generic')
+            else:
+                error = t.get(err_key, t.get('setup_err_generic'))
+
+    return render_template(
+        'setup.html',
+        error=error,
+        t=t,
+        config=config,
+        min_password_length=auth_manager.MIN_PASSWORD_LENGTH,
+    )
+
+
 @auth_bp.route('/login', methods=['GET', 'POST'])
 def login():
-    config = load_config()
-    ui_lang = config.get('UI_LANG', 'fr')
-    t = translations.get(ui_lang, translations['fr'])
+    t, config = _t()
 
-    if not config.get('ADMIN_PASSWORD'):
+    # Aucun compte : l'utilisateur doit passer par le setup, pas par un
+    # formulaire de connexion qu'aucun identifiant ne pourrait satisfaire.
+    if auth_manager.setup_required():
+        return redirect(url_for('auth.setup'))
+
+    if auth_manager.is_authenticated():
         return redirect(url_for('pages.index'))
 
     error = None
     if request.method == 'POST':
-        user_input = request.form.get('password', '')
-        real_password = config.get('ADMIN_PASSWORD', '')
-
-        # compare_digest exige des longueurs égales ; sinon ValueError → traiter comme échec
-        try:
-            password_ok = secrets.compare_digest(
-                user_input.encode('utf-8'),
-                real_password.encode('utf-8'),
-            )
-        except (TypeError, ValueError):
-            password_ok = False
-
-        if password_ok:
-            session.permanent = True
-            session['logged_in'] = True
-            return redirect(url_for('pages.index'))
+        # Le verrouillage est vérifié AVANT toute vérification d'identifiants :
+        # sinon chaque tentative continuerait de coûter un hachage complet, et
+        # le verrou cesserait de protéger le CPU du worker unique.
+        locked, remaining = auth_manager.is_locked_out()
+        if locked:
+            minutes = max(1, (remaining + 59) // 60)
+            error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
         else:
-            time.sleep(2)
+            user = auth_manager.verify_credentials(
+                request.form.get('username', ''),
+                request.form.get('password', ''),
+            )
+            if user:
+                auth_manager.clear_failed_attempts()
+                auth_manager.login_session(user)
+                auth_manager.record_login(user['id'])
+                return redirect(url_for('pages.index'))
+
+            auth_manager.register_failed_attempt()
+            # Message volontairement identique pour un utilisateur inconnu et un
+            # mot de passe erroné : distinguer les deux revient à publier la
+            # liste des comptes existants.
             error = t.get('login_error')
 
     return render_template('login.html', error=error, t=t, config=config)

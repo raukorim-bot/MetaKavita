@@ -22,10 +22,17 @@ eventlet.monkey_patch()
 import os
 import logging
 import secrets
+from datetime import timedelta
 
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, request, session, redirect, url_for, make_response
 
+from auth_manager import (
+    get_trusted_proxy_count,
+    login_gate,
+    seed_user_from_env,
+    setup_gate,
+)
 from config_manager import load_config
 from cors_config import (
     parse_cors_allowed_origins_detailed,
@@ -65,7 +72,31 @@ if CORS_ALLOWED_ORIGINS:
 else:
     socketio.init_app(app)
 # --- SUPPORT REVERSE PROXY & SUBPATH (TICKET C17) ---
-app.wsgi_app = ProxyFix(app.wsgi_app, x_for=1, x_proto=1, x_host=1, x_prefix=1)
+# Le nombre de proxies de confiance décide si les en-têtes `X-Forwarded-*` sont
+# crus ou ignorés, et ce n'est PAS un détail cosmétique : `x_for` remplace
+# `request.remote_addr` par la valeur de `X-Forwarded-For`. Derrière un reverse
+# proxy c'est le comportement correct. En exposition directe — l'application
+# écoute sur 0.0.0.0, choix explicite du mainteneur pour l'extension Companion —
+# cet en-tête est fourni par le client lui-même, donc le faire varier suffirait à
+# rendre le verrouillage par IP de `auth_manager` totalement inopérant.
+#
+# `TRUSTED_PROXY_COUNT=0` désactive l'ensemble des en-têtes forwarded et fait
+# autorité sur le pair TCP réel. Défaut `1` : comportement historique inchangé
+# pour les installations existantes derrière un proxy.
+_trusted_proxies = get_trusted_proxy_count()
+if _trusted_proxies:
+    app.wsgi_app = ProxyFix(
+        app.wsgi_app,
+        x_for=_trusted_proxies,
+        x_proto=_trusted_proxies,
+        x_host=_trusted_proxies,
+        x_prefix=_trusted_proxies,
+    )
+else:
+    logging.info(
+        "[Security] TRUSTED_PROXY_COUNT=0 — en-têtes X-Forwarded-* ignorés, "
+        "le verrouillage par IP s'appuie sur l'adresse TCP réelle."
+    )
 
 root_path = os.environ.get('ROOT_PATH', '')
 if root_path:
@@ -86,6 +117,17 @@ if root_path:
     app.wsgi_app = ScriptNameStripper(app.wsgi_app, root_path)
 
 init_db()
+
+# Amorçage optionnel du compte admin depuis ADMIN_PASSWORD_HASH (docker-compose).
+# Sans effet si un compte existe déjà : cette fonction ne peut pas écraser un mot
+# de passe en place.
+seed_user_from_env()
+
+# Durée de vie explicite de la session. Flask applique 31 jours par défaut à une
+# session `permanent`, ce qui est très long pour une interface d'administration :
+# 7 jours conserve le confort du « rester connecté » sans qu'un poste oublié
+# reste indéfiniment authentifié.
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
 
 class WebSocketLogHandler(logging.Handler):
     def emit(self, record):
@@ -154,27 +196,27 @@ def add_cors_headers(response):
     return _apply_cors_headers(response)
 
 
-@app.before_request
-def require_login():
-    # NOTE : depuis le passage aux Blueprints (voir routes/), les endpoints Flask
-    # sont préfixés par le nom du blueprint ('auth.login', 'sync.webhook', ...).
-    # Gardez cette liste synchronisée avec les noms définis dans routes/*.py.
-    if request.method == "OPTIONS":
-        return None
-    # 'misc.healthz' : sonde de liveness du conteneur. Elle doit rester
-    # accessible sans session, sinon le HEALTHCHECK du Dockerfile reçoit un 302
-    # dès qu'un mot de passe est défini et Docker marque un conteneur parfaitement
-    # sain comme unhealthy — puis le redémarre en boucle si une restart policy est
-    # active. L'endpoint ne renvoie que {status, version} : rien qui ne soit déjà
-    # public via le titre de l'UI et /api/changelog.
-    if request.endpoint in ['auth.login', 'static', 'sync.webhook', 'misc.healthz']:
-        return
-
-    config = load_config()
-    admin_pwd = config.get('ADMIN_PASSWORD')
-
-    if admin_pwd and not session.get('logged_in'):
-        return redirect(url_for('auth.login'))
+# --- GATES D'AUTHENTIFICATION ---
+# L'ORDRE D'ENREGISTREMENT EST SIGNIFICATIF. Flask exécute les `before_request`
+# dans leur ordre de déclaration :
+#
+#   1. handle_cors_preflight (déclaré plus haut) — un OPTIONS doit recevoir ses
+#      en-têtes CORS et non un 302, sinon le preflight casse.
+#   2. setup_gate — sur une installation neuve aucun compte n'existe ; rediriger
+#      d'abord vers /login n'offrirait aucun moyen d'entrer.
+#   3. login_gate — exige une session une fois le compte créé.
+#
+# Les deux gates vivent dans `auth_manager.py` plutôt qu'ici, et ce n'est pas un
+# choix esthétique : `tests/conftest.py` n'importe jamais `app.py` (threads de
+# fond, logging fichier, chargement des scrapers à l'import), donc une logique
+# écrite directement dans ce module serait impossible à tester. Voir
+# tests/test_auth.py, qui les enregistre sur une app Flask ad hoc.
+#
+# ⚠️ Les deux listes blanches portent sur des NOMS D'ENDPOINTS Flask
+# ('auth.login', 'sync.webhook', 'misc.healthz'...) : renommer un blueprint ou
+# une vue déplace donc silencieusement la frontière de sécurité.
+app.before_request(setup_gate)
+app.before_request(login_gate)
 
 
 @app.before_request

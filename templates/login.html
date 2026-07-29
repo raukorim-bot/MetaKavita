@@ -21,7 +21,12 @@
         <form method="POST" action="{{ url_for('auth.login') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group" style="text-align: left;">
-                <input type="password" name="password" placeholder="{{ t.login_password }}" required style="padding: 12px; font-size: 16px;">
+                <input type="text" name="username" placeholder="{{ t.login_username }}" required autofocus
+                       autocomplete="username" style="padding: 12px; font-size: 16px;">
+            </div>
+            <div class="form-group" style="text-align: left;">
+                <input type="password" name="password" placeholder="{{ t.login_password }}" required
+                       autocomplete="current-password" style="padding: 12px; font-size: 16px;">
             </div>
             <button type="submit" class="btn-primary w-100" style="padding: 12px; font-size: 16px;">{{ t.login_unlock }}</button>
         </form>

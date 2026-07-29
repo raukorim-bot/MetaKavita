@@ -15,6 +15,7 @@ from urllib.parse import quote
 from flask import request, session
 from flask_socketio import disconnect
 
+import auth_manager
 from extensions import socketio
 from config_manager import load_config
 from db_manager import get_all_cached_data
@@ -25,9 +26,23 @@ from scrapers.utils import library_type_for_scraper
 
 @socketio.on('connect')
 def handle_connect():
-    config = load_config()
-    if config.get('ADMIN_PASSWORD') and not session.get('logged_in'):
-        logging.warning(f"🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {request.remote_addr}")
+    """Refuse toute connexion WebSocket non authentifiée.
+
+    Le gate HTTP (`auth_manager.login_gate`) ne couvre PAS Socket.IO : le
+    handshake passe par le serveur eventlet et non par la pile `before_request`
+    de Flask. Sans ce contrôle, l'interface serait protégée mais le flux
+    temps réel — logs applicatifs, progression des batchs, couvertures — resterait
+    lisible sans compte.
+
+    Fail-closed comme le gate HTTP : on exige une session, au lieu de l'ancien
+    comportement qui ne vérifiait quoi que ce soit que si un `ADMIN_PASSWORD`
+    était renseigné.
+    """
+    if not auth_manager.is_authenticated():
+        logging.warning(
+            "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: %s",
+            request.remote_addr,
+        )
         disconnect()
 
 
