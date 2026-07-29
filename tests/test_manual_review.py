@@ -854,7 +854,7 @@ def test_apply_manual_fusion_fills_holes_with_smart_completion_off(isolated_db, 
     from kavita_api import KavitaAPI
     captured = {}
 
-    def _capture_meta(_sid, meta):
+    def _capture_meta(meta):
         captured["meta"] = meta
         return True, "ok"
 

@@ -241,7 +241,7 @@ def test_shikimori_truncates_genres_and_tags(monkeypatch, mocker):
 
 
 # ---------------------------------------------------------------------------
-# enrichment_engine — filet get_max_genres / get_max_tags
+# enrichment_engine → kavita_payload — filet get_max_genres / get_max_tags
 # ---------------------------------------------------------------------------
 
 def test_enrichment_engine_caps_genres_and_tags_before_kavita(mocker, isolated_db):
@@ -276,11 +276,12 @@ def test_enrichment_engine_caps_genres_and_tags_before_kavita(mocker, isolated_d
         "TRANSLATION_PROVIDER": "NONE",
         "DEEPL_API_KEY": "",
     })
-    mocker.patch.object(enrichment_engine, "get_max_genres", side_effect=lambda config=None: 3)
-    mocker.patch.object(enrichment_engine, "get_max_tags", side_effect=lambda config=None: 4)
+    # Plafonds appliqués dans services.kavita_payload (plus dans enrichment_engine).
+    mocker.patch("services.kavita_payload.get_max_genres", side_effect=lambda config=None: 3)
+    mocker.patch("services.kavita_payload.get_max_tags", side_effect=lambda config=None: 4)
     mocker.patch.object(enrichment_engine, "get_all_cached_data", return_value={})
     mocker.patch.object(enrichment_engine, "update_status")
-    mocker.patch.object(enrichment_engine, "translate_text", side_effect=lambda text, *a, **k: text)
+    mocker.patch("services.kavita_payload.translate_text", side_effect=lambda text, *a, **k: text)
 
     class FakeScraper:
         id = "FAKE"
