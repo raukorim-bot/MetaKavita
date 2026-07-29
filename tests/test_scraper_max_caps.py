@@ -244,8 +244,18 @@ def test_shikimori_truncates_genres_and_tags(monkeypatch, mocker):
 # enrichment_engine — filet get_max_genres / get_max_tags
 # ---------------------------------------------------------------------------
 
-def test_enrichment_engine_caps_genres_and_tags_before_kavita(mocker):
-    """Le filet moteur doit tronquer même si le scraper renvoie trop d'items."""
+def test_enrichment_engine_caps_genres_and_tags_before_kavita(mocker, isolated_db):
+    """Le filet moteur doit tronquer même si le scraper renvoie trop d'items.
+
+    `isolated_db` est indispensable ici : ce test est le seul du fichier à
+    traverser `enrich_series()` en entier, et le chemin de succès appelle
+    `record_enrichment_telemetry()` — qui n'est pas mocké et ouvre directement
+    `db_manager.DB_FILE`. Sans la fixture, chaque exécution de la suite écrit
+    donc dans le vrai `data/cache.db` du dépôt : compteurs `series_enriched` /
+    `matches_won` incrémentés, et un provider fictif `FAKE` ajouté au podium des
+    statistiques C7. La fixture suffit à tout isoler car `db_manager` relit sa
+    globale `DB_FILE` à chaque appel (voir tests/conftest.py).
+    """
     captured = {}
 
     mocker.patch.object(enrichment_engine, "load_config", return_value={
