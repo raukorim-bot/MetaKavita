@@ -140,7 +140,7 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Comic Flexible (v1.6.1, C35)**: Kavita library type ID 5 uses Comic providers first, then Manga providers if no useful hit; cover search unions both families.
 *   **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Replaces Jikan. Manga + light novels (Book).
 *   **BDTheque.com (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ Franco-Belgian comics (distinct from Bédéthèque / `BEDETHEQUE`).
-*   **Kavita library sync filter (v1.6.1):** Config → Planning checkboxes; `DISABLED_LIBRARIES` denylist (empty = all on).
+*   **Kavita library sync filter (v1.6.1):** Config → Planning checkboxes; `DISABLED_LIBRARIES` denylist for **batch / auto-sync / webhook** only (dashboard always shows all libraries).
 *   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
 *   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck; batch progress bar; collapsible Scraping Options.
 *   **Reliability barometer (v1.6.1)**: Optional sidebar slider for match accept threshold (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`); default remains `0.60` via `get_match_accept_threshold()`.
@@ -264,7 +264,7 @@ docker compose up -d --build
 | `MANUAL_REVIEW_SOUNDS` | Short UI tones on pick / confirm / skip. | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
-| `DISABLED_LIBRARIES` | Comma-separated Kavita library IDs to exclude from sync/UI (denylist). Empty = all enabled. | _(empty)_ |
+| `DISABLED_LIBRARIES` | Comma-separated Kavita library IDs to exclude from **batch / auto-sync / webhook** (denylist). Empty = all enabled. Dashboard always lists every library. | _(empty)_ |
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
 | `AUTO_READING_DIR` | Auto-detect and set Manga/Webtoon reading direction. | `false` |
 
@@ -474,7 +474,7 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Comic Flexible (v1.6.1, C35)** : l’ID Kavita 5 utilise d’abord les providers Comic, puis Manga si aucun hit utile ; recherche de couvertures = union des deux familles.
 *   **MyAnimeList API officielle (v1.6.1)** : provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Remplace Jikan. Manga + light novels (Book).
 *   **BDTheque.com (v1.6.1)** : provider `BDTHEQUE` pour les BD franco-belges sur https://www.bdtheque.com/ (distinct de Bédéthèque / `BEDETHEQUE`).
-*   **Filtre bibliothèques Kavita (v1.6.1)** : cases à cocher Config → Planification ; dénylist `DISABLED_LIBRARIES` (vide = tout actif).
+*   **Filtre bibliothèques Kavita (v1.6.1)** : cases à cocher Config → Planification ; dénylist `DISABLED_LIBRARIES` pour **batch / auto-sync / webhook** uniquement (le dashboard affiche toujours toutes les biblios).
 *   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
 *   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto ; barre de progression batch ; Options de Scraping pliables.
 *   **Baromètre de fiabilité (v1.6.1)** : curseur sidebar optionnel pour le seuil d’acceptation (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`) ; défaut `0.60` via `get_match_accept_threshold()`.
@@ -598,7 +598,7 @@ docker compose up -d --build
 | `MANUAL_REVIEW_SOUNDS` | Sons UI courts sur pick / confirm / skip. | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
-| `DISABLED_LIBRARIES` | IDs de bibliothèques Kavita à exclure (dénylist, virgules). Vide = toutes actives. | _(vide)_ |
+| `DISABLED_LIBRARIES` | IDs de bibliothèques Kavita à exclure du **batch / auto-sync / webhook** (dénylist, virgules). Vide = toutes actives. Le dashboard liste toujours toutes les biblios. | _(vide)_ |
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
 | `AUTO_READING_DIR` | Configurer automatiquement le sens de lecture. | `false` |
 

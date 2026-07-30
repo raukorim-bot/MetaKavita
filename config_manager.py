@@ -105,7 +105,8 @@ def load_config():
             "MATCH_THRESHOLD_CUSTOM": False,
             "MATCH_ACCEPT_THRESHOLD": 0.60,
             "AUTO_SYNC_INTERVAL": 0,
-            # Dénylist d'IDs de bibliothèques Kavita (virgules). Vide = toutes actives.
+            # Dénylist d'IDs exclus du batch / auto-sync / webhook (virgules). Vide = sync toutes.
+            # Le dashboard UI affiche toujours toutes les bibliothèques Kavita.
             "DISABLED_LIBRARIES": "",
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
@@ -348,14 +349,18 @@ def parse_library_id_list(raw) -> set:
 
 
 def get_disabled_library_ids(config=None) -> set:
-    """IDs de bibliothèques Kavita exclus de la sync / UI (dénylist)."""
+    """IDs de bibliothèques Kavita exclus du sync (batch / auto-sync / webhook).
+
+    La dénylist ne masque **pas** le dashboard UI (toolbar / liste) — uniquement
+    les chemins d'enrichissement automatique.
+    """
     if config is None:
         config = load_config()
     return parse_library_id_list(config.get("DISABLED_LIBRARIES"))
 
 
 def is_library_enabled(library_id, config=None) -> bool:
-    """True si la bibliothèque n'est pas dans DISABLED_LIBRARIES."""
+    """True si la bibliothèque n'est pas dans DISABLED_LIBRARIES (périmètre sync)."""
     if library_id is None or library_id == "":
         return True
     disabled = get_disabled_library_ids(config)
@@ -365,7 +370,7 @@ def is_library_enabled(library_id, config=None) -> bool:
 
 
 def filter_enabled_libraries(libraries, config=None) -> list:
-    """Conserve uniquement les bibliothèques absentes de la dénylist."""
+    """Conserve les bibliothèques absentes de la dénylist (pour batch / auto-sync)."""
     if not libraries:
         return []
     disabled = get_disabled_library_ids(config)
@@ -378,6 +383,36 @@ def format_disabled_libraries(ids) -> str:
     """Sérialise un iterable d'IDs en chaîne config DISABLED_LIBRARIES."""
     cleaned = parse_library_id_list(ids)
     return ",".join(sorted(cleaned, key=_library_id_sort_key))
+
+
+def heal_total_library_denylist(config, all_libraries) -> tuple:
+    """Reset DISABLED_LIBRARIES si elle égale exactement tous les IDs Kavita.
+
+    Corrige le wipe accidentel du 1er save setup (SYNC_LIBRARIES_PRESENT sans
+    cases). Retourne ``(config, healed)`` — ``healed=True`` si écriture disque.
+    """
+    if not all_libraries:
+        return config, False
+    all_ids = {
+        str(lib.get("id"))
+        for lib in all_libraries
+        if lib.get("id") is not None
+    }
+    if not all_ids:
+        return config, False
+    disabled = get_disabled_library_ids(config)
+    if disabled != all_ids:
+        return config, False
+
+    config = dict(config)
+    config["DISABLED_LIBRARIES"] = ""
+    save_config(config)
+    logging.info(
+        "[Config] Heal: dénylist totale (%s biblio(s)) réinitialisée — "
+        "wipe accidentel probable ; sync à nouveau actif.",
+        len(all_ids),
+    )
+    return config, True
 
 
 def get_kavita_http_timeout(config=None) -> int:

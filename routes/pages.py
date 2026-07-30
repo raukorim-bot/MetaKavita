@@ -13,8 +13,8 @@ from config_manager import (
     load_config,
     get_kavita_ui_url,
     get_kavita_plus_url,
-    filter_enabled_libraries,
     get_disabled_library_ids,
+    heal_total_library_denylist,
 )
 from db_manager import get_all_cached_data, clean_orphaned_cache, get_provider_stats, get_lifetime_stats
 from kavita_api import KavitaAPI
@@ -40,18 +40,27 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
 
         if kavita.authenticate():
-            all_libraries = kavita.get_libraries()
-            libraries = filter_enabled_libraries(all_libraries, config)
+            all_libraries = kavita.get_libraries() or []
+            # Wipe accidentel (dénylist = toutes les biblios) : reset pour réactiver le sync.
+            config, healed = heal_total_library_denylist(config, all_libraries)
+            if healed:
+                disabled_ids = get_disabled_library_ids(config)
+
+            # Dashboard = toutes les biblios Kavita. DISABLED_LIBRARIES ne borne que
+            # batch / auto-sync / webhook (voir sync.py + get_all_series défaut).
+            libraries = list(all_libraries)
             if selected_lib and not any(str(lib.get("id")) == str(selected_lib) for lib in libraries):
-                # Biblio désactivée ou inconnue : retomber sur « toutes » (actives)
                 selected_lib = None
             if all_libraries:
-                series_list = kavita.get_all_series(library_id=selected_lib) if libraries else []
+                series_list = kavita.get_all_series(
+                    library_id=selected_lib,
+                    respect_disabled_filter=False,
+                )
 
                 if not selected_lib:
-                    # Inventaire complet Kavita (y compris biblio désactivées) pour ne pas
-                    # effacer le cache des séries temporairement hors sync.
-                    full_ids = {s['id'] for s in kavita.get_all_series(respect_disabled_filter=False)}
+                    # Inventaire complet pour ne pas effacer le cache des séries
+                    # temporairement hors sync (dénylist).
+                    full_ids = {s['id'] for s in series_list}
                     cleaned = clean_orphaned_cache(full_ids)
                     if cleaned > 0:
                         logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")

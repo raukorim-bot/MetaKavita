@@ -49,6 +49,46 @@ def test_denylist_filters_libraries():
     assert [lib["id"] for lib in enabled] == [1]
 
 
+def test_heal_total_library_denylist_resets_when_all_disabled(tmp_path, monkeypatch):
+    """Wipe accidentel : denylist == tous les IDs → reset + save."""
+    import config_manager as cm
+
+    monkeypatch.setattr(cm, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(cm, "CONFIG_FILE", str(tmp_path / "config.json"))
+    cm.save_config({
+        "SECRET_KEY": "s",
+        "WEBHOOK_TOKEN": "w",
+        "DISABLED_LIBRARIES": "1,2,3",
+    })
+    config = cm.load_config()
+    libs = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}, {"id": 3, "name": "C"}]
+
+    healed_cfg, healed = cm.heal_total_library_denylist(config, libs)
+    assert healed is True
+    assert healed_cfg["DISABLED_LIBRARIES"] == ""
+    assert cm.get_disabled_library_ids(healed_cfg) == set()
+    on_disk = cm.load_config()
+    assert not (on_disk.get("DISABLED_LIBRARIES") or "").strip()
+
+
+def test_heal_total_library_denylist_skips_partial_denylist(tmp_path, monkeypatch):
+    import config_manager as cm
+
+    monkeypatch.setattr(cm, "DATA_DIR", str(tmp_path))
+    monkeypatch.setattr(cm, "CONFIG_FILE", str(tmp_path / "config.json"))
+    cm.save_config({
+        "SECRET_KEY": "s",
+        "WEBHOOK_TOKEN": "w",
+        "DISABLED_LIBRARIES": "2",
+    })
+    config = cm.load_config()
+    libs = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}, {"id": 3, "name": "C"}]
+
+    healed_cfg, healed = cm.heal_total_library_denylist(config, libs)
+    assert healed is False
+    assert cm.get_disabled_library_ids(healed_cfg) == {"2"}
+
+
 def test_get_all_series_skips_disabled_library():
     from kavita_api import KavitaAPI
 

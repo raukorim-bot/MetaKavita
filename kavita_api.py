@@ -234,7 +234,8 @@ class KavitaAPI:
         Purge le cache mémoire de type de bibliothèque avant l'exécution.
 
         respect_disabled_filter: si True (défaut), ignore les bibliothèques listées dans
-        DISABLED_LIBRARIES. Passer False pour un inventaire complet (ex. purge cache orphelin).
+        DISABLED_LIBRARIES — périmètre **sync** (batch / auto-sync / webhook).
+        Passer False pour le dashboard UI ou un inventaire complet (purge cache).
         """
         if not self.token and not self.authenticate():
             return []
