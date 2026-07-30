@@ -268,10 +268,14 @@
                 <div class="card welcome-card">
                     <div class="welcome-icon">{% if error_msg %}🔌{% else %}👋{% endif %}</div>
                     <h2 class="welcome-title">
-                        {% if error_msg %}Impossible de se connecter{% else %}Bienvenue sur MetaKavita{% endif %}
+                        {% if error_msg %}{{ t.get('welcome_connect_fail_title', 'Impossible de se connecter') }}{% else %}{{ t.get('welcome_title', 'Bienvenue sur MetaKavita') }}{% endif %}
                     </h2>
                     <p class="welcome-text {% if error_msg %}welcome-text-error{% endif %}">
-                        {{ error_msg if error_msg else "Veuillez configurer votre URL et votre Clé API Kavita dans le menu de gauche pour commencer." }}
+                        {% if error_msg %}
+                        {{ error_msg }}
+                        {% else %}
+                        {{ t.get('welcome_need_config', 'Ouvrez ⚙️ Config (barre du haut) et renseignez l’URL Kavita + la clé API pour commencer.') }}
+                        {% endif %}
                     </p>
                 </div>
                 {% endif %}

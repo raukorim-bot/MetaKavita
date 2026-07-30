@@ -118,7 +118,11 @@ function restoreBatchSelection() {
 }
 
 function filterSeries() {
-    const filter = document.getElementById('statusFilter').value;
+    const statusFilter = document.getElementById('statusFilter');
+    // Pas de toolbar si Kavita n'est pas connecté (carte welcome) — no-op.
+    if (!statusFilter) return;
+
+    const filter = statusFilter.value;
     const hideIgnoredCb = document.getElementById('hideIgnoredCb');
     const hideIgnored = hideIgnoredCb ? hideIgnoredCb.checked : false;
     
@@ -179,7 +183,9 @@ function filterSeries() {
 }
 
 function toggleSelectAll() {
-    const isChecked = document.getElementById('selectAll').checked;
+    const selectAll = document.getElementById('selectAll');
+    if (!selectAll) return;
+    const isChecked = selectAll.checked;
     document.querySelectorAll('.series-item').forEach(item => {
         if (item.style.display !== 'none') {
             const cb = item.querySelector('.series-cb');
