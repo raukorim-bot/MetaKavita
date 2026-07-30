@@ -1,4 +1,4 @@
-﻿# ðŸš€ MetaKavita - Roadmap & To-Do List
+﻿# 🚀 MetaKavita - Roadmap & To-Do List
 
 **Concept:** Metadata scraping and enrichment tool for Kavita (alternative to Komf), designed for lightweight, self-hosted deployment.
 **Philosophy:** Lightweight, pragmatic, highly secure, and optimized for Manga, Comics & Literature.
@@ -6,55 +6,58 @@
 ---
 
 ## Sommaire / Table of Contents
-1. [ðŸ‡ºðŸ‡¸ English Roadmap](#-english-roadmap)
-2. [ðŸ‡«ðŸ‡· Feuille de Route FranÃ§aise](#-feuille-de-route-franÃ§aise)
+1. [🇺🇸 English Roadmap](#-english-roadmap)
+2. [🇫🇷 Feuille de Route Française](#-feuille-de-route-française)
 
 ---
 
-## ðŸ‡ºðŸ‡¸ English Roadmap
+## 🇺🇸 English Roadmap
 
-### ðŸ”® Backlog & Future Features (To-Do)
+### 🔮 Backlog & Future Features (To-Do)
 - [ ] **C29. Interactive Manual Batch Mode (QoS):** Add an "Automatic / Manual (QoS)" toggle for batch processing.
-    - In Manual mode, the backend queries metadata providers and emits candidate choices over WebSockets.
-    - The frontend opens an interactive selection modal and pauses the worker using `eventlet.event.Event`.
-    - The user selects the exact match or skips, sending the decision back to resume the queue.
+    - **Shipped (v1.6.1):** park-queue Manual Review (silent scrape → `PENDING_REVIEW` → pick modal) — see Latest Releases.
+    - **Still open:** Event-pause worker variant — backend emits candidates over WebSockets and pauses the worker with `eventlet.event.Event` until the user picks/skips.
 - [ ] **C30. Francophone Book Scrapers:** Integrate dedicated French literature sources (Babelio, SensCritique) without requiring API keys.
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
 - [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
 - [ ] **C8. Resiliency & Rate-Limiting Control:** Add an automatic exponential backoff retry mechanism to prevent API blocks (429 errors) during very large batches.
 - [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) when API rate limits or offline labs matter.
 - [ ] **C40. Support the Developer (Donations):** Add a non-intrusive "Buy Me a Coffee" or "Ko-fi" link in the GitHub README and the application's sidebar footer to allow the community to support the project.
+    - **Partial (v1.6.1):** rare playful supporter overlays + native café CTA in Manual Review recap (no paywall / license keys). README + sidebar footer link still open.
 
 ---
 
-### âœ¨ Latest Releases (v1.5.6 to v1.6.1)
-- [x] **C58. Full User/Password Authentication (unreleased, issue #15):** `users` table + `auth_manager.py`; forced `/setup` on first run; fail-closed gates (HTTP **and** Socket.IO); legacy plaintext `ADMIN_PASSWORD` never imported and erased after setup; `TRUSTED_PROXY_COUNT` (0/1) driving both `ProxyFix` and the lockout key; 5-attempt / 15-minute temporary per-IP lockout; optional `ADMIN_PASSWORD_HASH` seeding with `debug/hash_password.py`; explicit 7-day session lifetime.
-- [x] **C57. Health Endpoint `/healthz` (unreleased, issue #15):** Unauthenticated liveness probe returning `{status, version}`; whitelisted in `require_login` so it survives the auth gate. Dockerfile `HEALTHCHECK` retargeted from `/login` (any status < 500) to `/healthz` (strict 200). Reads no config, no DB, never calls Kavita — a Kavita outage must not restart a healthy container.
-- [x] **BF50. Test Suite DB Isolation (unreleased):** `test_scraper_max_caps.py`'s end-to-end enrichment test reached the real `data/cache.db` through an unmocked `record_enrichment_telemetry()`, inflating the lifetime counters and adding a fake `FAKE` provider to the C7 podium on every run. Now uses the existing `isolated_db` fixture.
-- [x] **C29. Manual Review Mode (v1.6.1, local WIP):** Scrape â†’ pending queue â†’ pick modal (score gradient, keys 1â€“3, weak red) + optional edit, telemetry, session recap â€” not Event-pause worker.
-- [x] **C56. Custom Scraper RCE Warning (v1.6.1, issue #15, thanks angusmaul):** Prominent FR + EN warning at the top of `CUSTOM_SCRAPERS.md` â€” sideloading a `.py` into `data/scrapers/` is arbitrary code execution at startup with the app's privileges (config secrets, filesystem, outbound network, `proxy_domains` allowlist widening). Concrete red flags for non-programmers, explicit caution on AI-generated code, trust model stated. Short linked version in both README security sections.
-- [x] **Security hardening BF46â€“BF49 / C54â€“C55 (v1.6.1, issue #15, thanks angusmaul):** gunicorn/requests CVE bumps; `/api/proxy-image` 5 MB stream cap; webhook `X-Webhook-Token` header; `config.json` 0600; non-root Docker with PUID/PGID + HEALTHCHECK; `.dockerignore`.
+### ✨ Latest Releases (v1.5.6 to v1.6.1)
+- [x] **C58. Full User/Password Authentication (v1.6.1, issue #15):** `users` table + `auth_manager.py`; forced `/setup` on first run; fail-closed gates (HTTP **and** Socket.IO `return False`); legacy plaintext `ADMIN_PASSWORD` never imported — required once as ownership proof on `/setup`, then erased; `TRUSTED_PROXY_COUNT` (0/1) driving both `ProxyFix` and the lockout key; 5-attempt / 15-minute per-IP lockout **plus** global 20/15min backstop against XFF rotation; optional `ADMIN_PASSWORD_HASH` seeding (hash-shape validated) with `debug/hash_password.py`; memoized dummy-hash timing equalization; sid-targeted Socket.IO emits; explicit 7-day session lifetime.
+- [x] **C57. Health Endpoint `/healthz` (v1.6.1, issue #15):** Unauthenticated liveness probe returning `{status, version}`; whitelisted in `require_login` so it survives the auth gate. Dockerfile `HEALTHCHECK` retargeted from `/login` (any status < 500) to `/healthz` (strict 200). Reads no config, no DB, never calls Kavita — a Kavita outage must not restart a healthy container.
+- [x] **BF51. Env-var seeding before first `config.json` write (v1.6.1):** `load_config()` merges environment *before* generating secrets / writing the file, so `UI_LANG`, `KAVITA_URL`, `PROVIDER_*`, `MAX_TAGS`, … actually take effect on a fresh install. Precedence `config.json` > env > default; `ADMIN_PASSWORD` deliberately not seeded from env.
+- [x] **BF50. Test Suite DB Isolation (v1.6.1):** `test_scraper_max_caps.py`'s end-to-end enrichment test reached the real `data/cache.db` through an unmocked `record_enrichment_telemetry()`, inflating the lifetime counters and adding a fake `FAKE` provider to the C7 podium on every run. Now uses the existing `isolated_db` fixture.
+- [x] **C29. Manual Review Mode (v1.6.1):** Scrape → pending queue → pick modal (score gradient, keys 1–3, weak red) + optional edit + **cover pick step**, telemetry, session recap + **achievements** on `/stats` — not Event-pause worker. Integrity hardening: UNIQUE `series_id`, atomic park/skip/confirm, batch skips parked series, apply under `_processing_lock`, WAL SQLite, frontend queue sync.
+- [x] **Field sealing / `NEEDS_RELOCK` (v1.6.1):** Soft-success after Kavita write + failed re-lock → orange `NEEDS_RELOCK` (not plain COMPLETED); deferred seal retry, 🔒 button, filter, `POST /api/series/<id>/seal-locks` (+ bulk). Seal OK → COMPLETED.
+- [x] **Supporter nags / tip overlays (v1.6.1, C40 partial):** Rare playful overlays (caps, honeymoon, honor snooze) after batch end / rich MR recap + café CTA in MR recap. No paywall; `.license` class reserved for a future silence hook.
+- [x] **C56. Custom Scraper RCE Warning (v1.6.1, issue #15, thanks angusmaul):** Prominent FR + EN warning at the top of `CUSTOM_SCRAPERS.md` — sideloading a `.py` into `data/scrapers/` is arbitrary code execution at startup with the app's privileges (config secrets, filesystem, outbound network, `proxy_domains` allowlist widening). Concrete red flags for non-programmers, explicit caution on AI-generated code, trust model stated. Short linked version in both README security sections.
+- [x] **Security hardening BF46–BF49 / C54–C55 (v1.6.1, issue #15, thanks angusmaul):** gunicorn/requests CVE bumps; `/api/proxy-image` 5 MB stream cap; webhook `X-Webhook-Token` header; `config.json` 0600; non-root Docker with PUID/PGID + HEALTHCHECK; `.dockerignore`.
 - [x] **BDTheque.com comics provider (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ (distinct from `BEDETHEQUE` / bedetheque.com). AJAX series search, series page scrape, Magic Input, unified scoring, covers.
 - [x] **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Replaces retired Jikan. Manga/Book, Magic Input, unified scoring.
-- [x] **Reliability barometer (v1.6.1):** Sidebar unlock + slider for match accept threshold (`0.30`â€“`1.00`, default `0.60`); `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; runtime via `get_match_accept_threshold()`.
+- [x] **Reliability barometer (v1.6.1):** Sidebar unlock + slider for match accept threshold (`0.30`–`1.00`, default `0.60`); `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`; runtime via `get_match_accept_threshold()`.
 - [x] **Batch progress bar (v1.6.1):** `done / total` above batch buttons; Socket.IO `batch_progress` from worker `qsize()`; hides on finish/Stop.
 - [x] **Collapsible Scraping Options (v1.6.1):** Click sidebar title to show/hide the strategy card.
 - [x] **Wikidata live provider (v1.6.1):** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API; Magic Input Q-id; shared `wikidata_map`. Offline subset (C39) deferred.
 - [x] **C35. Native "Comic (Flexible)" Support (v1.6.1):** Kavita Library Type ID 5 is no longer flattened to Comic. Hybrid cascade: `COMIC_PROVIDER_*` first, then `PROVIDER_*` (Manga) if no useful hit. Cover search unions Comic + Manga scrapers.
-- [x] **C7. Playful Statistics Dashboard (v1.6.1):** Restyled `/stats` + Chart.js; lifetime `series_enriched` / `matches_won` / `series_missed` + hit-rate; live topbar KPIs + session counter; Socket.IO `enrichment_stats`; ~24 fun cards. `ENABLE_PLAYFUL_STATS` default ON.
-- [x] **Batch QoS & Granularity (v1.6.1):** Auto-uncheck on success; `localStorage` selection persist per library; ephemeral batch targeted-fields mask (sidebar `<details>`); Check all / Uncheck all (sidebar + per-series overrides); Stop aborts Ã—50 enqueue loop + server rejects late chunks; `/stats` scroll fix.
+- [x] **C7. Playful Statistics Dashboard (v1.6.1):** Restyled `/stats` + Chart.js; lifetime `series_enriched` / `matches_won` / `series_missed` + hit-rate; live topbar KPIs + session counter; Socket.IO `enrichment_stats`; ~24 fun cards + Manual Review achievements chapter. `ENABLE_PLAYFUL_STATS` default ON.
+- [x] **Batch QoS & Granularity (v1.6.1):** Auto-uncheck on success; `localStorage` selection persist per library; ephemeral batch targeted-fields mask (sidebar `<details>`); Check all / Uncheck all (sidebar + per-series overrides); Stop aborts ×50 enqueue loop + server rejects late chunks; `/stats` scroll fix.
 - [x] **C45. Smart Scoring (v1.6.0):** Score-based provider winner selection + two-wave parallel execution (`SMART_SCORING` sidebar toggle), with community-scraper opt-in/`_safe_match_score` hardening.
 - [x] **C53. Localized Titles Policy (v1.6.0, issue #12):** Global `LOCALIZED_TITLE_MODE`/`LANGS` + per-series `alt_title_langs` for Kavita `localizedName` only (never rewrite `name`); structured `titles[]` on AniList/MangaDex/Kitsu; default remains multi-title `" / "` join.
-- [x] **C52. Topbar Help Menu â€” About & Documentation (v1.6.0):** Help dropdown with About modal, GitHub doc links, changelog shortcut; Kavita+ support positioning (About copy + topbar Kavita+ beside BMC â†’ instance `settings#admin-kavitaplus`).
+- [x] **C52. Topbar Help Menu — About & Documentation (v1.6.0):** Help dropdown with About modal, GitHub doc links, changelog shortcut; Kavita+ support positioning (About copy + topbar Kavita+ beside BMC → instance `settings#admin-kavitaplus`).
 - [x] **C47. MangaBaka Book/LN + API Hardening (v1.6.0):** Official MangaBaka Book support with `schema=full`, `type=novel` filter, and related parsing fixes (thanks LazyGeniusMan).
 - [x] **C46. CORS Allowed Origins (v1.6.0):** Docker env `CORS_ALLOWED_ORIGINS` (CSV explicit origins) for Flask HTTP + Socket.IO behind Traefik/HTTPS self-hosts.
 - [x] **C48. KAVITA_EXTERNAL_URL (v1.6.0):** Separate public Kavita URL for browser UI links vs internal `KAVITA_URL` for Docker API calls (thanks LazyGeniusMan).
 - [x] **BF19. Kavita Write Timeout & False-Negative RE-LOCK (v1.6.0):** Configurable `KAVITA_HTTP_TIMEOUT` (default 60s) for write POSTs; metadata/general 2-pass treats write-OK + RE-LOCK failure as soft success; one capped RE-LOCK-only retry (issue SqueezedByte).
-- [x] **C49. Configurable MAX_TAGS (v1.6.0):** Env/`config.json` cap on tags written to Kavita (default 15, range 1â€“100); scrapers + enrichment use `get_max_tags()` â€” no UI (feedback LazyGeniusMan).
-- [x] **C51. Configurable MAX_GENRES (v1.6.0):** Env/`config.json` cap on genres (default 5, range 1â€“50); dynamic-list scrapers + `enrichment_engine` use `get_max_genres()` â€” no UI. Homogenized with AniList tags / MangaUpdates categories under `MAX_TAGS`.
+- [x] **C49. Configurable MAX_TAGS (v1.6.0):** Env/`config.json` cap on tags written to Kavita (default 15, range 1–100); scrapers + enrichment use `get_max_tags()` — no UI (feedback LazyGeniusMan).
+- [x] **C51. Configurable MAX_GENRES (v1.6.0):** Env/`config.json` cap on genres (default 5, range 1–50); dynamic-list scrapers + `enrichment_engine` use `get_max_genres()` — no UI. Homogenized with AniList tags / MangaUpdates categories under `MAX_TAGS`.
 - [x] **C32. Flask Blueprints Refactoring (v1.6.0):** Modularized the former monolithic `app.py` into Blueprints under `routes/`, plus `services/`, `models.py`, and a thin composition root.
-- [x] **BF20â€“BF41 + C50. Application Audit Hardening (v1.6.0):** Critical/High/Medium plus Low polish (no hardcoded SECRET_KEY fallback, API key not logged, ComicVine proxy_domains narrowed, `MAX_GENRES` / `get_max_genres()`). Optional empty `ADMIN_PASSWORD` left intentional.
-- [x] **BF42â€“BF45. Post-Audit Follow-ups (v1.6.0):** Credential-safe exception logging; safe cover redirects + CDN `proxy_domains`; private IP block in `url_allowlist`; Escape closes changelog; CODE_REVIEW MAL/Nautiljon cleanup.
+- [x] **BF20–BF41 + C50. Application Audit Hardening (v1.6.0):** Critical/High/Medium plus Low polish (no hardcoded SECRET_KEY fallback, API key not logged, ComicVine proxy_domains narrowed, `MAX_GENRES` / `get_max_genres()`). Optional empty `ADMIN_PASSWORD` left intentional.
+- [x] **BF42–BF45. Post-Audit Follow-ups (v1.6.0):** Credential-safe exception logging; safe cover redirects + CDN `proxy_domains`; private IP block in `url_allowlist`; Escape closes changelog; CODE_REVIEW MAL/Nautiljon cleanup.
 - [x] **BF18. Per-Series Publisher Preference Never Saved (v1.6.0):** The `/save-override` endpoint read the per-series Publisher toggle (`Auto`/`VF/VA`/`VO`) but never forwarded it to the database, silently resetting it to `GLOBAL` on every save. The per-series preference is now correctly persisted and respected by the scrapers.
 - [x] **BF14. LocalizedName Corruption & KOReader/Kamare Crash Fix (v1.5.8):** `update_series_general()` now always fetches a series' full current state before writing, preventing Kavita from silently nulling `LocalizedName` and force-unlocking `NameLocked`/`SortNameLocked`/`LocalizedNameLocked` on partial updates (e.g. format-only). Root cause of a reported KOReader "Kamare" plugin crash.
 - [x] **BF15. Metadata System-Field Leak (v1.5.8):** Centralized sanitization of GET-only computed fields (`totalCount`, `maxCount`, `pages`, `wordCount`) inside `update_series_metadata()`, preventing them from being echoed back into `POST /api/Series/metadata` and risking EF Core concurrency exceptions.
@@ -66,19 +69,19 @@
 - [x] **C43. Bulletproof SQLite Schema Migrations (v1.5.7):** Rewrote the database initialization logic (`_ensure_schema`) to gracefully handle column additions one by one without container crashes.
 - [x] **C44. Custom Scraper Guide & Vibecoding (v1.5.7):** Released `CUSTOM_SCRAPERS.md` containing strict integration rules and ready-to-use AI Prompts to help users generate their own scrapers.
 - [x] **BF10. Pure Base64 Cover Payload (v1.5.6):** Fixed the "Phantom Cover" syndrome where Kavita silently rejected `Data URI` image payloads. Reverted to pure Base64 strings for permanent disk writes.
-- [x] **BF11. WebSocket Cover Stream Priority (v1.5.6):** Manual input priority restored in the cover modal; live cover frames are filtered by `series_id`. *(Note: chronological `stream_id` tokens are documented as intended hardening â€” not yet wired in client/server; tracked as a known gap.)*
+- [x] **BF11. WebSocket Cover Stream Priority (v1.5.6):** Manual input priority restored in the cover modal; live cover frames are filtered by `series_id`. *(Note: chronological `stream_id` tokens are documented as intended hardening — not yet wired in client/server; tracked as a known gap.)*
 - [x] **BF12. Smart Auto-Cover Locking (v1.5.6):** Manually applying a cover from the modal now automatically unchecks the "Cover" targeted field to protect it from background sync overwrites.
 - [x] **BF13. True Context Reset (ISBN Purge) (v1.5.6):** Fixed a critical oversight where forcing an update with "Context Reset" still retained the Kavita ISBN, causing persistent false-positive matches. The ISBN is now properly purged to guarantee a true clean slate.
 
 ---
 
-### ðŸ“¦ Archive: Advanced Features & Core Architecture (V1.5.0+)
+### 📦 Archive: Advanced Features & Core Architecture (V1.5.0+)
 - [x] **C1. MyAnimeList (MAL) Scraper:** Integrated the public and free Jikan API v4.
 - [x] **C2. MangaDex Scraper:** Integrated the official MangaDex REST API v5 for rich metadata tags, content rating filters, and candidate weighting.
 - [x] **C3. Baka-Updates (MangaUpdates) Scraper:** Integrated the v1 REST API to retrieve associated alternative titles and keyword penalty scoring.
 - [x] **C4. Kitsu Scraper:** Add Kitsu JSON:API as a reliable global fallback source.
 - [x] **C5. Manga-News Scraper:** Implemented `curl_cffi` scraping of the French licensing catalog.
-- [x] **C6. Scraper BedethÃ¨que:** Scraping BeautifulSoup4 for Franco-Belgian comics.
+- [x] **C6. Scraper Bedethèque:** Scraping BeautifulSoup4 for Franco-Belgian comics.
 - [x] **C23. Shikimori Scraper:** Integrated Shikimori REST JSON API with native `MalId` mapping.
 - [x] **C24. Open Library Scraper:** Integrated Open Library / Internet Archive API for literature with anti-429 rate-limiting retries.
 - [x] **C16. Hardcover Scraper:** Integrated the Hardcover Hasura GraphQL & Typesense endpoints.
@@ -103,10 +106,10 @@
 - [x] **C12. Contextual Title Cleaning:** Tailored query cleaning logic based on targeted media type.
 - [x] **C13. Provider Purge (Nautiljon):** Completely removed Nautiljon from the default routing map due to abusive Cloudflare IP bans.
 
-### ðŸ› Archive: Bug Fixes & Architecture Shifts (V1.4.x / V1.5.x)
+### 🐛 Archive: Bug Fixes & Architecture Shifts (V1.4.x / V1.5.x)
 - [x] **BF1. Admin Password Env Var Override Bug:** Resolved the issue where clearing the admin password via `docker-compose.yml` failed.
 - [x] **BF2. Permanent Auth Cookie Cleansing:** Ensured a hard logout completely destroys the long-lived session cookie via `expires=0`.
-- [x] **BF3. BÃ©dÃ©thÃ¨que Spin-off Override Bug**: Fixed an issue where searching for a main series would return covers from its spin-offs due to alphabetical sorting.
+- [x] **BF3. Bédéthèque Spin-off Override Bug**: Fixed an issue where searching for a main series would return covers from its spin-offs due to alphabetical sorting.
 - [x] **BF4. Context-Aware Cover Fetching**: Fixed a regression where the manual cover search queried all scrapers blindly.
 - [x] **BF5. Publisher Metadata Parsing Fix:** Corrected an oversight where publisher metadata wasn't properly scraped.
 - [x] **BF6. Disable Translation Option:** Added a configuration setting (`NONE`) to disable the translation pipeline.
@@ -114,7 +117,7 @@
 - [x] **BF8. Dynamic API Key Engine:** `BaseScraper` now supports `needs_api_key=True` to auto-generate forms dynamically.
 - [x] **BF9. Decentralized Translations (i18n):** Scrapers now encapsulate their own translations via `self.t()`.
 
-### ðŸ—ï¸ Archive: Ergonomics & Interface Overhaul (V1.4.0)
+### 🏗️ Archive: Ergonomics & Interface Overhaul (V1.4.0)
 - [x] **B1 to B6:** Mapped Genres, Tags, localized titles, and extended staff metadata (Writers, Pencillers, Colorists, Translators, Cover Artists) pushing to Kavita.
 - [x] **B7 to B9:** "Ignored" series state, Auto-Sync Polling, Smart Fallback Routing, and Data Fusion (Smart Completion).
 - [x] **B11. Global Authentication:** UI locking via `ADMIN_PASSWORD` container variable.
@@ -129,7 +132,7 @@
 - [x] **B23. AniList Quick Lookup:** Magnolia button to open pre-filled searches on AniList.
 - [x] **B24. Persistent Workspace:** Automatically saves active library, status filter, hide ignored state, and search query.
 
-### ðŸ› ï¸ Archive: Foundations & Security (V1.3+)
+### 🛠️ Archive: Foundations & Security (V1.3+)
 - [x] **A1 to A6:** Secure API integration, Live Logs, 100% AJAX, Global Translation bridges, Responsive UI.
 - [x] **A7 to A9:** Self-cleaning SQLite cache, explicit connection error indicators, Zero-Setup deployment.
 - [x] **A10. Production WSGI Server:** Eventlet + Gunicorn asynchronous stack.
@@ -139,126 +142,129 @@
 
 ---
 
-## ðŸ‡«ðŸ‡· Feuille de Route FranÃ§aise
+## 🇫🇷 Feuille de Route Française
 
-### ðŸ”® Backlog & FonctionnalitÃ©s Futures (Ã€ Faire)
-- [ ] **C29. Mode Batch Manuel Interactif (QoS) :** Ajouter un sÃ©lecteur "Automatique / Manuel (QoS)" pour les traitements par lots.
-    - En mode Manuel, le backend rÃ©cupÃ¨re les candidats et les envoie via WebSockets.
-    - Le frontend affiche une modale de choix et met le worker en pause via `eventlet.event.Event`.
-    - L'utilisateur valide le bon rÃ©sultat ou passe, dÃ©bloquant le worker pour le fichier suivant.
-- [ ] **C30. Scrapers LittÃ©raires Francophones :** IntÃ©grer des sources spÃ©cialisÃ©es en littÃ©rature franÃ§aise (Babelio, SensCritique) sans clÃ© API.
-- [ ] **C31. Outil de DÃ©duplication Kavita :** Panneau UI pour dÃ©tecter et fusionner les doublons dans Kavita.
-- [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour dÃ©clencher les mises Ã  jour MetaKavita nativement.
-- [ ] **C8. Gestion de la RÃ©silience d'API :** SystÃ¨me de retry automatique avec attente exponentielle pour contourner le rate limiting lors des trÃ¨s gros batchs.
-- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou Ã©quivalent) optionnel quand les quotas API ou un labo hors-ligne importent.
-- [ ] **C40. Soutien au dÃ©veloppeur (Dons) :** Ajouter un lien discret "Buy Me a Coffee" ou "Ko-fi" dans le README GitHub et le pied de page de l'interface pour permettre Ã  la communautÃ© de soutenir le projet.
+### 🔮 Backlog & Fonctionnalités Futures (À Faire)
+- [ ] **C29. Mode Batch Manuel Interactif (QoS) :** Ajouter un sélecteur "Automatique / Manuel (QoS)" pour les traitements par lots.
+    - **Livré (v1.6.1) :** Review Manuelle en file (scrape silencieux → `PENDING_REVIEW` → modale de pick) — voir Dernières Nouveautés.
+    - **Encore ouvert :** variante Event-pause — le backend émet les candidats via WebSockets et met le worker en pause avec `eventlet.event.Event` jusqu’au choix utilisateur.
+- [ ] **C30. Scrapers Littéraires Francophones :** Intégrer des sources spécialisées en littérature française (Babelio, SensCritique) sans clé API.
+- [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
+- [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
+- [ ] **C8. Gestion de la Résilience d'API :** Système de retry automatique avec attente exponentielle pour contourner le rate limiting lors des très gros batchs.
+- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel quand les quotas API ou un labo hors-ligne importent.
+- [ ] **C40. Soutien au développeur (Dons) :** Ajouter un lien discret "Buy Me a Coffee" ou "Ko-fi" dans le README GitHub et le pied de page de l'interface pour permettre à la communauté de soutenir le projet.
+    - **Partiel (v1.6.1) :** overlays supporter ludiques rares + CTA café natif dans le récap Review Manuelle (pas de paywall / clé licence). Lien README + pied de page sidebar encore ouverts.
 
 ---
 
-### âœ¨ DerniÃ¨res NouveautÃ©s (v1.5.6 Ã  v1.6.1)
-- [x] **C58. Authentification utilisateur/mot de passe complète (non publié, issue #15) :** table `users` + `auth_manager.py` ; `/setup` forcé au premier démarrage ; gates fail-closed (HTTP **et** Socket.IO) ; ancien `ADMIN_PASSWORD` en clair jamais importé et effacé après le setup ; `TRUSTED_PROXY_COUNT` (0/1) pilotant `ProxyFix` et la clé de verrouillage ; verrouillage par IP temporaire 5 tentatives / 15 minutes ; amorçage optionnel `ADMIN_PASSWORD_HASH` via `debug/hash_password.py` ; durée de session explicite de 7 jours.
-- [x] **C57. Endpoint de santé `/healthz` (non publié, issue #15) :** sonde de liveness non authentifiée renvoyant `{status, version}` ; whitelistée dans `require_login` pour survivre au gate d'authentification. `HEALTHCHECK` du Dockerfile repointé de `/login` (tout statut < 500) vers `/healthz` (200 strict). Ne lit aucune config, aucune base, n'appelle jamais Kavita — une panne de Kavita ne doit pas redémarrer un conteneur sain.
-- [x] **BF50. Isolation de la base dans les tests (non publiÃ©) :** le test d'enrichissement bout-en-bout de `test_scraper_max_caps.py` atteignait le vrai `data/cache.db` via un `record_enrichment_telemetry()` non mockÃ©, gonflant les compteurs lifetime et ajoutant un provider fictif `FAKE` au podium C7 Ã  chaque exÃ©cution. Utilise dÃ©sormais la fixture existante `isolated_db`.
-- [x] **C29. Mode Review Manuelle (v1.6.1, WIP local) :** scrape â†’ file pending â†’ modale pick (gradient de score, touches 1â€“3, bande faible rouge) + Ã©dition optionnelle, tÃ©lÃ©mÃ©trie, rÃ©cap de session â€” pas le worker Event-pause.
-- [x] **C56. Avertissement RCE scrapers personnalisÃ©s (v1.6.1, issue #15, merci angusmaul) :** avertissement FR + EN bien visible en tÃªte de `CUSTOM_SCRAPERS.md` â€” dÃ©poser un `.py` dans `data/scrapers/` revient Ã  exÃ©cuter du code arbitraire au dÃ©marrage avec les droits de l'app (secrets de config, systÃ¨me de fichiers, rÃ©seau sortant, Ã©largissement de l'allowlist `proxy_domains`). Signaux d'alarme concrets pour non-dÃ©veloppeurs, mise en garde explicite sur le code gÃ©nÃ©rÃ© par IA, modÃ¨le de confiance Ã©noncÃ©. Version courte avec lien dans les deux sections sÃ©curitÃ© du README.
-- [x] **Durcissement sÃ©curitÃ© BF46â€“BF49 / C54â€“C55 (v1.6.1, issue #15, merci angusmaul) :** bumps CVE gunicorn/requests ; plafond 5 Mo stream `/api/proxy-image` ; en-tÃªte webhook `X-Webhook-Token` ; `config.json` 0600 ; Docker non-root PUID/PGID + HEALTHCHECK ; `.dockerignore`.
-- [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche sÃ©rie, Magic Input, scoring unifiÃ©, covers.
-- [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifiÃ©.
-- [x] **BaromÃ¨tre de fiabilitÃ© (v1.6.1) :** case + curseur sidebar pour le seuil dâ€™acceptation (`0.30`â€“`1.00`, dÃ©faut `0.60`) ; `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; runtime via `get_match_accept_threshold()`.
-- [x] **Barre de progression batch (v1.6.1) :** jauge `fait / total` au-dessus des boutons ; Socket.IO `batch_progress` depuis le `qsize()` worker ; disparaÃ®t en fin de lot / Stop.
-- [x] **Options de Scraping pliables (v1.6.1) :** clic sur le titre sidebar pour afficher/masquer la carte stratÃ©gie.
-- [x] **Provider Wikidata live (v1.6.1) :** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API ; Magic Input Q-id ; mapping partagÃ© `wikidata_map`. Sous-ensemble hors-ligne (C39) reportÃ©.
+### ✨ Dernières Nouveautés (v1.5.6 à v1.6.1)
+- [x] **C58. Authentification utilisateur/mot de passe complète (v1.6.1, issue #15) :** table `users` + `auth_manager.py` ; `/setup` forcé au premier démarrage ; gates fail-closed (HTTP **et** Socket.IO `return False`) ; ancien `ADMIN_PASSWORD` en clair jamais importé — exigé une fois comme preuve de propriété sur `/setup`, puis effacé ; `TRUSTED_PROXY_COUNT` (0/1) pilotant `ProxyFix` et la clé de verrouillage ; verrouillage par IP 5/15 min **plus** plafond global 20/15 min contre la rotation XFF ; amorçage optionnel `ADMIN_PASSWORD_HASH` (forme de hachage validée) via `debug/hash_password.py` ; égalisation de timing par hachage factice mémoïsé ; emits Socket.IO ciblés sur le `sid` ; durée de session explicite de 7 jours.
+- [x] **C57. Endpoint de santé `/healthz` (v1.6.1, issue #15) :** sonde de liveness non authentifiée renvoyant `{status, version}` ; whitelistée dans `require_login` pour survivre au gate d'authentification. `HEALTHCHECK` du Dockerfile repointé de `/login` (tout statut < 500) vers `/healthz` (200 strict). Ne lit aucune config, aucune base, n'appelle jamais Kavita — une panne de Kavita ne doit pas redémarrer un conteneur sain.
+- [x] **BF51. Semis des variables d'environnement avant la première écriture de `config.json` (v1.6.1) :** `load_config()` fusionne l'environnement *avant* de générer les secrets / écrire le fichier, pour que `UI_LANG`, `KAVITA_URL`, `PROVIDER_*`, `MAX_TAGS`, … prennent réellement effet sur une install neuve. Précédence `config.json` > env > défaut ; `ADMIN_PASSWORD` volontairement non semé depuis l'env.
+- [x] **BF50. Isolation de la base dans les tests (v1.6.1) :** le test d'enrichissement bout-en-bout de `test_scraper_max_caps.py` atteignait le vrai `data/cache.db` via un `record_enrichment_telemetry()` non mocké, gonflant les compteurs lifetime et ajoutant un provider fictif `FAKE` au podium C7 à chaque exécution. Utilise désormais la fixture existante `isolated_db`.
+- [x] **C29. Mode Review Manuelle (v1.6.1) :** scrape → file pending → modale pick (gradient de score, touches 1–3, bande faible rouge) + édition optionnelle + **étape couverture**, télémétrie, récap de session + **hauts-faits** sur `/stats` — pas le worker Event-pause. Durcissement intégrité : UNIQUE `series_id`, park/skip/confirm atomiques, batch sans séries garées, apply sous `_processing_lock`, SQLite WAL, sync file frontend.
+- [x] **Scellage des champs / `NEEDS_RELOCK` (v1.6.1) :** soft-success après écriture Kavita + re-lock échoué → `NEEDS_RELOCK` orange (pas COMPLETED simple) ; retry seal différé, bouton 🔒, filtre, `POST /api/series/<id>/seal-locks` (+ bulk). Seal OK → COMPLETED.
+- [x] **Pubs supporter / overlays tip (v1.6.1, C40 partiel) :** overlays ludiques rares (caps, honeymoon, silence honor) après fin de batch / récap MR riche + CTA café dans le récap MR. Pas de paywall ; classe `.license` réservée pour un futur silence.
+- [x] **C56. Avertissement RCE scrapers personnalisés (v1.6.1, issue #15, merci angusmaul) :** avertissement FR + EN bien visible en tête de `CUSTOM_SCRAPERS.md` — déposer un `.py` dans `data/scrapers/` revient à exécuter du code arbitraire au démarrage avec les droits de l'app (secrets de config, système de fichiers, réseau sortant, élargissement de l'allowlist `proxy_domains`). Signaux d'alarme concrets pour non-développeurs, mise en garde explicite sur le code généré par IA, modèle de confiance énoncé. Version courte avec lien dans les deux sections sécurité du README.
+- [x] **Durcissement sécurité BF46–BF49 / C54–C55 (v1.6.1, issue #15, merci angusmaul) :** bumps CVE gunicorn/requests ; plafond 5 Mo stream `/api/proxy-image` ; en-tête webhook `X-Webhook-Token` ; `config.json` 0600 ; Docker non-root PUID/PGID + HEALTHCHECK ; `.dockerignore`.
+- [x] **Provider BDTheque.com comics (v1.6.1) :** Provider `BDTHEQUE` pour https://www.bdtheque.com/ (distinct de `BEDETHEQUE` / bedetheque.com). Recherche AJAX, scrape fiche série, Magic Input, scoring unifié, covers.
+- [x] **MyAnimeList API officielle (v1.6.1) :** Provider `MAL` via API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID). Remplace Jikan. Manga/Book, Magic Input, scoring unifié.
+- [x] **Baromètre de fiabilité (v1.6.1) :** case + curseur sidebar pour le seuil d’acceptation (`0.30`–`1.00`, défaut `0.60`) ; `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` ; runtime via `get_match_accept_threshold()`.
+- [x] **Barre de progression batch (v1.6.1) :** jauge `fait / total` au-dessus des boutons ; Socket.IO `batch_progress` depuis le `qsize()` worker ; disparaît en fin de lot / Stop.
+- [x] **Options de Scraping pliables (v1.6.1) :** clic sur le titre sidebar pour afficher/masquer la carte stratégie.
+- [x] **Provider Wikidata live (v1.6.1) :** Provider `WIKIDATA` (Manga/Comic/Book) via SPARQL + Entity API ; Magic Input Q-id ; mapping partagé `wikidata_map`. Sous-ensemble hors-ligne (C39) reporté.
 - [x] **C35. Support natif "Comic (Flexible)" (v1.6.1) :** L'ID Kavita 5 n'est plus aplati en Comic. Cascade hybride : `COMIC_PROVIDER_*` d'abord, puis `PROVIDER_*` (Manga) si aucun hit utile. Recherche de couvertures = union Comic + Manga.
-- [x] **C7. Tableau de bord Statistiques ludiques (v1.6.1) :** `/stats` restylÃ©e + Chart.js ; compteurs lifetime sÃ©ries/matchs/ratÃ©s + taux de hit ; KPI live topbar + session ; Socket.IO `enrichment_stats` ; ~24 cartes fun. `ENABLE_PLAYFUL_STATS` dÃ©faut ON.
-- [x] **QoS & granularitÃ© batch (v1.6.1) :** dÃ©cochage auto si OK ; persistance sÃ©lection `localStorage` par bibliothÃ¨que ; masque champs ciblÃ©s batch Ã©phÃ©mÃ¨re (sidebar) ; Tout cocher / Tout dÃ©cocher ; Stop coupe lâ€™envoi Ã—50 + rejet des chunks tardifs ; scroll `/stats`.
-- [x] **C45. Smart Scoring (v1.6.0) :** SÃ©lection du vainqueur par score + exÃ©cution en deux vagues (`SMART_SCORING`), avec opt-in scrapers communautaires / filet `_safe_match_score`.
-- [x] **C53. Politique des titres localisÃ©s (v1.6.0, issue #12) :** `LOCALIZED_TITLE_MODE`/`LANGS` globaux + `alt_title_langs` par sÃ©rie pour Kavita `localizedName` uniquement (jamais de rÃ©Ã©criture de `name`) ; `titles[]` structurÃ©s AniList/MangaDex/Kitsu ; dÃ©faut = jointure multi-titres `" / "`.
-- [x] **C52. Menu Aide topbar â€” Ã€ propos & Documentation (v1.6.0) :** menu Aide avec modal Ã€ propos, liens docs GitHub, raccourci nouveautÃ©s ; positionnement Kavita+ (texte Ã€ propos + bouton topbar Ã  cÃ´tÃ© du cafÃ© â†’ `settings#admin-kavitaplus` de lâ€™instance).
+- [x] **C7. Tableau de bord Statistiques ludiques (v1.6.1) :** `/stats` restylée + Chart.js ; compteurs lifetime séries/matchs/ratés + taux de hit ; KPI live topbar + session ; Socket.IO `enrichment_stats` ; ~24 cartes fun + chapitre hauts-faits Review Manuelle. `ENABLE_PLAYFUL_STATS` défaut ON.
+- [x] **QoS & granularité batch (v1.6.1) :** décochage auto si OK ; persistance sélection `localStorage` par bibliothèque ; masque champs ciblés batch éphémère (sidebar) ; Tout cocher / Tout décocher ; Stop coupe l’envoi ×50 + rejet des chunks tardifs ; scroll `/stats`.
+- [x] **C45. Smart Scoring (v1.6.0) :** Sélection du vainqueur par score + exécution en deux vagues (`SMART_SCORING`), avec opt-in scrapers communautaires / filet `_safe_match_score`.
+- [x] **C53. Politique des titres localisés (v1.6.0, issue #12) :** `LOCALIZED_TITLE_MODE`/`LANGS` globaux + `alt_title_langs` par série pour Kavita `localizedName` uniquement (jamais de réécriture de `name`) ; `titles[]` structurés AniList/MangaDex/Kitsu ; défaut = jointure multi-titres `" / "`.
+- [x] **C52. Menu Aide topbar — À propos & Documentation (v1.6.0) :** menu Aide avec modal À propos, liens docs GitHub, raccourci nouveautés ; positionnement Kavita+ (texte À propos + bouton topbar à côté du café → `settings#admin-kavitaplus` de l’instance).
 - [x] **C47. MangaBaka Book/LN + Durcissement API (v1.6.0) :** Support Book officiel MangaBaka avec `schema=full`, filtre `type=novel`, et correctifs de parsing (merci LazyGeniusMan).
-- [x] **C46. Origins CORS autorisÃ©es (v1.6.0) :** Variable Docker `CORS_ALLOWED_ORIGINS` (CSV) pour Flask HTTP + Socket.IO derriÃ¨re Traefik/HTTPS.
-- [x] **C48. KAVITA_EXTERNAL_URL (v1.6.0) :** URL publique Kavita sÃ©parÃ©e pour les liens UI, vs `KAVITA_URL` interne pour les appels API Docker (merci LazyGeniusMan).
-- [x] **BF19. Timeout d'Ã©criture Kavita & faux nÃ©gatif RE-LOCK (v1.6.0) :** `KAVITA_HTTP_TIMEOUT` configurable (dÃ©faut 60s) ; soft-success si Ã©criture OK mais RE-LOCK Ã©choue ; un retry plafonnÃ© du seul RE-LOCK (issue SqueezedByte).
-- [x] **C49. MAX_TAGS configurable (v1.6.0) :** Plafond env/`config.json` des tags Ã©crits dans Kavita (dÃ©faut 15, bornÃ© 1â€“100) ; scrapers + enrichissement via `get_max_tags()` â€” pas d'UI (retour LazyGeniusMan).
-- [x] **C51. MAX_GENRES configurable (v1.6.0) :** Plafond env/`config.json` des genres (dÃ©faut 5, bornÃ© 1â€“50) ; scrapers Ã  listes dynamiques + `enrichment_engine` via `get_max_genres()` â€” pas d'UI. HomogÃ©nÃ©isÃ© avec tags AniList / categories MangaUpdates sous `MAX_TAGS`.
-- [x] **C32. Refonte Flask Blueprints (v1.6.0) :** DÃ©coupage de l'ancien `app.py` monolithique en Blueprints `routes/`, plus `services/`, `models.py`, et un point d'assemblage mince.
-- [x] **BF20â€“BF41 + C50. Durcissement suite audit applicatif (v1.6.0) :** Critical/High/Medium + Low polish (plus de fallback SECRET_KEY hardcodÃ©, clÃ© API non loguÃ©e, proxy_domains ComicVine restreint, `MAX_GENRES` / `get_max_genres()`). `ADMIN_PASSWORD` vide laissÃ© volontaire.
-- [x] **BF42â€“BF45. Suivi post-audit (v1.6.0) :** logs sans fuite de clÃ©s ; redirects couverture + CDN ; blocage IPs privÃ©es ; Escape ferme le changelog ; CODE_REVIEW MAL/Nautiljon.
-- [x] **BF18. PrÃ©fÃ©rence d'Ã‰diteur par SÃ©rie Jamais SauvegardÃ©e (v1.6.0) :** L'endpoint `/save-override` lisait bien l'interrupteur d'Ã‰diteur par sÃ©rie (`Auto`/`VF/VA`/`VO`) mais ne le transmettait jamais Ã  la base de donnÃ©es, le rÃ©initialisant silencieusement Ã  `GLOBAL` Ã  chaque sauvegarde. La prÃ©fÃ©rence par sÃ©rie est dÃ©sormais correctement persistÃ©e et respectÃ©e par les scrapers.
-- [x] **BF14. Correction Corruption LocalizedName & Crash KOReader/Kamare (v1.5.8) :** `update_series_general()` rÃ©cupÃ¨re dÃ©sormais systÃ©matiquement l'Ã©tat complet de la sÃ©rie avant d'Ã©crire, empÃªchant Kavita d'effacer silencieusement `LocalizedName` et de dÃ©verrouiller de force `NameLocked`/`SortNameLocked`/`LocalizedNameLocked` lors de mises Ã  jour partielles (ex: changement du seul format). Cause racine d'un crash signalÃ© sur l'extension KOReader "Kamare".
-- [x] **BF15. Fuite de Champs SystÃ¨me dans les MÃ©tadonnÃ©es (v1.5.8) :** Centralisation de l'assainissement des champs calculÃ©s en lecture seule (`totalCount`, `maxCount`, `pages`, `wordCount`) dans `update_series_metadata()`, Ã©vitant leur rÃ©injection dans `POST /api/Series/metadata` et le risque d'exceptions de concurrence Entity Framework Core.
-- [x] **BF16. Mapping du Statut "TerminÃ©" MangaBaka (v1.5.8) :** Correction du statut brut `completed` de MangaBaka qui ne correspondait jamais Ã  la clÃ© interne `FINISHED`, laissant les sÃ©ries terminÃ©es silencieusement bloquÃ©es en "En cours" dans Kavita.
-- [x] **BF17. Typo d'Attribut `BaseScraper` (v1.5.8) :** Correction de `eeds_api_key` en `needs_api_key` sur l'attribut par dÃ©faut de la classe de base des scrapers.
-- [x] **C41. Scrapers Communautaires SideloadÃ©s (v1.5.7) :** Chargement dynamique des scripts Python dÃ©posÃ©s dans le volume utilisateur `data/scrapers/`. Permet d'ajouter des sites Ã  la volÃ©e sans recompiler l'image Docker.
-- [x] **C42. PrÃ©fÃ©rence d'Ã‰diteur (v1.5.7) :** Ajout d'un interrupteur segmentÃ© par sÃ©rie (`Auto` | `VF/VA` | `VO`) pour prioriser l'Ã©diteur localisÃ© (ex: *GlÃ©nat*) ou l'Ã©diteur d'origine (ex: *Shueisha*).
-- [x] **C15. Titre de Secours (Fallback ExpÃ©rimental) (v1.5.7) :** Filet de sÃ©curitÃ© traduisant automatiquement un titre non-trouvÃ© vers l'anglais pour relancer une seconde recherche sur les API.
-- [x] **C43. Migrations SQLite SÃ©curisÃ©es (v1.5.7) :** Initialisation robuste (`_ensure_schema`) ajoutant les colonnes manquantes sans provoquer de crash HTTP 500.
-- [x] **C44. Guide Scrapers & Vibecoding (v1.5.7) :** Publication de `CUSTOM_SCRAPERS.md` incluant les rÃ¨gles d'intÃ©gration et les Prompts IA prÃªts Ã  l'emploi.
-- [x] **BF10. Payload Base64 Pur (v1.5.6) :** RÃ©solution du bug des "couvertures fantÃ´mes" oÃ¹ Kavita rejetait les images *Data URI*. Envoi en Base64 pur pour forcer l'Ã©criture permanente sur le disque dur.
-- [x] **BF11. PrioritÃ© streaming couvertures WebSockets (v1.5.6) :** prioritÃ© de la saisie manuelle dans la modal ; filtrage des frames live par `series_id`. *(Note : les jetons chronologiques `stream_id` sont documentÃ©s comme durcissement prÃ©vu â€” pas encore branchÃ©s client/serveur ; Ã©cart connu.)*
-- [x] **BF12. Verrouillage Anti-Ã‰crasement (v1.5.6) :** Appliquer une couverture manuellement dÃ©coche dÃ©sormais automatiquement le champ "Couverture" de la sÃ©rie pour la protÃ©ger contre les futures synchronisations.
-- [x] **BF13. VÃ©ritable Purge du Contexte (ISBN) (v1.5.6) :** Correction critique purgeant rÃ©ellement l'ISBN lors d'une rÃ©initialisation de contexte pour Ã©viter les boucles de faux-positifs lors du forÃ§age de mÃ©tadonnÃ©es.
+- [x] **C46. Origins CORS autorisées (v1.6.0) :** Variable Docker `CORS_ALLOWED_ORIGINS` (CSV) pour Flask HTTP + Socket.IO derrière Traefik/HTTPS.
+- [x] **C48. KAVITA_EXTERNAL_URL (v1.6.0) :** URL publique Kavita séparée pour les liens UI, vs `KAVITA_URL` interne pour les appels API Docker (merci LazyGeniusMan).
+- [x] **BF19. Timeout d'écriture Kavita & faux négatif RE-LOCK (v1.6.0) :** `KAVITA_HTTP_TIMEOUT` configurable (défaut 60s) ; soft-success si écriture OK mais RE-LOCK échoue ; un retry plafonné du seul RE-LOCK (issue SqueezedByte).
+- [x] **C49. MAX_TAGS configurable (v1.6.0) :** Plafond env/`config.json` des tags écrits dans Kavita (défaut 15, borné 1–100) ; scrapers + enrichissement via `get_max_tags()` — pas d'UI (retour LazyGeniusMan).
+- [x] **C51. MAX_GENRES configurable (v1.6.0) :** Plafond env/`config.json` des genres (défaut 5, borné 1–50) ; scrapers à listes dynamiques + `enrichment_engine` via `get_max_genres()` — pas d'UI. Homogénéisé avec tags AniList / categories MangaUpdates sous `MAX_TAGS`.
+- [x] **C32. Refonte Flask Blueprints (v1.6.0) :** Découpage de l'ancien `app.py` monolithique en Blueprints `routes/`, plus `services/`, `models.py`, et un point d'assemblage mince.
+- [x] **BF20–BF41 + C50. Durcissement suite audit applicatif (v1.6.0) :** Critical/High/Medium + Low polish (plus de fallback SECRET_KEY hardcodé, clé API non loguée, proxy_domains ComicVine restreint, `MAX_GENRES` / `get_max_genres()`). `ADMIN_PASSWORD` vide laissé volontaire.
+- [x] **BF42–BF45. Suivi post-audit (v1.6.0) :** logs sans fuite de clés ; redirects couverture + CDN ; blocage IPs privées ; Escape ferme le changelog ; CODE_REVIEW MAL/Nautiljon.
+- [x] **BF18. Préférence d'Éditeur par Série Jamais Sauvegardée (v1.6.0) :** L'endpoint `/save-override` lisait bien l'interrupteur d'Éditeur par série (`Auto`/`VF/VA`/`VO`) mais ne le transmettait jamais à la base de données, le réinitialisant silencieusement à `GLOBAL` à chaque sauvegarde. La préférence par série est désormais correctement persistée et respectée par les scrapers.
+- [x] **BF14. Correction Corruption LocalizedName & Crash KOReader/Kamare (v1.5.8) :** `update_series_general()` récupère désormais systématiquement l'état complet de la série avant d'écrire, empêchant Kavita d'effacer silencieusement `LocalizedName` et de déverrouiller de force `NameLocked`/`SortNameLocked`/`LocalizedNameLocked` lors de mises à jour partielles (ex: changement du seul format). Cause racine d'un crash signalé sur l'extension KOReader "Kamare".
+- [x] **BF15. Fuite de Champs Système dans les Métadonnées (v1.5.8) :** Centralisation de l'assainissement des champs calculés en lecture seule (`totalCount`, `maxCount`, `pages`, `wordCount`) dans `update_series_metadata()`, évitant leur réinjection dans `POST /api/Series/metadata` et le risque d'exceptions de concurrence Entity Framework Core.
+- [x] **BF16. Mapping du Statut "Terminé" MangaBaka (v1.5.8) :** Correction du statut brut `completed` de MangaBaka qui ne correspondait jamais à la clé interne `FINISHED`, laissant les séries terminées silencieusement bloquées en "En cours" dans Kavita.
+- [x] **BF17. Typo d'Attribut `BaseScraper` (v1.5.8) :** Correction de `eeds_api_key` en `needs_api_key` sur l'attribut par défaut de la classe de base des scrapers.
+- [x] **C41. Scrapers Communautaires Sideloadés (v1.5.7) :** Chargement dynamique des scripts Python déposés dans le volume utilisateur `data/scrapers/`. Permet d'ajouter des sites à la volée sans recompiler l'image Docker.
+- [x] **C42. Préférence d'Éditeur (v1.5.7) :** Ajout d'un interrupteur segmenté par série (`Auto` | `VF/VA` | `VO`) pour prioriser l'éditeur localisé (ex: *Glénat*) ou l'éditeur d'origine (ex: *Shueisha*).
+- [x] **C15. Titre de Secours (Fallback Expérimental) (v1.5.7) :** Filet de sécurité traduisant automatiquement un titre non-trouvé vers l'anglais pour relancer une seconde recherche sur les API.
+- [x] **C43. Migrations SQLite Sécurisées (v1.5.7) :** Initialisation robuste (`_ensure_schema`) ajoutant les colonnes manquantes sans provoquer de crash HTTP 500.
+- [x] **C44. Guide Scrapers & Vibecoding (v1.5.7) :** Publication de `CUSTOM_SCRAPERS.md` incluant les règles d'intégration et les Prompts IA prêts à l'emploi.
+- [x] **BF10. Payload Base64 Pur (v1.5.6) :** Résolution du bug des "couvertures fantômes" où Kavita rejetait les images *Data URI*. Envoi en Base64 pur pour forcer l'écriture permanente sur le disque dur.
+- [x] **BF11. Priorité streaming couvertures WebSockets (v1.5.6) :** priorité de la saisie manuelle dans la modal ; filtrage des frames live par `series_id`. *(Note : les jetons chronologiques `stream_id` sont documentés comme durcissement prévu — pas encore branchés client/serveur ; écart connu.)*
+- [x] **BF12. Verrouillage Anti-Écrasement (v1.5.6) :** Appliquer une couverture manuellement décoche désormais automatiquement le champ "Couverture" de la série pour la protéger contre les futures synchronisations.
+- [x] **BF13. Véritable Purge du Contexte (ISBN) (v1.5.6) :** Correction critique purgeant réellement l'ISBN lors d'une réinitialisation de contexte pour éviter les boucles de faux-positifs lors du forçage de métadonnées.
 
 ---
 
-### ðŸ“¦ Archives : Scrapers Cibles & Nouvelles FonctionnalitÃ©s (V1.5.0+)
-- [x] **C1. Scraper MyAnimeList (MAL) :** IntÃ©gration de l'API publique et gratuite Jikan v4.
-- [x] **C2. Scraper MangaDex :** IntÃ©gration de l'API REST officielle MangaDex v5.
+### 📦 Archives : Scrapers Cibles & Nouvelles Fonctionnalités (V1.5.0+)
+- [x] **C1. Scraper MyAnimeList (MAL) :** Intégration de l'API publique et gratuite Jikan v4.
+- [x] **C2. Scraper MangaDex :** Intégration de l'API REST officielle MangaDex v5.
 - [x] **C3. Scraper Baka-Updates (MangaUpdates) :** Exploitation de l'API REST v1.
 - [x] **C4. Scraper Kitsu :** Ajout de la source Kitsu comme repli international rapide.
 - [x] **C5. Scraper Manga-News :** Scraping `curl_cffi` du catalogue VF.
-- [x] **C6. Scraper BÃ©dÃ©thÃ¨que :** Scraping BeautifulSoup4 optimisÃ© pour la bande dessinÃ©e franco-belge.
-- [x] **C23. Scraper Shikimori :** API REST JSON avec Ã©valuation multilingue.
+- [x] **C6. Scraper Bédéthèque :** Scraping BeautifulSoup4 optimisé pour la bande dessinée franco-belge.
+- [x] **C23. Scraper Shikimori :** API REST JSON avec évaluation multilingue.
 - [x] **C24. Scraper Open Library :** API Internet Archive pour les romans, livres et BDs.
-- [x] **C16. Scraper Hardcover :** IntÃ©gration des terminaux GraphQL Hasura & Typesense.
-- [x] **C6. Support des BD Occidentales & Romans (B10) :** IntÃ©gration de l'API Google Books.
-- [x] **C14. Recherche de Couvertures Contextuelle :** Filtrer dynamiquement les fournisseurs interrogÃ©s dans la modal selon le type de bibliothÃ¨que Kavita.
+- [x] **C16. Scraper Hardcover :** Intégration des terminaux GraphQL Hasura & Typesense.
+- [x] **C6. Support des BD Occidentales & Romans (B10) :** Intégration de l'API Google Books.
+- [x] **C14. Recherche de Couvertures Contextuelle :** Filtrer dynamiquement les fournisseurs interrogés dans la modal selon le type de bibliothèque Kavita.
 - [x] **C17. Support Reverse Proxy & Subpath :** Ajout de la variable `ROOT_PATH` et d'un middleware WSGI.
 - [x] **C18. Le "Champ Magique" (Routage URL Intelligent) :** Remplacement de l'ancien champ d'ID par un analyseur universel d'URL/ID.
-- [x] **C19. Scraping Granulaire (Champs CiblÃ©s) :** Prise en charge du ciblage individuel des 12 champs de mÃ©tadonnÃ©es.
-- [x] **C20. Auto-RÃ©paration de la Configuration (Self-Healing) :** Validation dynamique des cascades de recherche.
-- [x] **C21. Moteur Smart ID Match :** Validateur par similaritÃ© de titre (>50%).
-- [x] **C22. Mappage API Kavita Ã‰tendu :** Ajout des Ã‰diteurs (Staff), Lettreurs, Encreurs et de la Langue native.
+- [x] **C19. Scraping Granulaire (Champs Ciblés) :** Prise en charge du ciblage individuel des 12 champs de métadonnées.
+- [x] **C20. Auto-Réparation de la Configuration (Self-Healing) :** Validation dynamique des cascades de recherche.
+- [x] **C21. Moteur Smart ID Match :** Validateur par similarité de titre (>50%).
+- [x] **C22. Mappage API Kavita Étendu :** Ajout des Éditeurs (Staff), Lettreurs, Encreurs et de la Langue native.
 - [x] **C25. Streaming de Couvertures par WebSockets (*Progressive Loading*) :** Envoi en direct au fil de l'eau via Socket.IO des images.
-- [x] **C26. ForÃ§age des IgnorÃ©s & Amnesties Ã‰largies :** Traitement des sÃ©ries ignorÃ©es cochÃ©es en batch et rÃ©initialisation conjointe de `NOT_FOUND` et `IGNORED`.
-- [x] **C28. Extraction Profonde des MÃ©tadonnÃ©es Kavita & Scoring UnifiÃ© :** PrÃ©-rÃ©cupÃ©rer les mÃ©tadonnÃ©es existantes (`auteurs`, `ISBN`) avant le scraping.
-- [x] **C34. Rate-Limiter Intelligente & Throttling Dynamique :** Remplacement des pauses fixes par un rÃ©gulateur par horodatage (`LAST_REQUEST_TIMES`).
-- [x] **C36. Suite de Tests & Benchmarks QualitÃ© :** Scripts unitaires autonomes pour tester 20 cas limites de scoring.
-- [x] **C37. Refonte ComicVine & Fallback Tome #1 :** Utilisation de l'endpoint structurÃ© `/volumes/?filter=name:`.
-- [x] **C38. ForÃ§age Libre des Fournisseurs :** DÃ©blocage de l'ensemble des scrapers dans le menu dÃ©roulant du Champ Magique.
-- [x] **C9. Traducteur Multi-API RÃ©silient :** Couche d'abstraction combinant Microsoft Azure Translator et DeepL.
-- [x] **C10. Routage Dynamique & Pattern Factory :** Extraction automatique du type de bibliothÃ¨que Kavita.
-- [x] **C11. Scraper ComicVine Hybride :** Recherche adaptative par album (Issue) et rÃ©solution de la sÃ©rie parente (Volume).
-- [x] **C12. Nettoyage Contextuel de Titre :** Logique de nettoyage adaptative selon le format du mÃ©dia.
-- [x] **C13. Purge de Fournisseur (Nautiljon) :** Retrait dÃ©finitif de Nautiljon du routage par dÃ©faut face aux blocages Cloudflare.
+- [x] **C26. Forçage des Ignorés & Amnesties Élargies :** Traitement des séries ignorées cochées en batch et réinitialisation conjointe de `NOT_FOUND` et `IGNORED`.
+- [x] **C28. Extraction Profonde des Métadonnées Kavita & Scoring Unifié :** Pré-récupérer les métadonnées existantes (`auteurs`, `ISBN`) avant le scraping.
+- [x] **C34. Rate-Limiter Intelligente & Throttling Dynamique :** Remplacement des pauses fixes par un régulateur par horodatage (`LAST_REQUEST_TIMES`).
+- [x] **C36. Suite de Tests & Benchmarks Qualité :** Scripts unitaires autonomes pour tester 20 cas limites de scoring.
+- [x] **C37. Refonte ComicVine & Fallback Tome #1 :** Utilisation de l'endpoint structuré `/volumes/?filter=name:`.
+- [x] **C38. Forçage Libre des Fournisseurs :** Déblocage de l'ensemble des scrapers dans le menu déroulant du Champ Magique.
+- [x] **C9. Traducteur Multi-API Résilient :** Couche d'abstraction combinant Microsoft Azure Translator et DeepL.
+- [x] **C10. Routage Dynamique & Pattern Factory :** Extraction automatique du type de bibliothèque Kavita.
+- [x] **C11. Scraper ComicVine Hybride :** Recherche adaptative par album (Issue) et résolution de la série parente (Volume).
+- [x] **C12. Nettoyage Contextuel de Titre :** Logique de nettoyage adaptative selon le format du média.
+- [x] **C13. Purge de Fournisseur (Nautiljon) :** Retrait définitif de Nautiljon du routage par défaut face aux blocages Cloudflare.
 
-### ðŸ› Archives : Corrections de Bugs & SÃ©curitÃ© (V1.4.x / V1.5.x)
-- [x] **BF1. Bug de Surcharge de Mot de Passe en Env Var :** RÃ©solution du problÃ¨me oÃ¹ vider le mot de passe dans le `docker-compose.yml` Ã©chouait.
-- [x] **BF2. Nettoyage de Session Ã  la DÃ©connexion :** Le bouton de dÃ©connexion dÃ©truit dÃ©sormais entiÃ¨rement le cookie de session longue durÃ©e.
-- [x] **BF3. Recherche de Couvertures Contextuelle** : Correction d'une rÃ©gression oÃ¹ la recherche manuelle d'images interrogeait tous les fournisseurs.
-- [x] **BF4. Bug d'Ã‰crasement par les Spin-offs (BÃ©dÃ©thÃ¨que)** : RÃ©solution d'un problÃ¨me avec le tri alphabÃ©tique.
-- [x] **BF5. Correction du Parsing des Ã‰diteurs (Publisher) :** RÃ©solution d'un oubli de parsing.
-- [x] **BF6. Option de DÃ©sactivation de la Traduction :** Ajout d'un paramÃ¨tre (`NONE`) pour dÃ©sactiver complÃ¨tement le pipeline de traduction.
+### 🐛 Archives : Corrections de Bugs & Sécurité (V1.4.x / V1.5.x)
+- [x] **BF1. Bug de Surcharge de Mot de Passe en Env Var :** Résolution du problème où vider le mot de passe dans le `docker-compose.yml` échouait.
+- [x] **BF2. Nettoyage de Session à la Déconnexion :** Le bouton de déconnexion détruit désormais entièrement le cookie de session longue durée.
+- [x] **BF3. Recherche de Couvertures Contextuelle** : Correction d'une régression où la recherche manuelle d'images interrogeait tous les fournisseurs.
+- [x] **BF4. Bug d'Écrasement par les Spin-offs (Bédéthèque)** : Résolution d'un problème avec le tri alphabétique.
+- [x] **BF5. Correction du Parsing des Éditeurs (Publisher) :** Résolution d'un oubli de parsing.
+- [x] **BF6. Option de Désactivation de la Traduction :** Ajout d'un paramètre (`NONE`) pour désactiver complètement le pipeline de traduction.
 - [x] **BF7. Contexte Jinja Global de Version :** Rendu de la variable `app_version` directement depuis `CHANGELOG.md`.
-- [x] **BF8. Moteur Dynamique de ClÃ©s API :** Support de `needs_api_key=True` dans `BaseScraper`.
-- [x] **BF9. Traductions DÃ©centralisÃ©es (i18n) :** Les scrapers encapsulent dÃ©sormais leurs propres traductions via `self.t()`.
+- [x] **BF8. Moteur Dynamique de Clés API :** Support de `needs_api_key=True` dans `BaseScraper`.
+- [x] **BF9. Traductions Décentralisées (i18n) :** Les scrapers encapsulent désormais leurs propres traductions via `self.t()`.
 
-### ðŸ—ï¸ Archives : Ergonomie & Refonte Visuelle (V1.4.0 / V1.5.0)
-- [x] **B1 Ã  B6 :** Mappage et verrouillage des Genres, Tags, titres localisÃ©s, et staff Ã©tendu dans Kavita.
-- [x] **B7 Ã  B9 :** Statut "IgnorÃ©", Polling d'Auto-Sync, routage de repli intelligent, et fusion des donnÃ©es.
+### 🏗️ Archives : Ergonomie & Refonte Visuelle (V1.4.0 / V1.5.0)
+- [x] **B1 à B6 :** Mappage et verrouillage des Genres, Tags, titres localisés, et staff étendu dans Kavita.
+- [x] **B7 à B9 :** Statut "Ignoré", Polling d'Auto-Sync, routage de repli intelligent, et fusion des données.
 - [x] **B11. Authentification globale :** Verrouillage de l'interface par variable d'environnement `ADMIN_PASSWORD`.
-- [x] **B14 Ã  B15 :** Modal visuelle de sÃ©lection des couvertures & API MangaBaka V2.
+- [x] **B14 à B15 :** Modal visuelle de sélection des couvertures & API MangaBaka V2.
 - [x] **B16. Nettoyeur Regex Ultime :** Centralisation de `clean_title()`.
-- [x] **B17. Barre de recherche AJAX :** Filtrage instantanÃ© cÃ´tÃ© client sans rechargement de page.
-- [x] **B18. MÃ©tadonnÃ©es Ã‰tendues :** Ã‰diteurs, classification d'Ã‚ge, et sens de lecture automatique.
-- [x] **B19. Identifiants & Liens Web :** Remplissage des ID natifs et gÃ©nÃ©ration automatique de WebLinks cliquables.
-- [x] **B20. Refonte de l'Architecture UI :** DÃ©placement de la configuration technique dans une modal dÃ©diÃ©e.
+- [x] **B17. Barre de recherche AJAX :** Filtrage instantané côté client sans rechargement de page.
+- [x] **B18. Métadonnées Étendues :** Éditeurs, classification d'âge, et sens de lecture automatique.
+- [x] **B19. Identifiants & Liens Web :** Remplissage des ID natifs et génération automatique de WebLinks cliquables.
+- [x] **B20. Refonte de l'Architecture UI :** Déplacement de la configuration technique dans une modal dédiée.
 - [x] **B21. Recherche Manuelle de Couvertures :** Saisie libre d'un titre alternatif directement dans la modal.
-- [x] **B22. Suivi de Traitement Live (Pulsation Violette) :** Coloration dynamique et dÃ©filement automatique vers la ligne active.
-- [x] **B23. Recherche d'ID Rapide (Quick Lookup) :** Bouton loupe ouvrant une recherche prÃ©-remplie sur AniList.
+- [x] **B22. Suivi de Traitement Live (Pulsation Violette) :** Coloration dynamique et défilement automatique vers la ligne active.
+- [x] **B23. Recherche d'ID Rapide (Quick Lookup) :** Bouton loupe ouvrant une recherche pré-remplie sur AniList.
 - [x] **B24. Persistance de l'Espace de Travail :** Sauvegarde automatique des filtres dans le `localStorage`.
 
-### ðŸ› ï¸ Archives : Fondations & SÃ©curitÃ© (V1.3+)
-- [x] **A1 Ã  A6 :** IntÃ©gration de l'API, Live Logs, 100% AJAX, ponts de traductions globaux, UI adaptative.
-- [x] **A7 Ã  A9 :** Cache SQLite auto-nettoyant, Ã©crans d'erreurs de connexion explicites, dÃ©ploiement sans configuration.
+### 🛠️ Archives : Fondations & Sécurité (V1.3+)
+- [x] **A1 à A6 :** Intégration de l'API, Live Logs, 100% AJAX, ponts de traductions globaux, UI adaptative.
+- [x] **A7 à A9 :** Cache SQLite auto-nettoyant, écrans d'erreurs de connexion explicites, déploiement sans configuration.
 - [x] **A10. Serveur WSGI de Production :** Migration vers l'architecture asynchrone Eventlet + Gunicorn.
-- [x] **A11. SÃ©curitÃ© Globale :** Proxy d'images anti-SSRF, authentification immunisÃ©e contre les attaques temporelles (`compare_digest`), cookies HttpOnly, masquage des clÃ©s API, webhooks sÃ©curisÃ©s par jeton.
+- [x] **A11. Sécurité Globale :** Proxy d'images anti-SSRF, authentification immunisée contre les attaques temporelles (`compare_digest`), cookies HttpOnly, masquage des clés API, webhooks sécurisés par jeton.

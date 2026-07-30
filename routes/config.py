@@ -85,16 +85,27 @@ def save_config_ajax():
 
         config['SMART_COMPLETION'] = request.form.get('SMART_COMPLETION') == 'true'
         config['SMART_SCORING'] = request.form.get('SMART_SCORING') == 'true'
+        was_manual = bool(config.get('MANUAL_REVIEW_MODE'))
+        was_confirm = bool(config.get('CONFIRM_BEFORE_WRITE'))
         config['MANUAL_REVIEW_MODE'] = request.form.get('MANUAL_REVIEW_MODE') == 'true'
         config['MANUAL_REVIEW_EDIT'] = request.form.get('MANUAL_REVIEW_EDIT') == 'true'
+        config['CONFIRM_BEFORE_WRITE'] = request.form.get('CONFIRM_BEFORE_WRITE') == 'true'
         config['MANUAL_REVIEW_SOUNDS'] = request.form.get('MANUAL_REVIEW_SOUNDS') == 'true'
         config['MANUAL_REVIEW_SUPER'] = request.form.get('MANUAL_REVIEW_SUPER') == 'true'
+        config['MANUAL_REVIEW_COVER_PICK'] = request.form.get('MANUAL_REVIEW_COVER_PICK') == 'true'
+        if not config['MANUAL_REVIEW_MODE']:
+            config['MANUAL_REVIEW_SUPER'] = False
+            config['MANUAL_REVIEW_COVER_PICK'] = False
+            config['MANUAL_REVIEW_SOUNDS'] = False
         config['MATCH_THRESHOLD_CUSTOM'] = request.form.get('MATCH_THRESHOLD_CUSTOM') == 'true'
-        try:
-            config['MATCH_ACCEPT_THRESHOLD'] = float(
-                request.form.get('MATCH_ACCEPT_THRESHOLD', 0.60)
-            )
-        except (TypeError, ValueError):
+        if config['MATCH_THRESHOLD_CUSTOM']:
+            try:
+                config['MATCH_ACCEPT_THRESHOLD'] = float(
+                    request.form.get('MATCH_ACCEPT_THRESHOLD', 0.60)
+                )
+            except (TypeError, ValueError):
+                config['MATCH_ACCEPT_THRESHOLD'] = 0.60
+        else:
             config['MATCH_ACCEPT_THRESHOLD'] = 0.60
         config['RESET_CONTEXT_ON_FORCE'] = request.form.get('RESET_CONTEXT_ON_FORCE') == 'true'
 
@@ -131,6 +142,35 @@ def save_config_ajax():
         config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'
 
         save_config(config)
+
+        # Désactivation du mode manuel : purge la file pour éviter des séries
+        # gelées en PENDING_REVIEW (l'auto-sync les exclut).
+        if was_manual and not config['MANUAL_REVIEW_MODE']:
+            try:
+                from services.manual_review import purge_all_reviews
+                result = purge_all_reviews(reset_status="PENDING")
+                deleted = int(result.get("deleted") or 0)
+                if deleted:
+                    logging.info(
+                        "[Config] Mode manuel désactivé — file purgée (%s review(s)).",
+                        deleted,
+                    )
+            except Exception as exc:
+                logging.warning("[Config] Purge file manuelle après désactivation : %s", exc)
+
+        # Désactivation confirm-before-write : purge uniquement les parks auto.
+        if was_confirm and not config['CONFIRM_BEFORE_WRITE'] and not config['MANUAL_REVIEW_MODE']:
+            try:
+                from services.manual_review import purge_auto_confirm_reviews
+                result = purge_auto_confirm_reviews(reset_status="PENDING")
+                deleted = int(result.get("deleted") or 0)
+                if deleted:
+                    logging.info(
+                        "[Config] Confirm-before-write désactivé — %s preview(s) purgé(s).",
+                        deleted,
+                    )
+            except Exception as exc:
+                logging.warning("[Config] Purge auto-confirm après désactivation : %s", exc)
     return jsonify(success=True)
 
 

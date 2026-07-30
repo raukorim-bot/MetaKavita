@@ -301,9 +301,12 @@ class KavitaAPI:
         Mécanisme C# Lock Guard à 2 Passages :
         1. Passage 1 : force tous les clés `...Locked` à False pour autoriser l'écriture en base BDD.
         2. Passage 2 : ré-applique le dictionnaire d'origine avec les clés `...Locked` à True pour verrouiller la fiche.
+
+        Returns:
+            (ok, message, sealed) — sealed=False si écriture OK mais re-lock échoué.
         """
         if not self.token and not self.authenticate():
-            return False, "Non authentifié"
+            return False, "Non authentifié", False
 
         try:
             # ASSAINISSEMENT (kavita_api.md §4.1) : le dict `metadata` provient généralement
@@ -337,7 +340,7 @@ class KavitaAPI:
             logging.info(f"   📥 Réponse Kavita (Code {res_unlock.status_code}) : {res_unlock.text}")
 
             if res_unlock.status_code != 200:
-                return False, f"Code {res_unlock.status_code} : {res_unlock.text}"
+                return False, f"Code {res_unlock.status_code} : {res_unlock.text}", False
 
             # ÉTAPE 2 : Verrouillage de sécurité pour protéger les métadonnées contre les scans de fichiers futurs
             payload_lock = {"seriesMetadata": metadata}
@@ -350,12 +353,12 @@ class KavitaAPI:
                 write_timeout=write_timeout,
             )
             if sealed:
-                return True, "Succès"
+                return True, "Succès", True
             # Soft-success : l'étape 1 a déjà persisté les valeurs (cf. issue SqueezedByte).
-            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})"
+            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})", False
         except Exception as e:
             logging.error(f"❌ [AUDIT KAVITA] Crash Metadata : {e}")
-            return False, str(e)
+            return False, str(e), False
 
     def update_series_general(self, series_id: int, localized_name: str = None, format_val: int = None) -> tuple:
         """
@@ -385,18 +388,18 @@ class KavitaAPI:
         détruire davantage.
         """
         if not self.token and not self.authenticate():
-            return False, "Non authentifié"
+            return False, "Non authentifié", False
 
         # Sécurité / perf : ne rien faire (et surtout ne pas déclencher de GET inutile)
         # si aucune modification n'est demandée.
         if localized_name is None and format_val is None:
-            return True, "Aucune mise à jour générale"
+            return True, "Aucune mise à jour générale", True
 
         # Snapshot de l'état actuel AVANT toute écriture : c'est la seule façon de savoir
         # ce qu'il ne faut surtout pas nuller (voir avertissement ci-dessus).
         current = self.get_series(series_id)
         if not current:
-            return False, "Impossible de récupérer l'état actuel de la série (GET /api/Series/{id} a échoué) — mise à jour annulée par sécurité pour éviter d'écraser localizedName/verrous existants."
+            return False, "Impossible de récupérer l'état actuel de la série (GET /api/Series/{id} a échoué) — mise à jour annulée par sécurité pour éviter d'écraser localizedName/verrous existants.", False
 
         current_name = current.get('name')
         current_sort_name = current.get('sortName')
@@ -455,7 +458,7 @@ class KavitaAPI:
             logging.info(f"   📥 Réponse Kavita (Code {res_unlock.status_code}) : {res_unlock.text}")
 
             if res_unlock.status_code != 200:
-                return False, f"Code {res_unlock.status_code} : {res_unlock.text}"
+                return False, f"Code {res_unlock.status_code} : {res_unlock.text}", False
 
             # Passage 2 : Application du verrou de sécurité
             logging.info("👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 2 : RE-LOCK)")
@@ -466,11 +469,84 @@ class KavitaAPI:
                 write_timeout=write_timeout,
             )
             if sealed:
-                return True, "Succès"
-            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})"
+                return True, "Succès", True
+            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})", False
         except Exception as e:
             logging.error(f"❌ [AUDIT KAVITA] Crash General : {e}")
-            return False, str(e)
+            return False, str(e), False
+
+    def seal_series_locks(self, series_id) -> tuple:
+        """
+        Pose les verrous Kavita sans re-scraper : GET état actuel → POST *Locked=True.
+
+        Utile après un soft-fail re-lock (statut NEEDS_RELOCK). Un seul passage
+        (pas d'unlock) : les valeurs sont déjà en base, on scelle seulement.
+
+        Returns:
+            (ok, message)
+        """
+        if not self.token and not self.authenticate():
+            return False, "Non authentifié"
+
+        series_id = int(series_id)
+        write_timeout = self._write_timeout()
+
+        meta = self.get_series_metadata(series_id)
+        if not meta:
+            return False, "Impossible de lire les métadonnées Kavita"
+
+        for system_key in ("created", "lastModified", "totalCount", "maxCount", "pages", "wordCount"):
+            meta.pop(system_key, None)
+        for key, val in list(meta.items()):
+            if key.endswith("Locked") and isinstance(val, bool):
+                meta[key] = True
+        meta["seriesId"] = series_id
+
+        try:
+            res_meta = requests.post(
+                f"{self.url}/api/Series/metadata",
+                json={"seriesMetadata": meta},
+                headers=self.headers,
+                timeout=write_timeout,
+            )
+            if res_meta.status_code != 200:
+                return False, f"Metadata seal HTTP {res_meta.status_code}: {res_meta.text}"
+        except Exception as exc:
+            return False, f"Metadata seal: {exc}"
+
+        current = self.get_series(series_id)
+        if not current:
+            return False, "Metadata scellées ; GET série échoué pour sceller localizedName/format"
+
+        general_payload = {
+            "id": series_id,
+            "name": current.get("name"),
+            "sortName": current.get("sortName"),
+            "localizedName": current.get("localizedName"),
+            "nameLocked": bool(current.get("nameLocked", False)),
+            "sortNameLocked": bool(current.get("sortNameLocked", False)),
+            "localizedNameLocked": True,
+        }
+        if current.get("format") is not None:
+            try:
+                general_payload["format"] = int(current.get("format"))
+                general_payload["formatLocked"] = True
+            except (TypeError, ValueError):
+                pass
+
+        try:
+            res_gen = requests.post(
+                f"{self.url}/api/Series/update",
+                json=general_payload,
+                headers=self.headers,
+                timeout=write_timeout,
+            )
+            if res_gen.status_code != 200:
+                return False, f"General seal HTTP {res_gen.status_code}: {res_gen.text}"
+        except Exception as exc:
+            return False, f"General seal: {exc}"
+
+        return True, "Verrous posés"
 
     def upload_series_cover(self, series_id, cover_url):
         if not self.token and not self.authenticate():

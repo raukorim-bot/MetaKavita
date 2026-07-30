@@ -658,8 +658,8 @@ def test_apply_manual_review_records_top1_and_edits(isolated_db, mocker):
     from kavita_api import KavitaAPI
     mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
     mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 100, "summary": ""})
-    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok"))
-    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok"))
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
     mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
     mocker.patch.object(KavitaAPI, "upload_series_cover", return_value=(True, "ok"))
 
@@ -707,8 +707,8 @@ def test_apply_manual_review_non_top1(isolated_db, mocker):
     from kavita_api import KavitaAPI
     mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
     mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 101, "summary": ""})
-    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok"))
-    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok"))
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
     mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
 
     ok, msg, detail = enrichment_engine.apply_manual_review(
@@ -856,12 +856,12 @@ def test_apply_manual_fusion_fills_holes_with_smart_completion_off(isolated_db, 
 
     def _capture_meta(meta):
         captured["meta"] = meta
-        return True, "ok"
+        return True, "ok", True
 
     mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
     mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 202, "summary": ""})
     mocker.patch.object(KavitaAPI, "update_series_metadata", side_effect=_capture_meta)
-    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok"))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
     mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
 
     ok, msg, detail = enrichment_engine.apply_manual_review(
@@ -986,3 +986,315 @@ def test_save_series_override_can_keep_pending(isolated_db):
     assert isolated_db.get_pending_review(rid) is not None
     assert isolated_db.get_all_cached_data()[88]["alternative_title"] == "New Title"
     assert isolated_db.get_all_cached_data()[88]["status"] == "PENDING_REVIEW"
+
+
+def test_park_idempotent_replaces_same_series(isolated_db):
+    """Une seule pending_reviews par series_id (UNIQUE + remplace)."""
+    payload = {
+        "above": [{"provider": "A", "score": 0.9, "title": "T1", "data": {"summary": "a"}}],
+        "below": [],
+        "query": "T1",
+    }
+    rid1 = mr.create_review_from_candidates(33, "Dup", payload)
+    payload2 = {
+        "above": [{"provider": "B", "score": 0.8, "title": "T2", "data": {"summary": "b"}}],
+        "below": [],
+        "query": "T2",
+    }
+    rid2 = mr.create_review_from_candidates(33, "Dup", payload2)
+    assert rid1 != rid2
+    assert isolated_db.count_pending_reviews() == 1
+    assert isolated_db.get_pending_review(rid1) is None
+    row = isolated_db.get_pending_review(rid2)
+    assert row is not None
+    assert row["series_id"] == 33
+    cands = __import__("json").loads(row["candidates_json"])
+    assert cands["above"][0]["provider"] == "B"
+    assert isolated_db.get_all_cached_data()[33]["status"] == "PENDING_REVIEW"
+
+
+def test_clean_orphaned_cache_purges_pending_reviews(isolated_db):
+    payload = {"above": [{"provider": "A", "score": 0.9, "title": "t", "data": {}}], "below": [], "query": "q"}
+    mr.create_review_from_candidates(501, "Gone", payload)
+    mr.create_review_from_candidates(502, "Keep", payload)
+    assert isolated_db.count_pending_reviews() == 2
+    n = isolated_db.clean_orphaned_cache({502})
+    assert n >= 1
+    assert isolated_db.count_pending_reviews() == 1
+    assert isolated_db.list_pending_reviews()[0]["series_id"] == 502
+
+
+def test_enrich_series_early_skip_preserves_pending_review(isolated_db, mocker):
+    """Résumé Kavita présent + force_update=False ne clobber pas PENDING_REVIEW."""
+    payload = {
+        "above": [{"provider": "A", "score": 0.9, "title": "T", "data": {"summary": "s"}}],
+        "below": [],
+        "query": "T",
+    }
+    rid = mr.create_review_from_candidates(777, "Parked", payload)
+    assert isolated_db.get_all_cached_data()[777]["status"] == "PENDING_REVIEW"
+
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "MANUAL_REVIEW_MODE": True,
+    })
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(
+        KavitaAPI, "get_series_metadata", return_value={"seriesId": 777, "summary": "already there"}
+    )
+
+    ok, msg, used = enrichment_engine.enrich_series(777, "Parked", force_update=False)
+    assert ok is True
+    assert msg == "PENDING_REVIEW"
+    assert isolated_db.get_pending_review(rid) is not None
+    assert isolated_db.get_all_cached_data()[777]["status"] == "PENDING_REVIEW"
+
+
+def test_enrich_series_early_skip_purges_orphan_review(isolated_db, mocker):
+    """COMPLETED path purge toute review orpheline quand résumé déjà présent."""
+    payload = {
+        "above": [{"provider": "A", "score": 0.9, "title": "T", "data": {"summary": "s"}}],
+        "below": [],
+        "query": "T",
+    }
+    rid = mr.create_review_from_candidates(778, "Orphan", payload)
+    # Simule un statut déjà désynchronisé (COMPLETED + review encore là)
+    isolated_db.update_status(778, "COMPLETED")
+
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "MANUAL_REVIEW_MODE": False,
+    })
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(
+        KavitaAPI, "get_series_metadata", return_value={"seriesId": 778, "summary": "already"}
+    )
+
+    ok, msg, used = enrichment_engine.enrich_series(778, "Orphan", force_update=False)
+    assert ok is True
+    assert msg == "Déjà à jour."
+    assert isolated_db.get_pending_review(rid) is None
+    assert isolated_db.count_pending_reviews() == 0
+
+
+def test_create_confirm_from_auto_parks_awaiting_confirm(isolated_db):
+    preview = {
+        "title": "One Piece",
+        "summary": "Pirates",
+        "year": 1997,
+        "genres": "Adventure",
+        "tags": "",
+        "publisher": "Shueisha",
+        "staff": "Oda",
+        "cover_url": "",
+        "localized_name": "",
+        "status": "",
+        "age_rating": "",
+        "format": "",
+    }
+    provider_data = {
+        "title": "One Piece",
+        "summary": "Pirates",
+        "year": 1997,
+        "genres": ["Adventure"],
+        "publisher": "Shueisha",
+        "staff": [{"name": "Oda", "role": "Story"}],
+    }
+    rid = mr.create_confirm_from_auto(
+        9001,
+        "One Piece",
+        provider_data,
+        preview,
+        actual_provider="MAL",
+        fusion_providers=["AniList"],
+        chosen_score=0.88,
+        query="One Piece",
+        force_update=False,
+    )
+    row = isolated_db.get_pending_review(rid)
+    assert row is not None
+    assert row["state"] == "awaiting_confirm"
+    assert row["base_provider"] == "MAL"
+    assert isolated_db.get_all_cached_data()[9001]["status"] == "PENDING_REVIEW"
+    cands = __import__("json").loads(row["candidates_json"])
+    assert cands["flow"] == "auto_confirm"
+    assert cands["force_update"] is False
+    assert len(cands["above"]) == 1
+    assert cands["above"][0]["provider"] == "MAL"
+    prev = __import__("json").loads(row["preview_json"])
+    assert prev["title"] == "One Piece"
+    assert prev["_flow"] == "auto_confirm"
+
+
+def test_purge_auto_confirm_leaves_manual_reviews(isolated_db):
+    manual_payload = {
+        "above": [{"provider": "A", "score": 0.9, "title": "M", "data": {"summary": "s"}}],
+        "below": [],
+        "query": "M",
+    }
+    rid_manual = mr.create_review_from_candidates(10, "Manual", manual_payload)
+    rid_auto = mr.create_confirm_from_auto(
+        11,
+        "Auto",
+        {"title": "Auto", "summary": "s"},
+        {"title": "Auto", "summary": "s"},
+        actual_provider="MAL",
+        force_update=True,
+    )
+    assert isolated_db.count_pending_reviews() == 2
+    result = mr.purge_auto_confirm_reviews(reset_status="PENDING")
+    assert result["deleted"] == 1
+    assert isolated_db.get_pending_review(rid_auto) is None
+    assert isolated_db.get_pending_review(rid_manual) is not None
+    assert isolated_db.get_all_cached_data()[11]["status"] == "PENDING"
+    assert isolated_db.get_all_cached_data()[10]["status"] == "PENDING_REVIEW"
+
+
+def test_apply_auto_confirm_skips_manual_telemetry(isolated_db, mocker):
+    preview = {"title": "T", "summary": "S", "year": "", "genres": "", "tags": "",
+               "publisher": "", "staff": "", "cover_url": "", "localized_name": "",
+               "status": "", "age_rating": "", "format": ""}
+    rid = mr.create_confirm_from_auto(
+        9200,
+        "ApplyAuto",
+        {"title": "T", "summary": "S"},
+        preview,
+        actual_provider="MAL",
+        chosen_score=0.8,
+        force_update=True,
+    )
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "AUTO_COVER": False,
+        "AUTO_READING_DIR": False,
+    })
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 9200})
+    mocker.patch(
+        "services.enrichment_engine.apply_kavita_payload",
+        return_value=(True, "ok", ["MAL"]),
+    )
+    tel = mocker.patch("services.enrichment_engine.record_manual_review_telemetry")
+
+    ok, msg, detail = enrichment_engine.apply_manual_review(
+        rid, "MAL", edited_preview={"summary": "Edited"}, field_edits=1
+    )
+    assert ok is True
+    assert detail.get("flow") == "auto_confirm"
+    tel.assert_not_called()
+    assert isolated_db.get_pending_review(rid) is None
+
+
+def test_apply_manual_review_force_cover_upload_without_auto_cover(isolated_db, mocker):
+    """cover_picked / cover_url édité → upload même si AUTO_COVER est off."""
+    payload = {
+        "above": [
+            {
+                "provider": "TOP",
+                "score": 0.9,
+                "title": "CoverMe",
+                "data": {
+                    "summary": "s",
+                    "title": "CoverMe",
+                    "cover_url": "https://cdn.example/old.jpg",
+                },
+            },
+        ],
+        "below": [],
+        "query": "CoverMe",
+    }
+    rid = mr.create_review_from_candidates(9300, "CoverMe", payload)
+
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "SMART_COMPLETION": False,
+        "TARGET_LANG": "FR",
+        "AUTO_COVER": False,
+        "AUTO_READING_DIR": False,
+    })
+    mocker.patch("services.kavita_payload.translate_text", side_effect=lambda text, *a, **k: text)
+    mocker.patch("services.kavita_payload._broadcast_enrichment_stats", lambda *a, **k: None)
+    mocker.patch.object(enrichment_engine, "_broadcast_enrichment_stats", lambda *a, **k: None)
+
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 9300, "summary": ""})
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
+    upload = mocker.patch.object(KavitaAPI, "upload_series_cover", return_value=(True, "ok"))
+
+    ok, msg, detail = enrichment_engine.apply_manual_review(
+        rid,
+        base_provider="TOP",
+        edited_preview={"cover_url": "https://cdn.example/picked.jpg"},
+        field_edits=1,
+        force_cover_upload=True,
+    )
+    assert ok is True, msg
+    upload.assert_called_once()
+    assert upload.call_args[0][1] == "https://cdn.example/picked.jpg"
+    assert isolated_db.get_pending_review(rid) is None
+
+
+def test_apply_manual_review_no_cover_upload_without_auto_or_pick(isolated_db, mocker):
+    """Sans AUTO_COVER ni cover_picked : pas d'upload même si le provider a une cover."""
+    payload = {
+        "above": [
+            {
+                "provider": "TOP",
+                "score": 0.9,
+                "title": "NoUpload",
+                "data": {
+                    "summary": "s",
+                    "title": "NoUpload",
+                    "cover_url": "https://cdn.example/prov.jpg",
+                },
+            },
+        ],
+        "below": [],
+        "query": "NoUpload",
+    }
+    rid = mr.create_review_from_candidates(9301, "NoUpload", payload)
+
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "SMART_COMPLETION": False,
+        "TARGET_LANG": "FR",
+        "AUTO_COVER": False,
+        "AUTO_READING_DIR": False,
+    })
+    mocker.patch("services.kavita_payload.translate_text", side_effect=lambda text, *a, **k: text)
+    mocker.patch("services.kavita_payload._broadcast_enrichment_stats", lambda *a, **k: None)
+    mocker.patch.object(enrichment_engine, "_broadcast_enrichment_stats", lambda *a, **k: None)
+
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 9301, "summary": ""})
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
+    upload = mocker.patch.object(KavitaAPI, "upload_series_cover", return_value=(True, "ok"))
+
+    ok, msg, detail = enrichment_engine.apply_manual_review(
+        rid,
+        base_provider="TOP",
+        edited_preview=None,
+        field_edits=0,
+        force_cover_upload=False,
+    )
+    assert ok is True, msg
+    upload.assert_not_called()

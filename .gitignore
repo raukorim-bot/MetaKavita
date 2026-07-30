@@ -4,6 +4,9 @@ data/
 # Essais / scratch perso (ne pas commit)
 dev_local/
 
+# Companion (C33) — WIP, ne pas publier trop tôt
+companion/
+
 # Configuration et secrets (TRÈS IMPORTANT)
 config.json
 docker-compose.yml

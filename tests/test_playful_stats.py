@@ -102,9 +102,9 @@ def test_compute_playful_stats_uses_lifetime_not_cache_completed():
     assert playful["completed"] == 2
     assert playful["charts"]["lifetime"]["values"] == [10, 25, 5]
     assert playful["charts"]["hit_miss"]["values"] == [10, 5]
-    assert playful["charts"]["status"]["values"] == [2, 1, 0, 1, 1]
+    assert playful["charts"]["status"]["values"] == [2, 0, 1, 0, 1, 1]
     assert playful["charts"]["status"]["labels"] == [
-        "COMPLETED", "PENDING", "PENDING_REVIEW", "NOT_FOUND", "IGNORED"
+        "COMPLETED", "NEEDS_RELOCK", "PENDING", "PENDING_REVIEW", "NOT_FOUND", "IGNORED"
     ]
     assert playful["champion"]["id"] == "ANILIST"
     assert playful["underdog"]["id"] == "KITSU"

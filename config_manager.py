@@ -72,10 +72,14 @@ def load_config():
             "MANUAL_REVIEW_MODE": False,
             # Après le pick : récap éditable (on) ou apply direct (off)
             "MANUAL_REVIEW_EDIT": True,
+            # Batch auto (MR off) : park preview → édition → confirm avant écriture Kavita
+            "CONFIRM_BEFORE_WRITE": False,
             # Sons optionnels (pick / confirm / skip) — défaut off
             "MANUAL_REVIEW_SOUNDS": False,
             # Super Review : tous les scrapers du type (lent) — défaut off
             "MANUAL_REVIEW_SUPER": False,
+            # Phase couverture dans la modale MR (pick → cover → edit? → confirm)
+            "MANUAL_REVIEW_COVER_PICK": False,
             # Baromètre de fiabilité : seuil d'acceptation des matches (défaut 0.60)
             "MATCH_THRESHOLD_CUSTOM": False,
             "MATCH_ACCEPT_THRESHOLD": 0.60,
@@ -213,7 +217,7 @@ def load_config():
             "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE", "ENABLE_PLAYFUL_STATS",
             "MATCH_THRESHOLD_CUSTOM",
             "MANUAL_REVIEW_MODE", "MANUAL_REVIEW_EDIT", "MANUAL_REVIEW_SOUNDS",
-            "MANUAL_REVIEW_SUPER",
+            "MANUAL_REVIEW_SUPER", "CONFIRM_BEFORE_WRITE", "MANUAL_REVIEW_COVER_PICK",
         ]:
             config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
 

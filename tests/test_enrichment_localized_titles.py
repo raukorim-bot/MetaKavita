@@ -82,7 +82,7 @@ def _patch_enrichment(mocker, isolated_db, config, cache=None):
         "isbn": None, "authors": [], "publisher": None, "year": None,
         "genres": [], "localized_name": None,
     })
-    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok"))
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
     mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
 
     if cache:
@@ -95,7 +95,7 @@ def test_enrichment_all_mode_joins_titles(mocker, isolated_db):
 
     def _cap(sid, localized_name=None, format_val=None):
         captured["localized_name"] = localized_name
-        return True, "ok"
+        return True, "ok", True
 
     _patch_enrichment(mocker, isolated_db, _base_config(LOCALIZED_TITLE_MODE="all"))
     mocker.patch.object(KavitaAPI, "update_series_general", side_effect=_cap)
@@ -110,7 +110,7 @@ def test_enrichment_prefer_mode_filters_langs(mocker, isolated_db):
 
     def _cap(sid, localized_name=None, format_val=None):
         captured["localized_name"] = localized_name
-        return True, "ok"
+        return True, "ok", True
 
     _patch_enrichment(
         mocker, isolated_db,
@@ -129,7 +129,7 @@ def test_enrichment_none_mode_skips_localized_name(mocker, isolated_db):
     def _cap(sid, localized_name=None, format_val=None):
         called["general"] = True
         called["localized_name"] = localized_name
-        return True, "ok"
+        return True, "ok", True
 
     _patch_enrichment(mocker, isolated_db, _base_config(LOCALIZED_TITLE_MODE="none"))
     mocker.patch.object(KavitaAPI, "update_series_general", side_effect=_cap)
@@ -145,7 +145,7 @@ def test_enrichment_series_override_langs_beats_global_all(mocker, isolated_db):
 
     def _cap(sid, localized_name=None, format_val=None):
         captured["localized_name"] = localized_name
-        return True, "ok"
+        return True, "ok", True
 
     _patch_enrichment(
         mocker, isolated_db,

@@ -4,17 +4,24 @@
 (function () {
     var queue = [];
     var currentIndex = 0;
+    var currentReviewId = null;
     var selectedProvider = null;
     var includeProviders = [];
     var baselinePreview = null;
-    var phase = "pick"; // pick | edit | recap
+    var phase = "pick"; // pick | cover | edit | waiting | recap
     var session = emptySession();
     var editEnabled = true;
+    var coverPickEnabled = false;
+    var coverPicked = false;
+    var providerCoverUrl = "";
     var soundsEnabled = false;
     var opening = false;
     var localPurgeInFlight = false;
     var researchInFlight = false;
+    var actionInFlight = false;
+    var loadQueueSeq = 0;
     var waitingSettleTimer = null;
+    var previouslyFocused = null;
 
     function emptySession() {
         return {
@@ -523,6 +530,8 @@
         editEnabled = editCb ? !!editCb.checked : true;
         var soundCb = document.getElementById("sidebar_manual_review_sounds");
         soundsEnabled = soundCb ? !!soundCb.checked : false;
+        var coverCb = document.getElementById("sidebar_manual_review_cover");
+        coverPickEnabled = !!(isManualModeOn() && coverCb && !coverCb.disabled && coverCb.checked);
     }
 
     function isManualModeOn() {
@@ -530,9 +539,31 @@
         return cb ? !!cb.checked : false;
     }
 
+    function isCoverPickOn() {
+        syncOptionsFromSidebar();
+        return !!coverPickEnabled;
+    }
+
+    function isConfirmBeforeWriteOn() {
+        var edit = document.getElementById("sidebar_manual_review_edit");
+        if (!edit) return false;
+        // Quand MR est off, la case pilote CONFIRM_BEFORE_WRITE (dataset).
+        if (isManualModeOn()) return false;
+        return (edit.dataset.confirmWrite || "false") === "true" || !!edit.checked;
+    }
+
+    function isReviewQueueModeOn() {
+        return isManualModeOn() || isConfirmBeforeWriteOn();
+    }
+
+    function isAutoConfirmReview(review) {
+        return !!(review && review.flow === "auto_confirm");
+    }
+
     function isSuperReviewOn() {
+        if (!isManualModeOn()) return false;
         var cb = document.getElementById("sidebar_manual_review_super");
-        return cb ? !!cb.checked : false;
+        return !!(cb && !cb.disabled && cb.checked);
     }
 
     function updateWaitPanelCopy() {
@@ -600,23 +631,97 @@
         }
     }
 
+    function safeCoverUrl(url) {
+        return toDisplayCoverUrl(url);
+    }
+
+    function reanchorIndex() {
+        if (currentReviewId) {
+            for (var i = 0; i < queue.length; i++) {
+                if (queue[i].review_id === currentReviewId) {
+                    currentIndex = i;
+                    return;
+                }
+            }
+            // Review courante disparue
+            currentReviewId = null;
+        }
+        if (currentIndex >= queue.length) {
+            currentIndex = Math.max(0, queue.length - 1);
+        }
+        var cur = queue[currentIndex];
+        currentReviewId = cur ? cur.review_id : null;
+    }
+
+    function removeFromQueue(reviewId) {
+        if (!reviewId) return;
+        queue = queue.filter(function (r) { return r.review_id !== reviewId; });
+        if (currentReviewId === reviewId) currentReviewId = null;
+        reanchorIndex();
+        updateBadge(queue.length);
+    }
+
+    function setActionBusy(busy) {
+        actionInFlight = !!busy;
+        ["mrPickBtn", "mrConfirmBtn", "mrSkipBtn"].forEach(function (id) {
+            var btn = document.getElementById(id);
+            if (btn) btn.disabled = !!busy;
+        });
+    }
+
     function currentReview() {
-        return queue[currentIndex] || null;
+        var r = queue[currentIndex] || null;
+        if (r) currentReviewId = r.review_id;
+        return r;
     }
 
     function loadQueue() {
+        var seq = ++loadQueueSeq;
         return api("/api/manual-reviews").then(function (data) {
+            if (seq !== loadQueueSeq) {
+                return { data: data, prevEmpty: false, stale: true };
+            }
             var prevEmpty = queue.length === 0;
             queue = data.reviews || [];
             updateBadge(data.count != null ? data.count : queue.length);
-            if (currentIndex >= queue.length) currentIndex = Math.max(0, queue.length - 1);
-            return { data: data, prevEmpty: prevEmpty };
+            reanchorIndex();
+            return { data: data, prevEmpty: prevEmpty, stale: false };
         });
     }
 
     function showModalShell() {
         var modal = document.getElementById("manualReviewModal");
-        if (modal) modal.style.display = "flex";
+        if (!modal) return;
+        previouslyFocused = document.activeElement;
+        modal.style.display = "flex";
+        modal.setAttribute("aria-hidden", "false");
+        // Focus initial : champ recherche ou bouton pick
+        var focusTarget = document.getElementById("mrSeriesQuery") || document.getElementById("mrPickBtn");
+        if (focusTarget) {
+            try { focusTarget.focus(); } catch (e) { /* ignore */ }
+        }
+    }
+
+    function trapFocus(e) {
+        if (!isModalOpen() || e.key !== "Tab") return;
+        var modal = document.getElementById("manualReviewModal");
+        if (!modal) return;
+        var focusables = modal.querySelectorAll(
+            'button:not([disabled]):not([style*="display: none"]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+        );
+        var list = Array.prototype.filter.call(focusables, function (el) {
+            return el.offsetParent !== null || el === document.activeElement;
+        });
+        if (!list.length) return;
+        var first = list[0];
+        var last = list[list.length - 1];
+        if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault();
+            last.focus();
+        } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault();
+            first.focus();
+        }
     }
 
     function renderCandidates() {
@@ -674,10 +779,12 @@
                 (c.provider === selectedProvider ? " is-selected" : "");
             el.dataset.provider = c.provider;
             el.dataset.index = String(idx + 1);
+            el.setAttribute("aria-pressed", c.provider === selectedProvider ? "true" : "false");
 
-            var cover = c.cover_url
-                ? '<img class="mr-cover" src="' + escapeHtml(c.cover_url) + '" alt="" loading="lazy">'
-                : '<div class="mr-cover mr-cover-empty"></div>';
+            var coverSrc = safeCoverUrl(c.cover_url);
+            var cover = coverSrc
+                ? '<img class="mr-cover" src="' + escapeHtml(coverSrc) + '" alt="" loading="lazy">'
+                : '<div class="mr-cover mr-cover-empty" aria-hidden="true"></div>';
             var score = (typeof c.score === "number") ? c.score.toFixed(2) : "—";
             var included = includeProviders.indexOf(c.provider) >= 0;
             var isMaster = c.provider === selectedProvider;
@@ -757,7 +864,11 @@
     }
 
     function canGoBack() {
-        if (phase === "edit") return true;
+        if (phase === "cover") return true;
+        if (phase === "edit") {
+            if (isAutoConfirmReview(currentReview())) return currentIndex > 0;
+            return true;
+        }
         if (phase === "pick" && currentIndex > 0) return true;
         return false;
     }
@@ -772,8 +883,8 @@
         currentIndex -= 1;
         selectedProvider = null;
         includeProviders = [];
-        setPhase("pick");
-        renderCandidates();
+        baselinePreview = null;
+        showCurrentReview();
         return true;
     }
 
@@ -806,11 +917,25 @@
                 kbdGroupHtml([enter], t("mr_kbd_act_confirm", "Confirmer")),
                 kbdGroupHtml([esc], t("mr_kbd_act_skip", "Passer"))
             ];
-        } else if (next === "edit") {
+        } else if (next === "cover") {
             groups = [
-                kbdGroupHtml([enter], t("mr_kbd_act_confirm", "Confirmer")),
-                kbdGroupHtml([esc, "⌫"], t("mr_kbd_act_back", "Retour"))
+                kbdGroupHtml([enter], t("mr_kbd_act_cover_continue", "Continuer")),
+                kbdGroupHtml([esc], t("mr_kbd_act_cover_skip", "Garder provider")),
+                kbdGroupHtml(["⌫"], t("mr_kbd_act_back", "Retour"))
             ];
+        } else if (next === "edit") {
+            var curEdit = currentReview();
+            if (isAutoConfirmReview(curEdit)) {
+                groups = [
+                    kbdGroupHtml([enter], t("mr_kbd_act_confirm", "Confirmer")),
+                    kbdGroupHtml([esc], t("mr_kbd_act_skip", "Passer"))
+                ];
+            } else {
+                groups = [
+                    kbdGroupHtml([enter], t("mr_kbd_act_confirm", "Confirmer")),
+                    kbdGroupHtml([esc, "⌫"], t("mr_kbd_act_back", "Retour"))
+                ];
+            }
         } else if (next === "waiting") {
             groups = [
                 kbdGroupHtml([esc], t("mr_kbd_act_later", "Plus tard"))
@@ -833,11 +958,14 @@
         phase = next;
         var pick = document.getElementById("mrPickPanel");
         var wait = document.getElementById("mrWaitPanel");
+        var cover = document.getElementById("mrCoverPanel");
         var edit = document.getElementById("mrEditPanel");
         var recap = document.getElementById("mrRecapPanel");
         var pickBtn = document.getElementById("mrPickBtn");
         var confirmBtn = document.getElementById("mrConfirmBtn");
         var skipBtn = document.getElementById("mrSkipBtn");
+        var coverContinueBtn = document.getElementById("mrCoverContinueBtn");
+        var coverSkipBtn = document.getElementById("mrCoverSkipBtn");
         var waitBtn = document.getElementById("mrWaitBtn");
         var laterBtn = document.getElementById("mrLaterBtn");
         var closeRecapBtn = document.getElementById("mrCloseRecapBtn");
@@ -846,11 +974,14 @@
         var fusionBar = document.getElementById("mrFusionBar");
         if (pick) pick.style.display = next === "pick" ? "block" : "none";
         if (wait) wait.style.display = next === "waiting" ? "flex" : "none";
+        if (cover) cover.style.display = next === "cover" ? "block" : "none";
         if (edit) edit.style.display = next === "edit" ? "block" : "none";
         if (recap) recap.style.display = next === "recap" ? "block" : "none";
         if (pickBtn) pickBtn.style.display = next === "pick" ? "" : "none";
         if (confirmBtn) confirmBtn.style.display = next === "edit" ? "" : "none";
         if (skipBtn) skipBtn.style.display = (next === "pick" || next === "edit") ? "" : "none";
+        if (coverContinueBtn) coverContinueBtn.style.display = next === "cover" ? "" : "none";
+        if (coverSkipBtn) coverSkipBtn.style.display = next === "cover" ? "" : "none";
         if (waitBtn) waitBtn.style.display = next === "waiting" ? "" : "none";
         if (laterBtn) {
             laterBtn.style.display = (next === "waiting" && !researchInFlight) ? "" : "none";
@@ -858,6 +989,8 @@
         if (closeRecapBtn) closeRecapBtn.style.display = next === "recap" ? "" : "none";
         if (statsLink) statsLink.style.display = next === "recap" ? "" : "none";
         if (seriesBlock) seriesBlock.style.display = next === "recap" ? "none" : "";
+        var nagCta = document.getElementById("mrRecapNagCta");
+        if (nagCta && next !== "recap") nagCta.style.display = "none";
         updateBackBtn();
         if (next === "waiting") {
             updateWaitPanelCopy();
@@ -874,16 +1007,115 @@
         if (next === "pick") {
             renderFusionBar();
         }
+        if (next !== "cover" && typeof stopCoverSearch === "function") {
+            stopCoverSearch();
+        }
     }
 
     window.mrGoBack = function () {
+        if (phase === "cover") {
+            setPhase("pick");
+            return;
+        }
         if (phase === "edit") {
+            var cur = currentReview();
+            if (isAutoConfirmReview(cur)) {
+                goToPrevReview();
+                return;
+            }
+            if (isCoverPickOn()) {
+                enterCoverPhase(baselinePreview || {});
+                return;
+            }
             setPhase("pick");
             return;
         }
         if (phase === "pick") {
             goToPrevReview();
         }
+    };
+
+    function updateCoverPreview(url) {
+        var img = document.getElementById("mrCoverPreview");
+        var empty = document.getElementById("mrCoverPreviewEmpty");
+        var safe = toDisplayCoverUrl(url);
+        if (img) {
+            if (safe) {
+                img.src = safe;
+                img.style.display = "";
+            } else {
+                img.removeAttribute("src");
+                img.style.display = "none";
+            }
+        }
+        if (empty) empty.style.display = safe ? "none" : "";
+    }
+
+    function enterCoverPhase(preview) {
+        baselinePreview = preview || baselinePreview || {};
+        coverPicked = false;
+        providerCoverUrl = (baselinePreview && baselinePreview.cover_url) || "";
+        var review = currentReview();
+        var qInput = document.getElementById("mrCoverQuery");
+        // Toujours recalculer depuis la review courante — ne pas réutiliser
+        // mrCoverQuery (sinon le nom de la 1re série du batch reste collé).
+        var q = (review && (review.series_name || review.query)) || "";
+        if (qInput) qInput.value = q;
+        var nameEl = document.getElementById("mrSeriesQuery");
+        var posEl = document.getElementById("mrQueuePos");
+        if (nameEl && document.activeElement !== nameEl && review) {
+            nameEl.value = review.query || review.series_name || ("#" + review.series_id);
+        }
+        if (posEl && review) {
+            posEl.textContent = (currentIndex + 1) + " / " + queue.length;
+        }
+        updateCoverPreview(providerCoverUrl);
+        setPhase("cover");
+        mrSearchCovers();
+    }
+
+    window.mrSearchCovers = function () {
+        var review = currentReview();
+        if (!review) return;
+        var qInput = document.getElementById("mrCoverQuery");
+        var grid = document.getElementById("mrCoversGrid");
+        var query = (qInput && qInput.value ? qInput.value : "").trim()
+            || review.query
+            || review.series_name
+            || "";
+        if (!query || !grid || typeof startCoverSearch !== "function") return;
+        startCoverSearch({
+            seriesId: review.series_id,
+            query: query,
+            gridEl: grid,
+            onPick: function (url) {
+                if (!baselinePreview) baselinePreview = {};
+                baselinePreview.cover_url = url || "";
+                coverPicked = true;
+                updateCoverPreview(url);
+                grid.querySelectorAll(".cover-item").forEach(function (el) {
+                    el.classList.toggle("is-selected", el.dataset.url === url);
+                });
+            }
+        });
+    };
+
+    window.mrCoverContinue = function () {
+        syncOptionsFromSidebar();
+        if (editEnabled) {
+            renderEdit(baselinePreview || {});
+            setPhase("edit");
+            return;
+        }
+        mrConfirmCurrent();
+    };
+
+    window.mrCoverSkip = function () {
+        if (!baselinePreview) baselinePreview = {};
+        baselinePreview.cover_url = providerCoverUrl || baselinePreview.cover_url || "";
+        coverPicked = false;
+        updateCoverPreview(baselinePreview.cover_url);
+        mrCoverContinue();
     };
 
     var EDIT_KEYS = [
@@ -957,7 +1189,7 @@
             if (String(raw) !== String(base)) {
                 fieldEdits += 1;
                 if (key === "genres" || key === "tags" || key === "writers" || key === "pencillers") {
-                    edited[key] = raw.split(",").map(function (s) { return s.trim(); }).filter(Boolean);
+                    edited[key] = raw.split(/[,;]/).map(function (s) { return s.trim(); }).filter(Boolean);
                 } else if (key === "year") {
                     var n = parseInt(raw, 10);
                     edited[key] = isNaN(n) ? raw : n;
@@ -979,37 +1211,76 @@
         renderRecapAchievements();
         renderRecapKpis();
         updateBadge(0);
+        try {
+            if (window.SupporterNag && typeof window.SupporterNag.onMrRecap === "function") {
+                window.SupporterNag.onMrRecap(session);
+            }
+        } catch (e) { /* pubs supporter : jamais bloquer le récap MR */ }
         return true;
     }
 
-    function advanceAfterRemove(reviewId) {
-        queue = queue.filter(function (r) { return r.review_id !== reviewId; });
-        if (currentIndex >= queue.length) currentIndex = Math.max(0, queue.length - 1);
-        selectedProvider = null;
-        includeProviders = [];
-        baselinePreview = null;
-        updateBadge(queue.length);
-        if (showRecapIfEmpty()) return;
+    function showCurrentReview() {
+        var review = currentReview();
+        if (!review) {
+            showRecapIfEmpty();
+            return;
+        }
+        // Auto-confirm ou preview déjà prêt → phase edit directe
+        if (review.preview && (isAutoConfirmReview(review) || review.state === "awaiting_confirm")) {
+            selectedProvider = review.base_provider
+                || (review.above && review.above[0] && review.above[0].provider)
+                || selectedProvider;
+            includeProviders = [];
+            var nameEl = document.getElementById("mrSeriesQuery");
+            var posEl = document.getElementById("mrQueuePos");
+            if (nameEl && document.activeElement !== nameEl) {
+                nameEl.value = review.query || review.series_name || ("#" + review.series_id);
+            }
+            if (posEl) posEl.textContent = (currentIndex + 1) + " / " + queue.length;
+            renderEdit(review.preview);
+            setPhase("edit");
+            return;
+        }
         setPhase("pick");
         renderCandidates();
     }
 
+    function advanceAfterRemove(reviewId) {
+        removeFromQueue(reviewId);
+        selectedProvider = null;
+        includeProviders = [];
+        baselinePreview = null;
+        coverPicked = false;
+        providerCoverUrl = "";
+        if (showRecapIfEmpty()) return;
+        showCurrentReview();
+    }
+
     function markSeriesStatus(seriesId, status) {
-        document.querySelectorAll('.series-item input[value="' + seriesId + '"]').forEach(function (inp) {
+        var sid = String(seriesId == null ? "" : seriesId);
+        if (!/^\d+$/.test(sid)) return;
+        document.querySelectorAll('.series-item input[value="' + sid + '"]').forEach(function (inp) {
             var item = inp.closest(".series-item");
             if (!item) return;
-            item.setAttribute("data-status", status);
-            var badge = item.querySelector(".series-status .badge");
-            if (!badge) return;
-            if (status === "COMPLETED") {
-                badge.className = "badge badge-completed";
-                badge.innerText = t("filter_completed", "Completed");
-            } else if (status === "PENDING_REVIEW") {
-                badge.className = "badge badge-review";
-                badge.innerText = t("filter_pending_review", "Review");
-            } else if (status === "PENDING") {
-                badge.className = "badge badge-pending";
-                badge.innerText = t("filter_pending", "Pending");
+            if (typeof applySeriesStatusBadge === "function") {
+                applySeriesStatusBadge(item, status);
+            } else {
+                item.setAttribute("data-status", status);
+                var badge = item.querySelector(".series-status .badge");
+                if (!badge) return;
+                if (status === "COMPLETED") {
+                    badge.className = "badge badge-completed";
+                    badge.innerText = t("filter_completed", "Completed");
+                } else if (status === "NEEDS_RELOCK") {
+                    badge.className = "badge badge-needs-relock";
+                    badge.innerText = t("filter_needs_relock", "Needs seal");
+                } else if (status === "PENDING_REVIEW") {
+                    badge.className = "badge badge-review";
+                    badge.innerText = t("filter_pending_review", "Review");
+                } else if (status === "PENDING") {
+                    badge.className = "badge badge-pending";
+                    badge.innerText = t("filter_pending", "Pending");
+                }
             }
         });
         if (typeof filterSeries === "function") filterSeries();
@@ -1030,11 +1301,18 @@
         loadQueue().then(function () {
             if (opts.resetSession !== false) {
                 currentIndex = 0;
+                currentReviewId = null;
                 selectedProvider = null;
                 includeProviders = [];
                 baselinePreview = null;
+                reanchorIndex();
                 if (opts.resetSession) {
                     session = emptySession();
+                    try {
+                        if (window.SupporterNag && typeof window.SupporterNag.resetMrSession === "function") {
+                            window.SupporterNag.resetMrSession();
+                        }
+                    } catch (e) { /* noop */ }
                 }
             }
             if (opts.waiting && !queue.length) {
@@ -1046,8 +1324,7 @@
                 showRecapIfEmpty();
                 return;
             }
-            setPhase("pick");
-            renderCandidates();
+            showCurrentReview();
         }).catch(function (err) {
             alert(err.message || String(err));
         }).then(function () {
@@ -1055,14 +1332,14 @@
         });
     };
 
-    /** Ouvre la modal en mode attente au lancement d’un batch / sync (mode manuel). */
+    /** Ouvre la modal en mode attente au lancement d’un batch / sync (MR ou confirm-before-write). */
     window.mrPrepareForBatch = function () {
-        if (!isManualModeOn()) return;
+        if (!isReviewQueueModeOn()) return;
         if (waitingSettleTimer) {
             clearTimeout(waitingSettleTimer);
             waitingSettleTimer = null;
         }
-        if (isModalOpen() && (phase === "pick" || phase === "edit" || phase === "waiting")) {
+        if (isModalOpen() && (phase === "pick" || phase === "edit" || phase === "cover" || phase === "waiting")) {
             if (phase !== "waiting" && !queue.length) setPhase("waiting");
             return;
         }
@@ -1087,8 +1364,7 @@
                     currentIndex = 0;
                     selectedProvider = null;
                     includeProviders = [];
-                    setPhase("pick");
-                    renderCandidates();
+                    showCurrentReview();
                     playTone("pick");
                     return;
                 }
@@ -1104,7 +1380,7 @@
     }
 
     window.mrOnBatchProgress = function (payload) {
-        if (!payload || !isManualModeOn()) return;
+        if (!payload || !isReviewQueueModeOn()) return;
         if (payload.stopped) {
             settleWaitingAfterWork({ immediate: true });
             return;
@@ -1119,7 +1395,7 @@
 
     /** Sync unitaire terminé (force-sync) : même garde-fou si rien n’a été mis en file. */
     window.mrOnSyncSettled = function () {
-        if (!isManualModeOn()) return;
+        if (!isReviewQueueModeOn()) return;
         settleWaitingAfterWork();
     };
 
@@ -1129,24 +1405,32 @@
 
     window.closeManualReviewModal = function () {
         var modal = document.getElementById("manualReviewModal");
-        if (modal) modal.style.display = "none";
+        if (modal) {
+            modal.style.display = "none";
+            modal.setAttribute("aria-hidden", "true");
+        }
         // Si file non vide, le CTA topbar reste bien visible
         updateBadge(queue.length);
+        if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+            try { previouslyFocused.focus(); } catch (e) { /* ignore */ }
+        }
+        previouslyFocused = null;
     };
 
     window.mrSubmitPick = function () {
         var review = currentReview();
-        if (!review || !selectedProvider) return;
+        if (!review || !selectedProvider || actionInFlight) return;
         syncOptionsFromSidebar();
         var fusionList = includeProviders.filter(function (p) { return p && p !== selectedProvider; });
         var body = {
             base_provider: selectedProvider,
             include_providers: fusionList,
-            prefer_edit: !!editEnabled,
+            prefer_edit: !!(editEnabled || coverPickEnabled),
             fused: fusionList.length > 0,
             weak_pick: isSelectedWeak(review, selectedProvider),
             super_review: isSuperReviewOn()
         };
+        setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/choice", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1154,23 +1438,49 @@
         }).then(function (data) {
             playTone("pick");
             if (data.mode === "preview") {
-                renderEdit(data.preview || {});
+                baselinePreview = data.preview || {};
+                coverPicked = false;
+                providerCoverUrl = baselinePreview.cover_url || "";
+                if (coverPickEnabled) {
+                    enterCoverPhase(baselinePreview);
+                    return;
+                }
+                renderEdit(baselinePreview);
                 setPhase("edit");
                 return;
             }
             recordSessionConfirm(review, data.detail, 0, fusionList.length);
-            markSeriesStatus(review.series_id, "COMPLETED");
+            var nextStatus = (data.detail && data.detail.status) || (data.message === "NEEDS_RELOCK" ? "NEEDS_RELOCK" : "COMPLETED");
+            markSeriesStatus(review.series_id, nextStatus);
             advanceAfterRemove(review.review_id);
         }).catch(function (err) {
             alert(err.message || String(err));
+        }).then(function () {
+            setActionBusy(false);
         });
     };
 
     window.mrConfirmCurrent = function () {
         var review = currentReview();
-        if (!review || !selectedProvider) return;
-        var packed = collectEdits();
+        if (!review || !selectedProvider || actionInFlight) return;
+        var packed;
+        if (phase === "cover") {
+            packed = { edited: {}, field_edits: 0 };
+            if (coverPicked && baselinePreview && baselinePreview.cover_url) {
+                packed.edited.cover_url = baselinePreview.cover_url;
+                packed.field_edits = 1;
+            }
+        } else {
+            packed = collectEdits();
+            if (coverPicked && baselinePreview && baselinePreview.cover_url) {
+                if (!packed.edited) packed.edited = {};
+                if (packed.edited.cover_url == null) {
+                    packed.edited.cover_url = baselinePreview.cover_url;
+                }
+            }
+        }
         var fusionList = includeProviders.filter(function (p) { return p && p !== selectedProvider; });
+        setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1181,21 +1491,27 @@
                 field_edits: packed.field_edits,
                 fused: fusionList.length > 0,
                 weak_pick: isSelectedWeak(review, selectedProvider),
-                super_review: isSuperReviewOn()
+                super_review: isSuperReviewOn(),
+                cover_picked: !!coverPicked
             })
         }).then(function (data) {
             playTone("confirm");
             recordSessionConfirm(review, data.detail, packed.field_edits, fusionList.length);
-            markSeriesStatus(review.series_id, "COMPLETED");
+            var nextStatus = (data.detail && data.detail.status) || (data.message === "NEEDS_RELOCK" ? "NEEDS_RELOCK" : "COMPLETED");
+            markSeriesStatus(review.series_id, nextStatus);
+            coverPicked = false;
             advanceAfterRemove(review.review_id);
         }).catch(function (err) {
             alert(err.message || String(err));
+        }).then(function () {
+            setActionBusy(false);
         });
     };
 
     window.mrSkipCurrent = function () {
         var review = currentReview();
-        if (!review) return;
+        if (!review || actionInFlight) return;
+        setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/skip", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1207,6 +1523,8 @@
             advanceAfterRemove(review.review_id);
         }).catch(function (err) {
             alert(err.message || String(err));
+        }).then(function () {
+            setActionBusy(false);
         });
     };
 
@@ -1309,6 +1627,11 @@
 
     function onKey(e) {
         if (!isModalOpen()) return;
+        trapFocus(e);
+        if (actionInFlight && e.key === "Enter") {
+            e.preventDefault();
+            return;
+        }
         var inField = e.target && (
             e.target.tagName === "INPUT" ||
             e.target.tagName === "TEXTAREA" ||
@@ -1337,8 +1660,18 @@
                 mrReviewLater();
                 return;
             }
+            if (phase === "cover") {
+                mrCoverSkip();
+                return;
+            }
             if (phase === "edit") {
-                setPhase("pick");
+                if (isAutoConfirmReview(currentReview())) {
+                    mrSkipCurrent();
+                } else if (isCoverPickOn()) {
+                    enterCoverPhase(baselinePreview || {});
+                } else {
+                    setPhase("pick");
+                }
                 return;
             }
             if (phase === "recap") {
@@ -1348,12 +1681,22 @@
             mrSkipCurrent();
             return;
         }
-        // Retour : Backspace (hors champs) — edit→pick, pick→review précédente
+        // Retour : Backspace (hors champs) — cover/edit→précédent, pick→review précédente
         if (e.key === "Backspace") {
             if (phase === "recap") return;
             if (!canGoBack()) return;
             e.preventDefault();
             mrGoBack();
+            return;
+        }
+        if (phase === "cover" && e.key === "Enter") {
+            if (e.target && e.target.id === "mrCoverQuery") {
+                e.preventDefault();
+                mrSearchCovers();
+                return;
+            }
+            e.preventDefault();
+            mrCoverContinue();
             return;
         }
         if (phase === "recap" && e.key === "Enter") {
@@ -1376,6 +1719,7 @@
                 ? Math.min(visible.length - 1, idx + 1)
                 : Math.max(0, idx - 1);
             selectedProvider = visible[idx].provider;
+            includeProviders = includeProviders.filter(function (p) { return p !== selectedProvider; });
             renderCandidates();
             return;
         }
@@ -1439,11 +1783,12 @@
                 }
                 if (prevEmpty) {
                     currentIndex = 0;
+                    currentReviewId = null;
                     selectedProvider = null;
                     includeProviders = [];
+                    reanchorIndex();
                 }
-                setPhase("pick");
-                renderCandidates();
+                showCurrentReview();
                 playTone("pick");
             }
             return;
@@ -1451,26 +1796,53 @@
         // Review arrivée après un récap « rien à faire » (course batch_progress / queued)
         if (phase === "recap" && queue.length) {
             currentIndex = 0;
+            currentReviewId = null;
             selectedProvider = null;
             includeProviders = [];
-            setPhase("pick");
-            renderCandidates();
+            reanchorIndex();
+            showCurrentReview();
             playTone("pick");
             return;
         }
         if (phase === "pick") {
             if (prevEmpty && queue.length) {
                 currentIndex = 0;
+                currentReviewId = null;
                 selectedProvider = null;
                 includeProviders = [];
+                reanchorIndex();
             }
-            renderCandidates();
+            if (!queue.length) {
+                showRecapIfEmpty();
+                return;
+            }
+            // Une auto-confirm peut arriver en tête → bascule edit
+            showCurrentReview();
+            return;
+        }
+        if (phase === "edit") {
+            if (!queue.length) {
+                baselinePreview = null;
+                showRecapIfEmpty();
+                return;
+            }
+            // Review courante disparue → ancre suivante
+            if (currentReviewId && !queue.some(function (r) { return r.review_id === currentReviewId; })) {
+                baselinePreview = null;
+                selectedProvider = null;
+                includeProviders = [];
+                showCurrentReview();
+            }
         }
     }
 
-    // Boot / reconnect: sync badge only (pas d’auto-open)
+    // Boot / reconnect: sync badge ; si modal ouverte, rafraîchir l'UI
     function syncQueueBadge() {
-        loadQueue().catch(function () { /* ignore */ });
+        loadQueue().then(function (r) {
+            if (r && !r.stale && isModalOpen()) {
+                onQueueUpdated(r.prevEmpty);
+            }
+        }).catch(function () { /* ignore */ });
     }
 
     if (typeof socket !== "undefined") {
@@ -1480,10 +1852,14 @@
         socket.on("manual_review_pending_count", function (payload) {
             var n = (payload && payload.count) || 0;
             updateBadge(n);
-            if (isModalOpen() && n > 0) {
+            if (isModalOpen()) {
                 loadQueue().then(function (r) {
-                    onQueueUpdated(r.prevEmpty);
+                    if (r && !r.stale) onQueueUpdated(r.prevEmpty);
                 }).catch(function () { /* ignore */ });
+            } else if (n === 0) {
+                queue = [];
+                currentIndex = 0;
+                currentReviewId = null;
             }
         });
         socket.on("manual_review_queued", function (payload) {
@@ -1491,19 +1867,75 @@
                 markSeriesStatus(payload.series_id, "PENDING_REVIEW");
             }
             loadQueue().then(function (r) {
-                onQueueUpdated(r.prevEmpty);
+                if (r && !r.stale) onQueueUpdated(r.prevEmpty);
             }).catch(function (err) {
                 console.warn("[manual_review] queue refresh failed", err);
             });
         });
         socket.on("manual_review_queue_summary", function (payload) {
             updateBadge((payload && payload.count) || 0);
+            if (isModalOpen()) {
+                loadQueue().then(function (r) {
+                    if (r && !r.stale) onQueueUpdated(r.prevEmpty);
+                }).catch(function () { /* ignore */ });
+            }
         });
         socket.on("manual_review_confirmed", function (payload) {
-            if (payload && payload.series_id) markSeriesStatus(payload.series_id, "COMPLETED");
+            if (payload && payload.series_id) {
+                markSeriesStatus(payload.series_id, payload.status || "COMPLETED");
+            }            if (payload && payload.review_id) {
+                if (isModalOpen()) {
+                    var wasCurrent = currentReviewId === payload.review_id;
+                    removeFromQueue(payload.review_id);
+                    if (wasCurrent) {
+                        selectedProvider = null;
+                        includeProviders = [];
+                        baselinePreview = null;
+                        if (!showRecapIfEmpty()) {
+                            showCurrentReview();
+                        }
+                    } else if (isModalOpen()) {
+                        showCurrentReview();
+                    }
+                } else {
+                    removeFromQueue(payload.review_id);
+                }
+            }
         });
         socket.on("manual_review_skipped", function (payload) {
             if (payload && payload.series_id) markSeriesStatus(payload.series_id, "PENDING");
+            if (payload && payload.review_id) {
+                if (isModalOpen()) {
+                    var wasCurrentSkip = currentReviewId === payload.review_id;
+                    removeFromQueue(payload.review_id);
+                    if (wasCurrentSkip) {
+                        selectedProvider = null;
+                        includeProviders = [];
+                        baselinePreview = null;
+                        if (!showRecapIfEmpty()) {
+                            showCurrentReview();
+                        }
+                    } else if (isModalOpen()) {
+                        showCurrentReview();
+                    }
+                } else {
+                    removeFromQueue(payload.review_id);
+                }
+            }
+        });
+        socket.on("manual_review_refreshed", function (payload) {
+            if (!payload || !payload.review_id) return;
+            loadQueue().then(function (r) {
+                if (r && r.stale) return;
+                if (isModalOpen() && currentReviewId === payload.review_id) {
+                    selectedProvider = null;
+                    includeProviders = [];
+                    baselinePreview = null;
+                    showCurrentReview();
+                } else if (isModalOpen()) {
+                    onQueueUpdated(r.prevEmpty);
+                }
+            }).catch(function () { /* ignore */ });
         });
         socket.on("manual_review_purged", function (payload) {
             // Purge déclenchée depuis cette UI : le récap local gère déjà les stats.
@@ -1519,6 +1951,7 @@
             if (deleted > 0) session.purged = (session.purged || 0) + Math.max(0, deleted);
             queue = [];
             currentIndex = 0;
+            currentReviewId = null;
             selectedProvider = null;
             includeProviders = [];
             baselinePreview = null;

@@ -83,9 +83,10 @@ def batch_sync():
 
     if not selected_ids:
         # Si aucune case n'est cochée (batch global), on exclut les ignorés
+        # et les séries déjà garées en review manuelle (évite les doublons).
         series_to_process = [
             s for s in all_series
-            if cached.get(s['id'], {}).get('status') != 'IGNORED'
+            if cached.get(s['id'], {}).get('status') not in ('IGNORED', 'PENDING_REVIEW')
         ]
     else:
         # Si l'utilisateur a COCHÉ des séries spécifiques, ON LES TRAITE TOUTES,

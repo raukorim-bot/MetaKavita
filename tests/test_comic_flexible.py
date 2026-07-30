@@ -79,8 +79,8 @@ def _patch_kavita_basics(mocker, isolated_db):
         "isbn": None, "authors": [], "publisher": None, "year": None,
         "genres": [], "localized_name": None,
     })
-    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok"))
-    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok"))
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
     mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
 
 

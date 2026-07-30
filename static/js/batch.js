@@ -10,9 +10,12 @@ var batchEnqueueController = null;
 /** Total du batch courant (fixé au lancement UI ; barre via événement batch_progress). */
 var batchProgressTotal = 0;
 var batchProgressHideTimer = null;
+/** Évite un double overlay supporter à la fin du même batch. */
+var batchNagFired = false;
 
 function showBatchProgress(total) {
     batchProgressTotal = Math.max(0, parseInt(total, 10) || 0);
+    batchNagFired = false;
     if (batchProgressHideTimer) {
         clearTimeout(batchProgressHideTimer);
         batchProgressHideTimer = null;
@@ -74,6 +77,14 @@ function applyBatchProgressPayload(payload) {
     if (rem === 0 && !hasActive) {
         if (batchProgressHideTimer) clearTimeout(batchProgressHideTimer);
         batchProgressHideTimer = setTimeout(hideBatchProgress, 1500);
+        if (!batchNagFired && batchProgressTotal > 0) {
+            batchNagFired = true;
+            try {
+                if (window.SupporterNag && typeof window.SupporterNag.onBatchComplete === 'function') {
+                    window.SupporterNag.onBatchComplete({ remaining: 0, stopped: false, total: batchProgressTotal });
+                }
+            } catch (e) { /* pubs supporter : jamais bloquer le batch */ }
+        }
     }
 }
 
@@ -574,4 +585,93 @@ async function ignoreSelection() {
         btn.disabled = false;
         filterSeries();
     }, 1000);
+}
+
+/** Met à jour badge (+ bouton seal) pour un statut série. */
+function applySeriesStatusBadge(item, status) {
+    if (!item) return;
+    item.dataset.status = status || item.dataset.status;
+    var statusWrap = item.querySelector('.series-status');
+    if (!statusWrap) return;
+    var badge = statusWrap.querySelector('.badge');
+    if (!badge) {
+        badge = document.createElement('span');
+        badge.className = 'badge';
+        statusWrap.prepend(badge);
+    }
+    var sealBtn = statusWrap.querySelector('.btn-seal-locks');
+    var T = window.AppTranslations || {};
+    if (status === 'COMPLETED') {
+        badge.className = 'badge badge-completed';
+        badge.innerText = T.filter_completed || 'Completed';
+        badge.removeAttribute('title');
+        if (sealBtn) sealBtn.remove();
+    } else if (status === 'NEEDS_RELOCK') {
+        badge.className = 'badge badge-needs-relock';
+        badge.innerText = T.filter_needs_relock || 'Needs seal';
+        badge.title = T.filter_needs_relock_hint || '';
+        if (!sealBtn) {
+            sealBtn = document.createElement('button');
+            sealBtn.type = 'button';
+            sealBtn.className = 'btn-icon btn-seal-locks';
+            sealBtn.textContent = '🔒';
+            sealBtn.title = T.seal_locks_btn || 'Seal locks';
+            var cb = item.querySelector('.series-cb');
+            var sid = cb ? cb.value : '';
+            sealBtn.onclick = function () { sealSeriesLocks(sid, sealBtn); };
+            statusWrap.appendChild(sealBtn);
+        }
+    } else if (status === 'PENDING_REVIEW') {
+        badge.className = 'badge badge-review';
+        badge.innerText = T.filter_pending_review || 'Review';
+        if (sealBtn) sealBtn.remove();
+    } else if (status === 'NOT_FOUND') {
+        badge.className = 'badge badge-notfound';
+        badge.innerText = T.filter_notfound || 'Not found';
+        if (sealBtn) sealBtn.remove();
+    } else if (status === 'IGNORED') {
+        badge.className = 'badge badge-ignored';
+        badge.innerText = T.filter_ignored || 'Ignored';
+        if (sealBtn) sealBtn.remove();
+    } else {
+        badge.className = 'badge badge-pending';
+        badge.innerText = T.filter_pending || 'Pending';
+        if (sealBtn) sealBtn.remove();
+    }
+    if (typeof filterSeries === 'function') filterSeries();
+}
+
+async function sealSeriesLocks(seriesId, btn) {
+    if (!seriesId) return;
+    var T = window.AppTranslations || {};
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = '…';
+    }
+    try {
+        var res = await fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/seal-locks', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin'
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok || !data.success) {
+            throw new Error((data && data.error) || T.seal_locks_fail || 'Seal failed');
+        }
+        var item = btn ? btn.closest('.series-item') : null;
+        if (!item) {
+            document.querySelectorAll('.series-item').forEach(function (el) {
+                var cb = el.querySelector('.series-cb');
+                if (cb && String(cb.value) === String(seriesId)) item = el;
+            });
+        }
+        if (item) applySeriesStatusBadge(item, 'COMPLETED');
+    } catch (e) {
+        console.error('[MetaKavita] seal-locks', e);
+        alert((e && e.message) || T.seal_locks_fail || 'Seal failed');
+        if (btn) {
+            btn.disabled = false;
+            btn.textContent = '🔒';
+        }
+    }
 }

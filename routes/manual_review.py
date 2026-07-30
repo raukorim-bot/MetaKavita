@@ -76,6 +76,7 @@ def api_list_manual_reviews():
             "above": _lite(cands.get("above")),
             "below": _lite(cands.get("below")),
             "query": cands.get("query") or "",
+            "flow": cands.get("flow") or "",
             "preview": preview,
         })
     return jsonify(success=True, reviews=out, count=count_pending_reviews())
@@ -159,6 +160,7 @@ def api_manual_review_confirm(review_id):
         fused=bool(data.get("fused")) if "fused" in data else None,
         weak_pick=bool(data.get("weak_pick")),
         super_review=bool(data.get("super_review")),
+        force_cover_upload=bool(data.get("cover_picked") or data.get("force_cover_upload")),
     )
     if not ok:
         return jsonify(success=False, error=msg), 400

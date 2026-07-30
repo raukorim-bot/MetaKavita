@@ -330,10 +330,10 @@ def test_enrichment_engine_caps_genres_and_tags_before_kavita(mocker, isolated_d
 
     def _capture_metadata(metadata):
         captured["metadata"] = metadata
-        return True, "ok"
+        return True, "ok", True
 
     mocker.patch.object(KavitaAPI, "update_series_metadata", side_effect=_capture_metadata)
-    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok"))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "ok", True))
     mocker.patch.object(KavitaAPI, "update_series_external_ids", return_value=True)
 
     ok, msg, used = enrichment_engine.enrich_series(9001, "Cap Test", force_update=True)

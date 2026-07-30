@@ -14,12 +14,10 @@ from typing import Any, Dict, List, Optional, Sequence
 
 from db_manager import (
     count_pending_reviews,
-    delete_pending_review,
+    close_pending_review,
+    park_pending_review,
     get_pending_review,
-    record_manual_skip_telemetry,
-    save_pending_review,
     update_pending_review,
-    update_status,
 )
 from metadata_fetcher import merge_candidates
 
@@ -181,14 +179,13 @@ def create_review_from_candidates(
             series_name or series_id,
             exc,
         )
-    save_pending_review(
+    park_pending_review(
         review_id=review_id,
         series_id=int(series_id),
         series_name=series_name or "",
         candidates_json=payload,
         state="awaiting_pick",
     )
-    update_status(int(series_id), "PENDING_REVIEW")
     _safe_emit(
         "manual_review_queued",
         {
@@ -200,6 +197,88 @@ def create_review_from_candidates(
         },
     )
     emit_pending_count()
+    return review_id
+
+
+def create_confirm_from_auto(
+    series_id: int,
+    series_name: str,
+    provider_data: Dict[str, Any],
+    preview_fields: Dict[str, Any],
+    *,
+    actual_provider: str,
+    fusion_providers: Optional[Sequence[str]] = None,
+    chosen_score: Any = None,
+    query: str = "",
+    force_update: bool = False,
+) -> str:
+    """
+    Park auto-batch result as `awaiting_confirm` (pas de pick).
+
+    Réutilise la file `pending_reviews` + panneau d'édition UI. Le worker
+    continue ; l'écriture Kavita attend `/confirm`.
+    """
+    import copy
+
+    from metadata_fetcher import build_candidate_card
+
+    review_id = str(uuid.uuid4())
+    provider = (actual_provider or "Inconnu").strip() or "Inconnu"
+    data = copy.deepcopy(provider_data) if isinstance(provider_data, dict) else {}
+    data["_provider_used"] = provider
+    fusions = [p for p in (fusion_providers or []) if p and p != provider]
+    if fusions:
+        data["_fusion_providers"] = list(fusions)
+
+    card = build_candidate_card(provider, data, below_threshold=False)
+    try:
+        score_f = float(chosen_score) if chosen_score is not None else None
+    except (TypeError, ValueError):
+        score_f = None
+    if score_f is not None:
+        card["score"] = score_f
+
+    payload: Dict[str, Any] = {
+        "above": [card],
+        "below": [],
+        "query": query or series_name or "",
+        "flow": "auto_confirm",
+        "force_update": bool(force_update),
+    }
+
+    preview = dict(preview_fields or {}) if isinstance(preview_fields, dict) else {}
+    preview["_provider_used"] = provider
+    preview["_fusion_providers"] = list(fusions)
+    preview["_flow"] = "auto_confirm"
+
+    park_pending_review(
+        review_id=review_id,
+        series_id=int(series_id),
+        series_name=series_name or "",
+        candidates_json=payload,
+        preview_json=preview,
+        state="awaiting_confirm",
+        base_provider=provider,
+        chosen_score=score_f,
+    )
+    _safe_emit(
+        "manual_review_queued",
+        {
+            "review_id": review_id,
+            "series_id": int(series_id),
+            "series_name": series_name or "",
+            "above_count": 1,
+            "below_count": 0,
+            "flow": "auto_confirm",
+            "state": "awaiting_confirm",
+        },
+    )
+    emit_pending_count()
+    logging.info(
+        "[%s] ✏️ CONFIRM_BEFORE_WRITE — preview parkée (provider=%s)",
+        series_name or series_id,
+        provider,
+    )
     return review_id
 
 
@@ -281,14 +360,11 @@ def choice_and_merge(
 
 
 def skip_pending_review(review_id: str, new_status: str = "PENDING") -> bool:
-    """Skip : supprime la pending, remet le statut série, télémétrie skip."""
-    review = get_pending_review(review_id)
+    """Skip : purge atomique review + statut série + télémétrie skip."""
+    review = close_pending_review(review_id, new_status, skip_telemetry=True)
     if not review:
         return False
     series_id = review["series_id"]
-    delete_pending_review(review_id)
-    update_status(int(series_id), new_status)
-    record_manual_skip_telemetry()
     emit_pending_count()
     _safe_emit(
         "manual_review_skipped",
@@ -299,21 +375,23 @@ def skip_pending_review(review_id: str, new_status: str = "PENDING") -> bool:
 
 def confirm_pending_review(review_id: str, new_status: str = "COMPLETED") -> bool:
     """
-    Confirm soft : purge la pending + statut série.
+    Confirm soft : purge atomique la pending + statut série.
 
     La télémétrie review / écriture Kavita sont gérées par l'appelant
     (phase apply) — ce helper ne fait que clôturer le parking.
     """
-    review = get_pending_review(review_id)
+    review = close_pending_review(review_id, new_status, skip_telemetry=False)
     if not review:
         return False
     series_id = review["series_id"]
-    delete_pending_review(review_id)
-    update_status(int(series_id), new_status)
     emit_pending_count()
     _safe_emit(
         "manual_review_confirmed",
-        {"review_id": review_id, "series_id": int(series_id)},
+        {
+            "review_id": review_id,
+            "series_id": int(series_id),
+            "status": new_status or "COMPLETED",
+        },
     )
     return True
 
@@ -344,3 +422,45 @@ def purge_all_reviews(reset_status: str = "PENDING") -> dict:
         },
     )
     return result
+
+
+def purge_auto_confirm_reviews(reset_status: str = "PENDING") -> dict:
+    """
+    Purge uniquement les parks `flow=auto_confirm` (confirm-before-write).
+
+    Laisse intactes les reviews Manual Review (pick).
+    """
+    from db_manager import list_pending_reviews
+
+    deleted = 0
+    series_ids: List[int] = []
+    for row in list_pending_reviews(limit=5000) or []:
+        try:
+            payload = json.loads(row.get("candidates_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            payload = {}
+        if not isinstance(payload, dict) or payload.get("flow") != "auto_confirm":
+            continue
+        rid = row.get("review_id")
+        if not rid:
+            continue
+        closed = close_pending_review(rid, reset_status, skip_telemetry=True)
+        if closed:
+            deleted += 1
+            try:
+                series_ids.append(int(closed["series_id"]))
+            except (TypeError, ValueError, KeyError):
+                pass
+
+    if deleted:
+        emit_pending_count()
+        _safe_emit(
+            "manual_review_purged",
+            {
+                "deleted": deleted,
+                "series_ids": series_ids,
+                "reset_status": reset_status,
+                "flow": "auto_confirm",
+            },
+        )
+    return {"deleted": deleted, "series_ids": series_ids, "reset_status": reset_status}

@@ -8,11 +8,11 @@ This guide is designed for developers and AI assistants wishing to understand, m
 1. [🇺🇸 English Developer Guide](#-english-developer-guide)
    * [1. Global Architecture & Security](#1-global-architecture--security)
    * [2. High-Speed Throttling & Rate-Limiting Architecture](#2-high-speed-throttling--rate-limiting-architecture)
-   * [3. Reverse Proxy & Subpath Architecture](#3-reverse-proxy--subpath-architecture)
+   * [3. Reverse Proxy, Subpath & CORS Architecture](#3-reverse-proxy-subpath--cors-architecture)
    * [4. Frontend Mechanics, Batch QoS & WebSockets](#4-frontend-mechanics-batch-qos--websockets)
    * [5. Sideloading Scrapers & Auto-Discovery Registry](#5-sideloading-scrapers--auto-discovery-registry)
    * [6. Deep Extraction, Publisher QoS & Unified Scoring](#6-deep-extraction-publisher-qos--unified-scoring)
-   * [7. Active Scraper Ecosystem (V1.5.7)](#7-active-scraper-ecosystem-v157)
+   * [7. Active Scraper Ecosystem](#7-active-scraper-ecosystem)
    * [8. Resilient Translation & Title Fallback](#8-resilient-translation--title-fallback)
    * [9. AI-Powered Scraper Creation (Vibecoding)](#9-ai-powered-scraper-creation-vibecoding)
    * [10. Quality Benchmarking & Debugging Suite](#10-quality-benchmarking--debugging-suite)
@@ -21,11 +21,11 @@ This guide is designed for developers and AI assistants wishing to understand, m
 2. [🇫🇷 Guide de Développement Français](#-guide-de-développement-français)
    * [1. Architecture Globale & Sécurité](#1-architecture-globale--sécurité-1)
    * [2. Moteur de Throttling & Régulation Dynamique](#2-moteur-de-throttling--régulation-dynamique-1)
-   * [3. Architecture Reverse Proxy & Sous-dossiers](#3-architecture-reverse-proxy--sous-dossiers-1)
+   * [3. Architecture Reverse Proxy, Sous-dossiers & CORS](#3-architecture-reverse-proxy-sous-dossiers--cors-1)
    * [4. Frontend, QoS Batch & WebSockets](#4-frontend-qos-batch--websockets-1)
    * [5. Sideloading de Scrapers & Auto-Découverte](#5-sideloading-de-scrapers--auto-découverte-1)
    * [6. Extraction Profonde, QoS Éditeurs & Scoring](#6-extraction-profonde-qos-éditeurs--scoring-1)
-   * [7. Écosystème des Scrapers Actifs (V1.5.7)](#7-écosystème-des-scrapers-actifs-v157-1)
+   * [7. Écosystème des Scrapers Actifs](#7-écosystème-des-scrapers-actifs-1)
    * [8. Traduction Résiliente & Titre de Secours](#8-traduction-résiliente--titre-de-secours-1)
    * [9. Création de Scrapers via IA (Vibecoding)](#9-création-de-scrapers-via-ia-vibecoding-1)
    * [10. Suite de Tests & Débogage Qualité](#10-suite-de-tests--débogage-qualité-1)
@@ -39,11 +39,13 @@ This guide is designed for developers and AI assistants wishing to understand, m
 ### 1. Global Architecture & Security
 MetaKavita is an asynchronous Python application powered by a **Gunicorn WSGI server** with **Eventlet** workers to support real-time WebSockets via Flask-SocketIO.
 
-*   **Security Layer:** Global authentication is enforced via `@app.before_request`. Session cookies are configured as `HttpOnly` and `SameSite=Lax` (optional `SESSION_COOKIE_SECURE=1` behind HTTPS). Timing attacks are prevented using `secrets.compare_digest`. CSRF tokens (`csrf_utils.py`) are validated on state-changing POSTs; the frontend injects `X-CSRF-Token` on mutating `fetch` calls. `SECRET_KEY` is generated on first boot — never a public hardcoded fallback.
-*   **SSRF Protection:** Shared allowlist helper (`url_allowlist.py`) for cover downloads and `/api/proxy-image` — http(s) only, no credentials/localhost/private IPs, up to 3 redirects with each hop re-validated (`fetch_with_safe_redirects`), safe `image/*` MIME. Domain lists come from `ScraperRegistry.get_all_proxy_domains()` (covers community scrapers too).
+*   **Security Layer:** Global authentication is enforced via `@app.before_request` (`auth_manager.setup_gate` then `login_gate` / `is_authenticated`) and the Socket.IO `connect` handler (`return False` if unauthenticated — Flask-SocketIO's documented reject form; per-event `_reject_unauthenticated` as defense in depth). **Fail-closed** — including when the DB is unreadable (deny, never fall through to an open UI). Account system lives in `auth_manager.py` + `users` table (Werkzeug hash method pinned `pbkdf2:sha256`); first-run `/setup`; optional `ADMIN_PASSWORD_HASH` + `ADMIN_USERNAME` seeding via `debug/hash_password.py` (hash-shape validated; ignored once any account exists). Per-IP lockout (5/15min) plus global backstop (20/15min) against `X-Forwarded-For` rotation (in-memory — sound under `gunicorn -w 1`); timing equalization uses one memoized dummy KDF. Legacy `ADMIN_PASSWORD` in `config.json` is a one-shot ownership proof on `/setup`, then purged — never adopted as the new password. Session cookies are `HttpOnly` + `SameSite=Lax` (optional `SESSION_COOKIE_SECURE=1` behind HTTPS), lifetime 7 days. CSRF tokens (`csrf_utils.py`) on state-changing POSTs; frontend injects `X-CSRF-Token`. `SECRET_KEY` is generated on first boot — never a public hardcoded fallback.
+*   **SSRF Protection:** Shared allowlist helper (`url_allowlist.py`) for cover downloads and `/api/proxy-image` — http(s) only, no credentials/localhost/private IPs, up to 3 redirects with each hop re-validated (`fetch_with_safe_redirects`), safe `image/*` MIME. Domain lists come from `ScraperRegistry.get_all_proxy_domains()` (covers community scrapers too). `/api/proxy-image` streams with a **5 MB** hard cap (`413`).
 *   **Credential-safe logging:** Use `secure_logging.safe_exc_str()` / `redact_secrets()` when logging exceptions that may include authenticated URLs (Kavita `apiKey`, ComicVine `api_key`, etc.) — never log raw `str(e)` after such calls.
-*   **Webhook Hardening:** Webhooks require a cryptographically secure `WEBHOOK_TOKEN` generated in `data/config.json` (CSRF-exempt; token auth only).
-*   **Safe SQLite Schema Migrations:** Database updates in `db_manager.py` use a safe `_ensure_schema` method that handles `sqlite3.OperationalError` gracefully per column, preventing fatal container crashes when introducing new features.
+*   **Webhook Hardening:** Webhooks require a cryptographically secure `WEBHOOK_TOKEN` generated in `data/config.json` (CSRF-exempt; token auth only). Prefer `X-Webhook-Token` over `?token=` (query strings leak into proxy logs / Referer).
+*   **Liveness `/healthz`:** `GET /healthz` → `{status, version}` only. Whitelisted in both setup/login gates (`misc.healthz`); touches **no** config, DB, or Kavita. Dockerfile `HEALTHCHECK` requires **strict HTTP 200** on this route (not a lax `/login` probe).
+*   **Non-root Docker (C54):** Image user `metakavita` (default 1000:1000); entrypoint applies `PUID`/`PGID` then `gosu`. `save_config()` writes `config.json` **0600**.
+*   **Safe SQLite Schema Migrations:** Database updates in `db_manager.py` use a safe `_ensure_schema` / `_ensure_pending_reviews_table` path that handles `sqlite3.OperationalError` gracefully, preventing fatal container crashes when introducing new features. All connections go through `_connect()` with **WAL** journal mode and a **30s busy_timeout** to reduce `database is locked` under concurrent worker + REST + Socket.IO writes.
 *   **Pure Base64 Kavita Uploads:** Kavita requires cover uploads to be sent as pure Base64 byte strings (`kavita_api.py`). Prepending `Data URI` schemas (`data:image/jpeg;base64,...`) results in silent Kavita C# backend failures (the "Phantom Cover" syndrome).
 
 ---
@@ -56,13 +58,15 @@ Idle APIs respond instantly with zero artificial delay, executing 3-provider Sma
 
 ### 3. Reverse Proxy, Subpath & CORS Architecture
 MetaKavita natively supports deployment under custom URL subpaths (e.g. `https://domain.com/metakavita`).
-Reverse proxy headers (`X-Forwarded-Prefix`) are processed via Werkzeug's `ProxyFix`. In addition, if a user specifies an explicit subpath using the `ROOT_PATH` environment variable in Docker, a custom `ScriptNameStripper` WSGI middleware handles path rewriting. Client-side, `window.ROOT_PATH` dynamically prefixes all AJAX calls.
+Reverse proxy headers (`X-Forwarded-Prefix`, `X-Forwarded-For`, …) are processed via Werkzeug's `ProxyFix`. **`TRUSTED_PROXY_COUNT`** (default `1`) drives both ProxyFix hop count and the client IP used for lockout — set **`0`** if the instance is exposed directly (otherwise an attacker can rotate `X-Forwarded-For` and evade the per-IP lockout; the global 20/15min backstop still applies). In addition, if a user specifies an explicit subpath using the `ROOT_PATH` environment variable in Docker, a custom `ScriptNameStripper` WSGI middleware handles path rewriting. Client-side, `window.ROOT_PATH` dynamically prefixes all AJAX calls.
 
 **CORS whitelist (Docker env `CORS_ALLOWED_ORIGINS`)** — for self-host HTTPS domains (e.g. `https://….local.ltd`) where Same-Origin alone blocks Socket.IO / cross-origin AJAX. Comma-separated **explicit** origins only; empty = Same-Origin (no broad CORS). Applied to both Flask HTTP (`after_request` + OPTIONS preflight, with credentials) and `socketio.init_app(cors_allowed_origins=…)`. `*` is rejected. This does **not** replace reverse-proxy WebSocket upgrade (`Upgrade` / `Connection`) configuration — see `cors_config.py` and `app.py`.
 
 **`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — API calls always use `KAVITA_URL` (safe for Docker-internal hostnames like `http://kavita:5000`). Browser series links use `get_kavita_ui_url()` (`config_manager.py`), which prefers `KAVITA_EXTERNAL_URL` (public reverse-proxy URL) and falls back to `KAVITA_URL` when unset. The topbar/About **Kavita+** button uses `get_kavita_plus_url()` → `{ui}/settings#admin-kavitaplus` (wiki fallback if no UI URL is configured).
 
-**`KAVITA_HTTP_TIMEOUT`** — seconds for Kavita **write** POSTs (metadata 2-pass, series update 2-pass, cover upload). Default `60`. Env or `config.json`. If pass 1 (write) succeeds and pass 2 (re-lock) times out, `update_series_metadata` / `update_series_general` return soft success with a warning log.
+**Config precedence** — `config.json` > environment variable > default. `load_config()` merges the environment *before* generating `SECRET_KEY` / `WEBHOOK_TOKEN` and writing the file on a fresh install (BF51); otherwise every key would be frozen as a default and env seeding would never apply. `ADMIN_PASSWORD` is **not** seeded from the environment (would re-arm the one-shot `/setup` ownership proof).
+
+**`KAVITA_HTTP_TIMEOUT`** — seconds for Kavita **write** POSTs (metadata 2-pass, series update 2-pass, cover upload). Default `60`. Env or `config.json`. If pass 1 (write) succeeds and pass 2 (re-lock) fails/times out, `update_series_metadata` / `update_series_general` return `(ok, msg, sealed=False)` soft-success; enrichment maps that to status **`NEEDS_RELOCK`** (not plain `COMPLETED`) and schedules `seal_series_locks()` (~2 s). Manual retry: `POST /api/series/<id>/seal-locks` and bulk `POST /api/series/seal-locks-pending` (`routes/series.py`).
 
 **`MAX_TAGS`** — max tags pushed to Kavita. Default `15` (clamped 1–100). Env or `config.json` only — **not** in the Config modal. Use `get_max_tags(config=None)` from `config_manager` in scrapers (`tags[:get_max_tags()]`) and in `services/enrichment_engine.py` when building the Kavita payload (`get_max_tags(config)`).
 
@@ -82,6 +86,7 @@ When a user manually selects a cover from the modal, the client instantly trigge
 #### C. Batch selection persist & auto-uncheck (v1.6.1)
 * `static/js/batch.js` — `saveBatchSelection()` / `restoreBatchSelection()` store checked series IDs in `localStorage` under `mk_batch_selection:{libraryId|all}`. Filters hide rows without unchecking them.
 * `static/js/websocket.js` — on enrichment success (✅ / ⏭️), `uncheckSeriesForBatchResume()` clears the checkbox and updates storage.
+* **Stop vs chunked enqueue** — Stop aborts the UI ×50 `/batch-sync` loop (`AbortController`) and the server rejects late chunks until the next batch’s first packet (`resume_enqueue=true`).
 
 #### D. Ephemeral batch targeted-fields mask (v1.6.1)
 * Sidebar checkboxes `.batch-field-cb` → `getBatchTargetedFieldsMask()` (null if all 12 checked).
@@ -91,7 +96,8 @@ When a user manually selects a cover from the modal, the client instantly trigge
 #### E. Lifetime stats & live KPIs (v1.6.1 / C7)
 * SQLite `lifetime_stats` keys: `series_enriched`, `matches_won`, `series_missed` via `record_enrichment_telemetry` / `record_enrichment_miss`.
 * After record, `_broadcast_enrichment_stats` emits Socket.IO `enrichment_stats` with absolute `lifetime` + deltas.
-* Topbar KPIs + session counter (`sessionStorage` key `mk_session_processed`) in `websocket.js`. Playful `/stats` uses `services/stats_service.py` + Chart.js.
+* Topbar KPIs + session counter (`sessionStorage` key `mk_session_processed`) in `websocket.js`.
+* Playful `/stats` (`ENABLE_PLAYFUL_STATS`, default ON): `services/stats_service.py` + Chart.js + Manual Review achievements (`services/mr_achievements.py`).
 
 #### F. Batch progress bar (v1.6.1)
 * `services/background_tasks.py` — `broadcast_batch_progress(remaining, active=…)` on each worker start; `{remaining: 0}` when the queue empties; `{stopped: true}` on `drain_sync_queue()` / `/stop-batch`.
@@ -100,8 +106,34 @@ When a user manually selects a cover from the modal, the client instantly trigge
 
 #### G. Reliability barometer (v1.6.1)
 * Config keys `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` (clamped `[0.30, 1.00]`).
-* Runtime threshold: `scrapers/utils.py::get_match_accept_threshold()` (custom off → always `0.60`). Official scrapers + `_safe_match_score` / `attach_match_score` fallbacks use the getter.
+* Runtime threshold: `scrapers/utils.py::get_match_accept_threshold()` (custom off → always `0.60`). Official scrapers + `_safe_match_score` / `attach_match_score` fallbacks use the getter — do not hardcode `MATCH_ACCEPT_THRESHOLD` in new scrapers.
 
+#### H. Manual Review Mode (C29)
+Park-and-pick instead of auto-writing Kavita. Worker scrapes with `return_candidates=True`, then `create_review_from_candidates` → `park_pending_review` (atomic insert + `PENDING_REVIEW` status). UI consumes the queue over REST + Socket.IO (score gradient, keys 1–3, weak below-threshold band). Confirm path may include an optional **cover pick phase** before `apply_manual_review` (explicit cover upload even when `AUTO_COVER` is off); soft-success re-lock → `NEEDS_RELOCK` (same as auto).
+
+When Manual Review is **off**, the same « Éditer avant confirmation » toggle can enable `CONFIRM_BEFORE_WRITE`: auto scrape parks a preview (`awaiting_confirm`) and opens the edit panel; Kavita is written only on confirm.
+
+| Piece | Role |
+| :--- | :--- |
+| `services/manual_review.py` | Park helpers, summary translation before pick, skip/confirm/purge emitters |
+| `services/enrichment_engine.py` | Manual branch in `enrich_series`, `preview_manual_review` / `apply_manual_review` / `research_manual_review` (apply shares `_processing_lock`); `seal_series_locks` for `NEEDS_RELOCK` |
+| `routes/manual_review.py` | `GET/POST /api/manual-reviews…` (list, choice, confirm, research, skip, purge) |
+| `db_manager.py` | `pending_reviews` table — **UNIQUE(`series_id`)**, `park_pending_review` / `close_pending_review` single-txn |
+| `static/js/manual_review.js` + `_manual_review_modal.html` | Modal: pick / edit / **cover** / recap, fusion checkboxes, keyboard dock, queue sync |
+
+**Integrity rules (do not regress):**
+* One pending row per `series_id` — re-park replaces, never stacks.
+* Global batch (`routes/sync.py` with empty selection) excludes `PENDING_REVIEW`; auto-sync already did.
+* Early “already up to date” must not clobber `PENDING_REVIEW`; on `NEEDS_RELOCK` attempt seal-only then COMPLETED; COMPLETED path purges stray rows.
+* Write OK + re-lock fail → `NEEDS_RELOCK` (orange), not plain `COMPLETED`; seal via deferred retry or `POST /api/series/<id>/seal-locks` (+ bulk pending).
+* Turning `MANUAL_REVIEW_MODE` off purges the queue (`routes/config.py`).
+* Ignore toggle and `clean_orphaned_cache` delete pending rows for that series.
+* Frontend: serialize `loadQueue`, re-anchor on `currentReviewId`, in-flight guards on pick/confirm/skip; handle `manual_review_confirmed` / `_skipped` / `_refreshed` / count→0.
+
+Config flags (sidebar): `MANUAL_REVIEW_MODE`, `MANUAL_REVIEW_EDIT`, `MANUAL_REVIEW_SUPER`, `MANUAL_REVIEW_SOUNDS`. Tests: `tests/test_manual_review.py`, `tests/test_needs_relock.py`.
+
+#### I. Supporter nags (C40 partial)
+* `static/js/license_nag.js` — rare Buy Me a Coffee overlays after hot moments (batch end / rich MR recap). Caps: honeymoon 7d, max 1–2/day, honor snooze 30d. Failures must be no-ops (never block batch/MR). Class `.license` reserved as a future silence hook — no paywall / license keys.
 ---
 
 ### 5. Sideloading Scrapers & Auto-Discovery Registry
@@ -129,16 +161,21 @@ Scrapers build candidate dictionaries and evaluate them using `score_candidate`:
 4.  **Volume 1 Anchoring**: Grants `+0.10` bonus to Volume 1 while inflicting `-0.45` penalty to intermediate volumes.
 
 The score returned by `score_candidate()` is only useful relative to a shared acceptance
-threshold: `scrapers/utils.py::MATCH_ACCEPT_THRESHOLD` (currently `0.60`). It used to be a
-literal duplicated in every scraper file (`0.50` for most, `0.60` for Hardcover/OpenLibrary,
-even `0.45` for Manga-News/Shikimori) — `0.50` (and a fortiori `0.45`) was tested in real-world
-usage and produced too many false positives (homonyms/spin-offs wrongly accepted), so `0.60` is
-now the single validated value, centralized so every scraper stays in sync.
+threshold. Prefer `scrapers/utils.py::get_match_accept_threshold()` (v1.6.1 barometer —
+§4.G); the constant `MATCH_ACCEPT_THRESHOLD` (`0.60`) remains the default when custom
+mode is off. It used to be a literal duplicated in every scraper file (`0.50` for most,
+`0.60` for Hardcover/OpenLibrary, even `0.45` for Manga-News/Shikimori) — `0.50` (and a
+fortiori `0.45`) was tested in real-world usage and produced too many false positives
+(homonyms/spin-offs wrongly accepted), so `0.60` is the single validated default,
+centralized so every scraper stays in sync.
 
-**All 9 search-based scrapers now call `score_candidate()`.** `mangadex.py`, `mangaupdates.py`,
-`manganews.py` and `shikimori.py` used to implement their own title-only heuristic with no
-author cross-check at all — meaning the anti-homonym protection (category A) never applied to
-them. Each was migrated to build a *complete* candidate (including `staff`) before scoring:
+**Search-based official scrapers call `score_candidate()`** (including MangaDex /
+MangaUpdates / Manga-News / Shikimori migrations below). Newer providers (MAL, BDTheque,
+Wikidata, …) must use the same matrix + `get_match_accept_threshold()`. Historical note —
+`mangadex.py`, `mangaupdates.py`, `manganews.py` and `shikimori.py` used to implement their
+own title-only heuristic with no author cross-check at all — meaning the anti-homonym
+protection (category A) never applied to them. Each was migrated to build a *complete*
+candidate (including `staff`) before scoring:
 - `mangadex.py`: the search endpoint already returns author/artist via `includes[]=author,artist`,
   so building the full candidate per search result costs zero extra HTTP calls. A MangaDex-specific
   "oneshot" penalty (no equivalent in the shared matrix) is still applied as a local adjustment
@@ -198,7 +235,7 @@ Two independent improvements were made on top of the unified scoring matrix (§6
    benefit (provider #1's ISBN/authors feeding `score_candidate()`'s ISBN Golden Rule and
    anti-homonym penalty for providers #2/#3), which matters most on "cold" series with little or
    no pre-existing Kavita metadata. Per-provider rate-limiting (`throttle_provider()`) is already
-   keyed by `scraper.id` with its own lock (see §3 below), so parallelizing *different* providers
+   keyed by `scraper.id` with its own lock (see §2 above), so parallelizing *different* providers
    never violates any individual provider's `rate_limit`. No scraper instance mutates `self`
    during `fetch()`, so running distinct provider singletons concurrently is safe.
 
@@ -216,13 +253,13 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 
 ---
 
-### 7. Active Scraper Ecosystem (V1.5.7)
+### 7. Active Scraper Ecosystem
 
 | Scraper ID | Provider Name | Types | Key Features |
 | :--- | :--- | :--- | :--- |
 | `ANILIST` | AniList | Manga, Comic, Book | GraphQL API, spin-off penalties, native `AniListId` mapping. |
 | `BEDETHEQUE` | Bédéthèque | Comic | Franco-Belgian BD scraper, `curl_cffi` CSRF bypass. |
-| `BDTHEQUE` | BDTheque.com | Comic | Franco-Belgian BD (bdtheque.com, not bedetheque). AJAX search + series page parse. |
+| `BDTHEQUE` | BDTheque.com | Comic | Franco-Belgian BD (bdtheque.com, **not** bedetheque). AJAX search + series page; Magic Input `/series/{id}/{slug}`; covers via `data-echo`. |
 | `COMICVINE` | ComicVine | Comic | API Key required. Primary publisher weighting, Issue #1 fallback. |
 | `GOOGLEBOOKS` | Google Books | Book, Comic | API Key required. Dynamic `langRestrict`, ISBN targeting. |
 | `HARDCOVER` | Hardcover (Exp) | Book, Comic | API Key required. Hasura GraphQL API & Typesense search. |
@@ -232,9 +269,12 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 | `MANGADEX` | MangaDex | Manga | Content rating filters (`erotica`), oneshot penalties. |
 | `MANGAUPDATES`| MangaUpdates | Manga | `hit_title` matching, Publisher Preference support. |
 | `OPENLIBRARY` | Open Library | Book, Comic | ISBN support, anti-429 retries, Google Disclaimer bypass. |
-| `MAL` | MyAnimeList | Manga, Book | Official API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY`). |
+| `MAL` | MyAnimeList | Manga, Book | Official API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID; no user OAuth). Magic Input `myanimelist.net/manga/{id}`. |
 | `SHIKIMORI` | Shikimori | Manga | Multilingual title matching, `/roles` staff extraction. |
-| `WIKIDATA` | Wikidata | Manga, Comic, Book | SPARQL + Entity API; Magic Input Q-id; shared `wikidata_map`. |
+| `WIKIDATA` | Wikidata | Manga, Comic, Book | **Live only** (SPARQL + Entity API) — no offline dump/SQLite mode yet. Magic Input Q-id; shared `wikidata_map`. Best as fallback / ISBN / cross-IDs. |
+
+#### Comic Flexible (C35)
+Kavita library type **ID 5** normalizes to `ComicFlexible` (`kavita_api._normalize_library_type`) — it is **not** flattened to Comic. Enrichment runs `COMIC_PROVIDER_*` first, then falls back to Manga `PROVIDER_*` when no useful hit is found. Manual cover search unions Comic + Manga scrapers. Tests: `tests/test_comic_flexible.py`, `tests/test_library_type_normalize.py`.
 
 ---
 
@@ -271,7 +311,7 @@ Before touching any code path that calls into `kavita_api.py`, read `kavita_api.
 
 1. **Never send a partial payload to `POST /api/Series/update`.** Kavita's `SeriesController`/`UpdateSeriesDto` has **no null-guard** on several fields — `localizedName` in particular. If your update logic only intends to change `format`, but omits `localizedName` from the JSON body, Kavita's C# backend deserializes the missing key as `null`, **overwrites** the existing value in the database, and additionally **resets** `nameLocked` / `sortNameLocked` / `localizedNameLocked` to `false` — even though those fields were never meant to be touched. This exact regression silently corrupted alternate titles for real users and crashed a third-party OPDS client (KOReader's "Kamare" plugin), which assumed `localizedName` would always be a string and choked on the resulting `null`. **The mandatory fix pattern:** always `GET /api/Series/{id}` first, merge your intended change into the *complete* current state, and only then `POST` the full object back. See `KavitaAPI.update_series_general()` for the reference implementation of this GET-merge-POST pattern.
 2. **Sanitize GET-only / computed fields before every `POST`.** Properties like `created`, `lastModified`, `totalCount`, `maxCount`, `pages`, and `wordCount` are returned by Kavita's `GET` endpoints but must never be echoed back in a `POST` body — doing so risks triggering Entity Framework Core concurrency exceptions server-side. This sanitization is centralized **once** inside `KavitaAPI.update_series_metadata()`. Do not re-implement a partial version of it ad-hoc in `app.py` or inside a scraper — that exact kind of duplication (only stripping `created`/`lastModified` in one place while forgetting `maxCount`/`totalCount`) is how a `maxCount: -100000` payload once reached Kavita and crashed a sync.
-3. **Respect the 2-pass Lock Guard protocol** (`Unlock → Write → Lock`, documented in `kavita_api.md` §1.B/1.C) whenever your code needs to overwrite a field the user may have manually locked in Kavita's UI.
+3. **Respect the 2-pass Lock Guard protocol** (`Unlock → Write → Lock`, documented in `kavita_api.md` §1.B/1.C) whenever your code needs to overwrite a field the user may have manually locked in Kavita's UI. Soft-success on re-lock failure must surface as `NEEDS_RELOCK` + `seal_series_locks`, not silent `COMPLETED`.
 
 #### C. Trace New Settings Through the *Entire* Chain, Not Just One File
 The per-series Publisher Preference toggle (`VF/VA` vs `VO`, v1.5.7) shipped with fully correct code in the HTML template, the JS payload builder, both scrapers' extraction logic, *and* the SQLite schema — yet was completely inert in practice, because a single Flask route (`/save-override`) read the submitted value into a local variable and then simply never forwarded it to `save_forced_overrides()`. No single file was wrong in isolation; the bug only existed in the gap between files. **Whenever you add or touch a per-series or global setting, manually trace it end-to-end**: HTML input → `script.js` payload construction → Flask route parameter extraction → `db_manager.py` write → `db_manager.py` read → `existing_metadata` construction in `app.py` → scraper consumption. A fast way to catch this class of bug is to grep every call site of the persistence function (e.g. `save_forced_overrides(`) and diff the argument list against the function signature.
@@ -297,17 +337,20 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 *   **`kavita_constants.py`**: single source of truth for Kavita enum mappings (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) and raw-provider-status normalization (`normalize_provider_status()`, used by `scrapers/mangabaka.py`). Add new enum mappings here, never inline in a route or scraper.
 *   **`models.py`**: `SeriesOverride` dataclass, the typed contract for per-series overrides (forced ID/provider, alternative title, targeted fields, publisher preference, `alt_title_langs`). Prefer `db_manager.save_series_override(SeriesOverride(...))` (named fields) over the legacy positional `save_forced_overrides(...)` wrapper in any new code — this is a direct, structural mitigation for the class of bug described in §11.C.
 *   **`extensions.py`**: the shared `socketio = SocketIO()` instance (created without an app, `init_app(app)`'d once in `app.py`). Import from here — never from `app.py` — in any module that needs to emit events or declare `@socketio.on(...)` handlers, to avoid circular imports.
-*   **`services/enrichment_engine.py`**: `enrich_series(series_id, series_name, force_update, targeted_fields_override=None)`, the extracted former `process_series_logic()`. Pure orchestration — scraping, field mapping, Kavita calls, lifetime telemetry broadcast — with zero dependency on Flask or `app.py`.
-*   **`services/background_tasks.py`**: the daemon workers (`sync_queue` consumer + periodic auto-sync poller) and `start_background_workers()`, called once from `app.py` at import time (unchanged single-worker-process behavior, required for Gunicorn `-w 1`). Queue items are 3-tuples `(id, name, force)` or 4-tuples with ephemeral `targeted_fields`.
-*   **`services/stats_service.py`**: playful `/stats` metrics + Chart.js payload from lifetime counters + cache snapshot.
+*   **`auth_manager.py`**: account CRUD, Werkzeug hashing (`pbkdf2:sha256`), per-IP + global lockout, legacy `/setup` ownership proof, `ADMIN_PASSWORD_HASH` / `ADMIN_USERNAME` seeding, `TRUSTED_PROXY_COUNT`, session helpers, `setup_gate` / `login_gate`. Fail-closed; never import plaintext `ADMIN_PASSWORD` as the new password.
+*   **`config_manager.py`**: `load_config()` / `save_config()` — env merge **before** first-write secrets (BF51); precedence `config.json` > env > default; `config.json` mode 0600.
+*   **`services/enrichment_engine.py`**: `enrich_series(series_id, series_name, force_update, targeted_fields_override=None)`, the extracted former `process_series_logic()`. Pure orchestration — scraping, field mapping, Kavita calls, lifetime telemetry broadcast — with zero dependency on Flask or `app.py`. Also hosts Manual Review apply/preview/research paths (C29) and `seal_series_locks` (`NEEDS_RELOCK`). Comic Flexible cascade lives here.
+*   **`services/manual_review.py`**: C29 park helpers — `create_review_from_candidates`, `choice_and_merge`, skip/confirm/purge emitters, pre-pick summary translation. Persistence goes through `db_manager.park_pending_review` / `close_pending_review` (atomic).
+*   **`services/background_tasks.py`**: the daemon workers (`sync_queue` consumer + periodic auto-sync poller) and `start_background_workers()`, called once from `app.py` at import time (unchanged single-worker-process behavior, required for Gunicorn `-w 1`). Queue items are 3-tuples `(id, name, force)` or 4-tuples with ephemeral `targeted_fields`. Auto-sync skips `PENDING_REVIEW`.
+*   **`services/stats_service.py`**: playful `/stats` metrics + Chart.js payload from lifetime counters + cache snapshot + Manual Review achievements (`mr_achievements.py`). Gated by `ENABLE_PLAYFUL_STATS`.
 *   **`services/changelog_service.py`**: `get_app_version()` / `get_current_version()` (cached) / `get_full_changelog_html()`. Imported independently by both `app.py` (global template context) and `routes/misc.py` (`/api/changelog`) — importing from here instead of from each other avoids a circular import.
-*   **`routes/*.py`**: one Flask Blueprint per domain — `auth` (`/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, cover search/apply), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `misc` (`/api/proxy-image`, `/api/changelog`).
-*   **`sockets/handlers.py`**: the two Socket.IO event handlers (`connect`, `fetch_covers_stream`), registered by decorating the shared `extensions.socketio` instance; imported once for side effects from `app.py`.
-*   **`static/js/*.js`**: the former monolithic `script.js` is now 7 plain `<script>` files loaded in dependency order (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). No bundler and no `type="module"` on purpose: templates rely on inline `onclick="..."` handlers, which require every function to stay in the global scope.
-*   **`templates/partials/*.html`**: the former monolithic `index.html` is now a thin shell that `{% include %}`s six Jinja partials — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — one per self-contained UI region. Edit the relevant partial directly instead of scrolling through a single 600+ line template.
-*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + domain tests such as `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10. Also note shared helpers: `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
+*   **`routes/*.py`**: one Flask Blueprint per domain — `auth` (`/setup`, `/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, cover search/apply, `POST …/seal-locks`, `POST …/seal-locks-pending`), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `manual_review` (`/api/manual-reviews…`), `misc` (`/healthz`, `/api/proxy-image`, `/api/changelog`).
+*   **`sockets/handlers.py`**: Socket.IO handlers (`connect`, `fetch_covers_stream`), registered on `extensions.socketio`; imported once for side effects from `app.py`. Unauthenticated `connect` → `return False`; successful connect emits `manual_review_pending_count` / `manual_review_queue_summary` **to the connecting `sid` only**.
+*   **`static/js/*.js`**: the former monolithic `script.js` is now plain `<script>` files loaded in dependency order (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `manual_review.js` → `license_nag.js` → `main.js`). No bundler and no `type="module"` on purpose: templates rely on inline `onclick="..."` handlers, which require every function to stay in the global scope.
+*   **`templates/partials/*.html`**: the former monolithic `index.html` is now a thin shell that `{% include %}`s Jinja partials — including `_manual_review_modal.html` for C29 — one per self-contained UI region. Edit the relevant partial directly instead of scrolling through a single 600+ line template.
+*   **`tests/`**: the pytest safety net (`conftest.py` fixtures + domain tests such as `test_auth.py`, `test_healthz.py`, `test_config_env_seeding.py`, `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_manual_review.py`, `test_needs_relock.py`, `test_supporter_nag_policy.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10. Also note shared helpers: `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
-⚠️ **Blueprint endpoint names changed.** Flask always prefixes a Blueprint route's endpoint with the Blueprint's name (e.g. the `login` view in `routes/auth.py`, registered on the `auth` Blueprint, becomes endpoint `auth.login` — there is no way to opt out of this prefixing). Every `url_for(...)` call and the `request.endpoint in [...]` whitelist in `app.py::require_login()` were updated accordingly (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **If you rename a Blueprint or move a route to a different Blueprint, grep for its old endpoint string across `app.py` and every `.html` template before assuming `url_for()` still resolves.**
+⚠️ **Blueprint endpoint names changed.** Flask always prefixes a Blueprint route's endpoint with the Blueprint's name (e.g. the `login` view in `routes/auth.py`, registered on the `auth` Blueprint, becomes endpoint `auth.login` — there is no way to opt out of this prefixing). Every `url_for(...)` call and the whitelist in `auth_manager.setup_gate` / `login_gate` were updated accordingly (`auth.setup`, `auth.login`, `auth.logout`, `pages.index`, `pages.stats`, `misc.healthz`, `sync.export_errors`, `sync.webhook`). **If you rename a Blueprint or move a route to a different Blueprint, grep for its old endpoint string across `auth_manager.py`, `app.py` and every `.html` template before assuming `url_for()` still resolves.**
 
 <br><br>
 
@@ -318,10 +361,13 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 ### 1. Architecture Globale & Sécurité
 MetaKavita est une application Python asynchrone fonctionnant derrière un serveur **WSGI Gunicorn** couplé à des workers **Eventlet** pour supporter les WebSockets en temps réel.
 
-*   **Sécurité :** L'authentification utilise `secrets.compare_digest` contre les attaques temporelles. Les webhooks exigent un jeton cryptographique (`WEBHOOK_TOKEN`). CSRF sur les POST mutatifs (`csrf_utils.py` + header frontend). `SECRET_KEY` générée au boot — pas de fallback public hardcodé.
-*   **Protection SSRF :** Allowlist partagée (`url_allowlist.py`) pour upload de couvertures et `/api/proxy-image` (http(s), pas d'IPs privées, jusqu'à 3 redirects re-validés, MIME image). Les `proxy_domains` des scrapers (y compris communautaires) alimentent la liste.
+*   **Sécurité :** authentification globale via `@app.before_request` (`auth_manager.setup_gate` puis `login_gate` / `is_authenticated`) et le handler Socket.IO `connect` (`return False` si non authentifié — forme documentée Flask-SocketIO ; garde `_reject_unauthenticated` par événement en défense en profondeur). **Fail-closed** — y compris base illisible (refuser, jamais laisser l’UI ouverte). Comptes dans `auth_manager.py` + table `users` (méthode Werkzeug épinglée `pbkdf2:sha256`) ; `/setup` au premier démarrage ; amorçage optionnel `ADMIN_PASSWORD_HASH` + `ADMIN_USERNAME` via `debug/hash_password.py` (forme de hachage validée ; ignoré dès qu’un compte existe). Verrouillage par IP (5/15 min) + plafond global (20/15 min) contre la rotation de `X-Forwarded-For` (en mémoire — sain sous `gunicorn -w 1`) ; égalisation de timing par un seul KDF factice mémoïsé. L'ancien `ADMIN_PASSWORD` dans `config.json` sert de preuve de propriété à usage unique sur `/setup`, puis est purgé — jamais repris comme nouveau mot de passe. Cookies de session `HttpOnly` + `SameSite=Lax` (`SESSION_COOKIE_SECURE=1` optionnel derrière HTTPS), durée 7 jours. CSRF (`csrf_utils.py`) sur les POST mutatifs ; le frontend injecte `X-CSRF-Token`. `SECRET_KEY` générée au boot — pas de fallback public hardcodé.
+*   **Protection SSRF :** Allowlist partagée (`url_allowlist.py`) pour upload de couvertures et `/api/proxy-image` (http(s), pas d'IPs privées, jusqu'à 3 redirects re-validés, MIME image). Les `proxy_domains` des scrapers (y compris communautaires) alimentent la liste. `/api/proxy-image` streame avec plafond dur **5 Mo** (`413`).
 *   **Logs sans fuite de clés :** utiliser `secure_logging.safe_exc_str()` / `redact_secrets()` pour les exceptions susceptibles de contenir des URLs authentifiées (ne jamais logger `str(e)` brut après ces appels).
-*   **Migrations SQLite Sécurisées :** Le `db_manager.py` met à jour les colonnes de la BDD une par une en interceptant silencieusement les erreurs `sqlite3.OperationalError` pour éviter les crashs de conteneur 500.
+*   **Webhooks :** jeton cryptographique `WEBHOOK_TOKEN` ; préférer `X-Webhook-Token` à `?token=` (les query strings fuient dans les logs proxy / Referer).
+*   **Liveness `/healthz` :** `GET /healthz` → `{status, version}` uniquement. Whitelisté dans les gates setup/login (`misc.healthz`) ; ne touche **ni** config, ni base, ni Kavita. Le `HEALTHCHECK` Dockerfile exige HTTP **200** strict sur cette route (plus de sonde laxiste sur `/login`).
+*   **Docker non-root (C54) :** utilisateur image `metakavita` (défaut 1000:1000) ; l’entrypoint applique `PUID`/`PGID` puis `gosu`. `save_config()` écrit `config.json` en **0600**.
+*   **Migrations SQLite Sécurisées :** Le `db_manager.py` met à jour les colonnes / tables (`_ensure_schema`, `_ensure_pending_reviews_table`) en interceptant silencieusement les erreurs `sqlite3.OperationalError` pour éviter les crashs de conteneur 500. Toutes les connexions passent par `_connect()` en **WAL** avec un **busy_timeout de 30 s**, pour réduire les `database is locked` sous charge worker + REST + Socket.IO.
 *   **Upload Kavita en Base64 Pur :** Le moteur C# de Kavita refuse les uploads d'images commençant par le schéma `Data URI`. L'envoi doit impérativement se faire en chaîne de caractères Base64 pure pour être écrit de manière permanente sur le disque dur.
 
 ---
@@ -332,13 +378,15 @@ Les pauses fixes ont été remplacées par un **Régulateur Dynamique par Horoda
 ---
 
 ### 3. Architecture Reverse Proxy, Sous-dossiers & CORS
-Le système gère les sous-chemins (ex: `https://domaine.com/metakavita`) via `ProxyFix` pour récupérer les headers `X-Forwarded-Prefix` et un middleware `ScriptNameStripper`. Côté frontend, `window.ROOT_PATH` préfixe toutes les routes.
+Le système gère les sous-chemins (ex: `https://domaine.com/metakavita`) via `ProxyFix` pour les headers `X-Forwarded-Prefix`, `X-Forwarded-For`, … **`TRUSTED_PROXY_COUNT`** (défaut `1`) pilote à la fois le hop count de ProxyFix et l’IP client utilisée pour le verrouillage — mettre **`0`** si l’instance est exposée directement (sinon un attaquant peut faire tourner `X-Forwarded-For` et contourner le verrouillage par IP ; le plafond global 20/15 min s’applique toujours). Un middleware `ScriptNameStripper` gère `ROOT_PATH`. Côté frontend, `window.ROOT_PATH` préfixe toutes les routes.
 
 **Whitelist CORS (env Docker `CORS_ALLOWED_ORIGINS`)** — pour les self-hosts HTTPS (ex: `https://….local.ltd`) où le Same-Origin seul bloque Socket.IO / AJAX cross-origin. Origins **explicites** séparées par des virgules ; vide = Same-Origin. Appliquée à Flask HTTP (`after_request` + preflight OPTIONS, avec credentials) et à `socketio.init_app(cors_allowed_origins=…)`. `*` est rejeté. Cela ne remplace **pas** la config reverse-proxy d'upgrade WebSocket (`Upgrade` / `Connection`) — voir `cors_config.py` et `app.py`.
 
 **`KAVITA_URL` vs `KAVITA_EXTERNAL_URL`** — les appels API utilisent toujours `KAVITA_URL` (hostname Docker interne OK, ex: `http://kavita:5000`). Les liens série du navigateur passent par `get_kavita_ui_url()` (`config_manager.py`), qui préfère `KAVITA_EXTERNAL_URL` (URL publique / reverse proxy) et se rabat sur `KAVITA_URL` si elle est vide. Le bouton **Kavita+** (topbar / À propos) utilise `get_kavita_plus_url()` → `{ui}/settings#admin-kavitaplus` (repli wiki si aucune URL UI).
 
-**`KAVITA_HTTP_TIMEOUT`** — secondes pour les POST d'**écriture** Kavita (metadata 2-pass, update série 2-pass, upload couverture). Défaut `60`. Env ou `config.json`. Si le passage 1 (écriture) réussit et le passage 2 (re-lock) timeout, `update_series_metadata` / `update_series_general` renvoient un soft-success avec warning en log.
+**Précédence de config** — `config.json` > variable d'environnement > défaut. `load_config()` fusionne l'environnement *avant* de générer `SECRET_KEY` / `WEBHOOK_TOKEN` et d'écrire le fichier sur une install neuve (BF51) ; sinon chaque clé serait figée au défaut et le semis env ne s'appliquerait jamais. `ADMIN_PASSWORD` n'est **pas** semé depuis l'environnement (réarmerait la preuve de propriété à usage unique sur `/setup`).
+
+**`KAVITA_HTTP_TIMEOUT`** — secondes pour les POST d'**écriture** Kavita (metadata 2-pass, update série 2-pass, upload couverture). Défaut `60`. Env ou `config.json`. Si le passage 1 (écriture) réussit et le passage 2 (re-lock) échoue/timeout, `update_series_metadata` / `update_series_general` renvoient `(ok, msg, sealed=False)` soft-success ; l’enrichissement mappe ça en statut **`NEEDS_RELOCK`** (pas un simple `COMPLETED`) et planifie `seal_series_locks()` (~2 s). Retry manuel : `POST /api/series/<id>/seal-locks` et bulk `POST /api/series/seal-locks-pending` (`routes/series.py`).
 
 **`MAX_TAGS`** — nombre max de tags poussés vers Kavita. Défaut `15` (borné 1–100). Env ou `config.json` uniquement — **pas** dans la modal Config. Utiliser `get_max_tags(config=None)` depuis `config_manager` dans les scrapers (`tags[:get_max_tags()]`) et dans `services/enrichment_engine.py` pour le payload Kavita (`get_max_tags(config)`).
 
@@ -358,6 +406,7 @@ Appliquer une couverture manuellement via l'interface envoie un second signal AJ
 #### C. Persistance de sélection & décochage auto (v1.6.1)
 * `static/js/batch.js` — `saveBatchSelection()` / `restoreBatchSelection()` stockent les IDs cochés dans `localStorage` sous `mk_batch_selection:{libraryId|all}`. Les filtres masquent sans décocher.
 * `static/js/websocket.js` — en cas de succès (✅ / ⏭️), `uncheckSeriesForBatchResume()` décoche et met à jour le stockage.
+* **Stop vs envoi par paquets** — Stop coupe la boucle UI ×50 `/batch-sync` (`AbortController`) et le serveur rejette les chunks tardifs jusqu’au premier paquet du prochain batch (`resume_enqueue=true`).
 
 #### D. Masque éphémère de champs ciblés batch (v1.6.1)
 * Cases sidebar `.batch-field-cb` → `getBatchTargetedFieldsMask()` (null si les 12 sont cochées).
@@ -367,7 +416,8 @@ Appliquer une couverture manuellement via l'interface envoie un second signal AJ
 #### E. Stats lifetime & KPI live (v1.6.1 / C7)
 * Clés SQLite `lifetime_stats` : `series_enriched`, `matches_won`, `series_missed` via `record_enrichment_telemetry` / `record_enrichment_miss`.
 * Après enregistrement, `_broadcast_enrichment_stats` émet Socket.IO `enrichment_stats` (lifetime absolu + deltas).
-* KPI topbar + compteur session (`sessionStorage` `mk_session_processed`) dans `websocket.js`. `/stats` ludique via `services/stats_service.py` + Chart.js.
+* KPI topbar + compteur session (`sessionStorage` `mk_session_processed`) dans `websocket.js`.
+* `/stats` ludique (`ENABLE_PLAYFUL_STATS`, défaut ON) : `services/stats_service.py` + Chart.js + hauts-faits Manual Review (`services/mr_achievements.py`).
 
 #### F. Barre de progression batch (v1.6.1)
 * `services/background_tasks.py` — `broadcast_batch_progress(remaining, active=…)` à chaque démarrage worker ; `{remaining: 0}` quand la file est vide ; `{stopped: true}` sur `drain_sync_queue()` / `/stop-batch`.
@@ -376,7 +426,34 @@ Appliquer une couverture manuellement via l'interface envoie un second signal AJ
 
 #### G. Baromètre de fiabilité (v1.6.1)
 * Clés config `MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD` (clamp `[0.30, 1.00]`).
-* Seuil runtime : `scrapers/utils.py::get_match_accept_threshold()` (custom off → toujours `0.60`). Scrapers officiels + fallbacks `_safe_match_score` / `attach_match_score` via le getter.
+* Seuil runtime : `scrapers/utils.py::get_match_accept_threshold()` (custom off → toujours `0.60`). Scrapers officiels + fallbacks `_safe_match_score` / `attach_match_score` via le getter — ne pas hardcoder `MATCH_ACCEPT_THRESHOLD` dans un nouveau scraper.
+
+#### H. Mode Review Manuelle (C29)
+Park-and-pick au lieu d’écrire automatiquement dans Kavita. Le worker scrape avec `return_candidates=True`, puis `create_review_from_candidates` → `park_pending_review` (insert atomique + statut `PENDING_REVIEW`). L’UI consomme la file via REST + Socket.IO (gradient de score, touches 1–3, bande faible sous seuil). Le confirm peut inclure une **phase couverture** avant `apply_manual_review` (upload explicite même si `AUTO_COVER` est off) ; soft-success re-lock → `NEEDS_RELOCK` (comme en auto).
+
+Quand Manual Review est **off**, la même case « Éditer avant confirmation » peut activer `CONFIRM_BEFORE_WRITE` : le scrape auto gare un preview (`awaiting_confirm`) et ouvre le panneau d’édition ; Kavita n’est écrit qu’au confirm.
+
+| Pièce | Rôle |
+| :--- | :--- |
+| `services/manual_review.py` | Helpers de park, traduction des résumés avant pick, émetteurs skip/confirm/purge |
+| `services/enrichment_engine.py` | Branche manuelle dans `enrich_series`, `preview_manual_review` / `apply_manual_review` / `research_manual_review` (apply partage `_processing_lock`) ; `seal_series_locks` pour `NEEDS_RELOCK` |
+| `routes/manual_review.py` | `GET/POST /api/manual-reviews…` (liste, choice, confirm, research, skip, purge) |
+| `db_manager.py` | Table `pending_reviews` — **UNIQUE(`series_id`)**, `park_pending_review` / `close_pending_review` en une txn |
+| `static/js/manual_review.js` + `_manual_review_modal.html` | Modale pick / edit / **cover** / recap, fusion, dock clavier, sync file |
+
+**Règles d’intégrité (ne pas régresser) :**
+* Une seule ligne par `series_id` — un re-park remplace, n’empile jamais.
+* Le batch global (`routes/sync.py` sans sélection) exclut `PENDING_REVIEW` ; l’auto-sync le faisait déjà.
+* Le court-circuit « déjà à jour » ne doit pas clobber `PENDING_REVIEW` ; sur `NEEDS_RELOCK` tenter seal seul puis COMPLETED ; le chemin COMPLETED purge les orphelins.
+* Écriture OK + re-lock échoué → `NEEDS_RELOCK` (orange), pas un simple `COMPLETED` ; seal via retry différé ou `POST /api/series/<id>/seal-locks` (+ bulk pending).
+* Désactiver `MANUAL_REVIEW_MODE` purge la file (`routes/config.py`).
+* Ignore et `clean_orphaned_cache` effacent les reviews de la série.
+* Frontend : sérialiser `loadQueue`, ancrer sur `currentReviewId`, gardes in-flight ; gérer `manual_review_confirmed` / `_skipped` / `_refreshed` / compteur→0.
+
+Flags config (sidebar) : `MANUAL_REVIEW_MODE`, `MANUAL_REVIEW_EDIT`, `MANUAL_REVIEW_SUPER`, `MANUAL_REVIEW_SOUNDS`. Tests : `tests/test_manual_review.py`, `tests/test_needs_relock.py`.
+
+#### I. Pubs supporter (C40 partiel)
+* `static/js/license_nag.js` — overlays Buy Me a Coffee rares après moments chauds (fin de batch / récap MR riche). Caps : honeymoon 7 j, max 1–2/j, silence honor 30 j. Les échecs doivent être no-op (jamais bloquer batch/MR). Classe `.license` réservée pour un futur silence — pas de paywall / clé licence.
 
 ---
 
@@ -403,18 +480,22 @@ Les scrapers passent leurs résultats dans `score_candidate` :
 4.  **Ancrage Tome 1** : Bonus de `+0.10` pour le T1, et pénalité de `-0.45` sur les tomes intermédiaires.
 
 Le score renvoyé par `score_candidate()` n'a de sens que comparé à un seuil d'acceptation
-partagé : `scrapers/utils.py::MATCH_ACCEPT_THRESHOLD` (actuellement `0.60`). Cette valeur était
-autrefois un literal dupliqué dans chaque fichier de scraper (`0.50` pour la plupart, `0.60`
-pour Hardcover/OpenLibrary, et même `0.45` pour Manga-News/Shikimori) — `0.50` (et a fortiori
-`0.45`) a été testé en usage réel et générait trop de faux positifs (homonymes/spin-offs
-acceptés à tort), donc `0.60` est désormais la seule valeur validée, centralisée pour que tous
-les scrapers restent synchronisés.
+partagé. Préférer `scrapers/utils.py::get_match_accept_threshold()` (baromètre v1.6.1 —
+§4.G) ; la constante `MATCH_ACCEPT_THRESHOLD` (`0.60`) reste le défaut quand le mode custom
+est off. Cette valeur était autrefois un literal dupliqué dans chaque fichier de scraper
+(`0.50` pour la plupart, `0.60` pour Hardcover/OpenLibrary, et même `0.45` pour
+Manga-News/Shikimori) — `0.50` (et a fortiori `0.45`) a été testé en usage réel et générait
+trop de faux positifs (homonymes/spin-offs acceptés à tort), donc `0.60` est la seule valeur
+validée par défaut, centralisée pour que tous les scrapers restent synchronisés.
 
-**Les 9 scrapers basés sur une recherche appellent désormais `score_candidate()`.**
-`mangadex.py`, `mangaupdates.py`, `manganews.py` et `shikimori.py` implémentaient chacun leur
-propre heuristique titre-seul, sans comparaison d'auteur — la protection anti-homonyme
-(catégorie A) ne s'appliquait donc jamais à eux. Chacun a été migré pour construire un candidat
-*complet* (avec `staff`) avant scoring :
+**Les scrapers officiels basés sur une recherche appellent `score_candidate()`** (y compris
+les migrations MangaDex / MangaUpdates / Manga-News / Shikimori ci-dessous). Les providers
+plus récents (MAL, BDTheque, Wikidata, …) doivent utiliser la même matrice +
+`get_match_accept_threshold()`. Note historique — `mangadex.py`, `mangaupdates.py`,
+`manganews.py` et `shikimori.py` implémentaient chacun leur propre heuristique titre-seul,
+sans comparaison d'auteur — la protection anti-homonyme (catégorie A) ne s'appliquait donc
+jamais à eux. Chacun a été migré pour construire un candidat *complet* (avec `staff`) avant
+scoring :
 - `mangadex.py` : l'endpoint de recherche renvoie déjà l'auteur/artiste via
   `includes[]=author,artist`, donc construire le candidat complet par résultat de recherche ne
   coûte aucune requête HTTP supplémentaire. Une pénalité "oneshot" spécifique à MangaDex (sans
@@ -477,7 +558,7 @@ Deux améliorations indépendantes ont été ajoutées par-dessus la matrice de 
    anti-homonyme de `score_candidate()` pour les providers suivants), ce qui compte surtout sur
    les séries "froides" (peu ou pas de métadonnées Kavita pré-existantes). Le rate-limiting par
    provider (`throttle_provider()`) est déjà indexé par `scraper.id` avec son propre verrou
-   (voir §3 plus haut), donc paralléliser des providers *différents* ne viole jamais le
+   (voir §2 plus haut), donc paralléliser des providers *différents* ne viole jamais le
    `rate_limit` individuel de chacun. Aucun scraper ne mute `self` pendant `fetch()`, donc
    exécuter des instances de providers distinctes en concurrence est sûr.
 
@@ -495,25 +576,28 @@ renvoie n'importe quoi) ne puisse pas faire planter l'enrichissement. Voir `CUST
 
 ---
 
-### 7. Écosystème des Scrapers Actifs (V1.5.7)
+### 7. Écosystème des Scrapers Actifs
 
-| Identifiant | Nom Public | Spécificités & Fonctionnalités |
-| :--- | :--- | :--- |
-| `ANILIST` | AniList | API GraphQL, scoring des candidats contre les spin-offs. |
-| `BEDETHEQUE` | Bédéthèque | Contournement CSRF `curl_cffi`, match exact de séries franco-belges. |
-| `BDTHEQUE` | BDTheque.com | BD franco-belge (bdtheque.com, pas bedetheque). Recherche AJAX + parse fiche série. |
-| `COMICVINE` | ComicVine | API Key. Recherche `filter=name:`, priorisation des éditeurs majeurs. |
-| `GOOGLEBOOKS` | Google Books | API Key. Replis dynamiques par langue (`langRestrict`), ISBN. |
-| `HARDCOVER` | Hardcover (Exp) | API Key. GraphQL Hasura + Moteur Typesense. |
-| `KITSU` | Kitsu | JSON:API, rapide, sans clé requise. |
-| `MANGANEWS` | Manga-News | Catalogue VF, extrait l'éditeur FR et les visuels HD (webp). |
-| `MANGABAKA` | MangaBaka | Manga + Book ; `schema=full`, filtre `type`, Préférence d'Éditeur. |
-| `MANGADEX` | MangaDex | Filtres adultes (`erotica`), pénalités Oneshot. |
-| `MANGAUPDATES`| MangaUpdates | Scraping par `hit_title`, support de la Préférence d'Éditeur. |
-| `OPENLIBRARY` | Open Library | Clés Work (`OL...W`) & ISBNs, contournement Disclaimer Google Books. |
-| `SHIKIMORI` | Shikimori | API Multilingue, extraction `/roles` du staff. |
-| `MAL` | MyAnimeList | API officielle v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY`). |
-| `WIKIDATA` | Wikidata | SPARQL + Entity API ; Magic Input Q-id ; `wikidata_map`. |
+| Identifiant | Nom Public | Types | Spécificités & Fonctionnalités |
+| :--- | :--- | :--- | :--- |
+| `ANILIST` | AniList | Manga, Comic, Book | API GraphQL, scoring des candidats contre les spin-offs. |
+| `BEDETHEQUE` | Bédéthèque | Comic | Contournement CSRF `curl_cffi`, match exact de séries franco-belges. |
+| `BDTHEQUE` | BDTheque.com | Comic | BD franco-belge (bdtheque.com, **pas** bedetheque). Recherche AJAX + parse fiche ; Magic Input `/series/{id}/{slug}` ; covers via `data-echo`. |
+| `COMICVINE` | ComicVine | Comic | API Key. Recherche `filter=name:`, priorisation des éditeurs majeurs. |
+| `GOOGLEBOOKS` | Google Books | Book, Comic | API Key. Replis dynamiques par langue (`langRestrict`), ISBN. |
+| `HARDCOVER` | Hardcover (Exp) | Book, Comic | API Key. GraphQL Hasura + Moteur Typesense. |
+| `KITSU` | Kitsu | Manga | JSON:API, rapide, sans clé requise. |
+| `MANGANEWS` | Manga-News | Manga | Catalogue VF, extrait l'éditeur FR et les visuels HD (webp). |
+| `MANGABAKA` | MangaBaka | Manga, Book | Manga + Book ; `schema=full`, filtre `type`, Préférence d'Éditeur. |
+| `MANGADEX` | MangaDex | Manga | Filtres adultes (`erotica`), pénalités Oneshot. |
+| `MANGAUPDATES`| MangaUpdates | Manga | Scraping par `hit_title`, support de la Préférence d'Éditeur. |
+| `OPENLIBRARY` | Open Library | Book, Comic | Clés Work (`OL...W`) & ISBNs, contournement Disclaimer Google Books. |
+| `MAL` | MyAnimeList | Manga, Book | API officielle v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID ; pas d’OAuth utilisateur). Magic Input `myanimelist.net/manga/{id}`. |
+| `SHIKIMORI` | Shikimori | Manga | API Multilingue, extraction `/roles` du staff. |
+| `WIKIDATA` | Wikidata | Manga, Comic, Book | **Live uniquement** (SPARQL + Entity API) — pas de mode dump/SQLite hors-ligne pour l’instant. Magic Input Q-id ; `wikidata_map`. Idéal en fallback / ISBN / IDs croisés. |
+
+#### Comic Flexible (C35)
+Le type de bibliothèque Kavita **ID 5** se normalise en `ComicFlexible` (`kavita_api._normalize_library_type`) — **pas** aplati en Comic. L’enrichissement lance d’abord `COMIC_PROVIDER_*`, puis bascule sur les `PROVIDER_*` Manga si aucun hit utile. La recherche manuelle de couvertures unionne Comic + Manga. Tests : `tests/test_comic_flexible.py`, `tests/test_library_type_normalize.py`.
 
 ---
 
@@ -549,7 +633,7 @@ Avant de toucher à un chemin de code qui appelle `kavita_api.py`, lisez intégr
 
 1. **Ne jamais envoyer de payload partiel à `POST /api/Series/update`.** Le `SeriesController`/`UpdateSeriesDto` de Kavita n'a **aucune protection contre les valeurs nulles** sur plusieurs champs — notamment `localizedName`. Si votre logique de mise à jour ne vise à changer que `format` mais omet `localizedName` du corps JSON, le backend C# de Kavita désérialise la clé manquante en `null`, **écrase** la valeur existante en base, et **réinitialise en plus** `nameLocked` / `sortNameLocked` / `localizedNameLocked` à `false` — alors même que ces champs n'étaient pas censés être touchés. Cette régression exacte a silencieusement corrompu les titres alternatifs d'utilisateurs réels et fait planter un client OPDS tiers (l'extension "Kamare" de KOReader), qui supposait que `localizedName` serait toujours une chaîne de caractères et s'est bloqué sur le `null` résultant. **Le motif de correction obligatoire :** toujours faire un `GET /api/Series/{id}` en premier, fusionner le changement voulu dans l'état actuel *complet*, puis seulement ensuite renvoyer l'objet entier en `POST`. Voir `KavitaAPI.update_series_general()` pour l'implémentation de référence de ce motif GET-fusion-POST.
 2. **Assainir les champs GET-uniquement / calculés avant chaque `POST`.** Des propriétés comme `created`, `lastModified`, `totalCount`, `maxCount`, `pages` et `wordCount` sont renvoyées par les endpoints `GET` de Kavita mais ne doivent jamais être réinjectées dans un corps `POST` — cela risque de déclencher des exceptions de concurrence d'état côté Entity Framework Core. Cet assainissement est centralisé **une seule fois** dans `KavitaAPI.update_series_metadata()`. Ne réimplémentez pas une version partielle de cette logique dans `app.py` ou dans un scraper — c'est exactement ce type de duplication (ne retirer que `created`/`lastModified` à un endroit en oubliant `maxCount`/`totalCount`) qui a un jour laissé passer un payload `maxCount: -100000` vers Kavita et fait planter une synchronisation.
-3. **Respecter le protocole de verrouillage à 2 passages** (`Unlock → Write → Lock`, documenté dans `kavita_api.md` §1.B/1.C) chaque fois que votre code doit écraser un champ que l'utilisateur a pu verrouiller manuellement dans l'interface de Kavita.
+3. **Respecter le protocole de verrouillage à 2 passages** (`Unlock → Write → Lock`, documenté dans `kavita_api.md` §1.B/1.C) chaque fois que votre code doit écraser un champ que l'utilisateur a pu verrouiller manuellement dans l'interface de Kavita. Un soft-success sur échec de re-lock doit remonter en `NEEDS_RELOCK` + `seal_series_locks`, pas en `COMPLETED` silencieux.
 
 #### C. Tracer un Nouveau Réglage sur *Toute* la Chaîne, Pas Seulement un Fichier
 L'interrupteur de Préférence d'Éditeur par série (`VF/VA` vs `VO`, v1.5.7) a été livré avec un code entièrement correct dans le template HTML, la construction du payload JS, la logique d'extraction des deux scrapers, *et* le schéma SQLite — et pourtant il n'avait strictement aucun effet en pratique, car une seule route Flask (`/save-override`) lisait la valeur soumise dans une variable locale puis oubliait tout simplement de la transmettre à `save_forced_overrides()`. Aucun fichier n'était fautif isolément ; le bug n'existait que dans l'interstice entre les fichiers. **Chaque fois que vous ajoutez ou modifiez un réglage par série ou global, tracez-le manuellement de bout en bout** : champ HTML → construction du payload dans `script.js` → extraction du paramètre dans la route Flask → écriture dans `db_manager.py` → lecture dans `db_manager.py` → construction de `existing_metadata` dans `app.py` → consommation par le scraper. Un moyen rapide de détecter cette classe de bug consiste à rechercher tous les appels de la fonction de persistance (ex : `save_forced_overrides(`) et à comparer la liste d'arguments avec la signature de la fonction.
@@ -575,14 +659,17 @@ Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage 
 *   **`kavita_constants.py`** : source unique de vérité pour les mappings d'énumération Kavita (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) et la normalisation des statuts bruts fournisseurs (`normalize_provider_status()`, utilisé par `scrapers/mangabaka.py`). Ajoutez tout nouveau mapping ici, jamais en ligne dans une route ou un scraper.
 *   **`models.py`** : la dataclass `SeriesOverride`, contrat typé des surcharges par série (ID/provider forcé, titre alternatif, champs ciblés, préférence d'éditeur, `alt_title_langs`). Préférez `db_manager.save_series_override(SeriesOverride(...))` (champs nommés) à l'ancien wrapper positionnel `save_forced_overrides(...)` dans tout nouveau code — c'est une mitigation structurelle directe de la classe de bug décrite au §11.C.
 *   **`extensions.py`** : l'instance partagée `socketio = SocketIO()` (créée sans app, `init_app(app)` appelé une seule fois dans `app.py`). Importez-la depuis ce module — jamais depuis `app.py` — dans tout module ayant besoin d'émettre des événements ou de déclarer des handlers `@socketio.on(...)`, pour éviter les imports circulaires.
-*   **`services/enrichment_engine.py`** : `enrich_series(series_id, series_name, force_update, targeted_fields_override=None)`, extraction de l'ancien `process_series_logic()`. Logique d'orchestration pure (scraping, mapping des champs, appels Kavita, broadcast télémétrie lifetime) sans aucune dépendance vers Flask ni `app.py`.
-*   **`services/background_tasks.py`** : les workers démons (consommateur de `sync_queue` + polling d'auto-sync périodique) et `start_background_workers()`, appelé une seule fois par `app.py` au chargement du module (comportement inchangé, requis pour un déploiement Gunicorn à worker unique `-w 1`). Items de file : 3-tuples `(id, name, force)` ou 4-tuples avec `targeted_fields` éphémère.
-*   **`services/stats_service.py`** : métriques `/stats` ludiques + payload Chart.js à partir des compteurs lifetime + snapshot cache.
+*   **`auth_manager.py`** : CRUD comptes, hachage Werkzeug (`pbkdf2:sha256`), verrouillage par IP + plafond global, preuve de propriété legacy sur `/setup`, amorçage `ADMIN_PASSWORD_HASH` / `ADMIN_USERNAME`, `TRUSTED_PROXY_COUNT`, helpers de session, `setup_gate` / `login_gate`. Fail-closed ; ne jamais importer un `ADMIN_PASSWORD` en clair comme nouveau mot de passe.
+*   **`config_manager.py`** : `load_config()` / `save_config()` — fusion env **avant** la première écriture des secrets (BF51) ; précédence `config.json` > env > défaut ; `config.json` en mode 0600.
+*   **`services/enrichment_engine.py`** : `enrich_series(series_id, series_name, force_update, targeted_fields_override=None)`, extraction de l'ancien `process_series_logic()`. Logique d'orchestration pure (scraping, mapping des champs, appels Kavita, broadcast télémétrie lifetime) sans aucune dépendance vers Flask ni `app.py`. Héberge aussi les chemins apply/preview/research de la Review Manuelle (C29) et `seal_series_locks` (`NEEDS_RELOCK`). Cascade Comic Flexible ici.
+*   **`services/manual_review.py`** : helpers de park C29 — `create_review_from_candidates`, `choice_and_merge`, émetteurs skip/confirm/purge, traduction des résumés avant pick. Persistance via `db_manager.park_pending_review` / `close_pending_review` (atomique).
+*   **`services/background_tasks.py`** : les workers démons (consommateur de `sync_queue` + polling d'auto-sync périodique) et `start_background_workers()`, appelé une seule fois par `app.py` au chargement du module (comportement inchangé, requis pour un déploiement Gunicorn à worker unique `-w 1`). Items de file : 3-tuples `(id, name, force)` ou 4-tuples avec `targeted_fields` éphémère. L’auto-sync ignore `PENDING_REVIEW`.
+*   **`services/stats_service.py`** : métriques `/stats` ludiques + payload Chart.js à partir des compteurs lifetime + snapshot cache + hauts-faits Manual Review (`mr_achievements.py`). Piloté par `ENABLE_PLAYFUL_STATS`.
 *   **`services/changelog_service.py`** : `get_app_version()` / `get_current_version()` (mise en cache) / `get_full_changelog_html()`. Importé indépendamment par `app.py` (contexte global des templates) et par `routes/misc.py` (`/api/changelog`) — importer depuis ce module plutôt que l'un depuis l'autre évite un import circulaire.
-*   **`routes/*.py`** : un Blueprint Flask par domaine — `auth` (`/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, recherche/application de couverture), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `misc` (`/api/proxy-image`, `/api/changelog`).
-*   **`sockets/handlers.py`** : les deux handlers Socket.IO (`connect`, `fetch_covers_stream`), enregistrés en décorant l'instance partagée `extensions.socketio` ; importé une seule fois pour son effet de bord depuis `app.py`.
-*   **`static/js/*.js`** : l'ancien `script.js` monolithique est désormais découpé en 7 fichiers `<script>` classiques chargés dans l'ordre de dépendance (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `main.js`). Volontairement sans bundler ni `type="module"` : les templates s'appuient sur des gestionnaires `onclick="..."` inline, qui exigent que chaque fonction reste en portée globale.
-*   **`templates/partials/*.html`** : l'ancien `index.html` monolithique est désormais une coquille légère qui `{% include %}` six partials Jinja — `_sidebar.html`, `_toolbar.html`, `_series_row.html`, `_config_modal.html`, `_cover_modal.html`, `_changelog_modal.html` — un par zone d'UI autonome. Modifiez directement le partial concerné plutôt que de faire défiler un template unique de 600+ lignes.
-*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + tests métier dont `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10. Helpers partagés : `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
+*   **`routes/*.py`** : un Blueprint Flask par domaine — `auth` (`/setup`, `/login`, `/logout`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, recherche/application de couverture, `POST …/seal-locks`, `POST …/seal-locks-pending`), `sync` (`/force-sync`, `/batch-sync`, `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `manual_review` (`/api/manual-reviews…`), `misc` (`/healthz`, `/api/proxy-image`, `/api/changelog`).
+*   **`sockets/handlers.py`** : handlers Socket.IO (`connect`, `fetch_covers_stream`), enregistrés sur `extensions.socketio` ; importé une seule fois pour son effet de bord depuis `app.py`. `connect` non authentifié → `return False` ; connect réussi émet `manual_review_pending_count` / `manual_review_queue_summary` **uniquement vers le `sid` connecté**.
+*   **`static/js/*.js`** : l'ancien `script.js` monolithique est désormais découpé en fichiers `<script>` classiques chargés dans l'ordre de dépendance (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `manual_review.js` → `license_nag.js` → `main.js`). Volontairement sans bundler ni `type="module"` : les templates s'appuient sur des gestionnaires `onclick="..."` inline, qui exigent que chaque fonction reste en portée globale.
+*   **`templates/partials/*.html`** : l'ancien `index.html` monolithique est désormais une coquille légère qui `{% include %}` des partials Jinja — dont `_manual_review_modal.html` pour C29 — un par zone d'UI autonome. Modifiez directement le partial concerné plutôt que de faire défiler un template unique de 600+ lignes.
+*   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + tests métier dont `test_auth.py`, `test_healthz.py`, `test_config_env_seeding.py`, `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_manual_review.py`, `test_needs_relock.py`, `test_supporter_nag_policy.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10. Helpers partagés : `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
-⚠️ **Les noms d'endpoints des Blueprints ont changé.** Flask préfixe toujours l'endpoint d'une route de Blueprint par le nom du Blueprint (ex : la vue `login` de `routes/auth.py`, enregistrée sur le Blueprint `auth`, devient l'endpoint `auth.login` — impossible de désactiver ce préfixage). Chaque appel `url_for(...)` et la liste blanche `request.endpoint in [...]` de `app.py::require_login()` ont été mis à jour en conséquence (`auth.login`, `pages.index`, `pages.stats`, `auth.logout`, `sync.export_errors`, `sync.webhook`). **Si vous renommez un Blueprint ou déplacez une route vers un autre Blueprint, recherchez son ancien nom d'endpoint dans `app.py` et dans chaque template `.html` avant de supposer que `url_for()` fonctionne toujours.**
+⚠️ **Les noms d'endpoints des Blueprints ont changé.** Flask préfixe toujours l'endpoint d'une route de Blueprint par le nom du Blueprint (ex : la vue `login` de `routes/auth.py`, enregistrée sur le Blueprint `auth`, devient l'endpoint `auth.login` — impossible de désactiver ce préfixage). Chaque appel `url_for(...)` et les listes blanches de `auth_manager.setup_gate` / `login_gate` ont été mis à jour en conséquence (`auth.setup`, `auth.login`, `auth.logout`, `pages.index`, `pages.stats`, `misc.healthz`, `sync.export_errors`, `sync.webhook`). **Si vous renommez un Blueprint ou déplacez une route vers un autre Blueprint, recherchez son ancien nom d'endpoint dans `auth_manager.py`, `app.py` et dans chaque template `.html` avant de supposer que `url_for()` fonctionne toujours.**

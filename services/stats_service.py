@@ -129,6 +129,7 @@ def compute_playful_stats(
 
     # --- État actuel (cache) ---
     completed = sum(1 for v in cached_data.values() if v.get("status") == "COMPLETED")
+    needs_relock = sum(1 for v in cached_data.values() if v.get("status") == "NEEDS_RELOCK")
     pending = sum(1 for v in cached_data.values() if v.get("status") == "PENDING")
     pending_review = sum(1 for v in cached_data.values() if v.get("status") == "PENDING_REVIEW")
     not_found = sum(1 for v in cached_data.values() if v.get("status") == "NOT_FOUND")
@@ -216,8 +217,8 @@ def compute_playful_stats(
 
     charts = {
         "status": {
-            "labels": ["COMPLETED", "PENDING", "PENDING_REVIEW", "NOT_FOUND", "IGNORED"],
-            "values": [completed, pending, pending_review, not_found, ignored],
+            "labels": ["COMPLETED", "NEEDS_RELOCK", "PENDING", "PENDING_REVIEW", "NOT_FOUND", "IGNORED"],
+            "values": [completed, needs_relock, pending, pending_review, not_found, ignored],
         },
         "providers": {
             "labels": [p["name"] for p in podium],

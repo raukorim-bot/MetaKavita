@@ -52,6 +52,16 @@ def toggle_ignore():
 
     new_status = 'IGNORED' if current_status != 'IGNORED' else 'PENDING'
     update_status(int(series_id), new_status)
+    # Une série ignorée ne doit plus apparaître dans la file de review.
+    if new_status == 'IGNORED':
+        try:
+            from db_manager import delete_pending_by_series
+            from services.manual_review import emit_pending_count
+            deleted = delete_pending_by_series(int(series_id))
+            if deleted:
+                emit_pending_count()
+        except Exception:
+            pass
     return jsonify(success=True, new_status=new_status)
 
 
@@ -140,3 +150,55 @@ def apply_series_cover(series_id):
         logging.info(f"🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {series_id} (protégé contre les futurs scrapings automatiques).")
 
     return jsonify({"success": success, "msg": msg})
+
+
+@series_bp.route('/api/series/<int:series_id>/seal-locks', methods=['POST'])
+def seal_series_locks(series_id):
+    """Rescelle les verrous Kavita (après NEEDS_RELOCK) sans re-scraper."""
+    config = load_config()
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    if not kavita.authenticate():
+        return jsonify(success=False, error="Auth Kavita échouée"), 502
+
+    ok, msg = kavita.seal_series_locks(series_id)
+    if not ok:
+        return jsonify(success=False, error=msg), 502
+
+    update_status(int(series_id), 'COMPLETED')
+    try:
+        from services.kavita_payload import _emit_series_status
+        cache = get_all_cached_data().get(int(series_id), {})
+        _emit_series_status(series_id, 'COMPLETED', cache.get('alternative_title') or '')
+    except Exception:
+        pass
+    return jsonify(success=True, status='COMPLETED', message=msg)
+
+
+@series_bp.route('/api/series/seal-locks-pending', methods=['POST'])
+def seal_all_needs_relock():
+    """Rescelle toutes les séries en statut NEEDS_RELOCK."""
+    config = load_config()
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    if not kavita.authenticate():
+        return jsonify(success=False, error="Auth Kavita échouée"), 502
+
+    cached = get_all_cached_data()
+    targets = [sid for sid, row in cached.items() if (row or {}).get('status') == 'NEEDS_RELOCK']
+    sealed = []
+    failed = []
+    from services.kavita_payload import _emit_series_status
+    for sid in targets:
+        ok, msg = kavita.seal_series_locks(sid)
+        if ok:
+            update_status(int(sid), 'COMPLETED')
+            _emit_series_status(sid, 'COMPLETED')
+            sealed.append(int(sid))
+        else:
+            failed.append({"series_id": int(sid), "error": msg})
+    return jsonify(
+        success=True,
+        sealed_count=len(sealed),
+        failed_count=len(failed),
+        sealed=sealed,
+        failed=failed,
+    )

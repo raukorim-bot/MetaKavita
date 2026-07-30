@@ -413,6 +413,53 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
     }
 
 
+def _emit_series_status(series_id, status, series_name=None):
+    """Pousse le statut cache vers le dashboard (badge live)."""
+    try:
+        from extensions import socketio
+        socketio.emit(
+            "series_status",
+            {
+                "series_id": int(series_id),
+                "status": status,
+                "series_name": series_name or "",
+            },
+        )
+    except Exception as exc:
+        logging.debug("series_status emit skipped: %s", exc)
+
+
+def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
+    """Après soft-fail re-lock : retente un seal seul (sans re-scrape)."""
+    import threading
+
+    def _run():
+        try:
+            from config_manager import load_config
+            from kavita_api import KavitaAPI
+
+            config = load_config()
+            api = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
+            if not api.authenticate():
+                logging.warning(
+                    "[%s] ⚠️ Retry seal : auth Kavita échouée", series_name
+                )
+                return
+            ok, msg = api.seal_series_locks(series_id)
+            if ok:
+                update_status(series_id, "COMPLETED")
+                _emit_series_status(series_id, "COMPLETED", series_name)
+                logging.info("[%s] ✅ Retry seal OK — statut COMPLETED", series_name)
+            else:
+                logging.warning("[%s] ⚠️ Retry seal échoué : %s", series_name, msg)
+        except Exception as exc:
+            logging.warning("[%s] ⚠️ Retry seal crash : %s", series_name, exc)
+
+    timer = threading.Timer(delay_s, _run)
+    timer.daemon = True
+    timer.start()
+
+
 def apply_kavita_payload(
     kavita,
     series_id,
@@ -424,9 +471,10 @@ def apply_kavita_payload(
     t,
 ):
     """
-    Écrit external ids, metadata, general, cover ; COMPLETED + télémétrie enrichissement.
+    Écrit external ids, metadata, general, cover ; COMPLETED ou NEEDS_RELOCK + télémétrie.
 
     Retourne (success, msg, used_providers).
+    msg vaut ``NEEDS_RELOCK`` si écriture OK mais verrous non posés.
     """
     series_id = int(series_id)
     meta = built.get("metadata") or {}
@@ -444,12 +492,13 @@ def apply_kavita_payload(
         if a_id or m_id or mb_id:
             kavita.update_series_external_ids(series_id, a_id, m_id, mb_id)
 
-    success, msg = kavita.update_series_metadata(meta)
+    success, msg, meta_sealed = kavita.update_series_metadata(meta)
 
     general_ok = True
     general_msg = ""
+    general_sealed = True
     if localized_name or format_val:
-        general_ok, general_msg = kavita.update_series_general(
+        general_ok, general_msg, general_sealed = kavita.update_series_general(
             series_id,
             localized_name=localized_name,
             format_val=format_val,
@@ -463,7 +512,17 @@ def apply_kavita_payload(
             )
 
     if success and general_ok:
+        sealed = bool(meta_sealed and general_sealed)
+        final_status = "COMPLETED" if sealed else "NEEDS_RELOCK"
+
         logging.info(t.get("log_success").format(series_name))
+        if not sealed:
+            logging.warning(
+                t.get(
+                    "log_needs_relock",
+                    "[{0}] ⚠️ Écriture OK mais verrous non posés — statut À sceller.",
+                ).format(series_name)
+            )
 
         fresh_targeted_fields = (
             get_all_cached_data().get(series_id, {}).get("targeted_fields", "ALL") or "ALL"
@@ -475,8 +534,8 @@ def apply_kavita_payload(
         if (
             "cover" in active
             and cover_still_targeted
-            and config.get("AUTO_COVER")
             and cover_url
+            and (config.get("AUTO_COVER") or built.get("force_cover_upload"))
         ):
             logging.info(t.get("log_cover_upload").format(series_name))
             cover_success, cover_msg = kavita.upload_series_cover(series_id, cover_url)
@@ -489,8 +548,14 @@ def apply_kavita_payload(
                 f"[{series_name}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps."
             )
 
-        update_status(series_id, "COMPLETED")
+        update_status(series_id, final_status)
+        _emit_series_status(series_id, final_status, series_name)
         _broadcast_enrichment_stats(record_enrichment_telemetry(used))
+
+        if not sealed:
+            _schedule_seal_retry(series_id, series_name)
+            return True, "NEEDS_RELOCK", used
+
         return True, "Succès", used
 
     if success and not general_ok:

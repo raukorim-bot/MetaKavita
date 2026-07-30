@@ -69,6 +69,11 @@ socket.on('log_update', function(msg) {
                             item.dataset.status = 'PENDING_REVIEW';
                             badge.className = 'badge badge-review';
                             badge.innerText = window.AppTranslations.filter_pending_review || 'Review';
+                        } else if (msg.data.includes('NEEDS_RELOCK') || msg.data.includes('À sceller') || msg.data.includes('Needs seal') || msg.data.includes('verrous non posés')) {
+                            item.dataset.status = 'NEEDS_RELOCK';
+                            badge.className = 'badge badge-needs-relock';
+                            badge.innerText = window.AppTranslations.filter_needs_relock || 'Needs seal';
+                            uncheckSeriesForBatchResume(item);
                         }
                     }
                 }
@@ -77,6 +82,19 @@ socket.on('log_update', function(msg) {
     } catch(e) {
         console.error("[WebSockets] Erreur Live Highlight :", e);
     }
+});
+
+socket.on('series_status', function(payload) {
+    if (!payload || payload.series_id == null) return;
+    var sid = String(payload.series_id);
+    var status = payload.status || '';
+    document.querySelectorAll('.series-item').forEach(function(item) {
+        var cb = item.querySelector('.series-cb');
+        if (!cb || String(cb.value) !== sid) return;
+        if (typeof applySeriesStatusBadge === 'function') {
+            applySeriesStatusBadge(item, status);
+        }
+    });
 });
 
 /** QoS batch : une série OK se décoche pour pouvoir relancer le lot sans re-scraper les déjà faits. */

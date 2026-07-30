@@ -9,6 +9,9 @@
                                     <div class="series-status">
                                         {% if series.status == 'COMPLETED' %}
                                             <span class="badge badge-completed">{{ t.filter_completed }}</span>
+                                        {% elif series.status == 'NEEDS_RELOCK' %}
+                                            <span class="badge badge-needs-relock" title="{{ t.filter_needs_relock_hint }}">{{ t.filter_needs_relock }}</span>
+                                            <button type="button" class="btn-icon btn-seal-locks" onclick="sealSeriesLocks('{{ series.id }}', this)" title="{{ t.seal_locks_btn }}">🔒</button>
                                         {% elif series.status == 'NOT_FOUND' %}
                                             <span class="badge badge-notfound">{{ t.filter_notfound }}</span>
                                         {% elif series.status == 'IGNORED' %}

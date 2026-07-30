@@ -95,11 +95,19 @@ function onMatchThresholdCustomChange() {
     const custom = document.getElementById('sidebar_match_threshold_custom');
     const slider = document.getElementById('sidebar_match_accept_threshold');
     const wrap = document.getElementById('match_threshold_slider_wrap');
-    if (slider && custom) {
-        slider.disabled = !custom.checked;
-    }
-    if (wrap && custom) {
-        wrap.classList.toggle('is-disabled', !custom.checked);
+    const label = document.getElementById('match_threshold_value');
+    if (!custom) return;
+
+    if (custom.checked) {
+        if (slider) slider.disabled = false;
+        if (wrap) wrap.classList.remove('is-hidden');
+    } else {
+        if (slider) {
+            slider.value = '0.60';
+            slider.disabled = true;
+        }
+        if (label) label.textContent = '0.60';
+        if (wrap) wrap.classList.add('is-hidden');
     }
     saveConfig();
 }
@@ -113,6 +121,68 @@ function onMatchThresholdInput(el) {
     _matchThresholdSaveTimer = setTimeout(function () { saveConfig(); }, 300);
 }
 
+function syncManualReviewCoverSwitch() {
+    const mr = document.getElementById('sidebar_manual_review_mode');
+    const cover = document.getElementById('sidebar_manual_review_cover');
+    const coverWrap = document.getElementById('sidebar_manual_review_cover_wrap');
+    const superCb = document.getElementById('sidebar_manual_review_super');
+    const superWrap = document.getElementById('sidebar_manual_review_super_wrap');
+    const soundsCb = document.getElementById('sidebar_manual_review_sounds');
+    const soundsWrap = document.getElementById('sidebar_manual_review_sounds_wrap');
+    const on = !!(mr && mr.checked);
+
+    if (cover) {
+        cover.disabled = !on;
+        if (coverWrap) coverWrap.classList.toggle('is-disabled-by-mr', !on);
+    }
+    if (superCb) {
+        if (!on) {
+            superCb.checked = false;
+            superCb.disabled = true;
+        } else {
+            superCb.disabled = false;
+        }
+        if (superWrap) {
+            superWrap.classList.toggle('is-disabled-by-mr', !on);
+        }
+    }
+    if (soundsCb) {
+        soundsCb.disabled = !on;
+        if (!on) soundsCb.checked = false;
+        if (soundsWrap) soundsWrap.classList.toggle('is-disabled-by-mr', !on);
+    }
+}
+
+function syncEditBeforeConfirmCheckbox() {
+    const mr = document.getElementById('sidebar_manual_review_mode');
+    const edit = document.getElementById('sidebar_manual_review_edit');
+    if (!edit) return;
+    const useMr = !!(mr && mr.checked);
+    const flag = useMr ? (edit.dataset.mrEdit || 'true') : (edit.dataset.confirmWrite || 'false');
+    edit.checked = flag === 'true';
+}
+
+function onEditBeforeConfirmToggle() {
+    const mr = document.getElementById('sidebar_manual_review_mode');
+    const edit = document.getElementById('sidebar_manual_review_edit');
+    if (!edit) return;
+    const val = edit.checked ? 'true' : 'false';
+    if (mr && mr.checked) {
+        edit.dataset.mrEdit = val;
+    } else {
+        edit.dataset.confirmWrite = val;
+    }
+}
+
+function appendEditBeforeConfirmFlags(formData) {
+    const edit = document.getElementById('sidebar_manual_review_edit');
+    if (!edit) return;
+    // Garantit la synchro dataset ↔ checkbox avant envoi
+    onEditBeforeConfirmToggle();
+    formData.append('MANUAL_REVIEW_EDIT', (edit.dataset.mrEdit || 'true') === 'true' ? 'true' : 'false');
+    formData.append('CONFIRM_BEFORE_WRITE', (edit.dataset.confirmWrite || 'false') === 'true' ? 'true' : 'false');
+}
+
 // --- SAUVEGARDE CONFIGURATION (AJAX HYBRIDE) ---
 function saveConfig() {
     const form = document.getElementById('configForm');
@@ -121,7 +191,6 @@ function saveConfig() {
     const smartScoring = document.getElementById('sidebar_smart_scoring');
     const smartCompletion = document.getElementById('sidebar_smart_completion');
     const manualReviewMode = document.getElementById('sidebar_manual_review_mode');
-    const manualReviewEdit = document.getElementById('sidebar_manual_review_edit');
     const manualReviewSounds = document.getElementById('sidebar_manual_review_sounds');
     const autoCover = document.getElementById('sidebar_auto_cover');
     const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
@@ -132,10 +201,21 @@ function saveConfig() {
     if (smartScoring) formData.append('SMART_SCORING', smartScoring.checked ? 'true' : 'false');
     if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
     if (manualReviewMode) formData.append('MANUAL_REVIEW_MODE', manualReviewMode.checked ? 'true' : 'false');
-    if (manualReviewEdit) formData.append('MANUAL_REVIEW_EDIT', manualReviewEdit.checked ? 'true' : 'false');
-    if (manualReviewSounds) formData.append('MANUAL_REVIEW_SOUNDS', manualReviewSounds.checked ? 'true' : 'false');
+    appendEditBeforeConfirmFlags(formData);
+    if (manualReviewSounds) {
+        const mrOn = !!(manualReviewMode && manualReviewMode.checked);
+        formData.append('MANUAL_REVIEW_SOUNDS', (mrOn && manualReviewSounds.checked) ? 'true' : 'false');
+    }
     const manualReviewSuper = document.getElementById('sidebar_manual_review_super');
-    if (manualReviewSuper) formData.append('MANUAL_REVIEW_SUPER', manualReviewSuper.checked ? 'true' : 'false');
+    if (manualReviewSuper) {
+        const mrOn = !!(manualReviewMode && manualReviewMode.checked);
+        formData.append('MANUAL_REVIEW_SUPER', (mrOn && manualReviewSuper.checked) ? 'true' : 'false');
+    }
+    const manualReviewCover = document.getElementById('sidebar_manual_review_cover');
+    if (manualReviewCover) {
+        const mrOn = !!(manualReviewMode && manualReviewMode.checked);
+        formData.append('MANUAL_REVIEW_COVER_PICK', (mrOn && manualReviewCover.checked) ? 'true' : 'false');
+    }
     if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
     if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
@@ -191,7 +271,6 @@ function saveConfigAndReloadLibraries() {
     const smartScoring = document.getElementById('sidebar_smart_scoring');
     const smartCompletion = document.getElementById('sidebar_smart_completion');
     const manualReviewMode = document.getElementById('sidebar_manual_review_mode');
-    const manualReviewEdit = document.getElementById('sidebar_manual_review_edit');
     const manualReviewSounds = document.getElementById('sidebar_manual_review_sounds');
     const autoCover = document.getElementById('sidebar_auto_cover');
     const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
@@ -202,10 +281,21 @@ function saveConfigAndReloadLibraries() {
     if (smartScoring) formData.append('SMART_SCORING', smartScoring.checked ? 'true' : 'false');
     if (smartCompletion) formData.append('SMART_COMPLETION', smartCompletion.checked ? 'true' : 'false');
     if (manualReviewMode) formData.append('MANUAL_REVIEW_MODE', manualReviewMode.checked ? 'true' : 'false');
-    if (manualReviewEdit) formData.append('MANUAL_REVIEW_EDIT', manualReviewEdit.checked ? 'true' : 'false');
-    if (manualReviewSounds) formData.append('MANUAL_REVIEW_SOUNDS', manualReviewSounds.checked ? 'true' : 'false');
+    appendEditBeforeConfirmFlags(formData);
+    if (manualReviewSounds) {
+        const mrOn = !!(manualReviewMode && manualReviewMode.checked);
+        formData.append('MANUAL_REVIEW_SOUNDS', (mrOn && manualReviewSounds.checked) ? 'true' : 'false');
+    }
     const manualReviewSuper = document.getElementById('sidebar_manual_review_super');
-    if (manualReviewSuper) formData.append('MANUAL_REVIEW_SUPER', manualReviewSuper.checked ? 'true' : 'false');
+    if (manualReviewSuper) {
+        const mrOn = !!(manualReviewMode && manualReviewMode.checked);
+        formData.append('MANUAL_REVIEW_SUPER', (mrOn && manualReviewSuper.checked) ? 'true' : 'false');
+    }
+    const manualReviewCover = document.getElementById('sidebar_manual_review_cover');
+    if (manualReviewCover) {
+        const mrOn = !!(manualReviewMode && manualReviewMode.checked);
+        formData.append('MANUAL_REVIEW_COVER_PICK', (mrOn && manualReviewCover.checked) ? 'true' : 'false');
+    }
     if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
     if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');

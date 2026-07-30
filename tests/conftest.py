@@ -79,7 +79,8 @@ def mock_kavita_api(mocker):
         "sortNameLocked": False,
         "localizedNameLocked": False,
     })
-    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "Succès"))
-    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "Succès"))
+    mocker.patch.object(KavitaAPI, "update_series_general", return_value=(True, "Succès", True))
+    mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "Succès", True))
     mocker.patch.object(KavitaAPI, "upload_series_cover", return_value=(True, "OK"))
+    mocker.patch.object(KavitaAPI, "seal_series_locks", return_value=(True, "Verrous posés"))
     return KavitaAPI

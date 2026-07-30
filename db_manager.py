@@ -6,6 +6,20 @@ from models import SeriesOverride
 DATA_DIR = "data"
 DB_FILE = os.path.join(DATA_DIR, "cache.db")
 
+
+def _connect():
+    """Ouvre une connexion SQLite avec WAL + busy_timeout (anti « database is locked »)."""
+    if not os.path.exists(DATA_DIR):
+        os.makedirs(DATA_DIR)
+    conn = sqlite3.connect(DB_FILE, timeout=30.0)
+    try:
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=30000")
+    except sqlite3.Error:
+        pass
+    return conn
+
+
 def _ensure_schema(c):
     """Vérifie et ajoute les colonnes manquantes une par une de manière sécurisée."""
     columns = [
@@ -24,7 +38,7 @@ def init_db():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
         
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS series_cache
                  (series_id INTEGER PRIMARY KEY, 
@@ -66,11 +80,28 @@ def _ensure_pending_reviews_table(c):
                   created_at TEXT,
                   base_provider TEXT,
                   chosen_score REAL)''')
+    # Migration one-shot : index non-unique → UNIQUE (une review par série).
     c.execute(
-        'CREATE INDEX IF NOT EXISTS idx_pending_reviews_series_id ON pending_reviews(series_id)'
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_pending_reviews_series_id'"
     )
+    idx_row = c.fetchone()
+    idx_sql = (idx_row[0] or "") if idx_row else ""
+    if "UNIQUE" not in idx_sql.upper():
+        try:
+            c.execute(
+                '''DELETE FROM pending_reviews WHERE rowid NOT IN (
+                     SELECT MAX(rowid) FROM pending_reviews GROUP BY series_id
+                   )'''
+            )
+        except sqlite3.Error:
+            pass
+        c.execute("DROP INDEX IF EXISTS idx_pending_reviews_series_id")
+        c.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_reviews_series_id "
+            "ON pending_reviews(series_id)"
+        )
     c.execute(
-        'CREATE INDEX IF NOT EXISTS idx_pending_reviews_state ON pending_reviews(state)'
+        "CREATE INDEX IF NOT EXISTS idx_pending_reviews_state ON pending_reviews(state)"
     )
 
 
@@ -81,7 +112,7 @@ def increment_provider_win(provider_id):
         return
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_provider_stats_table(c)
     c.execute(
@@ -111,7 +142,7 @@ def record_enrichment_telemetry(used_providers):
     match_count = len(providers)
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     _ensure_provider_stats_table(c)
@@ -146,7 +177,7 @@ def record_enrichment_miss():
     """Télémétrie lifetime : +1 quand MetaKavita ne trouve rien (NOT_FOUND)."""
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     c.execute(
@@ -166,7 +197,7 @@ def get_lifetime_stats():
     """Retourne compteurs lifetime (0 si absents), y compris télémétrie review manuelle."""
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     c.execute("SELECT stat_key, value FROM lifetime_stats")
@@ -249,7 +280,7 @@ def record_manual_review_telemetry(
 
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     _bump_lifetime_stat(c, "manual_reviews", 1)
@@ -282,7 +313,7 @@ def record_manual_skip_telemetry():
     """Télémétrie : +1 skip manuel."""
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     _bump_lifetime_stat(c, "manual_skips", 1)
@@ -301,7 +332,7 @@ def record_manual_research_telemetry():
     """Télémétrie : +1 re-recherche titre depuis la review manuelle."""
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     _bump_lifetime_stat(c, "manual_researches", 1)
@@ -320,7 +351,7 @@ def record_manual_purge_telemetry(deleted=0):
         n = 1
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_lifetime_stats_table(c)
     _bump_lifetime_stat(c, "manual_purges", n)
@@ -333,7 +364,7 @@ def get_provider_stats():
     """Retourne {provider_id: wins} trié par wins décroissant."""
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_provider_stats_table(c)
     c.execute("SELECT provider_id, wins FROM provider_stats ORDER BY wins DESC, provider_id ASC")
@@ -382,7 +413,12 @@ def save_pending_review(
     base_provider=None,
     chosen_score=None,
 ):
-    """Insert ou remplace une review manuelle en attente."""
+    """
+    Insert ou remplace une review manuelle en attente.
+
+    Idempotent par `series_id` : toute review existante pour la série est
+    remplacée (contrainte UNIQUE) dans la même transaction.
+    """
     import json
     from datetime import datetime, timezone
 
@@ -395,26 +431,20 @@ def save_pending_review(
     if preview_json is not None and not isinstance(preview_json, str):
         preview_json = json.dumps(preview_json, ensure_ascii=False)
 
-    conn = sqlite3.connect(DB_FILE)
+    sid = int(series_id)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
+    # Remplace toute review existante pour cette série (évite les doublons)
+    c.execute("DELETE FROM pending_reviews WHERE series_id = ?", (sid,))
     c.execute(
         '''INSERT INTO pending_reviews
            (review_id, series_id, series_name, candidates_json, preview_json,
             state, created_at, base_provider, chosen_score)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(review_id) DO UPDATE SET
-             series_id=excluded.series_id,
-             series_name=excluded.series_name,
-             candidates_json=excluded.candidates_json,
-             preview_json=excluded.preview_json,
-             state=excluded.state,
-             created_at=excluded.created_at,
-             base_provider=excluded.base_provider,
-             chosen_score=excluded.chosen_score''',
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (
             review_id,
-            int(series_id),
+            sid,
             series_name,
             candidates_json,
             preview_json,
@@ -429,10 +459,105 @@ def save_pending_review(
     return review_id
 
 
+def park_pending_review(
+    review_id,
+    series_id,
+    series_name,
+    candidates_json,
+    preview_json=None,
+    state="awaiting_pick",
+    created_at=None,
+    base_provider=None,
+    chosen_score=None,
+):
+    """
+    Park atomique : remplace la review de la série + statut PENDING_REVIEW
+    dans une seule transaction (évite file/statut désynchronisés).
+    """
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    if created_at is None:
+        created_at = datetime.now(timezone.utc).isoformat()
+    if not isinstance(candidates_json, str):
+        candidates_json = json.dumps(candidates_json, ensure_ascii=False)
+    if preview_json is not None and not isinstance(preview_json, str):
+        preview_json = json.dumps(preview_json, ensure_ascii=False)
+
+    sid = int(series_id)
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_pending_reviews_table(c)
+    c.execute("DELETE FROM pending_reviews WHERE series_id = ?", (sid,))
+    c.execute(
+        '''INSERT INTO pending_reviews
+           (review_id, series_id, series_name, candidates_json, preview_json,
+            state, created_at, base_provider, chosen_score)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+        (
+            review_id,
+            sid,
+            series_name,
+            candidates_json,
+            preview_json,
+            state or "awaiting_pick",
+            created_at,
+            base_provider,
+            chosen_score,
+        ),
+    )
+    c.execute(
+        '''INSERT INTO series_cache (series_id, status) VALUES (?, 'PENDING_REVIEW')
+           ON CONFLICT(series_id) DO UPDATE SET status=excluded.status''',
+        (sid,),
+    )
+    conn.commit()
+    conn.close()
+    return review_id
+
+
+def close_pending_review(review_id, new_status="PENDING", *, skip_telemetry=False):
+    """
+    Clôture atomique : delete review + update statut série (+ télémétrie skip optionnelle).
+    Retourne le dict de la review avant suppression, ou None si introuvable.
+    """
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_pending_reviews_table(c)
+    _ensure_lifetime_stats_table(c)
+    c.execute(
+        '''SELECT review_id, series_id, series_name, candidates_json, preview_json,
+                  state, created_at, base_provider, chosen_score
+           FROM pending_reviews WHERE review_id = ?''',
+        (review_id,),
+    )
+    row = c.fetchone()
+    if not row:
+        conn.close()
+        return None
+    review = _pending_review_row_to_dict(row)
+    sid = int(review["series_id"])
+    c.execute("DELETE FROM pending_reviews WHERE review_id = ?", (review_id,))
+    c.execute(
+        '''INSERT INTO series_cache (series_id, status) VALUES (?, ?)
+           ON CONFLICT(series_id) DO UPDATE SET status=excluded.status''',
+        (sid, new_status),
+    )
+    if skip_telemetry:
+        _bump_lifetime_stat(c, "manual_skips", 1)
+    conn.commit()
+    conn.close()
+    return review
+
+
 def get_pending_review(review_id):
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     c.execute(
@@ -449,7 +574,7 @@ def get_pending_review(review_id):
 def list_pending_reviews(state=None, limit=200):
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     if state:
@@ -492,7 +617,7 @@ def update_pending_review(review_id, **fields):
 
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     cols = ", ".join(f"{k}=?" for k in updates)
@@ -507,7 +632,7 @@ def update_pending_review(review_id, **fields):
 def delete_pending_review(review_id):
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     c.execute("DELETE FROM pending_reviews WHERE review_id = ?", (review_id,))
@@ -520,7 +645,7 @@ def delete_pending_review(review_id):
 def delete_pending_by_series(series_id):
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     c.execute("DELETE FROM pending_reviews WHERE series_id = ?", (int(series_id),))
@@ -533,7 +658,7 @@ def delete_pending_by_series(series_id):
 def count_pending_reviews(state=None):
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     if state:
@@ -555,7 +680,7 @@ def purge_all_pending_reviews(reset_status="PENDING"):
     """
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     c.execute("SELECT DISTINCT series_id FROM pending_reviews")
@@ -574,7 +699,7 @@ def purge_all_pending_reviews(reset_status="PENDING"):
     return {"deleted": deleted, "series_ids": series_ids}
 
 def update_status(series_id, status):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     c.execute('''INSERT INTO series_cache (series_id, status) VALUES (?, ?)
                  ON CONFLICT(series_id) DO UPDATE SET status=excluded.status''', (series_id, status))
@@ -599,7 +724,7 @@ def save_series_override(override: SeriesOverride, *, purge_pending: bool = True
     `status` : statut cache écrit (défaut PENDING). Passer PENDING_REVIEW
     lors d'une re-recherche manuelle pour ne pas casser le badge.
     """
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     f_id = override.forced_id.strip() if override.forced_id else None
     a_title = override.alternative_title.strip() if override.alternative_title else None
@@ -644,7 +769,7 @@ def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO
 
 def reset_errors():
     """Réinitialise les statuts NOT_FOUND et IGNORED en PENDING."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     c.execute("UPDATE series_cache SET status = 'PENDING' WHERE status IN ('NOT_FOUND', 'IGNORED')")
     conn.commit()
@@ -653,7 +778,7 @@ def reset_errors():
 def get_all_cached_data():
     if not os.path.exists(DB_FILE):
         init_db()
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
     
     _ensure_schema(c)
@@ -672,13 +797,20 @@ def get_all_cached_data():
     } for row in rows}
 
 def clean_orphaned_cache(active_ids):
-    conn = sqlite3.connect(DB_FILE)
+    conn = _connect()
     c = conn.cursor()
+    _ensure_pending_reviews_table(c)
     c.execute("SELECT series_id FROM series_cache")
     cached_ids = {row[0] for row in c.fetchall()}
     orphans = cached_ids - active_ids
     if orphans:
-        c.executemany("DELETE FROM series_cache WHERE series_id = ?", [(o,) for o in orphans])
+        orphan_list = list(orphans)
+        c.executemany("DELETE FROM series_cache WHERE series_id = ?", [(o,) for o in orphan_list])
+        placeholders = ",".join("?" for _ in orphan_list)
+        c.execute(
+            f"DELETE FROM pending_reviews WHERE series_id IN ({placeholders})",
+            orphan_list,
+        )
         conn.commit()
     conn.close()
     return len(orphans)

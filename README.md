@@ -52,7 +52,7 @@ The interface uses a 100% AJAX layout with zero page reloads. The left sidebar h
 
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
 Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. API Keys for metadata providers are neatly grouped in a dedicated section directly under the Kavita connection settings.
-The left sidebar contains the **Scraping Options** card (click the title to collapse/expand; open by default) with Smart Scoring, Smart Completion, **Reliability barometer** (optional match threshold `0.30`–`1.00`), Auto-Covers, Auto-Reading Direction, Force Update, Context Reset, a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
+The left sidebar contains the **Scraping Options** card (click the title to collapse/expand; open by default) with Smart Scoring, Smart Completion, **Manual Review Mode** (park candidates for pick/edit/confirm instead of auto-writing Kavita), **Reliability barometer** (optional match threshold `0.30`–`1.00`), Auto-Covers, Auto-Reading Direction, Force Update, Context Reset, a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
 
 #### 3. Unified Filtering & Central Toolbar
 The Library Selector, Search bar, and Status Filter are consolidated into a single horizontal toolbar. This puts all target controls on one cohesive line.
@@ -73,8 +73,14 @@ Manual cover searches stream image results live over WebSockets (`Socket.IO`) as
 #### 6. Live Processing Tracker, KPIs & WS Logs
 During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. A **batch progress bar** above the action buttons shows `done / total` (Socket.IO `batch_progress` from the worker queue). Badge statuses update dynamically on completion; successful series **auto-uncheck** so you can relaunch the remaining selection. The topbar shows live lifetime counters (enriched / matches / misses) plus a **session** counter (resets when the tab closes). The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
 
-#### 7. Playful Statistics (`/stats`)
-Optional fun dashboard (enabled by default via `ENABLE_PLAYFUL_STATS`): Chart.js donuts/bars, lifetime hit-rate, and ~24 playful cards derived from lifetime enrichment counters (stable even if series leave Kavita).
+#### 7. Manual Review Mode (C29)
+Sidebar toggle **Manual Review Mode**: the batch scrapes providers as usual but **does not write to Kavita**. Each series is parked as `PENDING_REVIEW` with scored candidates (above/below the reliability threshold). Open the review modal from the topbar badge to pick a master provider, optionally fuse extra sources, edit fields, pick a **cover** before confirm, re-search under another title, skip, or purge the queue. Optional **edit-before-confirm**, Super Review (expand all usable scrapers), and sound cues. Session recap + achievements land on `/stats`. Turning the mode off clears any stranded queue so series are not left frozen out of auto-sync.
+
+#### 8. Needs seal (`NEEDS_RELOCK`)
+If Kavita metadata write succeeds but field re-locking fails, the series gets an orange **Needs seal** badge (`NEEDS_RELOCK`) instead of plain Completed. MetaKavita retries sealing automatically after a short delay; you can also use the 🔒 action or filter. A successful seal marks the series Completed.
+
+#### 9. Playful Statistics (`/stats`)
+Optional fun dashboard (enabled by default via `ENABLE_PLAYFUL_STATS`): Chart.js donuts/bars, lifetime hit-rate, ~24 playful cards, and a Manual Review achievements chapter (stable even if series leave Kavita). Occasional discrete **Buy Me a Coffee** tips may appear after a strong batch or rich Manual Review recap (never a paywall).
 
 ---
 
@@ -165,7 +171,7 @@ No cloning required. Create a `docker-compose.yml` file anywhere on your server 
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest
+    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.6.1 / :1.6 after a v* release tag
     container_name: metakavita
     restart: unless-stopped
     ports:
@@ -244,6 +250,10 @@ docker compose up -d --build
 | `MATCH_ACCEPT_THRESHOLD` | Accept threshold when custom is on (`0.30`–`1.00`). Ignored when custom is off. | `0.60` |
 | `ENABLE_PLAYFUL_STATS` | Show playful `/stats` dashboard (Chart.js + fun cards). | `true` |
 | `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
+| `MANUAL_REVIEW_MODE` | Park scrape candidates as `PENDING_REVIEW` for pick/edit/confirm instead of auto-writing Kavita. Sidebar toggle. Turning off purges the queue. | `false` |
+| `MANUAL_REVIEW_EDIT` | After pick, show an edit form before Kavita write. | `true` |
+| `MANUAL_REVIEW_SUPER` | Super Review: expand all usable scrapers (not only the three cascade slots). Requires Manual Review Mode. | `false` |
+| `MANUAL_REVIEW_SOUNDS` | Short UI tones on pick / confirm / skip. | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
 | `DISABLED_LIBRARIES` | Comma-separated Kavita library IDs to exclude from sync/UI (denylist). Empty = all enabled. | _(empty)_ |
@@ -367,7 +377,7 @@ L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la 
 
 #### 2. Architecture Double-Formulaire (Modal + Sidebar)
 Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement. Les clés d'API des fournisseurs sont proprement regroupées dans un bloc dédié sous la connexion Kavita.
-La barre latérale contient la carte **Options de Scraping** (clic sur le titre pour plier/déplier ; ouverte par défaut) avec Smart Scoring, Complétion intelligente, **Baromètre de fiabilité** (seuil de match optionnel `0.30`–`1.00`), Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte, un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
+La barre latérale contient la carte **Options de Scraping** (clic sur le titre pour plier/déplier ; ouverte par défaut) avec Smart Scoring, Complétion intelligente, **Mode Review Manuelle** (gare les candidats pour pick/édition/confirm au lieu d’écrire automatiquement dans Kavita), **Baromètre de fiabilité** (seuil de match optionnel `0.30`–`1.00`), Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte, un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
 
 #### 3. Filtrage Unifié & Toolbar Centrale
 Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut sont regroupés dans une seule barre d'outils centrale. Toutes les commandes de ciblage se situent ainsi sur une même ligne horizontale cohérente.
@@ -389,8 +399,14 @@ La recherche manuelle d'images envoie les cartes de couvertures en direct au fil
 #### 6. Suivi Live, KPI & Logs WebSockets
 Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Une **barre de progression batch** au-dessus des boutons affiche `fait / total` (Socket.IO `batch_progress` depuis la file worker). Les badges se mettent à jour dynamiquement ; une série OK se **décoche** pour pouvoir relancer le reste. La topbar affiche les compteurs lifetime (enrichies / matchs / ratés) plus un compteur **session** (remis à 0 à la fermeture de l’onglet). La console affiche en temps réel des logs épurés via WebSockets.
 
-#### 7. Statistiques ludiques (`/stats`)
-Tableau de bord optionnel (activé par défaut via `ENABLE_PLAYFUL_STATS`) : donuts/barres Chart.js, taux de hit lifetime, et ~24 cartes fun basées sur les compteurs d’enrichissement lifetime (stables même si des séries quittent Kavita).
+#### 7. Mode Review Manuelle (C29)
+Interrupteur sidebar **Mode Review Manuelle** : le batch scrape les providers comme d’habitude mais **n’écrit pas dans Kavita**. Chaque série est garée en `PENDING_REVIEW` avec des candidats scorés (au-dessus / sous le seuil de fiabilité). Ouvre la modale depuis le badge topbar pour choisir un provider master, fusionner d’autres sources, éditer les champs, choisir une **couverture** avant confirm, re-rechercher sous un autre titre, passer ou purger la file. Options : **édition avant confirm**, Super Review (tous les scrapers utilisables), sons UI. Récap de session + hauts-faits sur `/stats`. Désactiver le mode vide la file pour ne pas laisser de séries gelées hors auto-sync.
+
+#### 8. À sceller (`NEEDS_RELOCK`)
+Si l’écriture des métadonnées Kavita réussit mais que le re-verrouillage des champs échoue, la série reçoit un badge orange **À sceller** (`NEEDS_RELOCK`) au lieu d’un simple Terminé. MetaKavita retente le scellage automatiquement après un court délai ; tu peux aussi utiliser l’action 🔒 ou le filtre. Un seal réussi passe la série en Terminé.
+
+#### 9. Statistiques ludiques (`/stats`)
+Tableau de bord optionnel (activé par défaut via `ENABLE_PLAYFUL_STATS`) : donuts/barres Chart.js, taux de hit lifetime, ~24 cartes fun, et un chapitre hauts-faits Manual Review (stables même si des séries quittent Kavita). Des tips discrets **Buy Me a Coffee** peuvent apparaître après un bon batch ou un récap Review Manuelle riche (jamais de paywall).
 
 ---
 
@@ -481,7 +497,7 @@ Aucun clonage de dépôt n'est requis. Crée simplement un fichier `docker-compo
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest
+    image: ghcr.io/raukorim-bot/metakavita:latest   # ou pin :1.6.1 / :1.6 après un tag v*
     container_name: metakavita
     restart: unless-stopped
     ports:
@@ -560,6 +576,10 @@ docker compose up -d --build
 | `MATCH_ACCEPT_THRESHOLD` | Seuil d'acceptation si custom ON (`0.30`–`1.00`). Ignoré si custom OFF. | `0.60` |
 | `ENABLE_PLAYFUL_STATS` | Afficher le tableau `/stats` ludique (Chart.js + cartes fun). | `true` |
 | `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
+| `MANUAL_REVIEW_MODE` | Gare les candidats en `PENDING_REVIEW` pour pick/édition/confirm au lieu d’écrire automatiquement dans Kavita. Interrupteur sidebar. Désactiver purge la file. | `false` |
+| `MANUAL_REVIEW_EDIT` | Après le pick, affiche un formulaire d’édition avant l’écriture Kavita. | `true` |
+| `MANUAL_REVIEW_SUPER` | Super Review : interroge tous les scrapers utilisables (pas seulement les 3 slots). Nécessite le mode manuel. | `false` |
+| `MANUAL_REVIEW_SOUNDS` | Sons UI courts sur pick / confirm / skip. | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
 | `DISABLED_LIBRARIES` | IDs de bibliothèques Kavita à exclure (dénylist, virgules). Vide = toutes actives. | _(vide)_ |

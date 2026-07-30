@@ -33,6 +33,7 @@ from services.kavita_payload import (
     apply_kavita_payload,
     overlay_edited_preview,
     _broadcast_enrichment_stats,
+    _emit_series_status,
 )
 
 # --- GARDE ANTI-CONCURRENCE PAR SÉRIE ---
@@ -491,16 +492,42 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             logging.error(t.get('log_meta_fail').format(series_name))
             return False, "Erreur de métadonnées.", []
 
+        # Cache tôt : besoin du statut / forced_id avant le court-circuit « déjà à jour ».
+        cache_data = get_all_cached_data().get(int(series_id), {})
         if metadata.get('summary') and not force_update:
+            # Ne pas clobber une série garée en review manuelle (sinon COMPLETED +
+            # ligne pending_reviews orpheline).
+            if cache_data.get('status') == 'PENDING_REVIEW':
+                logging.info(
+                    f"[{series_name}] ⏭️ Déjà en PENDING_REVIEW — skip (résumé Kavita présent)."
+                )
+                return True, "PENDING_REVIEW", []
+            # Données présentes mais verrous en attente → tenter seal seul.
+            if cache_data.get('status') == 'NEEDS_RELOCK':
+                ok_seal, seal_msg = kavita.seal_series_locks(series_id)
+                if ok_seal:
+                    update_status(series_id, 'COMPLETED')
+                    _emit_series_status(series_id, 'COMPLETED', series_name)
+                    logging.info(f"[{series_name}] ✅ Seal différé OK — COMPLETED")
+                    return True, "Succès", []
+                logging.warning(
+                    f"[{series_name}] ⚠️ Toujours À sceller ({seal_msg})"
+                )
+                return True, "NEEDS_RELOCK", []
             logging.info(t.get('log_skip').format(series_name))
             update_status(series_id, 'COMPLETED')
+            # Nettoie toute review orpheline éventuelle
+            try:
+                from db_manager import delete_pending_by_series
+                delete_pending_by_series(int(series_id))
+            except Exception:
+                pass
             return True, "Déjà à jour.", []
 
         # --- Détermination du type de bibliothèque ---
         library_type = kavita.get_library_type_for_series(series_id)
 
         # --- Détermination des requêtes de recherche et replis ---
-        cache_data = get_all_cached_data().get(int(series_id), {})
         forced_id = cache_data.get('forced_id')
         search_query = forced_id or cache_data.get('alternative_title') or series_name
         fallback_query = cache_data.get('alternative_title') or series_name
@@ -734,7 +761,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         fusion_providers = provider_data.pop('_fusion_providers', [])
         # Purement diagnostique (Smart Scoring, voir metadata_fetcher.py) : jamais lu ni
         # envoyé à Kavita, mais on l'enlève pour ne pas polluer les dumps de debug.
-        provider_data.pop(MATCH_SCORE_KEY, None)
+        chosen_score = provider_data.pop(MATCH_SCORE_KEY, None)
 
         msg_found = t.get('log_found').format(series_name) + f" (Base: {actual_provider})"
         if fusion_providers:
@@ -747,6 +774,26 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         built = build_kavita_payload(
             provider_data, metadata, active_fields, config, cache_data, force_update, series_id
         )
+
+        # Confirm-before-write (MR off) : park preview, pas d'écriture immédiate.
+        if not manual_mode and bool(config.get("CONFIRM_BEFORE_WRITE")):
+            import copy
+            from services.manual_review import create_confirm_from_auto
+
+            data_for_park = copy.deepcopy(provider_data)
+            create_confirm_from_auto(
+                series_id,
+                series_name,
+                data_for_park,
+                built.get("preview_fields") or {},
+                actual_provider=actual_provider,
+                fusion_providers=fusion_providers,
+                chosen_score=chosen_score,
+                query=search_query,
+                force_update=force_update,
+            )
+            return True, "PENDING_REVIEW", used_providers or []
+
         return apply_kavita_payload(
             kavita, series_id, series_name, built, active_fields, config, used_providers, t
         )
@@ -769,6 +816,7 @@ def apply_manual_review(
     fused=None,
     weak_pick=False,
     super_review=False,
+    force_cover_upload=False,
 ):
     """
     Applique un choix de review manuelle : merge → (overlay edits) → build → write Kavita.
@@ -781,6 +829,49 @@ def apply_manual_review(
     if not review:
         return False, "Review introuvable.", None
 
+    series_id = int(review["series_id"])
+    with _processing_lock:
+        if series_id in _processing_series_ids:
+            return False, "Déjà en cours de traitement.", None
+        _processing_series_ids.add(series_id)
+
+    try:
+        return _apply_manual_review_locked(
+            review,
+            review_id,
+            base_provider,
+            include_providers=include_providers,
+            edited_preview=edited_preview,
+            field_edits=field_edits,
+            force_update=force_update,
+            fused=fused,
+            weak_pick=weak_pick,
+            super_review=super_review,
+            force_cover_upload=force_cover_upload,
+            choice_and_merge=choice_and_merge,
+            confirm_pending_review=confirm_pending_review,
+        )
+    finally:
+        with _processing_lock:
+            _processing_series_ids.discard(series_id)
+
+
+def _apply_manual_review_locked(
+    review,
+    review_id,
+    base_provider,
+    *,
+    include_providers,
+    edited_preview,
+    field_edits,
+    force_update,
+    fused,
+    weak_pick,
+    super_review,
+    force_cover_upload,
+    choice_and_merge,
+    confirm_pending_review,
+):
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     # Mode manuel : les cases « Fusionner » pilotent seules le comblement des trous.
@@ -797,6 +888,13 @@ def apply_manual_review(
     except (TypeError, ValueError, json.JSONDecodeError):
         candidates_payload = {"above": [], "below": []}
 
+    is_auto_confirm = (
+        isinstance(candidates_payload, dict)
+        and candidates_payload.get("flow") == "auto_confirm"
+    )
+    if is_auto_confirm and "force_update" in candidates_payload:
+        force_update = bool(candidates_payload.get("force_update"))
+
     # Si déjà awaiting_confirm avec même base, on peut re-merger ; sinon choice_and_merge
     provider_data = choice_and_merge(
         review_id,
@@ -807,7 +905,7 @@ def apply_manual_review(
     if not provider_data:
         return False, "Fusion impossible (provider invalide).", None
 
-    is_top1 = base_provider == _top1_provider(candidates_payload)
+    is_top1 = True if is_auto_confirm else (base_provider == _top1_provider(candidates_payload))
     chosen_score = None
     for band in ("above", "below"):
         for card in candidates_payload.get(band) or []:
@@ -847,34 +945,48 @@ def apply_manual_review(
         if built.get("preview_fields") is not None:
             built["preview_fields"]["localized_name"] = edited_preview.get("localized_name") or ""
 
+    # Couverture choisie explicitement (phase cover / edit) → upload même sans AUTO_COVER
+    explicit_cover = bool(force_cover_upload)
+    if not explicit_cover and isinstance(edited_preview, dict) and edited_preview.get("cover_url"):
+        explicit_cover = True
+    if explicit_cover:
+        built["force_cover_upload"] = True
+
     ok, msg, used = apply_kavita_payload(
         kavita, series_id, series_name, built, active_fields, config, used_providers, t
     )
     if not ok:
         return False, msg, {"preview": built.get("preview_fields")}
 
-    deltas = record_manual_review_telemetry(
-        chosen_score,
-        is_top1,
-        field_edits=field_edits,
-        fused=fused,
-        weak_pick=bool(weak_pick),
-        super_review=bool(super_review),
-    )
-    # Lifetime déjà mis à jour par apply (enrichment) + manual ; rebroadcast avec extras
-    _broadcast_enrichment_stats({
-        **(deltas or {}),
-        "series_enriched_delta": 0,
-        "matches_won_delta": 0,
-        "series_missed_delta": 0,
-        "lifetime": get_lifetime_stats(),
-    })
-    confirm_pending_review(review_id, new_status="COMPLETED")
-    return True, "Succès", {
+    write_status = "NEEDS_RELOCK" if msg == "NEEDS_RELOCK" else "COMPLETED"
+
+    # Auto-confirm : pas de télémétrie Manual Review (pick/top1) — enrichissement déjà
+    # compté par apply_kavita_payload.
+    if not is_auto_confirm:
+        deltas = record_manual_review_telemetry(
+            chosen_score,
+            is_top1,
+            field_edits=field_edits,
+            fused=fused,
+            weak_pick=bool(weak_pick),
+            super_review=bool(super_review),
+        )
+        # Lifetime déjà mis à jour par apply (enrichment) + manual ; rebroadcast avec extras
+        _broadcast_enrichment_stats({
+            **(deltas or {}),
+            "series_enriched_delta": 0,
+            "matches_won_delta": 0,
+            "series_missed_delta": 0,
+            "lifetime": get_lifetime_stats(),
+        })
+    confirm_pending_review(review_id, new_status=write_status)
+    return True, ("NEEDS_RELOCK" if write_status == "NEEDS_RELOCK" else "Succès"), {
         "preview": built.get("preview_fields"),
         "is_top1": is_top1,
         "score": chosen_score,
         "used_providers": used,
+        "flow": "auto_confirm" if is_auto_confirm else "manual",
+        "status": write_status,
     }
 
 

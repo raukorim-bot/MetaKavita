@@ -1,0 +1,29 @@
+{# Overlay pubs supporter (classe .license = hook futur silence Phase 2). Pas de paywall. #}
+<div id="licenseNagOverlay" class="license license-nag-overlay" style="display:none;" hidden aria-hidden="true" role="dialog" aria-modal="true" aria-labelledby="licenseNagTitle">
+    <div class="license-nag-backdrop" data-license-nag-ignore></div>
+    <div class="license-nag-card" data-variant="time_saved">
+        <div class="license-nag-aura" aria-hidden="true"></div>
+        <div class="license-nag-brand">
+            <span class="license-nag-logo-wrap">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="" class="license-nag-logo" width="56" height="56">
+            </span>
+            <span class="license-nag-brand-name">MetaKavita</span>
+        </div>
+        <p class="license-nag-kicker" id="licenseNagKicker"></p>
+        <h3 class="license-nag-title" id="licenseNagTitle"></h3>
+        <p class="license-nag-body" id="licenseNagBody"></p>
+        <p class="license-nag-estimate" id="licenseNagEstimate" style="display:none;"></p>
+        <div class="license-nag-actions">
+            <a id="licenseNagBmc" class="license license-nag-bmc" href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer">
+                <span class="license-nag-bmc-icon" aria-hidden="true">☕</span>
+                <span id="licenseNagBmcLabel">{{ t.nag_bmc_cta }}</span>
+            </a>
+            <button type="button" class="license-nag-continue" id="licenseNagContinue" disabled>
+                {{ t.nag_continue }}
+            </button>
+        </div>
+        <button type="button" class="license-nag-honor" id="licenseNagHonor">
+            {{ t.nag_honor_snooze }}
+        </button>
+    </div>
+</div>

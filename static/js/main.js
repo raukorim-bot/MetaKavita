@@ -3,6 +3,7 @@
 // batch.js (loadLibrary, filterSeries) une fois toutes les autres briques prêtes.
 
 const SCRAPING_OPTIONS_OPEN_KEY = 'mk_scraping_options_open';
+const SCRAPING_CAT_OPEN_KEY = 'mk_scraping_cat_open';
 
 function restoreScrapingOptionsOpenState() {
     const details = document.getElementById('scrapingOptionsDetails');
@@ -13,6 +14,30 @@ function restoreScrapingOptionsOpenState() {
     details.addEventListener('toggle', function () {
         localStorage.setItem(SCRAPING_OPTIONS_OPEN_KEY, details.open ? 'true' : 'false');
     });
+
+    let catState = {};
+    try {
+        catState = JSON.parse(localStorage.getItem(SCRAPING_CAT_OPEN_KEY) || '{}') || {};
+    } catch (_) {
+        catState = {};
+    }
+    document.querySelectorAll('.so-cat[data-so-cat]').forEach((cat) => {
+        const key = cat.getAttribute('data-so-cat');
+        if (!key) return;
+        if (Object.prototype.hasOwnProperty.call(catState, key)) {
+            cat.open = !!catState[key];
+        }
+        cat.addEventListener('toggle', () => {
+            let next = {};
+            try {
+                next = JSON.parse(localStorage.getItem(SCRAPING_CAT_OPEN_KEY) || '{}') || {};
+            } catch (_) {
+                next = {};
+            }
+            next[key] = cat.open;
+            localStorage.setItem(SCRAPING_CAT_OPEN_KEY, JSON.stringify(next));
+        });
+    });
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -22,6 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedLibrary = localStorage.getItem('filter_library');
     toggleTranslationFields();
     restoreScrapingOptionsOpenState();
+    if (typeof syncManualReviewCoverSwitch === 'function') syncManualReviewCoverSwitch();
     if (savedStatus) {
         const statusSelect = document.getElementById('statusFilter');
         if (statusSelect) statusSelect.value = savedStatus;

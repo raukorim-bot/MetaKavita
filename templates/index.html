@@ -23,6 +23,12 @@
             batch_ok: "{{ t.batch_ok }}",
             batch_stopped: "{{ t.batch_stopped }}",
             filter_pending: "{{ t.filter_pending }}",
+            filter_pending_review: "{{ t.filter_pending_review }}",
+            filter_needs_relock: "{{ t.filter_needs_relock }}",
+            filter_needs_relock_hint: "{{ t.filter_needs_relock_hint }}",
+            seal_locks_btn: "{{ t.seal_locks_btn }}",
+            seal_locks_ok: "{{ t.seal_locks_ok }}",
+            seal_locks_fail: "{{ t.seal_locks_fail }}",
             filter_completed: "{{ t.filter_completed }}",
             filter_notfound: "{{ t.filter_notfound }}",
             filter_ignored: "{{ t.filter_ignored }}",
@@ -48,7 +54,6 @@
 			live_kpi_missed: "{{ t.live_kpi_missed }}",
 			live_kpi_session: "{{ t.live_kpi_session }}",
 			live_kpi_reviews: "{{ t.live_kpi_reviews }}",
-			filter_pending_review: "{{ t.filter_pending_review }}",
 			mr_empty: "{{ t.mr_empty }}",
 			mr_weak: "{{ t.mr_weak }}",
 			mr_include: "{{ t.mr_include }}",
@@ -85,6 +90,28 @@
 			mr_wait_super_warn: "{{ t.mr_wait_super_warn }}",
 			mr_wait_idle_flavor: "{{ t.mr_wait_idle_flavor }}",
 			buy_me_coffee: "{{ t.buy_me_coffee }}",
+			nag_continue: "{{ t.nag_continue }}",
+			nag_honor_snooze: "{{ t.nag_honor_snooze }}",
+			nag_bmc_cta: "{{ t.nag_bmc_cta }}",
+			nag_kicker_time: "{{ t.nag_kicker_time }}",
+			nag_title_time: "{{ t.nag_title_time }}",
+			nag_body_time: "{{ t.nag_body_time }}",
+			nag_estimate_label: "{{ t.nag_estimate_label }}",
+			nag_kicker_batch: "{{ t.nag_kicker_batch }}",
+			nag_title_batch: "{{ t.nag_title_batch }}",
+			nag_body_batch: "{{ t.nag_body_batch }}",
+			nag_kicker_mr: "{{ t.nag_kicker_mr }}",
+			nag_title_mr: "{{ t.nag_title_mr }}",
+			nag_body_mr: "{{ t.nag_body_mr }}",
+			nag_kicker_super: "{{ t.nag_kicker_super }}",
+			nag_title_super: "{{ t.nag_title_super }}",
+			nag_body_super: "{{ t.nag_body_super }}",
+			nag_kicker_ach: "{{ t.nag_kicker_ach }}",
+			nag_title_ach: "{{ t.nag_title_ach }}",
+			nag_body_ach: "{{ t.nag_body_ach }}",
+			nag_recap_value: "{{ t.nag_recap_value }}",
+			nag_milestone_series: "{{ t.nag_milestone_series }}",
+			nag_milestone_reviews: "{{ t.nag_milestone_reviews }}",
 			mr_later: "{{ t.mr_later }}",
 			mr_kbd_dock_label: "{{ t.mr_kbd_dock_label }}",
 			mr_kbd_key_enter: "{{ t.mr_kbd_key_enter }}",
@@ -258,6 +285,8 @@
 
     {% include "partials/_manual_review_modal.html" %}
 
+    {% include "partials/_license_nag_modal.html" %}
+
     <!-- Chargement par balises <script> classiques (pas de bundler, pas de type="module")
          afin de préserver les fonctions en portée globale utilisées par les attributs
          onclick="..." inline de ce template. L'ORDRE est important : chaque fichier peut
@@ -269,6 +298,7 @@
     <script src="{{ url_for('static', filename='js/covers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <script src="{{ url_for('static', filename='js/batch.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/license_nag.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>
 </html>
