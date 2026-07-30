@@ -116,9 +116,32 @@ class KavitaAPI:
         """
         S'authentifie auprès du serveur Kavita et récupère un jeton JWT Bearer.
         Configure les en-têtes HTTP par défaut pour les requêtes ultérieures.
+
+        Pose ``self.last_auth_error`` (code stable) en cas d'échec pour l'UI :
+        ``missing``, ``localhost``, ``http_401``, ``http_other``, ``timeout``,
+        ``dns``, ``connection``, ``ssl``, ``unknown``.
         """
+        self.last_auth_error = None
         logging.info("[DEBUG] Auth Kavita tentée avec URL: '%s' (clé API non loguée).", self.url)
         if not self.api_key or not self.url:
+            self.last_auth_error = "missing"
+            return False
+
+        # Depuis un conteneur, localhost = MetaKavita, pas Kavita sur l'hôte.
+        host_l = ""
+        try:
+            from urllib.parse import urlparse
+            host_l = (urlparse(self.url).hostname or "").lower()
+        except Exception:
+            host_l = ""
+        if host_l in ("localhost", "127.0.0.1", "::1"):
+            logging.error(
+                "[Erreur Auth] KAVITA_URL pointe vers localhost (%s) — "
+                "injoignable depuis Docker. Utilisez host.docker.internal:<port> "
+                "ou le nom de service sur le même réseau.",
+                self.url,
+            )
+            self.last_auth_error = "localhost"
             return False
 
         try:
@@ -139,10 +162,28 @@ class KavitaAPI:
             # Sécurité : on masque la clé API en cas d'erreur de journalisation
             code = e.response.status_code if e.response is not None else "?"
             logging.error("[Erreur Auth] Le serveur Kavita a rejeté la requête (Code %s).", code)
+            self.last_auth_error = "http_401" if code == 401 else "http_other"
+            return False
+        except requests.exceptions.Timeout:
+            logging.error("[Erreur Auth] Timeout vers Kavita (hôte=%s).", self.url)
+            self.last_auth_error = "timeout"
+            return False
+        except requests.exceptions.SSLError as e:
+            logging.error("[Erreur Auth] SSL (%s) hôte=%s", safe_exc_str(e), self.url)
+            self.last_auth_error = "ssl"
+            return False
+        except requests.exceptions.ConnectionError as e:
+            msg = safe_exc_str(e).lower()
+            logging.error("[Erreur Auth] %s (hôte=%s)", safe_exc_str(e), self.url)
+            if "name or service not known" in msg or "nodename nor servname" in msg or "getaddrinfo" in msg:
+                self.last_auth_error = "dns"
+            else:
+                self.last_auth_error = "connection"
             return False
         except Exception as e:
             # Ne jamais logger str(e) brut : urllib3 inclut souvent ?apiKey= dans le message
             logging.error("[Erreur Auth] %s (hôte=%s)", safe_exc_str(e), self.url)
+            self.last_auth_error = "unknown"
             return False
 
     def get_libraries(self) -> list:

@@ -121,6 +121,34 @@ def test_the_file_wins_over_the_environment(config_env, monkeypatch):
     assert config_env.load_config()["UI_LANG"] == "fr"
 
 
+def test_blank_kavita_url_in_file_still_accepts_env_seed(config_env, monkeypatch):
+    """Sauvegarder la langue UI avant de coller Kavita écrit ``KAVITA_URL: ""``
+    dans le fichier — sans ce repli, l'env Compose ne pourrait plus sémencer."""
+    monkeypatch.setenv("KAVITA_URL", "http://host.docker.internal:5001")
+    monkeypatch.setenv("KAVITA_API_KEY", "from-env")
+    config_env.save_config({
+        "KAVITA_URL": "",
+        "KAVITA_API_KEY": "   ",
+        "SECRET_KEY": "k",
+        "WEBHOOK_TOKEN": "w",
+    })
+
+    config = config_env.load_config()
+    assert config["KAVITA_URL"] == "http://host.docker.internal:5001"
+    assert config["KAVITA_API_KEY"] == "from-env"
+
+
+def test_non_blank_kavita_url_in_file_still_wins(config_env, monkeypatch):
+    monkeypatch.setenv("KAVITA_URL", "http://from-env:5000")
+    config_env.save_config({
+        "KAVITA_URL": "http://from-ui:5000",
+        "SECRET_KEY": "k",
+        "WEBHOOK_TOKEN": "w",
+    })
+
+    assert config_env.load_config()["KAVITA_URL"] == "http://from-ui:5000"
+
+
 def test_a_ui_change_survives_a_restart_with_the_variable_still_set(config_env, monkeypatch):
     """Le parcours complet : semé par l'environnement, puis changé dans l'UI, le
     changement doit tenir alors que la variable est toujours là."""

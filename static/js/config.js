@@ -184,8 +184,14 @@ function appendEditBeforeConfirmFlags(formData) {
 }
 
 // --- SAUVEGARDE CONFIGURATION (AJAX HYBRIDE) ---
-function saveConfig() {
+// options.reload : true uniquement pour la sauvegarde modale / changement de
+// langue — les toggles sidebar ne doivent PAS recharger (sinon un champ clé
+// API encore vide efface le travail utilisateur, et l'autofill peut corrompre).
+function saveConfig(options) {
+    options = options || {};
+    const shouldReload = !!options.reload;
     const form = document.getElementById('configForm');
+    if (!form) return;
     const formData = new FormData(form);
     
     const smartScoring = document.getElementById('sidebar_smart_scoring');
@@ -227,7 +233,7 @@ function saveConfig() {
     const playfulStats = document.getElementById('config_playful_stats');
     if (playfulStats) formData.append('ENABLE_PLAYFUL_STATS', playfulStats.checked ? 'true' : 'false');
 
-    const btn = form.querySelector('.btn-primary');
+    const btn = shouldReload ? form.querySelector('.btn-primary') : null;
     const originalText = btn ? btn.innerText : "";
     if (btn) btn.innerText = "⏳...";
 
@@ -245,10 +251,8 @@ function saveConfig() {
                 btn.innerText = "✅ OK";
                 setTimeout(() => { btn.innerText = originalText; }, 2000);
             }
-            
-            const currentLang = document.documentElement.lang;
-            const newLang = formData.get('UI_LANG');
-            if (newLang && currentLang !== newLang) {
+            if (shouldReload) {
+                // Recharge : la bannière Kavita et les bibliothèques viennent du GET `/`.
                 window.location.reload();
             }
         } else {

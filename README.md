@@ -144,6 +144,7 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
 *   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck; batch progress bar; collapsible Scraping Options.
 *   **Reliability barometer (v1.6.1)**: Optional sidebar slider for match accept threshold (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`); default remains `0.60` via `get_match_accept_threshold()`.
+*   **Hotfix BF52 (still v1.6.1):** Fresh Config-modal Kavita save + Docker plug-and-play — empty API-key fields keep existing secrets; never use `localhost` for `KAVITA_URL` from a container (`host.docker.internal:<host_port>` or the Kavita service name). See CHANGELOG.
 
 ---
 
@@ -176,13 +177,20 @@ services:
     restart: unless-stopped
     ports:
       - "5010:5010"
+    # Reach Kavita on the host (Portainer / separate stack). Never use localhost
+    # inside the container — that is MetaKavita itself.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # First run opens a setup screen where you create your account.
       # To skip it (pre-provisioned deploys), generate a hash with
       # `python debug/hash_password.py` and set:
       # - ADMIN_USERNAME=admin
       # - ADMIN_PASSWORD_HASH=pbkdf2:sha256:...
-      # - TRUSTED_PROXY_COUNT=0   # set to 0 if NOT behind a reverse proxy
+      - TRUSTED_PROXY_COUNT=0   # set to 0 if NOT behind a reverse proxy
+      # - KAVITA_URL=http://host.docker.internal:5001  # host-published Kavita
+      # - KAVITA_URL=http://kavita:5000                # same Docker network
+      # - KAVITA_API_KEY=your_kavita_api_key
       # - PUID=1000    # Host user id that should own ./data (run `id -u`)
       # - PGID=1000    # Host group id that should own ./data (run `id -g`)
       # - ROOT_PATH=/metakavita # Optional subpath for reverse proxies
@@ -220,7 +228,7 @@ docker compose up -d --build
 | `PUID` / `PGID` | User and group id the application runs as, and which owns everything under `/app/data`. Set these to the owner of your bind-mounted `./data` folder (`id -u` / `id -g`) if it is not `1000:1000`. The container starts as root only long enough to apply them, then drops privileges. | `1000` / `1000` |
 | `ROOT_PATH` | Custom URL subpath when hosted behind a reverse proxy (e.g. `/metakavita`). | *(Empty)* |
 | `CORS_ALLOWED_ORIGINS` | Comma-separated explicit origins allowed for CORS (HTTP + Socket.IO), e.g. `https://metakavita.home.local.ltd`. Empty = Same-Origin only. `*` is rejected. Does not replace proper reverse-proxy WebSocket upgrade config. | *(Empty)* |
-| `KAVITA_URL` | Kavita URL used by MetaKavita for API calls (can be an internal Docker hostname, e.g. `http://kavita:5000`). | *(Empty)* |
+| `KAVITA_URL` | Kavita URL **as seen from the MetaKavita container** — never `localhost`. Examples: `http://host.docker.internal:5001` (Kavita published on the host), `http://kavita:5000` (same Docker network), or a public `https://…` URL. Empty strings in `config.json` do not block env seeding for this key. | *(Empty)* |
 | `KAVITA_EXTERNAL_URL` | Optional public Kavita URL for browser UI links (e.g. `https://kavita.domain.tld`). If empty, falls back to `KAVITA_URL`. | *(Empty)* |
 | `KAVITA_HTTP_TIMEOUT` | HTTP timeout in seconds for Kavita **write** requests (metadata / series update / cover upload). Raise to `90`–`120` on slow disks or large force-update batches. | `60` |
 | `MAX_TAGS` | Max number of tags written to Kavita (scrapers + `enrichment_engine` safety net). Env / `config.json` only — no UI. Clamped 1–100. | `15` |
@@ -470,6 +478,7 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
 *   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto ; barre de progression batch ; Options de Scraping pliables.
 *   **Baromètre de fiabilité (v1.6.1)** : curseur sidebar optionnel pour le seuil d’acceptation (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`) ; défaut `0.60` via `get_match_accept_threshold()`.
+*   **Hotfix BF52 (toujours v1.6.1)** : sauvegarde Kavita setup frais via modal Config + Docker plug-and-play — champ clé vide = conserver ; jamais `localhost` pour `KAVITA_URL` depuis un conteneur (`host.docker.internal:<port_hôte>` ou nom de service). Voir CHANGELOG.
 
 ---
 
@@ -502,13 +511,20 @@ services:
     restart: unless-stopped
     ports:
       - "5010:5010"
+    # Atteindre Kavita sur l'hôte (Portainer / stack séparée). Jamais localhost
+    # depuis le conteneur — c'est MetaKavita lui-même.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     environment:
       # Au premier démarrage, un écran de configuration vous fait créer votre compte.
       # Pour l'ignorer (déploiements pré-provisionnés), générez un hachage avec
       # `python debug/hash_password.py` puis renseignez :
       # - ADMIN_USERNAME=admin
       # - ADMIN_PASSWORD_HASH=pbkdf2:sha256:...
-      # - TRUSTED_PROXY_COUNT=0   # 0 si vous n'êtes PAS derrière un reverse proxy
+      - TRUSTED_PROXY_COUNT=0   # 0 si vous n'êtes PAS derrière un reverse proxy
+      # - KAVITA_URL=http://host.docker.internal:5001  # Kavita publié sur l'hôte
+      # - KAVITA_URL=http://kavita:5000                # même réseau Docker
+      # - KAVITA_API_KEY=ta_cle_api_kavita
       # - PUID=1000    # UID hôte qui doit posséder ./data (`id -u`)
       # - PGID=1000    # GID hôte qui doit posséder ./data (`id -g`)
       # - ROOT_PATH=/metakavita # Optionnel : pour hébergement en sous-dossier
@@ -546,7 +562,7 @@ docker compose up -d --build
 | `PUID` / `PGID` | UID et GID sous lesquels tourne l'application, et propriétaires de tout le contenu de `/app/data`. À renseigner avec le propriétaire de votre dossier `./data` monté (`id -u` / `id -g`) s'il n'est pas `1000:1000`. Le conteneur ne démarre en root que le temps de les appliquer, puis abandonne ses privilèges. | `1000` / `1000` |
 | `ROOT_PATH` | Sous-chemin d'URL lors de l'exposition derrière un reverse proxy (ex: `/metakavita`). | *(Vide)* |
 | `CORS_ALLOWED_ORIGINS` | Origins CORS explicites séparées par des virgules (HTTP + Socket.IO), ex: `https://metakavita.home.local.ltd`. Vide = Same-Origin uniquement. `*` est rejeté. Ne remplace pas une config reverse-proxy correcte pour l'upgrade WebSocket. | *(Vide)* |
-| `KAVITA_URL` | URL Kavita utilisée par MetaKavita pour les appels API (peut être un hostname Docker interne, ex: `http://kavita:5000`). | *(Vide)* |
+| `KAVITA_URL` | URL Kavita **vue depuis le conteneur MetaKavita** — jamais `localhost`. Ex. : `http://host.docker.internal:5001` (Kavita publié sur l'hôte), `http://kavita:5000` (même réseau Docker), ou une URL publique `https://…`. Une chaîne vide dans `config.json` ne bloque pas le seed env pour cette clé. | *(Vide)* |
 | `KAVITA_EXTERNAL_URL` | URL publique optionnelle de Kavita pour les liens UI (ex: `https://kavita.domain.tld`). Si vide, repli sur `KAVITA_URL`. | *(Vide)* |
 | `KAVITA_HTTP_TIMEOUT` | Timeout HTTP (secondes) pour les **écritures** Kavita (métadonnées / update série / couverture). Montez à `90`–`120` sur HDD ou gros force-update. | `60` |
 | `MAX_TAGS` | Nombre max de tags écrits dans Kavita (scrapers + filet `enrichment_engine`). Env / `config.json` uniquement — pas d'UI. Borné 1–100. | `15` |

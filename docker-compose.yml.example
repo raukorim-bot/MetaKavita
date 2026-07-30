@@ -5,6 +5,15 @@ services:
     restart: unless-stopped
     ports:
       - "5010:5010"
+    # Permet d'atteindre Kavita (ou tout service) publié sur l'hôte via
+    # http://host.docker.internal:<port_hôte> — indispensable si Kavita n'est
+    # PAS sur le même réseau Docker Compose que MetaKavita (cas Portainer /
+    # stacks séparés). Sous Linux, host-gateway est requis.
+    #
+    # Reach Kavita (or any service) published on the host via
+    # http://host.docker.internal:<host_port> — required when Kavita is NOT on
+    # the same Docker Compose network as MetaKavita (Portainer / separate
+    # stacks). On Linux, host-gateway is required.
     extra_hosts:
       - "host.docker.internal:host-gateway"
     environment:
@@ -38,7 +47,7 @@ services:
       # supplied by the client and the per-IP lockout can be evaded by rotating
       # it. A global cap (20 failures per 15 minutes) bounds brute-force in every
       # case, but it locks the login screen for everyone when it trips.
-      # - TRUSTED_PROXY_COUNT=1
+      - TRUSTED_PROXY_COUNT=0
       #
       # Déploiement pré-provisionné : générez un hachage avec
       # `python debug/hash_password.py` pour sauter l'écran de configuration.
@@ -50,12 +59,28 @@ services:
       # - ADMIN_USERNAME=admin
       # - ADMIN_PASSWORD_HASH=pbkdf2:sha256:...
 
-      # --- Variables Optionnelles / Optional Variables ---
-      # Toutes ces valeurs peuvent être configurées plus tard, directement depuis l'interface Web.
-      # All these values can be configured later directly from the Web UI.
-
-      # - KAVITA_URL=http://ton-kavita:5001
+      # --- Kavita (recommandé dès le 1er lancement / recommended on first run) ---
+      # JAMAIS localhost / 127.0.0.1 depuis le conteneur (= MetaKavita lui-même).
+      # NEVER localhost / 127.0.0.1 from inside the container (= MetaKavita itself).
+      #
+      # Kavita publié sur l'hôte (ex. Portainer, port 5001→5000) :
+      # Kavita published on the host (e.g. Portainer, 5001→5000):
+      # - KAVITA_URL=http://host.docker.internal:5001
+      #
+      # Kavita sur le même réseau Docker (service nommé "kavita") :
+      # Kavita on the same Docker network (service name "kavita"):
+      # - KAVITA_URL=http://kavita:5000
+      #
+      # Kavita distant (prod) : URL publique HTTPS + clé API.
+      # Remote Kavita (prod): public HTTPS URL + API key.
+      # - KAVITA_URL=https://kavita.example.com
       # - KAVITA_API_KEY=ta_cle_api_kavita
+      # - KAVITA_EXTERNAL_URL=https://kavita.example.com
+
+      # --- Variables Optionnelles / Optional Variables ---
+      # Toutes ces valeurs peuvent aussi être configurées depuis l'interface Web.
+      # All these values can also be configured later from the Web UI.
+
       # - DEEPL_API_KEY=ta_cle_api_deepl
       # - TARGET_LANG=FR
       # Fresh install tip: set English UI before first open (default is French).

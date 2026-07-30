@@ -43,28 +43,24 @@ def save_config_ajax():
         config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
         config['KAVITA_EXTERNAL_URL'] = request.form.get('KAVITA_EXTERNAL_URL', '').strip().rstrip('/')
 
-        kavita_key = request.form.get('KAVITA_API_KEY', '').strip()
-        if kavita_key and kavita_key != '********':
-            config['KAVITA_API_KEY'] = kavita_key
+        # Champs secrets toujours vides à l'affichage : vide / ******** = conserver.
+        # (Sinon un save sidebar avec champ vide effaçait la clé, ou l'autofill
+        # écrasait Kavita avec le mot de passe MetaKavita.)
+        def _apply_secret(form_key: str, config_key: str) -> bool:
+            val = request.form.get(form_key, '').strip()
+            if val and val != '********':
+                config[config_key] = val
+                return True
+            return False
 
-        deepl_key = request.form.get('DEEPL_API_KEY', '').strip()
-        if deepl_key and deepl_key != '********':
-            config['DEEPL_API_KEY'] = deepl_key
-
-        azure_key = request.form.get('AZURE_API_KEY', '').strip()
-        if azure_key and azure_key != '********':
-            config['AZURE_API_KEY'] = azure_key
-        elif not azure_key:
-            config['AZURE_API_KEY'] = ''
+        kavita_key_updated = _apply_secret('KAVITA_API_KEY', 'KAVITA_API_KEY')
+        _apply_secret('DEEPL_API_KEY', 'DEEPL_API_KEY')
+        _apply_secret('AZURE_API_KEY', 'AZURE_API_KEY')
 
         for s in ScraperRegistry.get_all():
             if getattr(s, 'needs_api_key', False):
                 key_name = f"{s.id}_API_KEY"
-                val = request.form.get(key_name, '').strip()
-                if val and val != '********':
-                    config[key_name] = val
-                elif not val:
-                    config[key_name] = ''
+                _apply_secret(key_name, key_name)
 
         config['AZURE_REGION'] = request.form.get('AZURE_REGION', '').strip()
 
@@ -143,6 +139,15 @@ def save_config_ajax():
 
         save_config(config)
 
+        has_url = bool((config.get('KAVITA_URL') or '').strip())
+        has_key = bool((config.get('KAVITA_API_KEY') or '').strip())
+        logging.info(
+            "[Config] Sauvegarde OK — KAVITA_URL=%s clé_API=%s (mise_à_jour=%s)",
+            config.get('KAVITA_URL') or '(vide)',
+            'oui' if has_key else 'non',
+            'oui' if kavita_key_updated else 'non',
+        )
+
         # Désactivation du mode manuel : purge la file pour éviter des séries
         # gelées en PENDING_REVIEW (l'auto-sync les exclut).
         if was_manual and not config['MANUAL_REVIEW_MODE']:
@@ -171,7 +176,28 @@ def save_config_ajax():
                     )
             except Exception as exc:
                 logging.warning("[Config] Purge auto-confirm après désactivation : %s", exc)
-    return jsonify(success=True)
+
+        kavita_ok = False
+        kavita_error = None
+        if has_url and has_key:
+            try:
+                probe = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
+                kavita_ok = bool(probe.authenticate())
+                if not kavita_ok:
+                    kavita_error = getattr(probe, 'last_auth_error', None) or 'unknown'
+            except Exception as exc:
+                logging.warning("[Config] Test connexion Kavita après save : %s", exc)
+                kavita_error = 'unknown'
+        elif not has_url or not has_key:
+            kavita_error = 'missing'
+
+    return jsonify(
+        success=True,
+        kavita_url=config.get('KAVITA_URL') or '',
+        has_kavita_api_key=has_key,
+        kavita_ok=kavita_ok,
+        kavita_error=kavita_error,
+    )
 
 
 @config_bp.route('/regenerate-webhook-token', methods=['POST'])

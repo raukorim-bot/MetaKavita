@@ -1,5 +1,7 @@
 ## [1.6.1] - 2026-07-30 (Auth + Manual Review + Stats + Providers + Sealing + Supporter)
 
+> **Hotfix (same 1.6.1 line):** BF52 — fresh Config-modal Kavita credentials + Docker plug-and-play. No version bump.
+
 EN
 ### What's new in 1.6.1
 The big picture — details below.
@@ -11,6 +13,7 @@ The big picture — details below.
 * **Comic Flexible** — Kavita library type ID 5: Comic cascade first, then Manga fallback.
 * **Needs seal (`NEEDS_RELOCK`)** — Soft-success after a failed Kavita re-lock is visible and retryable, not silently “Completed”.
 * **Security & ops** — Non-root Docker, `/healthz` HEALTHCHECK, CVE bumps, webhook header, `config.json` 0600, env seeding fixed.
+* **Hotfix BF52** — Fresh installs can save Kavita URL/API key from the Config modal again; Docker Compose paste-play (`host.docker.internal`) documented.
 
 ### 🔒 Security
 * **BF46. Dependency CVE bumps (thanks angusmaul)** — `gunicorn` `21.2.0` → `23.0.0` and `requests` `2.31.0` → `2.33.1`. Clears five known advisories: two request-smuggling issues in Gunicorn (`PYSEC-2026-1433`, `PYSEC-2026-1434`, both fixed in 22.0.0) and three in Requests (`PYSEC-2026-1873`, `PYSEC-2026-1872`, `PYSEC-2026-2275`, the last only fixed in 2.33.0). No public API change in either package for the way MetaKavita uses them. `googletrans` is deliberately left at `4.0.0-rc1`.
@@ -40,6 +43,9 @@ The big picture — details below.
 ### 🩺 Operations
 * **C57. `GET /healthz` liveness endpoint** — Returns `{"status": "ok", "version": …}` and nothing else. Whitelisted in `require_login`, so it keeps answering `200` once a password is set, which is what makes it usable as the container's `HEALTHCHECK` target — that check previously had to hit `/login` and accept any status below 500, because no route reliably returned `200`. It now demands exactly `200`, so a routing regression is caught instead of passing as a `404`. The endpoint reads no configuration, opens no database connection and never contacts Kavita: it reports that the application is alive and routing, not that its dependencies are up, so a Kavita outage cannot put a healthy container into a restart loop.
 * **BF51. Environment variables seed a fresh install again** — `load_config()` used to generate `SECRET_KEY` / `WEBHOOK_TOKEN` and write `config.json` *before* merging the environment, so every key landed as a default and the `os.getenv` fallback was never reached on the next boot (`UI_LANG`, `KAVITA_URL`, `PROVIDER_1`, `MAX_TAGS`, …). Env merge now runs first; precedence is `config.json` > environment > default. `ADMIN_PASSWORD` is intentionally *not* seeded from the environment (would re-arm the one-shot ownership proof forever).
+
+### 🩹 Hotfix (1.6.1 — no version bump)
+* **BF52. Fresh Config modal + Docker Kavita plug-and-play** — Upgrading 1.6.0→1.6.1 kept working (credentials already in `config.json`), but a **brand-new** instance configured only from the Config modal often looked like Kavita settings were “not written”. Root causes: API key inputs were prefilled with the `********` sentinel (browser password-managers / empty sidebar `saveConfig()` posts could wipe or never persist the first-run key), blank `KAVITA_*` strings in `config.json` blocked Compose env seeding, and `localhost` URLs from inside Docker pointed at MetaKavita itself. Fix: secret fields always render empty (blank POST = keep existing); modal Save reloads, sidebar toggles save without reload; empty `KAVITA_URL` / `KAVITA_API_KEY` fall back to env; auth errors are specific (localhost / 401 / timeout / DNS / connection / SSL); `/save-config` logs persistence and returns a Kavita probe; Compose example + README Option A always ship `extra_hosts: host.docker.internal:host-gateway` and document never-use-localhost.
 
 ### ✨ Highlights
 * **Manual Review Mode (C29)** — Silent scrape queue: candidates land as PENDING_REVIEW without writing to Kavita. Pick modal with score gradient, keys 1–3, weak (below-threshold) band in red; optional edit-before-confirm; **cover pick step** before confirm; lifetime telemetry + session recap + **achievements** on `/stats`. Integrity follow-up: one review per series, atomic park/skip/confirm, batch skips parked series, apply under the per-series lock, WAL SQLite, queue sync on Socket.IO.
@@ -93,6 +99,7 @@ Les grosses évolutions — le détail suit.
 * **Comic Flexible** — Type de bibliothèque Kavita ID 5 : cascade Comic d’abord, repli Manga ensuite.
 * **À sceller (`NEEDS_RELOCK`)** — Soft-success après échec de re-lock Kavita visible et rejouable, plus un « Terminé » silencieux.
 * **Sécurité & exploitation** — Docker non-root, HEALTHCHECK `/healthz`, bumps CVE, en-tête webhook, `config.json` 0600, semis env corrigé.
+* **Hotfix BF52** — Setup neuf : sauvegarde URL/clé Kavita depuis la modal Config de nouveau fiable ; Compose paste-play (`host.docker.internal`) documenté.
 
 ### 🔒 Sécurité
 * **BF46. Montée de versions (CVE, merci angusmaul)** — `gunicorn` `21.2.0` → `23.0.0` et `requests` `2.31.0` → `2.33.1`. Corrige cinq vulnérabilités connues : deux failles de *request smuggling* dans Gunicorn (`PYSEC-2026-1433`, `PYSEC-2026-1434`, corrigées en 22.0.0) et trois dans Requests (`PYSEC-2026-1873`, `PYSEC-2026-1872`, `PYSEC-2026-2275`, cette dernière uniquement corrigée en 2.33.0). Aucun changement d'API publique pour l'usage qu'en fait MetaKavita. `googletrans` reste volontairement en `4.0.0-rc1`.
@@ -122,6 +129,9 @@ Les grosses évolutions — le détail suit.
 ### 🩺 Exploitation
 * **C57. Endpoint de liveness `GET /healthz`** — Renvoie `{"status": "ok", "version": …}` et rien d’autre. Whitelisté dans `require_login`, il continue donc de répondre `200` une fois un mot de passe défini — c’est ce qui le rend utilisable comme cible du `HEALTHCHECK` du conteneur, lequel devait auparavant interroger `/login` et accepter tout statut inférieur à 500, faute de route renvoyant `200` de façon fiable. Il exige désormais exactement `200`, ce qui permet d’attraper une régression de routage au lieu de la laisser passer pour un `404`. L’endpoint ne lit aucune configuration, n’ouvre aucune base et ne contacte jamais Kavita : il signale que l’application est vivante et route, pas que ses dépendances sont disponibles — une panne de Kavita ne peut donc pas placer un conteneur sain en boucle de redémarrage.
 * **BF51. Les variables d'environnement sèment à nouveau une installation neuve** — `load_config()` générait `SECRET_KEY` / `WEBHOOK_TOKEN` et écrivait `config.json` *avant* de fusionner l'environnement : chaque clé tombait donc à sa valeur par défaut et le repli `os.getenv` n'était plus jamais atteint au boot suivant (`UI_LANG`, `KAVITA_URL`, `PROVIDER_1`, `MAX_TAGS`, …). La fusion env passe désormais en premier ; précédence `config.json` > environnement > défaut. `ADMIN_PASSWORD` n'est volontairement *pas* semé depuis l'environnement (réarmerait à jamais la preuve de propriété à usage unique).
+
+### 🩹 Hotfix (1.6.1 — pas de montée de version)
+* **BF52. Modal Config setup frais + Docker Kavita plug-and-play** — La migration 1.6.0→1.6.1 restait OK (credentials déjà dans `config.json`), mais une instance **neuve** configurée uniquement depuis la modal Config donnait souvent l’impression que les réglages Kavita « n’étaient pas écrits ». Causes : champs clé préremplis avec le sentinel `********` (autofill navigateur / `saveConfig()` sidebar à champ vide pouvaient effacer ou ne jamais poser la clé au 1er lancement), chaînes `KAVITA_*` vides dans `config.json` bloquant le seed Compose, et `localhost` depuis Docker = MetaKavita lui-même. Correctif : secrets toujours vides à l’affichage (POST vide = conserver) ; Save modale recharge, toggles sidebar sans reload ; `KAVITA_URL` / `KAVITA_API_KEY` vides replient sur l’env ; erreurs d’auth explicites (localhost / 401 / timeout / DNS / connexion / SSL) ; `/save-config` journalise et renvoie un test Kavita ; Compose + README Option A avec `extra_hosts: host.docker.internal:host-gateway` et consignes never-localhost.
 
 ### ✨ Points forts
 * **Mode Review Manuelle (C29)** — File de scrape silencieuse : les candidats arrivent en PENDING_REVIEW sans écrire dans Kavita. Modale de pick avec gradient de score, touches 1–3, bande faible (sous seuil) en rouge ; édition optionnelle avant confirm ; **étape choix de couverture** avant confirm ; télémétrie lifetime + récap de session + **hauts-faits** sur `/stats`. Suite intégrité : une review par série, park/skip/confirm atomiques, batch sans séries garées, apply sous verrou, SQLite WAL, sync file Socket.IO.

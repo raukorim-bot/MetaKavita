@@ -161,6 +161,11 @@ def load_config():
                 "(cf. `python debug/hash_password.py`)."
             )
 
+        # Clés connexion : "" dans config.json ne doit pas bloquer un seed env
+        # (ex. première sauvegarde UI avant de coller l'URL / la clé).
+        _env_fallback_if_blank = frozenset({
+            "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY",
+        })
         for key in [
             "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
             "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE",
@@ -170,7 +175,11 @@ def load_config():
             "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
             "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
         ]:
-            config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
+            file_val = file_config.get(key, None)
+            if key in _env_fallback_if_blank and (file_val is None or (isinstance(file_val, str) and not file_val.strip())):
+                config[key] = os.getenv(key, config.get(key, ""))
+            else:
+                config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
 
         mode = (config.get("LOCALIZED_TITLE_MODE") or "all").strip().lower()
         config["LOCALIZED_TITLE_MODE"] = mode if mode in ("all", "prefer", "none") else "all"

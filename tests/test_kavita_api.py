@@ -331,3 +331,26 @@ class TestSealSeriesLocks:
         gen_payload = mock_post.call_args_list[1].kwargs["json"]
         assert gen_payload["localizedNameLocked"] is True
         assert gen_payload["formatLocked"] is True
+
+
+class TestAuthenticateDiagnostics:
+    def test_rejects_localhost_without_http_call(self, mocker):
+        api = KavitaAPI("http://localhost:5001", "fake-key")
+        mock_post = mocker.patch("kavita_api.requests.post")
+        assert api.authenticate() is False
+        assert api.last_auth_error == "localhost"
+        mock_post.assert_not_called()
+
+    def test_missing_key_sets_missing(self):
+        api = KavitaAPI("http://kavita.local", "")
+        assert api.authenticate() is False
+        assert api.last_auth_error == "missing"
+
+    def test_http_401_sets_unauthorized(self, mocker):
+        api = KavitaAPI("http://kavita.local", "bad-key")
+        resp = mocker.Mock(status_code=401)
+        err = requests.exceptions.HTTPError(response=resp)
+        mock_post = mocker.patch("kavita_api.requests.post")
+        mock_post.return_value.raise_for_status.side_effect = err
+        assert api.authenticate() is False
+        assert api.last_auth_error == "http_401"

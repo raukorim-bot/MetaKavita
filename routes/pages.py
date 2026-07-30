@@ -58,7 +58,15 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             else:
                 error_msg = "Aucune bibliothèque trouvée dans Kavita."
         else:
-            error_msg = t.get('err_kavita', "Connexion à Kavita échouée.")
+            err_key = {
+                "localhost": "err_kavita_localhost",
+                "http_401": "err_kavita_unauthorized",
+                "timeout": "err_kavita_timeout",
+                "dns": "err_kavita_dns",
+                "connection": "err_kavita_connection",
+                "ssl": "err_kavita_ssl",
+            }.get(getattr(kavita, "last_auth_error", None), "err_kavita")
+            error_msg = t.get(err_key, t.get('err_kavita', "Connexion à Kavita échouée."))
     else:
         error_msg = t.get('err_missing', "Données manquantes.")
 
@@ -84,16 +92,26 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             s['publisher_pref'] = item_cache.get('publisher_pref') or 'GLOBAL'
             s['alt_title_langs'] = item_cache.get('alt_title_langs') or ''
 
+    # Ne jamais injecter la vraie clé NI le sentinel « ******** » dans le HTML :
+    # les navigateurs (autofill mot de passe) écrasent souvent ce champ, et un
+    # saveConfig() sidebar renvoyait alors ******** / un mauvais secret / du vide,
+    # ce qui faisait croire qu'un setup frais « n'écrivait pas » la config Kavita.
+    # Champ toujours vide à l'affichage ; placeholder + flags has_* indiquent
+    # qu'une clé est déjà enregistrée. POST vide = conserver (routes/config.py).
     safe_config = config.copy()
-    if safe_config.get('KAVITA_API_KEY'): safe_config['KAVITA_API_KEY'] = '********'
-    if safe_config.get('DEEPL_API_KEY'): safe_config['DEEPL_API_KEY'] = '********'
-    if safe_config.get('AZURE_API_KEY'): safe_config['AZURE_API_KEY'] = '********'
+    has_kavita_api_key = bool((safe_config.get('KAVITA_API_KEY') or '').strip())
+    has_deepl_api_key = bool((safe_config.get('DEEPL_API_KEY') or '').strip())
+    has_azure_api_key = bool((safe_config.get('AZURE_API_KEY') or '').strip())
+    safe_config['KAVITA_API_KEY'] = ''
+    safe_config['DEEPL_API_KEY'] = ''
+    safe_config['AZURE_API_KEY'] = ''
 
     scrapers_with_keys = [s for s in ScraperRegistry.get_all() if getattr(s, 'needs_api_key', False)]
+    scraper_has_api_key = {}
     for s in scrapers_with_keys:
         key_name = f"{s.id}_API_KEY"
-        if safe_config.get(key_name):
-            safe_config[key_name] = '********'
+        scraper_has_api_key[s.id] = bool((safe_config.get(key_name) or '').strip())
+        safe_config[key_name] = ''
 
     manga_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Manga")]
     comic_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Comic")]
@@ -115,7 +133,11 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            comic_providers=comic_providers,
                            book_providers=book_providers,
                            magic_scrapers=magic_scrapers,
-                           scrapers_with_keys=scrapers_with_keys)
+                           scrapers_with_keys=scrapers_with_keys,
+                           has_kavita_api_key=has_kavita_api_key,
+                           has_deepl_api_key=has_deepl_api_key,
+                           has_azure_api_key=has_azure_api_key,
+                           scraper_has_api_key=scraper_has_api_key)
 
 
 @pages_bp.route('/', methods=['GET'])
