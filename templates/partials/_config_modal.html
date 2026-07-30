@@ -177,10 +177,13 @@
                             <div class="form-group">
                                 <label>{{ t.sync_libraries_label }}</label>
                                 <p class="field-hint">{{ t.sync_libraries_desc }}</p>
-                                <input type="hidden" name="SYNC_LIBRARIES_PRESENT" value="1">
                                 {% if all_libraries %}
+                                {# PRESENT uniquement si des cases sont rendues — sinon un 1er save
+                                   (URL+clé, liste encore vide) désactivait TOUTES les biblios. #}
+                                <input type="hidden" name="SYNC_LIBRARIES_PRESENT" value="1">
                                 <div class="sync-libraries-list">
                                     {% for lib in all_libraries %}
+                                    <input type="hidden" name="KNOWN_LIBRARY" value="{{ lib.id }}">
                                     <label class="sync-library-item">
                                         <input type="checkbox" name="ENABLED_LIBRARY" value="{{ lib.id }}"
                                             {% if lib.id|string not in disabled_library_ids %}checked{% endif %}

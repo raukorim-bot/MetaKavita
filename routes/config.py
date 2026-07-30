@@ -113,26 +113,44 @@ def save_config_ajax():
         except ValueError:
             config['AUTO_SYNC_INTERVAL'] = 0
 
-        # Bibliothèques à synchroniser : checkboxes ENABLED_LIBRARY + re-fetch Kavita
+        # Bibliothèques à synchroniser : checkboxes ENABLED_LIBRARY + re-fetch Kavita.
+        # Ne traiter que si le formulaire a réellement rendu la liste (KNOWN_LIBRARY) —
+        # sinon un setup frais (PRESENT=1, 0 case) désactivait toutes les biblios
+        # dès que l'auth Kavita réussissait pendant le save.
         if request.form.get('SYNC_LIBRARIES_PRESENT') == '1':
+            known_ids = {
+                str(x).strip()
+                for x in request.form.getlist('KNOWN_LIBRARY')
+                if str(x).strip()
+            }
             enabled_ids = {
                 str(x).strip()
                 for x in request.form.getlist('ENABLED_LIBRARY')
                 if str(x).strip()
             }
-            all_ids = set()
-            try:
-                if config.get('KAVITA_URL') and config.get('KAVITA_API_KEY'):
-                    kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
-                    if kavita.authenticate():
-                        all_ids = {str(lib.get('id')) for lib in (kavita.get_libraries() or []) if lib.get('id') is not None}
-            except Exception as e:
-                logging.warning("[Config] Impossible de recharger les bibliothèques Kavita : %s", e)
-            if all_ids:
-                config['DISABLED_LIBRARIES'] = format_disabled_libraries(all_ids - enabled_ids)
-            elif not enabled_ids and not all_ids:
-                # Pas de biblio joignable : ne pas écraser la dénylist existante
-                pass
+            if not known_ids and not enabled_ids:
+                logging.info(
+                    "[Config] SYNC_LIBRARIES_PRESENT sans bibliothèque rendue — "
+                    "dénylist inchangée (évite wipe au 1er save)."
+                )
+            else:
+                all_ids = set()
+                try:
+                    if config.get('KAVITA_URL') and config.get('KAVITA_API_KEY'):
+                        kavita = KavitaAPI(config['KAVITA_URL'], config['KAVITA_API_KEY'])
+                        if kavita.authenticate():
+                            all_ids = {
+                                str(lib.get('id'))
+                                for lib in (kavita.get_libraries() or [])
+                                if lib.get('id') is not None
+                            }
+                except Exception as e:
+                    logging.warning("[Config] Impossible de recharger les bibliothèques Kavita : %s", e)
+                if all_ids:
+                    config['DISABLED_LIBRARIES'] = format_disabled_libraries(all_ids - enabled_ids)
+                elif not enabled_ids and not all_ids:
+                    # Pas de biblio joignable : ne pas écraser la dénylist existante
+                    pass
 
         config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
         config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'

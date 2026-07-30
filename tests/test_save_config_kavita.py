@@ -46,7 +46,14 @@ def _read_file(config_manager):
 
 def test_fresh_setup_persists_kavita_url_and_api_key(config_client, mocker):
     client, cm = config_client
-    mocker.patch("routes.config.KavitaAPI.authenticate", return_value=True)
+    mock_cls = mocker.patch("routes.config.KavitaAPI")
+    inst = mock_cls.return_value
+    inst.authenticate.return_value = True
+    inst.get_libraries.return_value = [
+        {"id": 1, "name": "Manga"},
+        {"id": 2, "name": "Comics"},
+    ]
+    inst.last_auth_error = None
 
     res = client.post("/save-config", data={
         "KAVITA_URL": "http://host.docker.internal:5001",
@@ -56,6 +63,8 @@ def test_fresh_setup_persists_kavita_url_and_api_key(config_client, mocker):
         "TARGET_LANG": "FR",
         "PUBLISHER_PREFERENCE": "LOCALIZED",
         "LOCALIZED_TITLE_MODE": "all",
+        # Régression : PRESENT sans KNOWN/ENABLED (liste pas encore rendue)
+        # ne doit PAS écrire DISABLED_LIBRARIES=1,2.
         "SYNC_LIBRARIES_PRESENT": "1",
     })
     assert res.status_code == 200
@@ -68,9 +77,78 @@ def test_fresh_setup_persists_kavita_url_and_api_key(config_client, mocker):
     saved = _read_file(cm)
     assert saved["KAVITA_URL"] == "http://host.docker.internal:5001"
     assert saved["KAVITA_API_KEY"] == "fresh-kavita-key"
+    assert not (saved.get("DISABLED_LIBRARIES") or "").strip()
     # Chemin absolu (pas de dépendance au cwd)
     assert os.path.isabs(cm.CONFIG_FILE)
     assert os.path.isfile(cm.CONFIG_FILE)
+
+
+def test_sync_libraries_with_known_ids_can_disable_all(config_client, mocker):
+    """Décocher toutes les cases (KNOWN présent, ENABLED vide) = dénylist complète."""
+    client, cm = config_client
+    mock_cls = mocker.patch("routes.config.KavitaAPI")
+    inst = mock_cls.return_value
+    inst.authenticate.return_value = True
+    inst.get_libraries.return_value = [
+        {"id": 1, "name": "Manga"},
+        {"id": 2, "name": "Comics"},
+    ]
+    inst.last_auth_error = None
+
+    cm.save_config({
+        **_read_file(cm),
+        "KAVITA_URL": "http://host.docker.internal:5001",
+        "KAVITA_API_KEY": "k",
+    })
+
+    res = client.post("/save-config", data={
+        "KAVITA_URL": "http://host.docker.internal:5001",
+        "KAVITA_API_KEY": "",
+        "UI_LANG": "fr",
+        "TRANSLATION_PROVIDER": "GOOGLE",
+        "TARGET_LANG": "FR",
+        "PUBLISHER_PREFERENCE": "LOCALIZED",
+        "LOCALIZED_TITLE_MODE": "all",
+        "SYNC_LIBRARIES_PRESENT": "1",
+        "KNOWN_LIBRARY": ["1", "2"],
+        # pas d'ENABLED_LIBRARY = tout désactivé
+    })
+    assert res.status_code == 200
+    assert _read_file(cm)["DISABLED_LIBRARIES"] == "1,2"
+
+
+def test_sync_libraries_keeps_checked_enabled(config_client, mocker):
+    client, cm = config_client
+    mock_cls = mocker.patch("routes.config.KavitaAPI")
+    inst = mock_cls.return_value
+    inst.authenticate.return_value = True
+    inst.get_libraries.return_value = [
+        {"id": 1, "name": "Manga"},
+        {"id": 2, "name": "Comics"},
+        {"id": 3, "name": "Books"},
+    ]
+    inst.last_auth_error = None
+
+    cm.save_config({
+        **_read_file(cm),
+        "KAVITA_URL": "http://kavita:5000",
+        "KAVITA_API_KEY": "k",
+    })
+
+    res = client.post("/save-config", data={
+        "KAVITA_URL": "http://kavita:5000",
+        "KAVITA_API_KEY": "",
+        "UI_LANG": "en",
+        "TRANSLATION_PROVIDER": "GOOGLE",
+        "TARGET_LANG": "EN",
+        "PUBLISHER_PREFERENCE": "LOCALIZED",
+        "LOCALIZED_TITLE_MODE": "all",
+        "SYNC_LIBRARIES_PRESENT": "1",
+        "KNOWN_LIBRARY": ["1", "2", "3"],
+        "ENABLED_LIBRARY": ["1", "3"],
+    })
+    assert res.status_code == 200
+    assert _read_file(cm)["DISABLED_LIBRARIES"] == "2"
 
 
 def test_empty_api_key_field_keeps_existing_secret(config_client, mocker):
@@ -93,7 +171,6 @@ def test_empty_api_key_field_keeps_existing_secret(config_client, mocker):
         "PUBLISHER_PREFERENCE": "LOCALIZED",
         "LOCALIZED_TITLE_MODE": "all",
         "SMART_SCORING": "true",
-        "SYNC_LIBRARIES_PRESENT": "1",
     })
     assert res.status_code == 200
     assert res.get_json()["has_kavita_api_key"] is True
@@ -117,7 +194,6 @@ def test_sentinel_stars_also_keeps_existing_secret(config_client, mocker):
         "TARGET_LANG": "EN",
         "PUBLISHER_PREFERENCE": "LOCALIZED",
         "LOCALIZED_TITLE_MODE": "all",
-        "SYNC_LIBRARIES_PRESENT": "1",
     })
     assert res.status_code == 200
     assert _read_file(cm)["KAVITA_API_KEY"] == "legacy-stars"
