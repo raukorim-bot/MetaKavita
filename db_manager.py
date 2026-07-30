@@ -3,7 +3,15 @@ import os
 
 from models import SeriesOverride
 
-DATA_DIR = "data"
+
+def _resolve_data_dir() -> str:
+    env = (os.environ.get("METAKAVITA_DATA_DIR") or os.environ.get("DATA_DIR") or "").strip()
+    if env:
+        return os.path.abspath(env)
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
+
+
+DATA_DIR = _resolve_data_dir()
 DB_FILE = os.path.join(DATA_DIR, "cache.db")
 
 

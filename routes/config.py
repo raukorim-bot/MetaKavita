@@ -9,7 +9,7 @@ import secrets
 
 from flask import Blueprint, request, jsonify
 
-from config_manager import load_config, save_config, CONFIG_LOCK, format_disabled_libraries
+from config_manager import load_config, save_config, CONFIG_LOCK, CONFIG_FILE, format_disabled_libraries
 from scrapers import ScraperRegistry
 from kavita_api import KavitaAPI
 
@@ -137,12 +137,17 @@ def save_config_ajax():
         config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
         config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'
 
-        save_config(config)
+        try:
+            save_config(config)
+        except RuntimeError as exc:
+            logging.error("[Config] Échec persistance config.json : %s", exc)
+            return jsonify(success=False, msg=str(exc)), 500
 
         has_url = bool((config.get('KAVITA_URL') or '').strip())
         has_key = bool((config.get('KAVITA_API_KEY') or '').strip())
         logging.info(
-            "[Config] Sauvegarde OK — KAVITA_URL=%s clé_API=%s (mise_à_jour=%s)",
+            "[Config] Sauvegarde OK — fichier=%s KAVITA_URL=%s clé_API=%s (mise_à_jour=%s)",
+            CONFIG_FILE,
             config.get('KAVITA_URL') or '(vide)',
             'oui' if has_key else 'non',
             'oui' if kavita_key_updated else 'non',

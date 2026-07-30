@@ -8,6 +8,7 @@ qui renvoyaient un champ vide/autofill et pouvaient écraser ou ne jamais poser
 la clé ; champ secret désormais toujours vide à l'affichage, vide = conserver.
 """
 import json
+import os
 
 import pytest
 from flask import Flask
@@ -67,6 +68,9 @@ def test_fresh_setup_persists_kavita_url_and_api_key(config_client, mocker):
     saved = _read_file(cm)
     assert saved["KAVITA_URL"] == "http://host.docker.internal:5001"
     assert saved["KAVITA_API_KEY"] == "fresh-kavita-key"
+    # Chemin absolu (pas de dépendance au cwd)
+    assert os.path.isabs(cm.CONFIG_FILE)
+    assert os.path.isfile(cm.CONFIG_FILE)
 
 
 def test_empty_api_key_field_keeps_existing_secret(config_client, mocker):

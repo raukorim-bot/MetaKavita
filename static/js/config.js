@@ -193,6 +193,16 @@ function saveConfig(options) {
     const form = document.getElementById('configForm');
     if (!form) return;
     const formData = new FormData(form);
+
+    // Force les champs Kavita depuis .value (certains navigateurs omettent les
+    // champs type=password / autofill dans FormData(form) — setup frais cassé).
+    const kavitaUrlInput = form.querySelector('[name="KAVITA_URL"]');
+    const kavitaExtInput = form.querySelector('[name="KAVITA_EXTERNAL_URL"]');
+    const kavitaKeyInput = document.getElementById('kavita_api_key');
+    if (kavitaUrlInput) formData.set('KAVITA_URL', (kavitaUrlInput.value || '').trim());
+    if (kavitaExtInput) formData.set('KAVITA_EXTERNAL_URL', (kavitaExtInput.value || '').trim());
+    if (kavitaKeyInput) formData.set('KAVITA_API_KEY', (kavitaKeyInput.value || '').trim());
+    const typedKavitaKey = kavitaKeyInput ? (kavitaKeyInput.value || '').trim() : '';
     
     const smartScoring = document.getElementById('sidebar_smart_scoring');
     const smartCompletion = document.getElementById('sidebar_smart_completion');
@@ -252,12 +262,30 @@ function saveConfig(options) {
                 setTimeout(() => { btn.innerText = originalText; }, 2000);
             }
             if (shouldReload) {
-                // Recharge : la bannière Kavita et les bibliothèques viennent du GET `/`.
+                if (typedKavitaKey && !data.has_kavita_api_key) {
+                    alert((window.AppTranslations && window.AppTranslations.config_key_not_saved) ||
+                        "La clé API Kavita n'a pas été enregistrée sur le serveur. Vérifiez les logs.");
+                    if (btn) btn.innerText = originalText;
+                    return;
+                }
+                if (data.kavita_ok === false && data.kavita_error && data.kavita_error !== 'missing') {
+                    const errMap = {
+                        localhost: (window.AppTranslations && window.AppTranslations.err_kavita_localhost),
+                        http_401: (window.AppTranslations && window.AppTranslations.err_kavita_unauthorized),
+                        timeout: (window.AppTranslations && window.AppTranslations.err_kavita_timeout),
+                        dns: (window.AppTranslations && window.AppTranslations.err_kavita_dns),
+                        connection: (window.AppTranslations && window.AppTranslations.err_kavita_connection),
+                        ssl: (window.AppTranslations && window.AppTranslations.err_kavita_ssl),
+                    };
+                    const msg = errMap[data.kavita_error] ||
+                        ((window.AppTranslations && window.AppTranslations.err_kavita) || "Connexion à Kavita échouée.");
+                    alert(msg + "\n\nURL enregistrée : " + (data.kavita_url || "(vide)"));
+                }
                 window.location.reload();
             }
         } else {
             if (btn) btn.innerText = originalText;
-            alert("Erreur de sauvegarde");
+            alert((data && data.msg) || "Erreur de sauvegarde");
         }
     })
     .catch(() => {
@@ -271,6 +299,13 @@ function saveConfigAndReloadLibraries() {
     const form = document.getElementById('configForm');
     if (!form) return;
     const formData = new FormData(form);
+
+    const kavitaUrlInput = form.querySelector('[name="KAVITA_URL"]');
+    const kavitaExtInput = form.querySelector('[name="KAVITA_EXTERNAL_URL"]');
+    const kavitaKeyInput = document.getElementById('kavita_api_key');
+    if (kavitaUrlInput) formData.set('KAVITA_URL', (kavitaUrlInput.value || '').trim());
+    if (kavitaExtInput) formData.set('KAVITA_EXTERNAL_URL', (kavitaExtInput.value || '').trim());
+    if (kavitaKeyInput) formData.set('KAVITA_API_KEY', (kavitaKeyInput.value || '').trim());
 
     const smartScoring = document.getElementById('sidebar_smart_scoring');
     const smartCompletion = document.getElementById('sidebar_smart_completion');

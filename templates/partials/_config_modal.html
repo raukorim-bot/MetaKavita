@@ -26,9 +26,10 @@
                             <div class="form-group m-0">
                                 <label>{{ t.kavita_api }}</label>
                                 <div class="password-wrapper">
-                                    <input type="password" name="KAVITA_API_KEY" id="kavita_api_key" value=""
+                                    <input type="text" name="KAVITA_API_KEY" id="kavita_api_key" value=""
+                                           class="secret-masked"
                                            placeholder="{% if has_kavita_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}"
-                                           autocomplete="new-password" data-lpignore="true" data-1p-ignore="true">
+                                           autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
                                     <button type="button" class="toggle-password" onclick="togglePasswordVisibility('kavita_api_key', this)" title="{{ t.show_hide }}">👁️</button>
                                 </div>
                                 <small class="field-hint">{% if has_kavita_api_key %}{{ t.api_key_keep_hint }}{% else %}{{ t.kavita_creds_optional_hint }}{% endif %}</small>
@@ -41,9 +42,10 @@
                             <div class="form-group{% if loop.last %} m-0{% endif %}">
                                 <label>API Key — {{ scraper.display_name }}</label>
                                 <div class="password-wrapper">
-                                    <input type="password" name="{{ scraper.id }}_API_KEY" id="{{ scraper.id|lower }}_api_key" value=""
+                                    <input type="text" name="{{ scraper.id }}_API_KEY" id="{{ scraper.id|lower }}_api_key" value=""
+                                           class="secret-masked"
                                            placeholder="{% if scraper_has_api_key.get(scraper.id) %}{{ t.api_key_saved_placeholder }}{% endif %}"
-                                           autocomplete="new-password" data-lpignore="true" data-1p-ignore="true">
+                                           autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
                                     <button type="button" class="toggle-password" onclick="togglePasswordVisibility('{{ scraper.id|lower }}_api_key', this)" title="{{ t.show_hide }}">👁️</button>
                                 </div>
                             </div>
@@ -72,9 +74,10 @@
                                 <div class="form-group m-0">
                                     <label>{{ t.deepl_api }}</label>
                                     <div class="password-wrapper">
-                                        <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" value=""
+                                        <input type="text" name="DEEPL_API_KEY" id="deepl_api_key" value=""
+                                               class="secret-masked"
                                                placeholder="{% if has_deepl_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}"
-                                               autocomplete="new-password" data-lpignore="true" data-1p-ignore="true">
+                                               autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
                                         <button type="button" class="toggle-password" onclick="togglePasswordVisibility('deepl_api_key', this)" title="{{ t.show_hide }}">👁️</button>
                                     </div>
                                 </div>
@@ -84,9 +87,10 @@
                                 <div class="form-group">
                                     <label>{{ t.azure_api }}</label>
                                     <div class="password-wrapper">
-                                        <input type="password" name="AZURE_API_KEY" id="azure_api_key" value=""
+                                        <input type="text" name="AZURE_API_KEY" id="azure_api_key" value=""
+                                               class="secret-masked"
                                                placeholder="{% if has_azure_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}"
-                                               autocomplete="new-password" data-lpignore="true" data-1p-ignore="true">
+                                               autocomplete="off" data-lpignore="true" data-1p-ignore="true" data-form-type="other">
                                         <button type="button" class="toggle-password" onclick="togglePasswordVisibility('azure_api_key', this)" title="{{ t.show_hide }}">👁️</button>
                                     </div>
                                 </div>

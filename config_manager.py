@@ -4,9 +4,23 @@ import json
 import logging
 import os
 import secrets
+import tempfile
 import threading
 
-DATA_DIR = "data"
+
+def _resolve_data_dir() -> str:
+    """Répertoire persistant (absolu) — ne dépend pas du cwd du process.
+
+    Ordre : METAKAVITA_DATA_DIR → DATA_DIR → <repo>/data à côté de ce module.
+    En Docker : /app/config_manager.py → /app/data (volume bind habituel).
+    """
+    env = (os.environ.get("METAKAVITA_DATA_DIR") or os.environ.get("DATA_DIR") or "").strip()
+    if env:
+        return os.path.abspath(env)
+    return os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "data"))
+
+
+DATA_DIR = _resolve_data_dir()
 CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 
 # --- GARDE ANTI-COURSE (LOST UPDATE) ---
@@ -25,11 +39,18 @@ CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 # lire-modifier-écrire, pas seulement l'écriture finale.
 CONFIG_LOCK = threading.RLock()
 
+_logged_config_path = False
+
 
 def load_config():
+    global _logged_config_path
     with CONFIG_LOCK:
+        if not _logged_config_path:
+            logging.info("[Config] Fichier de configuration : %s", CONFIG_FILE)
+            _logged_config_path = True
+
         if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR)
+            os.makedirs(DATA_DIR, exist_ok=True)
 
         config = {
             "TRANSLATION_PROVIDER": "GOOGLE",
@@ -228,7 +249,9 @@ def load_config():
             "MANUAL_REVIEW_MODE", "MANUAL_REVIEW_EDIT", "MANUAL_REVIEW_SOUNDS",
             "MANUAL_REVIEW_SUPER", "CONFIRM_BEFORE_WRITE", "MANUAL_REVIEW_COVER_PICK",
         ]:
-            config[bool_key] = file_config.get(bool_key, str(os.getenv(bool_key, config.get(bool_key, "False"))).lower() == "true")
+            config[bool_key] = _resolve_bool(
+                file_config, bool_key, default=bool(config.get(bool_key, False))
+            )
 
         config["MATCH_ACCEPT_THRESHOLD"] = _parse_match_threshold(
             file_config.get(
@@ -263,6 +286,21 @@ def load_config():
                 config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
 
         return config
+
+
+def _resolve_bool(file_config: dict, key: str, default: bool = False) -> bool:
+    """Booléen depuis config.json, sinon env, sinon défaut."""
+    if key in file_config:
+        val = file_config[key]
+        if isinstance(val, bool):
+            return val
+        if val is None:
+            return default
+        return str(val).strip().lower() in ("1", "true", "yes", "on")
+    env = os.getenv(key)
+    if env is not None and str(env).strip() != "":
+        return str(env).strip().lower() in ("1", "true", "yes", "on")
+    return bool(default)
 
 
 def _parse_match_threshold(raw, default=0.60, minimum=0.30, maximum=1.00) -> float:
@@ -403,6 +441,12 @@ def get_kavita_plus_url(config=None) -> str:
 
 
 def save_config(data):
+    """Écrit config.json de façon atomique (tmp + replace) sous CONFIG_LOCK.
+
+    Retourne le chemin absolu écrit. Relit le fichier après replace pour
+    confirmer que KAVITA_* (et le reste) sont bien sur disque — un échec lève
+    RuntimeError plutôt que de laisser l'UI croire que la modal a sauvé.
+    """
     with CONFIG_LOCK:
         if "MATCH_ACCEPT_THRESHOLD" in data:
             data["MATCH_ACCEPT_THRESHOLD"] = _parse_match_threshold(
@@ -411,28 +455,30 @@ def save_config(data):
         if "MATCH_THRESHOLD_CUSTOM" in data:
             data["MATCH_THRESHOLD_CUSTOM"] = bool(data.get("MATCH_THRESHOLD_CUSTOM"))
         if not os.path.exists(DATA_DIR):
-            os.makedirs(DATA_DIR)
-        with open(CONFIG_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
+            os.makedirs(DATA_DIR, exist_ok=True)
 
-        # Restrict the file to its owner (0600).
-        #
-        # config.json is the single most sensitive file the application owns: it holds
-        # SECRET_KEY (forging a session cookie is game over), WEBHOOK_TOKEN, the Kavita
-        # API key, and every translation-provider key. It is created with the process
-        # umask, which on a default Docker image means 0644 — world-readable. On a NAS
-        # this directory is usually a bind mount that other containers and other users
-        # can see, so "readable by anyone on the host" is a realistic exposure, not a
-        # theoretical one.
-        #
-        # Applied on every save rather than only at creation, because a file restored
-        # from a backup, copied from another host, or written by an older version will
-        # otherwise keep its permissive mode forever.
-        #
-        # Deliberately best-effort: chmod is a no-op on Windows and fails outright on
-        # some CIFS/SMB and FAT-backed bind mounts. Losing the hardening there is
-        # acceptable; losing the user's configuration because a chmod raised is not, so
-        # this must never be allowed to propagate.
+        # Écriture atomique : open("w") tronque d'abord ; un JSON partiel + .bak
+        # régénérait des secrets vides (symptôme « la modal n'écrit pas »).
+        fd, tmp_path = tempfile.mkstemp(
+            prefix="config.", suffix=".tmp.json", dir=DATA_DIR
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f, indent=4, ensure_ascii=False)
+                f.flush()
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
+            os.replace(tmp_path, CONFIG_FILE)
+            tmp_path = None
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
         try:
             os.chmod(CONFIG_FILE, 0o600)
         except OSError as chmod_err:
@@ -442,3 +488,22 @@ def save_config(data):
                 "de fichiers.",
                 CONFIG_FILE, chmod_err,
             )
+
+        try:
+            with open(CONFIG_FILE, "r", encoding="utf-8") as f:
+                disk = json.load(f)
+        except (OSError, json.JSONDecodeError) as exc:
+            raise RuntimeError(
+                f"config.json illisible juste après écriture ({CONFIG_FILE}): {exc}"
+            ) from exc
+
+        for check_key in ("KAVITA_URL", "KAVITA_API_KEY", "SECRET_KEY", "WEBHOOK_TOKEN"):
+            if check_key not in data:
+                continue
+            if disk.get(check_key) != data.get(check_key):
+                raise RuntimeError(
+                    f"Persistance échouée pour {check_key} dans {CONFIG_FILE} "
+                    f"(mémoire ≠ disque)."
+                )
+
+        return CONFIG_FILE

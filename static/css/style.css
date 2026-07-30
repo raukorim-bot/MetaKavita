@@ -1043,6 +1043,11 @@ input[type="text"].search-input {
     padding-right: 35px;
 }
 
+/* Clés API : type=text + masquage CSS (évite autofill password / FormData vide) */
+input.secret-masked:not(.is-revealed) {
+    -webkit-text-security: disc;
+}
+
 .toggle-password {
     position: absolute;
     right: 8px;

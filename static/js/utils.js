@@ -66,9 +66,15 @@ function toggleTheme() {
     localStorage.setItem('theme', newTheme);
 }
 
-// --- ENTRÉES DE TYPE MOT DE PASSE (ŒIL) ---
+// --- ENTRÉES DE TYPE MOT DE PASSE / SECRETS (ŒIL) ---
 function togglePasswordVisibility(inputId, btn) {
     const input = document.getElementById(inputId);
+    if (!input) return;
+    if (input.classList.contains('secret-masked')) {
+        const revealed = input.classList.toggle('is-revealed');
+        btn.innerText = revealed ? '🙈' : '👁️';
+        return;
+    }
     if (input.type === 'password') {
         input.type = 'text';
         btn.innerText = '🙈';
