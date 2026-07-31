@@ -344,6 +344,7 @@ async function launchBatch(event) {
     
     const batchFieldsMask = getBatchTargetedFieldsMask();
     let stopped = false;
+    let alreadyRunningRejection = false;
 
     for (let i = 0; i < ids.length; i += 50) {
         if (batchEnqueueAbort) {
@@ -383,6 +384,17 @@ async function launchBatch(event) {
             }
             if (res.status === 409) {
                 stopped = true;
+                // Un batch tourne déjà ailleurs (autre onglet...) : cette instance n'a
+                // jamais réellement démarré, donc pas de vraie barre à laisser affichée.
+                if (i === 0) {
+                    try {
+                        const body = await res.clone().json();
+                        if (body && body.already_running) {
+                            hideBatchProgress();
+                            alreadyRunningRejection = true;
+                        }
+                    } catch (e) { /* corps non-JSON : ignorer, comportement Stop standard */ }
+                }
                 break;
             }
         } catch (err) {
@@ -397,7 +409,9 @@ async function launchBatch(event) {
     }
 
     batchEnqueueController = null;
-    if (stopped || batchEnqueueAbort) {
+    if (alreadyRunningRejection) {
+        btn.innerText = window.AppTranslations.batch_already_running || '⚠️ Batch already running!';
+    } else if (stopped || batchEnqueueAbort) {
         btn.innerText = window.AppTranslations.batch_stopped || '🛑 Batch stopped!';
     } else {
         btn.innerText = window.AppTranslations.batch_ok;

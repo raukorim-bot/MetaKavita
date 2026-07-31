@@ -91,6 +91,21 @@ def register_batch_enqueue(count, new_batch):
         _batch_total += max(0, int(count))
 
 
+def is_batch_active() -> bool:
+    """True si un batch est déjà en cours (au moins un item encore non traité).
+
+    `_batch_total`/`_batch_done` sont des globaux de PROCESS partagés par toute
+    l'app — une seule barre de progression, donc un seul batch « actif » à la
+    fois. Sans ce garde-fou, un second `/batch-sync` avec `resume_enqueue=true`
+    (ex. deux onglets, ou un double-clic) appellerait
+    `register_batch_enqueue(new_batch=True)` qui remet `_batch_total`/`_batch_done`
+    à zéro EN PLEIN MILIEU du premier batch, faussant sa progression et son
+    `real_sends` final (voir routes/sync.py::batch_sync).
+    """
+    with _batch_progress_lock:
+        return _batch_total > 0 and _batch_done < _batch_total
+
+
 def reset_batch_progress():
     """Stop / drain : la barre ne doit plus attendre des séries qui viennent
     d'être jetées de la file (voir routes/sync.py::stop_batch)."""
@@ -126,15 +141,39 @@ def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=N
 
 
 def drain_sync_queue() -> int:
-    """Vide la file d'attente (hors job en cours). Retourne le nombre d'items retirés."""
+    """« Stop batch » : retire uniquement les items `is_batch=True` de la file.
+
+    `sync_queue` est partagée avec le webhook et le polling auto-sync (voir
+    `make_sync_item`) : un Stop qui viderait la file en entier jetterait
+    silencieusement un événement webhook ou un tick auto-sync arrivé pendant le
+    batch, sans que rien ne le resignale (pas d'erreur, pas de retry — cette
+    série ne sera resynchronisée qu'au prochain événement Kavita ou au prochain
+    passage auto-sync). Les items non-batch rencontrés sont donc réinsérés dans
+    la file au lieu d'être jetés.
+
+    Retourne le nombre d'items de BATCH retirés (ce que `stop_batch` annonce à
+    l'UI), pas le total d'items parcourus.
+    """
     drained = 0
+    kept = []
     while not sync_queue.empty():
         try:
-            sync_queue.get_nowait()
-            sync_queue.task_done()
-            drained += 1
+            item = sync_queue.get_nowait()
         except queue.Empty:
             break
+        if isinstance(item, dict) and item.get("is_batch"):
+            sync_queue.task_done()
+            drained += 1
+        else:
+            kept.append(item)
+
+    for item in kept:
+        # put() + task_done() : réinsère physiquement l'item sans faire gonfler
+        # `unfinished_tasks` (déjà comptabilisé lors de son put() d'origine par
+        # le producteur) — ces items ne sont ni terminés, ni nouveaux.
+        sync_queue.put(item)
+        sync_queue.task_done()
+
     reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=True)

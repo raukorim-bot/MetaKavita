@@ -161,3 +161,43 @@ def test_a_batch_item_finishing_after_a_stop_does_not_broadcast_stale_progress(m
         "le broadcast de démarrage utilise déjà remaining=0 (total réinitialisé) "
         "mais aucun broadcast de FIN ne doit suivre puisque total == 0"
     )
+
+
+def test_drain_sync_queue_never_drops_non_batch_items(mocker):
+    """Régression critique : un Stop batch ne doit PAS jeter les items webhook/
+    auto-sync (is_batch=False) qui traversaient la file au même moment — ils
+    doivent survivre dans la file, prêts à être traités normalement."""
+    mocker.patch("services.background_tasks.broadcast_batch_progress")
+    bg.register_batch_enqueue(2, new_batch=True)
+    bg.sync_queue.put(bg.make_sync_item(1, "Batch A", False, is_batch=True))
+    bg.sync_queue.put(bg.make_sync_item(999, "Webhook Intruder", False, is_batch=False))
+    bg.sync_queue.put(bg.make_sync_item(2, "Batch B", False, is_batch=True))
+    bg.sync_queue.put(bg.make_sync_item(998, "Auto-sync tick", False, is_batch=False))
+
+    drained = bg.drain_sync_queue()
+
+    assert drained == 2, "seuls les 2 items de batch comptent comme drainés"
+    remaining_ids = []
+    while not bg.sync_queue.empty():
+        remaining_ids.append(bg.sync_queue.get_nowait()["series_id"])
+    assert remaining_ids == [999, 998], "les items non-batch doivent rester en file, dans l'ordre"
+
+
+def test_drain_sync_queue_does_not_touch_an_empty_queue(mocker):
+    mocker.patch("services.background_tasks.broadcast_batch_progress")
+    assert bg.drain_sync_queue() == 0
+    assert bg.sync_queue.empty()
+
+
+def test_is_batch_active_reflects_in_flight_progress():
+    assert bg.is_batch_active() is False
+
+    bg.register_batch_enqueue(3, new_batch=True)
+    assert bg.is_batch_active() is True
+
+    with bg._batch_progress_lock:
+        bg._batch_done = 3
+    assert bg.is_batch_active() is False, "un batch entièrement traité n'est plus actif"
+
+    bg.reset_batch_progress()
+    assert bg.is_batch_active() is False

@@ -1436,9 +1436,29 @@
             return loadQueue().then(function () {
                 session.done += data.accepted || 0;
                 if (feedback) {
-                    feedback.textContent = t("mr_list_bulk_done", "{0} accepté(s), {1} laissée(s) en file.")
+                    var msg = t("mr_list_bulk_done", "{0} accepté(s), {1} laissée(s) en file.")
                         .replace("{0}", String(data.accepted || 0))
                         .replace("{1}", String(data.skipped || 0));
+                    // `data.failed` (backend) ne portait que des review_id bruts — sans
+                    // ça les échecs individuels (ex: écriture Kavita refusée pendant le
+                    // bulk-accept) disparaissaient silencieusement derrière le seul
+                    // compteur "skipped", qui ne veut dire QUE "sous le seuil".
+                    var failedList = Array.isArray(data.failed) ? data.failed : [];
+                    if (failedList.length) {
+                        var names = failedList.map(function (f) {
+                            var match = null;
+                            for (var i = 0; i < queue.length; i++) {
+                                if (queue[i].review_id === f.review_id) { match = queue[i]; break; }
+                            }
+                            var label = match ? match.series_name : ("#" + f.review_id);
+                            return label + (f.error ? " (" + f.error + ")" : "");
+                        });
+                        msg += " " + t("mr_list_bulk_failed", "⚠️ {0} échec(s) — restées en file : {1}")
+                            .replace("{0}", String(failedList.length))
+                            .replace("{1}", names.join(", "));
+                    }
+                    feedback.textContent = msg;
+                    feedback.className = failedList.length ? "field-hint m-0 field-hint--error" : "field-hint m-0";
                 }
                 renderListPanel();
                 if (!queue.length) {

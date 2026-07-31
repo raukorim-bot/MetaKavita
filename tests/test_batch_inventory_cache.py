@@ -93,6 +93,43 @@ def test_a_new_batch_forces_a_fresh_inventory(monkeypatch, isolated_db):
     assert len(calls) == 2
 
 
+def test_a_second_concurrent_batch_is_rejected_without_corrupting_the_first(monkeypatch, isolated_db):
+    """Régression critique : deux `resume_enqueue=true` concurrents (deux onglets,
+    double-clic...) écrasaient `_batch_total`/`_batch_done` du premier batch en plein
+    vol. Le second doit être refusé (409) tant que le premier n'est pas terminé."""
+    calls = []
+    series = [{"id": 10, "name": "One Piece"}, {"id": 11, "name": "Naruto"}]
+    client, fake_q = _build_app(monkeypatch, calls, series)
+
+    res1 = client.post("/batch-sync", data={"selected_series": ["10"], "resume_enqueue": "true"})
+    assert res1.status_code == 200
+    with bg._batch_progress_lock:
+        assert bg._batch_total == 1
+
+    # Deuxième batch pendant que le premier est toujours en cours (aucun item traité).
+    res2 = client.post("/batch-sync", data={"selected_series": ["11"], "resume_enqueue": "true"})
+    assert res2.status_code == 409
+    assert res2.get_json()["already_running"] is True
+
+    # Le total du premier batch doit être intact, pas écrasé par le second appel.
+    with bg._batch_progress_lock:
+        assert bg._batch_total == 1
+    assert len(fake_q.items) == 1, "le second batch ne doit avoir rien mis en file"
+
+
+def test_a_new_batch_is_accepted_once_the_previous_one_is_done(monkeypatch, isolated_db):
+    calls = []
+    series = [{"id": 10, "name": "One Piece"}]
+    client, _fake_q = _build_app(monkeypatch, calls, series)
+
+    client.post("/batch-sync", data={"selected_series": ["10"], "resume_enqueue": "true"})
+    with bg._batch_progress_lock:
+        bg._batch_done = bg._batch_total  # simule un batch entièrement traité par _worker()
+
+    res = client.post("/batch-sync", data={"selected_series": ["10"], "resume_enqueue": "true"})
+    assert res.status_code == 200
+
+
 def test_inventory_cache_is_scoped_per_kavita_instance(monkeypatch, isolated_db):
     """Deux batchs ciblant des URL/clé Kavita différentes ne doivent jamais
     partager le même instantané en cache."""

@@ -590,9 +590,11 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 logging.warning(
                     f"[{series_name}] ⚠️ Toujours À sceller ({seal_msg})"
                 )
+                _emit_series_status(series_id, "NEEDS_RELOCK", series_name)
                 return True, "NEEDS_RELOCK", []
             logging.info(t.get('log_skip').format(series_name))
             update_status(series_id, 'COMPLETED')
+            _emit_series_status(series_id, 'COMPLETED', series_name)
             # Nettoie toute review orpheline éventuelle
             try:
                 from db_manager import delete_pending_by_series
@@ -758,6 +760,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             if _candidates_empty(candidates_payload):
                 logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
                 update_status(series_id, "NOT_FOUND")
+                _emit_series_status(series_id, "NOT_FOUND", series_name)
                 _broadcast_enrichment_stats(record_enrichment_miss())
                 return False, "Introuvable.", used_providers or []
 
@@ -769,6 +772,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 candidates_payload,
                 library_id=kavita.get_cached_library_id(series_id),
             )
+            _emit_series_status(series_id, "PENDING_REVIEW", series_name)
             logging.info(
                 f"[{series_name}] 👁️ PENDING_REVIEW "
                 f"(above={len((candidates_payload or {}).get('above') or [])}, "
@@ -822,6 +826,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         if not provider_data:
             logging.warning(t.get('log_not_found').format(series_name, "API(s)"))
             update_status(series_id, 'NOT_FOUND')
+            _emit_series_status(series_id, 'NOT_FOUND', series_name)
             _broadcast_enrichment_stats(record_enrichment_miss())
             return False, "Introuvable.", used_providers
 
@@ -861,6 +866,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 force_update=force_update,
                 library_id=kavita.get_cached_library_id(series_id),
             )
+            _emit_series_status(series_id, "PENDING_REVIEW", series_name)
             return True, "PENDING_REVIEW", used_providers or []
 
         return apply_kavita_payload(

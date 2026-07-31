@@ -27,6 +27,7 @@ from services.background_tasks import (
     drain_sync_queue,
     make_sync_item,
     register_batch_enqueue,
+    is_batch_active,
 )
 from services.enrichment_engine import enrich_series
 
@@ -85,6 +86,15 @@ def batch_sync():
     # force un inventaire Kavita frais (voir _get_batch_inventory).
     is_new_batch = request.form.get('resume_enqueue') == 'true'
     if is_new_batch:
+        # Un batch tourne déjà (autre onglet, double-clic...) : refuser plutôt que
+        # d'écraser ses compteurs de progression (voir background_tasks.is_batch_active).
+        if is_batch_active():
+            return jsonify(
+                success=False,
+                rejected=True,
+                already_running=True,
+                msg=t.get('batch_already_running', "Un autre batch est déjà en cours."),
+            ), 409
         set_batch_enqueue_enabled(True)
     elif not is_batch_enqueue_enabled():
         return jsonify(

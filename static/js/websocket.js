@@ -37,45 +37,25 @@ socket.on('log_update', function(msg) {
             });
         }
 
-        const matchEnd = msg.data.match(/\[(.*?)\]\s+✅/i) || 
-                         msg.data.match(/\[(.*?)\]\s+⏭️/i) || 
-                         msg.data.match(/\[(.*?)\]\s+❌/i) || 
+        // Retrait du highlight "en cours" : le statut final (badge) est géré
+        // exclusivement par l'événement typé `series_status` ci-dessous, pas ici.
+        // Avant, ce même bloc devinait le badge en testant des mots-clés traduits
+        // dans le texte du log ("réussi", "déjà à jour", "introuvable"...) — un
+        // parsing fragile qui se désynchronisait silencieusement de la vraie
+        // langue des logs ou du wording exact (voir services/enrichment_engine.py
+        // et kavita_payload.py, qui émettent maintenant `series_status` pour
+        // CHAQUE issue : COMPLETED, NOT_FOUND, PENDING_REVIEW, NEEDS_RELOCK).
+        const matchEnd = msg.data.match(/\[(.*?)\]\s+✅/i) ||
+                         msg.data.match(/\[(.*?)\]\s+⏭️/i) ||
+                         msg.data.match(/\[(.*?)\]\s+❌/i) ||
                          msg.data.match(/\[(.*?)\]\s+⚠️/i);
-                         
+
         if (matchEnd && matchEnd[1]) {
             const finishedTitle = matchEnd[1].trim();
             document.querySelectorAll('.series-item').forEach(item => {
                 const nameElem = item.querySelector('.series-name');
                 if (nameElem && nameElem.textContent.trim().toLowerCase() === finishedTitle.toLowerCase()) {
                     item.classList.remove('is-processing');
-                    
-                    const badge = item.querySelector('.badge');
-                    if (badge) {
-                        if (msg.data.includes('✅') || msg.data.includes('réussi') || msg.data.includes('successfully')) {
-                            item.dataset.status = 'COMPLETED';
-                            badge.className = 'badge badge-completed';
-                            badge.innerText = window.AppTranslations.filter_completed;
-                            uncheckSeriesForBatchResume(item);
-                        } else if (msg.data.includes('⏭️') || msg.data.includes('déjà à jour') || msg.data.includes('already up to date')) {
-                            item.dataset.status = 'COMPLETED';
-                            badge.className = 'badge badge-completed';
-                            badge.innerText = window.AppTranslations.filter_completed;
-                            uncheckSeriesForBatchResume(item);
-                        } else if (msg.data.includes('introuvable') || msg.data.includes('Aucun résultat') || msg.data.includes('No results')) {
-                            item.dataset.status = 'NOT_FOUND';
-                            badge.className = 'badge badge-notfound';
-                            badge.innerText = window.AppTranslations.filter_notfound;
-                        } else if (msg.data.includes('PENDING_REVIEW') || msg.data.includes('👁️')) {
-                            item.dataset.status = 'PENDING_REVIEW';
-                            badge.className = 'badge badge-review';
-                            badge.innerText = window.AppTranslations.filter_pending_review || 'Review';
-                        } else if (msg.data.includes('NEEDS_RELOCK') || msg.data.includes('À sceller') || msg.data.includes('Needs seal') || msg.data.includes('verrous non posés')) {
-                            item.dataset.status = 'NEEDS_RELOCK';
-                            badge.className = 'badge badge-needs-relock';
-                            badge.innerText = window.AppTranslations.filter_needs_relock || 'Needs seal';
-                            uncheckSeriesForBatchResume(item);
-                        }
-                    }
                 }
             });
         }
@@ -93,6 +73,11 @@ socket.on('series_status', function(payload) {
         if (!cb || String(cb.value) !== sid) return;
         if (typeof applySeriesStatusBadge === 'function') {
             applySeriesStatusBadge(item, status);
+        }
+        // QoS batch (voir uncheckSeriesForBatchResume) : une série arrivée à un
+        // état "traité" se décoche pour pouvoir relancer le lot sans la refaire.
+        if (status === 'COMPLETED' || status === 'NEEDS_RELOCK') {
+            uncheckSeriesForBatchResume(item);
         }
     });
 });
