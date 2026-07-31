@@ -1226,6 +1226,24 @@
 
     function showRecapIfEmpty() {
         if (queue.length) return false;
+        // Batch encore actif (barre de progression visible, `batch.js`) : la file
+        // vidée n'est qu'un creux temporaire entre deux séries, pas la vraie fin —
+        // sans ce garde-fou le récap s'affichait puis basculait sur la review
+        // suivante quelques secondes plus tard dès qu'elle arrivait. Le masque
+        // d'attente évite ce flash ; `mrOnBatchProgress()` → `settleWaitingAfterWork()`
+        // rebasculera vers la review suivante ou le vrai récap une fois le batch
+        // réellement terminé (`phase !== "waiting"` évite de re-déclencher ce garde-fou
+        // à ce moment-là, puisque `batchProgressTotal` ne retombe à 0 qu'avec ~1.5s
+        // de délai après la fin réelle — voir `batch.js::applyBatchProgressPayload`).
+        if (phase !== "waiting" && typeof batchProgressTotal === "number" && batchProgressTotal > 0) {
+            var queryElWait = document.getElementById("mrSeriesQuery");
+            var posElWait = document.getElementById("mrQueuePos");
+            if (queryElWait) queryElWait.value = "";
+            if (posElWait) posElWait.textContent = "";
+            updateKavitaLink(null);
+            setPhase("waiting");
+            return true;
+        }
         setPhase("recap");
         var queryEl = document.getElementById("mrSeriesQuery");
         var posEl = document.getElementById("mrQueuePos");
