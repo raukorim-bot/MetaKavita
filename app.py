@@ -24,6 +24,75 @@ import logging
 import secrets
 from datetime import timedelta
 
+from extensions import socketio
+
+# --- LOGGING : CONFIGURÉ EN TOUT PREMIER, AVANT TOUT AUTRE IMPORT INTERNE ---
+# ⚠️ Ordre volontaire et fragile : `logging.info()` / `logging.warning()` etc.
+# (les fonctions de module, PAS `logging.getLogger(x).info()`) appellent
+# silencieusement `logging.basicConfig()` avec des réglages par défaut si le
+# root logger n'a encore AUCUN handler. Plusieurs modules du projet
+# (ex: `config_manager.load_config()`) journalisent ainsi dès leur premier
+# appel. Si l'un d'eux s'exécute avant le `logging.basicConfig(handlers=[...])`
+# ci-dessous, ce dernier devient un no-op (Python n'applique `basicConfig` que
+# si le root logger n'a pas déjà de handler) : le `FileHandler` et surtout le
+# `WebSocketLogHandler` (Live Logs de l'UI) ne sont alors JAMAIS attachés,
+# silencieusement — seul un `StreamHandler` par défaut reste actif. C'est
+# exactement ce qui s'est produit quand `config_manager.load_config()` a
+# gagné son log diagnostique "[Config] Fichier de configuration : ..." : le
+# tout premier appel (`_boot_config = load_config()` plus bas) s'exécutait
+# avant que ce bloc n'existe encore à cet endroit, cassant les Live Logs sans
+# aucune erreur visible. La logique ci-dessous doit donc rester la toute
+# première chose que ce module fait après le monkey-patch eventlet — avant
+# `config_manager`, `auth_manager`, `db_manager`, ou tout module qui pourrait
+# journaliser à l'import.
+class WebSocketLogHandler(logging.Handler):
+    def emit(self, record):
+        # On masque les logs verbeux de DEBUG pour ne pas polluer la console Web UI
+        if record.levelno < logging.INFO:
+            return
+
+        log_entry = self.format(record)
+
+        # Ignorer les lignes contenant [DEBUG] dans l'interface Web
+        if '[DEBUG]' in log_entry:
+            return
+
+        try:
+            # `socketio.emit()` peut échouer AVANT que `socketio.init_app(app)`
+            # n'ait tourné plus bas dans ce module (`self.server` vaut alors
+            # `None`) — c'est le cas dès qu'un import exécuté avant cette ligne
+            # journalise quoi que ce soit (ex: `scrapers/__init__.py` charge et
+            # journalise tous les scrapers à l'import, avant la création de
+            # `app`). Un `logging.Handler.emit()` ne doit JAMAIS laisser une
+            # exception remonter : sans ce garde-fou, ÇA CASSE l'appelant
+            # d'origine (potentiellement en plein import de module, donc tout
+            # le démarrage de l'application) au lieu de simplement priver la
+            # console Live Logs de cette ligne. `self.handleError()` est le
+            # mécanisme standard `logging` pour ce cas (best-effort, jamais
+            # bloquant).
+            socketio.emit('log_update', {'data': log_entry})
+        except Exception:
+            self.handleError(record)
+
+ws_handler = WebSocketLogHandler()
+ws_formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S')
+ws_handler.setFormatter(ws_formatter)
+
+if not os.path.exists("data"):
+    os.makedirs("data")
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler("data/metakavita.log", encoding='utf-8'),
+        logging.StreamHandler(),
+        ws_handler
+    ]
+)
+
+logging.getLogger('werkzeug').setLevel(logging.ERROR)
+
 from werkzeug.middleware.proxy_fix import ProxyFix
 from flask import Flask, request, session, redirect, url_for, make_response
 
@@ -41,7 +110,6 @@ from cors_config import (
     is_origin_allowed,
 )
 from db_manager import init_db
-from extensions import socketio
 from services.changelog_service import get_current_version
 from services.background_tasks import start_background_workers
 
@@ -129,39 +197,6 @@ seed_user_from_env()
 # 7 jours conserve le confort du Â« rester connectÃ© Â» sans qu'un poste oubliÃ©
 # reste indÃ©finiment authentifiÃ©.
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=7)
-
-class WebSocketLogHandler(logging.Handler):
-    def emit(self, record):
-        # On masque les logs verbeux de DEBUG pour ne pas polluer la console Web UI
-        if record.levelno < logging.INFO:
-            return
-
-        log_entry = self.format(record)
-
-        # Ignorer les lignes contenant [DEBUG] dans l'interface Web
-        if '[DEBUG]' in log_entry:
-            return
-
-        socketio.emit('log_update', {'data': log_entry})
-
-ws_handler = WebSocketLogHandler()
-ws_formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S')
-ws_handler.setFormatter(ws_formatter)
-
-if not os.path.exists("data"):
-    os.makedirs("data")
-
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("data/metakavita.log", encoding='utf-8'),
-        logging.StreamHandler(),
-        ws_handler
-    ]
-)
-
-logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 log_cors_config(CORS_ALLOWED_ORIGINS, star_ignored=CORS_STAR_IGNORED)
 

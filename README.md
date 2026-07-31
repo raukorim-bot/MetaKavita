@@ -144,7 +144,6 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
 *   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck; batch progress bar; collapsible Scraping Options.
 *   **Reliability barometer (v1.6.1)**: Optional sidebar slider for match accept threshold (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`); default remains `0.60` via `get_match_accept_threshold()`.
-*   **Hotfix BF52 (still v1.6.1):** Fresh Config-modal Kavita save + Docker plug-and-play — empty API-key fields keep existing secrets; never use `localhost` for `KAVITA_URL` from a container (`host.docker.internal:<host_port>` or the Kavita service name). See CHANGELOG.
 
 ---
 
@@ -478,7 +477,6 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
 *   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto ; barre de progression batch ; Options de Scraping pliables.
 *   **Baromètre de fiabilité (v1.6.1)** : curseur sidebar optionnel pour le seuil d’acceptation (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`) ; défaut `0.60` via `get_match_accept_threshold()`.
-*   **Hotfix BF52 (toujours v1.6.1)** : sauvegarde Kavita setup frais via modal Config + Docker plug-and-play — champ clé vide = conserver ; jamais `localhost` pour `KAVITA_URL` depuis un conteneur (`host.docker.internal:<port_hôte>` ou nom de service). Voir CHANGELOG.
 
 ---
 
