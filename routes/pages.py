@@ -14,7 +14,6 @@ from config_manager import (
     get_kavita_ui_url,
     get_kavita_plus_url,
     get_disabled_library_ids,
-    heal_total_library_denylist,
 )
 from db_manager import get_all_cached_data, clean_orphaned_cache, get_provider_stats, get_lifetime_stats
 from kavita_api import KavitaAPI
@@ -42,10 +41,6 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
 
         if kavita.authenticate():
             all_libraries = kavita.get_libraries() or []
-            # Wipe accidentel (dénylist = toutes les biblios) : reset pour réactiver le sync.
-            config, healed = heal_total_library_denylist(config, all_libraries)
-            if healed:
-                disabled_ids = get_disabled_library_ids(config)
 
             # Dashboard = toutes les biblios. DISABLED_LIBRARIES ne borne que
             # le polling auto-sync (background_tasks), pas le batch ni le webhook.

@@ -187,7 +187,7 @@
                                     <label class="sync-library-item">
                                         <input type="checkbox" name="ENABLED_LIBRARY" value="{{ lib.id }}"
                                             {% if lib.id|string not in disabled_library_ids %}checked{% endif %}
-                                            onchange="saveConfigAndReloadLibraries()">
+                                            onchange="saveConfig()">
                                         <span>{{ lib.name }}</span>
                                     </label>
                                     {% endfor %}
