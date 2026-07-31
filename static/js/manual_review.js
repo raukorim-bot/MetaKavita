@@ -727,6 +727,23 @@
         }
     }
 
+    // Lien de vérification vers la fiche série Kavita, affiché dans l'en-tête
+    // (commun aux phases pick/cover/edit) — évite de valider la mauvaise série
+    // sur un titre ambigu. Masqué si le library_id n'est pas encore résolu
+    // (voir kavita_api.py::get_cached_library_id) ou si KAVITA_UI_URL est vide.
+    function updateKavitaLink(review) {
+        var link = document.getElementById("mrKavitaLink");
+        if (!link) return;
+        var base = window.KAVITA_UI_URL || "";
+        if (review && review.library_id != null && review.series_id != null && base) {
+            link.href = base + "/library/" + review.library_id + "/series/" + review.series_id;
+            link.style.display = "";
+        } else {
+            link.removeAttribute("href");
+            link.style.display = "none";
+        }
+    }
+
     function renderCandidates() {
         var review = currentReview();
         var aboveEl = document.getElementById("mrAboveList");
@@ -745,6 +762,7 @@
             if (aboveLabel) aboveLabel.style.display = "none";
             if (belowLabel) belowLabel.style.display = "none";
             if (emptyEl) emptyEl.style.display = "";
+            updateKavitaLink(null);
             renderFusionBar();
             return;
         }
@@ -752,6 +770,7 @@
             nameEl.value = review.query || review.series_name || ("#" + review.series_id);
         }
         if (posEl) posEl.textContent = (currentIndex + 1) + " / " + queue.length;
+        updateKavitaLink(review);
 
         var all = [];
         var above = review.above || [];
@@ -1072,6 +1091,7 @@
         if (posEl && review) {
             posEl.textContent = (currentIndex + 1) + " / " + queue.length;
         }
+        updateKavitaLink(review);
         updateCoverPreview(providerCoverUrl);
         setPhase("cover");
         mrSearchCovers();
@@ -1211,6 +1231,7 @@
         var posEl = document.getElementById("mrQueuePos");
         if (queryEl) queryEl.value = "";
         if (posEl) posEl.textContent = "";
+        updateKavitaLink(null);
         renderRecapAchievements();
         renderRecapKpis();
         updateBadge(0);
@@ -1240,6 +1261,7 @@
                 nameEl.value = review.query || review.series_name || ("#" + review.series_id);
             }
             if (posEl) posEl.textContent = (currentIndex + 1) + " / " + queue.length;
+            updateKavitaLink(review);
             renderEdit(review.preview);
             setPhase("edit");
             return;

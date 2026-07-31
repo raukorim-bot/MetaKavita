@@ -88,6 +88,13 @@ def _ensure_pending_reviews_table(c):
                   created_at TEXT,
                   base_provider TEXT,
                   chosen_score REAL)''')
+    # Lien de vérification Kavita dans le pick UI (voir templates manual_review.js) :
+    # ID de bibliothèque Kavita de la série, absent des lignes créées avant cette
+    # migration (reste NULL, le lien est alors simplement omis côté UI).
+    try:
+        c.execute("ALTER TABLE pending_reviews ADD COLUMN library_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
     # Migration one-shot : index non-unique → UNIQUE (une review par série).
     c.execute(
         "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_pending_reviews_series_id'"
@@ -407,7 +414,14 @@ def _pending_review_row_to_dict(row):
         "created_at": row[6],
         "base_provider": row[7],
         "chosen_score": row[8],
+        "library_id": row[9] if len(row) > 9 else None,
     }
+
+
+_PENDING_REVIEW_COLUMNS = (
+    "review_id, series_id, series_name, candidates_json, preview_json, "
+    "state, created_at, base_provider, chosen_score, library_id"
+)
 
 
 def save_pending_review(
@@ -420,6 +434,7 @@ def save_pending_review(
     created_at=None,
     base_provider=None,
     chosen_score=None,
+    library_id=None,
 ):
     """
     Insert ou remplace une review manuelle en attente.
@@ -448,8 +463,8 @@ def save_pending_review(
     c.execute(
         '''INSERT INTO pending_reviews
            (review_id, series_id, series_name, candidates_json, preview_json,
-            state, created_at, base_provider, chosen_score)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            state, created_at, base_provider, chosen_score, library_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (
             review_id,
             sid,
@@ -460,6 +475,7 @@ def save_pending_review(
             created_at,
             base_provider,
             chosen_score,
+            library_id,
         ),
     )
     conn.commit()
@@ -477,6 +493,7 @@ def park_pending_review(
     created_at=None,
     base_provider=None,
     chosen_score=None,
+    library_id=None,
 ):
     """
     Park atomique : remplace la review de la série + statut PENDING_REVIEW
@@ -502,8 +519,8 @@ def park_pending_review(
     c.execute(
         '''INSERT INTO pending_reviews
            (review_id, series_id, series_name, candidates_json, preview_json,
-            state, created_at, base_provider, chosen_score)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            state, created_at, base_provider, chosen_score, library_id)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
         (
             review_id,
             sid,
@@ -514,6 +531,7 @@ def park_pending_review(
             created_at,
             base_provider,
             chosen_score,
+            library_id,
         ),
     )
     c.execute(
@@ -538,8 +556,7 @@ def close_pending_review(review_id, new_status="PENDING", *, skip_telemetry=Fals
     _ensure_pending_reviews_table(c)
     _ensure_lifetime_stats_table(c)
     c.execute(
-        '''SELECT review_id, series_id, series_name, candidates_json, preview_json,
-                  state, created_at, base_provider, chosen_score
+        f'''SELECT {_PENDING_REVIEW_COLUMNS}
            FROM pending_reviews WHERE review_id = ?''',
         (review_id,),
     )
@@ -569,8 +586,7 @@ def get_pending_review(review_id):
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
     c.execute(
-        '''SELECT review_id, series_id, series_name, candidates_json, preview_json,
-                  state, created_at, base_provider, chosen_score
+        f'''SELECT {_PENDING_REVIEW_COLUMNS}
            FROM pending_reviews WHERE review_id = ?''',
         (review_id,),
     )
@@ -587,16 +603,14 @@ def list_pending_reviews(state=None, limit=200):
     _ensure_pending_reviews_table(c)
     if state:
         c.execute(
-            '''SELECT review_id, series_id, series_name, candidates_json, preview_json,
-                      state, created_at, base_provider, chosen_score
+            f'''SELECT {_PENDING_REVIEW_COLUMNS}
                FROM pending_reviews WHERE state = ?
                ORDER BY created_at ASC LIMIT ?''',
             (state, int(limit)),
         )
     else:
         c.execute(
-            '''SELECT review_id, series_id, series_name, candidates_json, preview_json,
-                      state, created_at, base_provider, chosen_score
+            f'''SELECT {_PENDING_REVIEW_COLUMNS}
                FROM pending_reviews
                ORDER BY created_at ASC LIMIT ?''',
             (int(limit),),
@@ -612,7 +626,7 @@ def update_pending_review(review_id, **fields):
 
     allowed = {
         "series_id", "series_name", "candidates_json", "preview_json",
-        "state", "created_at", "base_provider", "chosen_score",
+        "state", "created_at", "base_provider", "chosen_score", "library_id",
     }
     updates = {k: v for k, v in fields.items() if k in allowed}
     if not updates:

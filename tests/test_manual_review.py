@@ -229,6 +229,28 @@ def test_create_review_translates_summaries(isolated_db, monkeypatch):
     assert cands["above"][0]["data"]["_summary_translated"] is True
 
 
+def test_create_review_persists_the_library_id_for_the_kavita_verification_link(isolated_db):
+    """`library_id` alimente le lien « Voir dans Kavita » du pick UI
+    (manual_review.js::updateKavitaLink) — doit survivre le park en base."""
+    payload = {"above": [], "below": [], "query": "x"}
+
+    rid = mr.create_review_from_candidates(43, "Series Y", payload, library_id=9)
+
+    row = isolated_db.get_pending_review(rid)
+    assert row["library_id"] == 9
+
+
+def test_create_review_without_a_resolved_library_id_leaves_it_null(isolated_db):
+    """Série jamais résolue par get_library_type_for_series : le lien doit
+    simplement être omis côté UI plutôt que planter."""
+    payload = {"above": [], "below": [], "query": "x"}
+
+    rid = mr.create_review_from_candidates(44, "Series Z", payload)
+
+    row = isolated_db.get_pending_review(rid)
+    assert row["library_id"] is None
+
+
 def test_build_kavita_payload_skips_retranslate_when_flagged(mocker):
     from services.kavita_payload import build_kavita_payload
 

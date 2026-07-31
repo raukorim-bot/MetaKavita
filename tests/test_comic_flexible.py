@@ -219,7 +219,7 @@ def test_manual_mode_falls_back_to_manga_on_a_weak_comic_hit(mocker, isolated_db
     created = {}
     mocker.patch(
         "services.manual_review.create_review_from_candidates",
-        side_effect=lambda sid, name, payload: created.update(payload=payload),
+        side_effect=lambda sid, name, payload, **kwargs: created.update(payload=payload),
     )
 
     ok, msg, used = enrichment_engine.enrich_series(44, "One Piece", force_update=True)
@@ -276,7 +276,7 @@ def test_manual_mode_keeps_the_weak_comic_hit_when_manga_also_misses(mocker, iso
     created = {}
     mocker.patch(
         "services.manual_review.create_review_from_candidates",
-        side_effect=lambda sid, name, payload: created.update(payload=payload),
+        side_effect=lambda sid, name, payload, **kwargs: created.update(payload=payload),
     )
 
     ok, msg, used = enrichment_engine.enrich_series(45, "Mystery Series", force_update=True)

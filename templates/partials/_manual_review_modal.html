@@ -24,6 +24,11 @@
                                title="{{ t.mr_research_hint }}">
                         <button type="button" class="btn-secondary mr-research-btn" id="mrResearchBtn"
                                 onclick="mrResearchCurrent()" title="{{ t.mr_research_hint }}">{{ t.mr_research }}</button>
+                        {# Rempli/affiché dynamiquement par updateKavitaLink() (manual_review.js) —
+                           absent tant que le library_id de la série n'a pas encore été résolu. #}
+                        <a id="mrKavitaLink" href="#" target="_blank" rel="noopener noreferrer"
+                           class="btn-secondary mr-kavita-link" style="display:none;"
+                           title="{{ t.mr_kavita_link_title }}">🔗 {{ t.mr_kavita_link }}</a>
                     </div>
                 </div>
                 <div id="mrFusionBar" class="mr-fusion-bar" style="display:none;" aria-live="polite"></div>

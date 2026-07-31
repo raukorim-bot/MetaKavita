@@ -1658,6 +1658,17 @@ a.about-link-kavita {
     opacity: 0.7;
     cursor: wait;
 }
+.mr-kavita-link {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    white-space: nowrap;
+    padding: 12px 16px;
+    font-size: 14px;
+    font-weight: 650;
+    border-radius: 10px;
+    text-decoration: none;
+}
 .mr-kbd-dock {
     display: flex;
     flex-wrap: wrap;

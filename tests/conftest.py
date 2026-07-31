@@ -41,6 +41,21 @@ def _clean_batch_progress_counters():
     bg.reset_batch_progress()
 
 
+@pytest.fixture(autouse=True)
+def _clean_kavita_series_caches():
+    """`_series_lib_type_cache`/`_series_library_id_cache` (kavita_api.py) sont
+    des attributs de CLASSE partagés par toutes les instances de `KavitaAPI` :
+    sans reset, un test réutilisant un `series_id` déjà vu par un test précédent
+    lirait silencieusement une valeur périmée au lieu de refaire l'appel HTTP mocké."""
+    from kavita_api import KavitaAPI
+
+    KavitaAPI._series_lib_type_cache.clear()
+    KavitaAPI._series_library_id_cache.clear()
+    yield
+    KavitaAPI._series_lib_type_cache.clear()
+    KavitaAPI._series_library_id_cache.clear()
+
+
 @pytest.fixture
 def isolated_db(tmp_path, monkeypatch):
     """Redirige db_manager vers une base SQLite temporaire et jetable.

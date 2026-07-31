@@ -333,6 +333,58 @@ class TestSealSeriesLocks:
         assert gen_payload["formatLocked"] is True
 
 
+class TestCachedLibraryId:
+    """`get_cached_library_id` alimente le lien de vérification Kavita du pick UI
+    de la review manuelle (voir services/manual_review.py) — sans coût réseau
+    supplémentaire au-delà de l'appel `get_library_type_for_series` déjà fait
+    par `enrich_series()`."""
+
+    def _mock_get(self, mocker, libraries, series_by_id):
+        def _side_effect(url, headers=None, timeout=None):
+            if url.endswith("/api/Library/libraries"):
+                return mocker.Mock(status_code=200, json=lambda: libraries)
+            for sid, payload in series_by_id.items():
+                if url.endswith(f"/api/Series/{sid}"):
+                    return mocker.Mock(status_code=200, json=lambda payload=payload: payload)
+            return mocker.Mock(status_code=404, json=lambda: {})
+
+        return mocker.patch("kavita_api.requests.get", side_effect=_side_effect)
+
+    def test_is_none_before_any_resolution(self):
+        api = _authenticated_api()
+        assert api.get_cached_library_id(999) is None
+
+    def test_gets_populated_by_get_library_type_for_series(self, mocker):
+        api = _authenticated_api()
+        self._mock_get(
+            mocker,
+            libraries=[{"id": 3, "type": "Manga"}],
+            series_by_id={42: {"id": 42, "libraryId": 3}},
+        )
+
+        lib_type = api.get_library_type_for_series(42)
+
+        assert lib_type == "Manga"
+        assert api.get_cached_library_id(42) == 3
+
+    def test_shared_between_instances_pointing_at_the_same_process(self, mocker):
+        """Le cache est un attribut de CLASSE (voir kavita_api.py) : une 2e
+        instance de KavitaAPI (créée par un autre appel à enrich_series) doit
+        pouvoir lire une valeur déjà résolue sans nouvel appel réseau."""
+        api = _authenticated_api()
+        mock_get = self._mock_get(
+            mocker,
+            libraries=[{"id": 5, "type": "Comic"}],
+            series_by_id={7: {"id": 7, "libraryId": 5}},
+        )
+        api.get_library_type_for_series(7)
+        assert mock_get.call_count == 2  # 1x libraries + 1x series
+
+        other_api = _authenticated_api()
+        assert other_api.get_cached_library_id(7) == 5
+        assert mock_get.call_count == 2, "aucun appel réseau supplémentaire attendu"
+
+
 class TestAuthenticateDiagnostics:
     def test_rejects_localhost_without_http_call(self, mocker):
         api = KavitaAPI("http://localhost:5001", "fake-key")

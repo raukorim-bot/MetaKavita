@@ -763,7 +763,12 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
 
             from services.manual_review import create_review_from_candidates
 
-            create_review_from_candidates(series_id, series_name, candidates_payload)
+            create_review_from_candidates(
+                series_id,
+                series_name,
+                candidates_payload,
+                library_id=kavita.get_cached_library_id(series_id),
+            )
             logging.info(
                 f"[{series_name}] 👁️ PENDING_REVIEW "
                 f"(above={len((candidates_payload or {}).get('above') or [])}, "
@@ -854,6 +859,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 chosen_score=chosen_score,
                 query=search_query,
                 force_update=force_update,
+                library_id=kavita.get_cached_library_id(series_id),
             )
             return True, "PENDING_REVIEW", used_providers or []
 

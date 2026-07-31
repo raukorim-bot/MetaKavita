@@ -77,6 +77,7 @@ def api_list_manual_reviews():
             "created_at": r["created_at"],
             "base_provider": r.get("base_provider"),
             "chosen_score": r.get("chosen_score"),
+            "library_id": r.get("library_id"),
             "above": _lite(cands.get("above")),
             "below": _lite(cands.get("below")),
             "query": cands.get("query") or "",

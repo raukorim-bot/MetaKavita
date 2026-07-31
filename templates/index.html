@@ -12,6 +12,7 @@
     <script>
         window.ROOT_PATH = "{{ request.script_root }}"; // S'adapte magiquement au sous-chemin !
 		window.APP_VERSION = "{{ app_version }}";
+		window.KAVITA_UI_URL = "{{ kavita_ui_url }}";
 		const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
         window.AppTranslations = {

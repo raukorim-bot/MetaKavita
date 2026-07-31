@@ -151,6 +151,7 @@ def create_review_from_candidates(
     series_id: int,
     series_name: str,
     candidates_payload: Dict[str, Any],
+    library_id: Optional[int] = None,
 ) -> str:
     """
     Crée une pending review `awaiting_pick`, passe le statut série à PENDING_REVIEW,
@@ -158,6 +159,10 @@ def create_review_from_candidates(
 
     Traduit les résumés candidats dès que la collecte est complète, pour que le
     pick UI soit lisible dans TARGET_LANG (sans attendre l'écriture Kavita).
+
+    `library_id` : ID de bibliothèque Kavita de la série, pour le lien de
+    vérification affiché dans le pick UI (voir `get_cached_library_id`). `None`
+    si pas encore résolu — le lien est alors simplement omis côté UI.
     """
     review_id = str(uuid.uuid4())
     payload = candidates_payload if isinstance(candidates_payload, dict) else {
@@ -185,6 +190,7 @@ def create_review_from_candidates(
         series_name=series_name or "",
         candidates_json=payload,
         state="awaiting_pick",
+        library_id=library_id,
     )
     _safe_emit(
         "manual_review_queued",
@@ -194,6 +200,7 @@ def create_review_from_candidates(
             "series_name": series_name or "",
             "above_count": len(payload.get("above") or []),
             "below_count": len(payload.get("below") or []),
+            "library_id": library_id,
         },
     )
     emit_pending_count()
@@ -211,6 +218,7 @@ def create_confirm_from_auto(
     chosen_score: Any = None,
     query: str = "",
     force_update: bool = False,
+    library_id: Optional[int] = None,
 ) -> str:
     """
     Park auto-batch result as `awaiting_confirm` (pas de pick).
@@ -260,6 +268,7 @@ def create_confirm_from_auto(
         state="awaiting_confirm",
         base_provider=provider,
         chosen_score=score_f,
+        library_id=library_id,
     )
     _safe_emit(
         "manual_review_queued",
@@ -271,6 +280,7 @@ def create_confirm_from_auto(
             "below_count": 0,
             "flow": "auto_confirm",
             "state": "awaiting_confirm",
+            "library_id": library_id,
         },
     )
     emit_pending_count()

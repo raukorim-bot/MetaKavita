@@ -27,6 +27,9 @@ class KavitaAPI:
     # Cache en mémoire des types de bibliothèque par série (série_id -> type)
     # Permet de limiter les requêtes HTTP lors du traitement par lots
     _series_lib_type_cache = {}
+    # Cache en mémoire du libraryId brut par série (série_id -> id), rempli par
+    # le même appel HTTP que _series_lib_type_cache (voir get_library_type_for_series).
+    _series_library_id_cache = {}
 
     def __init__(self, url: str, api_key: str, write_timeout: Optional[int] = None):
         """
@@ -293,13 +296,25 @@ class KavitaAPI:
 
             res = requests.get(f"{self.url}/api/Series/{series_id}", headers=self.headers, timeout=10)
             if res.status_code == 200:
-                lib_type = lib_id_to_type.get(res.json().get('libraryId'), "Manga")
+                data = res.json()
+                lib_type = lib_id_to_type.get(data.get('libraryId'), "Manga")
                 self._series_lib_type_cache[int(series_id)] = lib_type
+                # Piggybacke le libraryId brut (lien de vérification Kavita en review
+                # manuelle, voir get_cached_library_id) : même appel HTTP, pas de coût
+                # supplémentaire.
+                if data.get('libraryId') is not None:
+                    self._series_library_id_cache[int(series_id)] = data.get('libraryId')
                 return lib_type
         except Exception as e:
             logging.error(f"[Erreur Library Type for Series] {e}")
 
         return "Manga"
+
+    def get_cached_library_id(self, series_id):
+        """ID de bibliothèque Kavita mis en cache par un appel préalable à
+        `get_library_type_for_series` — ne déclenche AUCUN appel réseau. Retourne
+        `None` si cette série n'a jamais été résolue dans ce process."""
+        return self._series_library_id_cache.get(int(series_id))
 
     def get_series(self, series_id) -> dict:
         """
