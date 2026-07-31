@@ -46,16 +46,13 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             if healed:
                 disabled_ids = get_disabled_library_ids(config)
 
-            # Dashboard = toutes les biblios Kavita. DISABLED_LIBRARIES ne borne que
-            # batch / auto-sync / webhook (voir sync.py + get_all_series défaut).
+            # Dashboard = toutes les biblios. DISABLED_LIBRARIES ne borne que
+            # le polling auto-sync (background_tasks), pas le batch ni le webhook.
             libraries = list(all_libraries)
             if selected_lib and not any(str(lib.get("id")) == str(selected_lib) for lib in libraries):
                 selected_lib = None
             if all_libraries:
-                series_list = kavita.get_all_series(
-                    library_id=selected_lib,
-                    respect_disabled_filter=False,
-                )
+                series_list = kavita.get_all_series(library_id=selected_lib)
 
                 if not selected_lib:
                     # Inventaire complet pour ne pas effacer le cache des séries

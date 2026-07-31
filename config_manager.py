@@ -105,8 +105,8 @@ def load_config():
             "MATCH_THRESHOLD_CUSTOM": False,
             "MATCH_ACCEPT_THRESHOLD": 0.60,
             "AUTO_SYNC_INTERVAL": 0,
-            # Dénylist d'IDs exclus du batch / auto-sync / webhook (virgules). Vide = sync toutes.
-            # Le dashboard UI affiche toujours toutes les bibliothèques Kavita.
+            # Dénylist d'IDs exclus du polling auto-sync uniquement (virgules). Vide = auto-sync toutes.
+            # Dashboard, batch manuel et webhook ne sont pas filtrés.
             "DISABLED_LIBRARIES": "",
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
@@ -349,10 +349,9 @@ def parse_library_id_list(raw) -> set:
 
 
 def get_disabled_library_ids(config=None) -> set:
-    """IDs de bibliothèques Kavita exclus du sync (batch / auto-sync / webhook).
+    """IDs exclus du **polling auto-sync** uniquement (`DISABLED_LIBRARIES`).
 
-    La dénylist ne masque **pas** le dashboard UI (toolbar / liste) — uniquement
-    les chemins d'enrichissement automatique.
+    Ne masque pas le dashboard, n'affecte pas le batch manuel ni le webhook.
     """
     if config is None:
         config = load_config()
@@ -360,7 +359,7 @@ def get_disabled_library_ids(config=None) -> set:
 
 
 def is_library_enabled(library_id, config=None) -> bool:
-    """True si la bibliothèque n'est pas dans DISABLED_LIBRARIES (périmètre sync)."""
+    """True si la bibliothèque n'est pas dans DISABLED_LIBRARIES (auto-sync)."""
     if library_id is None or library_id == "":
         return True
     disabled = get_disabled_library_ids(config)
@@ -370,7 +369,7 @@ def is_library_enabled(library_id, config=None) -> bool:
 
 
 def filter_enabled_libraries(libraries, config=None) -> list:
-    """Conserve les bibliothèques absentes de la dénylist (pour batch / auto-sync)."""
+    """Conserve les bibliothèques absentes de la dénylist (pour auto-sync)."""
     if not libraries:
         return []
     disabled = get_disabled_library_ids(config)
@@ -409,7 +408,7 @@ def heal_total_library_denylist(config, all_libraries) -> tuple:
     save_config(config)
     logging.info(
         "[Config] Heal: dénylist totale (%s biblio(s)) réinitialisée — "
-        "wipe accidentel probable ; sync à nouveau actif.",
+        "wipe accidentel probable ; auto-sync à nouveau actif.",
         len(all_ids),
     )
     return config, True

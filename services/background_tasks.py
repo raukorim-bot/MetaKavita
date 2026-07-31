@@ -124,7 +124,8 @@ def _auto_sync_worker():
                     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
                     if kavita.authenticate():
                         logging.info(t.get('log_auto_sync_start'))
-                        all_series = kavita.get_all_series()
+                        # Dénylist DISABLED_LIBRARIES : uniquement ici (polling auto).
+                        all_series = kavita.get_all_series(respect_disabled_filter=True)
                         active_ids = {s['id'] for s in all_series}
                         clean_orphaned_cache(active_ids)
                         cached = get_all_cached_data()

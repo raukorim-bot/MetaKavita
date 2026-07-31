@@ -89,7 +89,8 @@ def test_heal_total_library_denylist_skips_partial_denylist(tmp_path, monkeypatc
     assert cm.get_disabled_library_ids(healed_cfg) == {"2"}
 
 
-def test_get_all_series_skips_disabled_library():
+def test_get_all_series_skips_disabled_library_when_filter_on():
+    """Auto-sync path: respect_disabled_filter=True saute les biblios disabled."""
     from kavita_api import KavitaAPI
 
     api = KavitaAPI("http://kavita.test", "key")
@@ -107,11 +108,35 @@ def test_get_all_series_skips_disabled_library():
         with patch("kavita_api.filter_enabled_libraries", side_effect=lambda libs, config=None: [libs[0]]):
             with patch("kavita_api.is_library_enabled", return_value=True):
                 with patch("kavita_api.requests.post", return_value=mock_res) as post:
-                    series = api.get_all_series()
+                    series = api.get_all_series(respect_disabled_filter=True)
                     assert len(series) == 1
                     assert series[0]["id"] == 10
                     post.assert_called_once()
                     assert post.call_args.kwargs["json"]["libraryId"] == 1
+
+
+def test_get_all_series_default_does_not_filter_disabled():
+    """Batch / dashboard / webhook : défaut = toutes les biblios."""
+    from kavita_api import KavitaAPI
+
+    api = KavitaAPI("http://kavita.test", "key")
+    api.token = "fake"
+    libs = [
+        {"id": 1, "name": "Manga", "type": 0},
+        {"id": 2, "name": "Comics", "type": 1},
+    ]
+    mock_res = MagicMock()
+    mock_res.status_code = 200
+    mock_res.json.side_effect = [
+        [{"id": 10, "name": "A", "libraryId": 1}],
+        [{"id": 20, "name": "B", "libraryId": 2}],
+    ]
+
+    with patch.object(api, "get_libraries", return_value=libs):
+        with patch("kavita_api.requests.post", return_value=mock_res) as post:
+            series = api.get_all_series()
+            assert {s["id"] for s in series} == {10, 20}
+            assert post.call_count == 2
 
 
 def test_get_all_series_explicit_disabled_id_returns_empty():
@@ -123,7 +148,7 @@ def test_get_all_series_explicit_disabled_id_returns_empty():
     with patch.object(api, "get_libraries", return_value=[{"id": 2, "name": "Comics", "type": 1}]):
         with patch("kavita_api.filter_enabled_libraries", return_value=[]):
             with patch("kavita_api.is_library_enabled", return_value=False):
-                assert api.get_all_series(library_id=2) == []
+                assert api.get_all_series(library_id=2, respect_disabled_filter=True) == []
 
 
 def test_get_all_series_respect_disabled_filter_false():
