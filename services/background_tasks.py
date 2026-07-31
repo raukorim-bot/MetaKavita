@@ -13,7 +13,7 @@ import queue
 import threading
 import time
 
-from config_manager import load_config
+from config_manager import load_config, is_library_enabled
 from db_manager import get_all_cached_data, clean_orphaned_cache
 from kavita_api import KavitaAPI
 from translations import translations
@@ -108,6 +108,23 @@ def _worker():
                 sync_queue.task_done()
 
 
+def select_auto_sync_candidates(all_series, cached, config=None):
+    """Séries à enfiler par le polling auto-sync.
+
+    Seul endroit où DISABLED_LIBRARIES s'applique : l'utilisateur choisit les
+    bibliothèques que le polling périodique doit balayer. Le dashboard, le batch
+    manuel et l'export voient toujours l'intégralité de Kavita.
+    """
+    candidates = []
+    for s in all_series or []:
+        if not is_library_enabled(s.get('libraryId'), config):
+            continue
+        s_id = s['id']
+        if s_id not in cached or cached[s_id].get('status') == 'PENDING':
+            candidates.append(s)
+    return candidates
+
+
 def _auto_sync_worker():
     last_run = 0
     while True:
@@ -124,17 +141,15 @@ def _auto_sync_worker():
                     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
                     if kavita.authenticate():
                         logging.info(t.get('log_auto_sync_start'))
-                        # Dénylist DISABLED_LIBRARIES : uniquement ici (polling auto).
-                        all_series = kavita.get_all_series(respect_disabled_filter=True)
+                        # Inventaire complet : le nettoyage du cache doit voir les
+                        # séries des bibliothèques exclues du polling, sinon elles
+                        # seraient traitées comme orphelines et purgées.
+                        all_series = kavita.get_all_series()
                         active_ids = {s['id'] for s in all_series}
                         clean_orphaned_cache(active_ids)
                         cached = get_all_cached_data()
 
-                        to_process = []
-                        for s in all_series:
-                            s_id = s['id']
-                            if s_id not in cached or cached[s_id].get('status') == 'PENDING':
-                                to_process.append(s)
+                        to_process = select_auto_sync_candidates(all_series, cached, config)
 
                         if to_process:
                             logging.info(t.get('log_auto_sync_found').format(len(to_process)))

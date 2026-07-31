@@ -7,7 +7,7 @@ from curl_cffi import requests as cffi_requests
 
 from typing import Optional, Tuple
 
-from config_manager import get_kavita_http_timeout, filter_enabled_libraries, is_library_enabled
+from config_manager import get_kavita_http_timeout
 from secure_logging import safe_exc_str
 
 # RE-LOCK : 1 retry max, pause courte, timeout retry plafonné — ne pas doubler
@@ -228,14 +228,14 @@ class KavitaAPI:
         # Type Manga / Webtoon / Image par défaut
         return "Manga"
 
-    def get_all_series(self, library_id=None, respect_disabled_filter=False) -> list:
+    def get_all_series(self, library_id=None) -> list:
         """
         Récupère l'ensemble des séries d'une bibliothèque spécifique ou de l'instance complète.
         Purge le cache mémoire de type de bibliothèque avant l'exécution.
 
-        respect_disabled_filter: si True, ignore les bibliothèques listées dans
-        DISABLED_LIBRARIES — **uniquement** pour le polling auto-sync.
-        Défaut False : dashboard, batch manuel et webhook voient toutes les biblios.
+        Renvoie toujours l'inventaire complet : DISABLED_LIBRARIES n'est pas lu ici.
+        Le filtrage appartient au seul appelant concerné (polling auto-sync, voir
+        `services.background_tasks.select_auto_sync_candidates`).
         """
         if not self.token and not self.authenticate():
             return []
@@ -244,10 +244,6 @@ class KavitaAPI:
             self.__class__._series_lib_type_cache.clear()
 
             all_libs = self.get_libraries()
-            if respect_disabled_filter:
-                all_libs = filter_enabled_libraries(all_libs)
-                if library_id and not is_library_enabled(library_id):
-                    return []
             if library_id:
                 libraries_to_scan = [lib for lib in all_libs if str(lib['id']) == str(library_id)]
             else:
@@ -265,6 +261,9 @@ class KavitaAPI:
                             if str(s.get('libraryId', lib['id'])) == str(lib['id']):
                                 raw_type = lib.get('type') or lib.get('libraryType') or lib.get('LibraryType') or lib.get('Type') or 0
                                 s['libraryType'] = self._normalize_library_type(raw_type)
+                                # all-v2 ne renvoie pas toujours libraryId : on le pose
+                                # pour que les appelants puissent filtrer par biblio.
+                                s.setdefault('libraryId', lib['id'])
                                 unique_series[s['id']] = s
                 except Exception as inner_e:
                     logging.error(f"[Erreur] Bibliothèque {lib.get('id')} : {inner_e}")

@@ -89,34 +89,8 @@ def test_heal_total_library_denylist_skips_partial_denylist(tmp_path, monkeypatc
     assert cm.get_disabled_library_ids(healed_cfg) == {"2"}
 
 
-def test_get_all_series_skips_disabled_library_when_filter_on():
-    """Auto-sync path: respect_disabled_filter=True saute les biblios disabled."""
-    from kavita_api import KavitaAPI
-
-    api = KavitaAPI("http://kavita.test", "key")
-    api.token = "fake"
-    libs = [
-        {"id": 1, "name": "Manga", "type": 0},
-        {"id": 2, "name": "Comics", "type": 1},
-    ]
-
-    mock_res = MagicMock()
-    mock_res.status_code = 200
-    mock_res.json.return_value = [{"id": 10, "name": "Serie A", "libraryId": 1}]
-
-    with patch.object(api, "get_libraries", return_value=libs):
-        with patch("kavita_api.filter_enabled_libraries", side_effect=lambda libs, config=None: [libs[0]]):
-            with patch("kavita_api.is_library_enabled", return_value=True):
-                with patch("kavita_api.requests.post", return_value=mock_res) as post:
-                    series = api.get_all_series(respect_disabled_filter=True)
-                    assert len(series) == 1
-                    assert series[0]["id"] == 10
-                    post.assert_called_once()
-                    assert post.call_args.kwargs["json"]["libraryId"] == 1
-
-
-def test_get_all_series_default_does_not_filter_disabled():
-    """Batch / dashboard / webhook : défaut = toutes les biblios."""
+def test_get_all_series_never_filters_disabled_libraries():
+    """Couche API neutre : dashboard / batch / export voient tout, dénylist ignorée."""
     from kavita_api import KavitaAPI
 
     api = KavitaAPI("http://kavita.test", "key")
@@ -129,40 +103,66 @@ def test_get_all_series_default_does_not_filter_disabled():
     mock_res.status_code = 200
     mock_res.json.side_effect = [
         [{"id": 10, "name": "A", "libraryId": 1}],
-        [{"id": 20, "name": "B", "libraryId": 2}],
+        [{"id": 20, "name": "B"}],
     ]
 
     with patch.object(api, "get_libraries", return_value=libs):
         with patch("kavita_api.requests.post", return_value=mock_res) as post:
-            series = api.get_all_series()
-            assert {s["id"] for s in series} == {10, 20}
-            assert post.call_count == 2
+            with patch("config_manager.get_disabled_library_ids") as denylist:
+                series = api.get_all_series()
+
+    assert {s["id"] for s in series} == {10, 20}
+    assert post.call_count == 2
+    denylist.assert_not_called()
+    # libraryId posé même absent du payload all-v2 : le polling doit pouvoir filtrer.
+    assert {s["id"]: s["libraryId"] for s in series} == {10: 1, 20: 2}
 
 
-def test_get_all_series_explicit_disabled_id_returns_empty():
+def test_get_all_series_explicit_library_id_scans_only_it():
     from kavita_api import KavitaAPI
 
     api = KavitaAPI("http://kavita.test", "key")
     api.token = "fake"
-
-    with patch.object(api, "get_libraries", return_value=[{"id": 2, "name": "Comics", "type": 1}]):
-        with patch("kavita_api.filter_enabled_libraries", return_value=[]):
-            with patch("kavita_api.is_library_enabled", return_value=False):
-                assert api.get_all_series(library_id=2, respect_disabled_filter=True) == []
-
-
-def test_get_all_series_respect_disabled_filter_false():
-    from kavita_api import KavitaAPI
-
-    api = KavitaAPI("http://kavita.test", "key")
-    api.token = "fake"
-    libs = [{"id": 2, "name": "Comics", "type": 1}]
+    libs = [
+        {"id": 1, "name": "Manga", "type": 0},
+        {"id": 2, "name": "Comics", "type": 1},
+    ]
     mock_res = MagicMock()
     mock_res.status_code = 200
     mock_res.json.return_value = [{"id": 99, "name": "X", "libraryId": 2}]
 
     with patch.object(api, "get_libraries", return_value=libs):
         with patch("kavita_api.requests.post", return_value=mock_res) as post:
-            series = api.get_all_series(respect_disabled_filter=False)
-            assert len(series) == 1
+            series = api.get_all_series(library_id=2)
+            assert [s["id"] for s in series] == [99]
             post.assert_called_once()
+            assert post.call_args.kwargs["json"]["libraryId"] == 2
+
+
+def test_auto_sync_candidates_skip_disabled_libraries():
+    """Seul chemin filtré : le polling auto-sync."""
+    from services.background_tasks import select_auto_sync_candidates
+
+    all_series = [
+        {"id": 10, "name": "A", "libraryId": 1},
+        {"id": 20, "name": "B", "libraryId": 2},
+    ]
+    candidates = select_auto_sync_candidates(
+        all_series, cached={}, config={"DISABLED_LIBRARIES": "2"}
+    )
+    assert [s["id"] for s in candidates] == [10]
+
+
+def test_auto_sync_candidates_keep_new_and_pending_only():
+    from services.background_tasks import select_auto_sync_candidates
+
+    all_series = [
+        {"id": 10, "name": "New", "libraryId": 1},
+        {"id": 20, "name": "Pending", "libraryId": 1},
+        {"id": 30, "name": "Done", "libraryId": 1},
+    ]
+    cached = {20: {"status": "PENDING"}, 30: {"status": "COMPLETED"}}
+    candidates = select_auto_sync_candidates(
+        all_series, cached, config={"DISABLED_LIBRARIES": ""}
+    )
+    assert [s["id"] for s in candidates] == [10, 20]
