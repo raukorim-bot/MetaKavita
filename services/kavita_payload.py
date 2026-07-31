@@ -430,10 +430,30 @@ def _emit_series_status(series_id, status, series_name=None):
 
 
 def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
-    """Après soft-fail re-lock : retente un seal seul (sans re-scrape)."""
+    """Après soft-fail re-lock : retente un seal seul (sans re-scrape).
+
+    Passe sous le même `_processing_lock` que `enrich_series` /
+    `apply_manual_review` : sans ça, un re-scrape (force-sync, webhook, review
+    manuelle) de la même série déclenché juste après l'écriture soft-fail
+    pourrait s'exécuter en parallèle de ce retry, les deux touchant les mêmes
+    verrous Kavita. Si la série est déjà réclamée par un autre traitement, le
+    retry est abandonné sans bloquer — le filet de secours reste le bouton 🔒
+    manuel et `POST /api/series/seal-locks-pending`.
+    """
     import threading
 
     def _run():
+        from services.enrichment_engine import _processing_lock, _processing_series_ids
+
+        with _processing_lock:
+            if series_id in _processing_series_ids:
+                logging.info(
+                    "[%s] ⏭️ Retry seal ignoré : série déjà en cours de traitement.",
+                    series_name,
+                )
+                return
+            _processing_series_ids.add(series_id)
+
         try:
             from config_manager import load_config
             from kavita_api import KavitaAPI
@@ -454,6 +474,9 @@ def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
                 logging.warning("[%s] ⚠️ Retry seal échoué : %s", series_name, msg)
         except Exception as exc:
             logging.warning("[%s] ⚠️ Retry seal crash : %s", series_name, exc)
+        finally:
+            with _processing_lock:
+                _processing_series_ids.discard(series_id)
 
     timer = threading.Timer(delay_s, _run)
     timer.daemon = True

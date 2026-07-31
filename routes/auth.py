@@ -11,7 +11,7 @@ La logique d'authentification elle-même (hachage, stockage, verrouillage IP)
 vit dans `auth_manager.py` ; ce module reste une couche HTTP fine.
 """
 
-from flask import Blueprint, request, render_template, session, redirect, url_for
+from flask import Blueprint, request, render_template, session, redirect, url_for, jsonify
 
 import auth_manager
 from config_manager import load_config
@@ -134,6 +134,47 @@ def login():
             error = t.get('login_error')
 
     return render_template('login.html', error=error, t=t, config=config)
+
+
+@auth_bp.route('/account/password', methods=['POST'])
+def change_password():
+    """Changement de mot de passe depuis la modale Config (session active requise).
+
+    Volontairement minimal : un formulaire à 3 champs et une route, pas un
+    flux « mot de passe oublié » par e-mail — l'application est mono-compte et
+    auto-hébergée (cf. `auth_manager.MIN_PASSWORD_LENGTH`). Comme le reste des
+    routes protégées, l'authentification n'est pas revérifiée ici : elle est
+    garantie par `auth_manager.login_gate` en amont.
+    """
+    t, _config = _t()
+
+    locked, remaining = auth_manager.is_locked_out()
+    if locked:
+        minutes = max(1, (remaining + 59) // 60)
+        msg = (t.get('login_err_locked') or '').replace('{}', str(minutes))
+        return jsonify(success=False, error=msg), 429
+
+    data = request.get_json(silent=True) or request.form
+    current_password = data.get('current_password', '')
+    new_password = data.get('new_password', '')
+    confirm = data.get('new_password_confirm', '')
+
+    if new_password != confirm:
+        return jsonify(success=False, error=t.get('account_err_mismatch')), 400
+
+    ok, err_key = auth_manager.update_password(
+        auth_manager.current_user_id(), current_password, new_password
+    )
+    if not ok:
+        # Un mauvais mot de passe actuel compte comme un échec de connexion :
+        # sans ça, un onglet resté ouvert deviendrait un oracle de brute-force
+        # sans le verrouillage qui protège /login.
+        if err_key == "account_err_wrong_current":
+            auth_manager.register_failed_attempt()
+        return jsonify(success=False, error=t.get(err_key, t.get('account_err_generic'))), 400
+
+    auth_manager.clear_failed_attempts()
+    return jsonify(success=True, message=t.get('account_pwd_changed'))
 
 
 @auth_bp.route('/logout')

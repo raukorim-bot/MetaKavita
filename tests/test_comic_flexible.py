@@ -167,6 +167,126 @@ def test_flexible_skips_manga_when_comic_hits(mocker, isolated_db):
     assert used == ["COMIC_FAKE"]
 
 
+def test_manual_mode_falls_back_to_manga_on_a_weak_comic_hit(mocker, isolated_db):
+    """Bug rapporté : en mode manuel, un hit Comic sous le seuil (donc dans
+    `below`, pas rejeté comme en Auto) empêchait la bascule Manga. Elle doit
+    désormais se déclencher sur le même critère qu'en Auto : aucun hit AU-DESSUS
+    du seuil, peu importe si `below` contient des candidats faibles.
+    """
+    calls = []
+
+    def _fake_fetch(query, providers_list, *args, **kwargs):
+        library_type = kwargs.get("library_type")
+        calls.append({"providers": list(providers_list), "library_type": library_type})
+        if library_type == "Comic":
+            weak_card = {
+                "provider": "COMIC_FAKE",
+                "title": "Wrong Comic Match",
+                "summary": "Probablement pas la bonne série",
+                "genres": [],
+                "tags": [],
+                "staff": [],
+                "_match_score": 0.2,
+            }
+            return {"above": [], "below": [weak_card], "query": query}, ["COMIC_FAKE"]
+        strong_card = {
+            "provider": "MANGA_FAKE",
+            "title": "One Piece",
+            "summary": "Pirate king",
+            "genres": ["Action"],
+            "tags": [],
+            "staff": [],
+            "_match_score": 0.9,
+        }
+        return {"above": [strong_card], "below": [], "query": query}, ["MANGA_FAKE"]
+
+    mocker.patch.object(
+        enrichment_engine, "load_config",
+        return_value=_base_config(MANUAL_REVIEW_MODE=True),
+    )
+    _patch_kavita_basics(mocker, isolated_db)
+
+    comic = _ComicFake()
+    manga = _MangaFake()
+
+    def _get(pid):
+        return {"COMIC_FAKE": comic, "MANGA_FAKE": manga}.get(pid)
+
+    mocker.patch.object(enrichment_engine.ScraperRegistry, "get", side_effect=_get)
+    mocker.patch.object(enrichment_engine.ScraperRegistry, "get_by_type", return_value=[comic])
+    mocker.patch("metadata_fetcher.fetch_metadata", side_effect=_fake_fetch)
+
+    created = {}
+    mocker.patch(
+        "services.manual_review.create_review_from_candidates",
+        side_effect=lambda sid, name, payload: created.update(payload=payload),
+    )
+
+    ok, msg, used = enrichment_engine.enrich_series(44, "One Piece", force_update=True)
+
+    assert ok is True
+    assert msg == "PENDING_REVIEW"
+    assert len(calls) == 2, "la vague Manga doit avoir été appelée"
+    assert calls[0]["library_type"] == "Comic"
+    assert calls[1]["library_type"] == "Manga"
+    # La review proposée à l'utilisateur doit contenir le hit Manga fort, pas
+    # le hit Comic faible qu'aurait gardé l'ancien critère `_candidates_empty`.
+    assert created["payload"]["above"][0]["provider"] == "MANGA_FAKE"
+    assert created["payload"]["below"] == []
+
+
+def test_manual_mode_keeps_the_weak_comic_hit_when_manga_also_misses(mocker, isolated_db):
+    """Si la bascule Manga ne trouve RIEN non plus, l'utilisateur doit encore
+    pouvoir choisir manuellement le hit Comic faible plutôt que de tout perdre —
+    contrainte propre au mode manuel, qui n'a pas d'équivalent côté Auto."""
+    calls = []
+
+    def _fake_fetch(query, providers_list, *args, **kwargs):
+        library_type = kwargs.get("library_type")
+        calls.append({"providers": list(providers_list), "library_type": library_type})
+        if library_type == "Comic":
+            weak_card = {
+                "provider": "COMIC_FAKE",
+                "title": "Wrong Comic Match",
+                "summary": "Probablement pas la bonne série",
+                "genres": [],
+                "tags": [],
+                "staff": [],
+                "_match_score": 0.2,
+            }
+            return {"above": [], "below": [weak_card], "query": query}, ["COMIC_FAKE"]
+        return {"above": [], "below": [], "query": query}, ["MANGA_FAKE"]
+
+    mocker.patch.object(
+        enrichment_engine, "load_config",
+        return_value=_base_config(MANUAL_REVIEW_MODE=True),
+    )
+    _patch_kavita_basics(mocker, isolated_db)
+
+    comic = _ComicFake()
+    manga = _MangaFake()
+
+    def _get(pid):
+        return {"COMIC_FAKE": comic, "MANGA_FAKE": manga}.get(pid)
+
+    mocker.patch.object(enrichment_engine.ScraperRegistry, "get", side_effect=_get)
+    mocker.patch.object(enrichment_engine.ScraperRegistry, "get_by_type", return_value=[comic])
+    mocker.patch("metadata_fetcher.fetch_metadata", side_effect=_fake_fetch)
+
+    created = {}
+    mocker.patch(
+        "services.manual_review.create_review_from_candidates",
+        side_effect=lambda sid, name, payload: created.update(payload=payload),
+    )
+
+    ok, msg, used = enrichment_engine.enrich_series(45, "Mystery Series", force_update=True)
+
+    assert ok is True
+    assert msg == "PENDING_REVIEW"
+    assert len(calls) == 2
+    assert created["payload"]["below"][0]["provider"] == "COMIC_FAKE"
+
+
 def test_get_by_type_comic_flexible_unions_comic_and_manga():
     registry = _ScraperRegistry()
     registry._scrapers = {

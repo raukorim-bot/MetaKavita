@@ -22,6 +22,8 @@
     var loadQueueSeq = 0;
     var waitingSettleTimer = null;
     var previouslyFocused = null;
+    var listViewOpen = false;
+    var bulkAcceptInFlight = false;
 
     function emptySession() {
         return {
@@ -629,6 +631,7 @@
                 openBtn.classList.remove("has-pending");
             }
         }
+        if (listViewOpen) renderListPanel();
     }
 
     function safeCoverUrl(url) {
@@ -1256,6 +1259,165 @@
         showCurrentReview();
     }
 
+    // --- VUE LISTE (choisir une série / tout accepter) ---
+    // Panneau indépendant de la machine à états `phase` (pick/cover/edit/...) :
+    // s'affiche PAR-DESSUS le panneau courant sans y toucher, pour pouvoir y
+    // revenir tel quel à la fermeture (setPhase(phase) suffit à le restaurer).
+    function topCandidate(review) {
+        var above = (review && review.above) || [];
+        if (above.length) return { card: above[0], weak: false };
+        var below = (review && review.below) || [];
+        if (below.length) return { card: below[0], weak: true };
+        return null;
+    }
+
+    function renderListPanel() {
+        var body = document.getElementById("mrListBody");
+        var emptyEl = document.getElementById("mrListEmpty");
+        if (!body) return;
+        body.innerHTML = "";
+        if (!queue.length) {
+            if (emptyEl) emptyEl.style.display = "";
+            return;
+        }
+        if (emptyEl) emptyEl.style.display = "none";
+
+        queue.forEach(function (review) {
+            var top = topCandidate(review);
+            var row = document.createElement("button");
+            row.type = "button";
+            row.className = "mr-list-row" + (review.review_id === currentReviewId ? " is-current" : "");
+            row.setAttribute("aria-current", review.review_id === currentReviewId ? "true" : "false");
+            row.onclick = function () { mrJumpToReview(review.review_id); };
+
+            var nameSpan = document.createElement("span");
+            nameSpan.className = "mr-list-row-name";
+            nameSpan.textContent = review.series_name || review.query || ("#" + review.series_id);
+            row.appendChild(nameSpan);
+
+            var scoreSpan = document.createElement("span");
+            if (top) {
+                var pct = Math.round((top.card.score || 0) * 100);
+                scoreSpan.className = "mr-score " + scoreClass(top.card.score) + (top.weak ? " mr-weak" : "");
+                scoreSpan.textContent = pct + "% · " + (top.card.provider || "");
+            } else {
+                scoreSpan.className = "mr-score mr-score-low";
+                scoreSpan.textContent = t("mr_list_no_hit", "Aucun candidat");
+            }
+            row.appendChild(scoreSpan);
+
+            body.appendChild(row);
+        });
+    }
+
+    function setPanelButtonsVisibility(hidden) {
+        [
+            "mrPickBtn", "mrConfirmBtn", "mrSkipBtn", "mrCoverContinueBtn",
+            "mrCoverSkipBtn", "mrWaitBtn", "mrLaterBtn", "mrCloseRecapBtn", "mrBackBtn"
+        ].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = hidden ? "none" : "";
+        });
+        // Ré-applique l'état normal de setPhase() une fois la liste refermée.
+        if (!hidden) setPhase(phase);
+    }
+
+    function openListView() {
+        listViewOpen = true;
+        renderListPanel();
+        ["mrPickPanel", "mrWaitPanel", "mrCoverPanel", "mrEditPanel", "mrRecapPanel"].forEach(function (id) {
+            var el = document.getElementById(id);
+            if (el) el.style.display = "none";
+        });
+        var listPanel = document.getElementById("mrListPanel");
+        if (listPanel) listPanel.style.display = "block";
+        setPanelButtonsVisibility(true);
+        var toggleBtn = document.getElementById("mrListToggleBtn");
+        if (toggleBtn) toggleBtn.classList.add("is-active");
+    }
+
+    function closeListView() {
+        listViewOpen = false;
+        var listPanel = document.getElementById("mrListPanel");
+        if (listPanel) listPanel.style.display = "none";
+        var toggleBtn = document.getElementById("mrListToggleBtn");
+        if (toggleBtn) toggleBtn.classList.remove("is-active");
+        setPanelButtonsVisibility(false);
+    }
+
+    window.mrToggleListView = function () {
+        if (!queue.length && !listViewOpen) return;
+        if (listViewOpen) closeListView();
+        else openListView();
+    };
+
+    window.mrJumpToReview = function (reviewId) {
+        var idx = -1;
+        for (var i = 0; i < queue.length; i++) {
+            if (queue[i].review_id === reviewId) { idx = i; break; }
+        }
+        if (idx === -1) return;
+        currentIndex = idx;
+        currentReviewId = reviewId;
+        selectedProvider = null;
+        includeProviders = [];
+        baselinePreview = null;
+        coverPicked = false;
+        providerCoverUrl = "";
+        closeListView();
+        showCurrentReview();
+    };
+
+    window.mrBulkAccept = function () {
+        if (bulkAcceptInFlight) return;
+        var input = document.getElementById("mrListThreshold");
+        var threshold = input ? parseFloat(input.value) : 0.6;
+        if (isNaN(threshold)) threshold = 0.6;
+        threshold = Math.max(0.3, Math.min(1, threshold));
+
+        var confirmMsg = t(
+            "mr_list_bulk_confirm",
+            "Accepter automatiquement toutes les reviews dont le meilleur candidat dépasse {0}% ? Les autres restent en file."
+        ).replace("{0}", Math.round(threshold * 100));
+        if (!window.confirm(confirmMsg)) return;
+
+        var btn = document.getElementById("mrBulkAcceptBtn");
+        var feedback = document.getElementById("mrListFeedback");
+        bulkAcceptInFlight = true;
+        if (btn) btn.disabled = true;
+        if (feedback) feedback.textContent = "";
+
+        api("/api/manual-reviews/bulk-accept", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threshold: threshold })
+        }).then(function (data) {
+            var wasCurrentReview = currentReviewId;
+            return loadQueue().then(function () {
+                session.done += data.accepted || 0;
+                if (feedback) {
+                    feedback.textContent = t("mr_list_bulk_done", "{0} accepté(s), {1} laissée(s) en file.")
+                        .replace("{0}", String(data.accepted || 0))
+                        .replace("{1}", String(data.skipped || 0));
+                }
+                renderListPanel();
+                if (!queue.length) {
+                    closeListView();
+                    showRecapIfEmpty();
+                    return;
+                }
+                // La série affichée derrière la liste a pu être acceptée : ré-ancre
+                // sur une review qui existe encore.
+                if (wasCurrentReview) reanchorIndex();
+            });
+        }).catch(function (err) {
+            if (feedback) feedback.textContent = err.message || String(err);
+        }).then(function () {
+            bulkAcceptInFlight = false;
+            if (btn) btn.disabled = false;
+        });
+    };
+
     function markSeriesStatus(seriesId, status) {
         var sid = String(seriesId == null ? "" : seriesId);
         if (!/^\d+$/.test(sid)) return;
@@ -1409,6 +1571,7 @@
             modal.style.display = "none";
             modal.setAttribute("aria-hidden", "true");
         }
+        if (listViewOpen) closeListView();
         // Si file non vide, le CTA topbar reste bien visible
         updateBadge(queue.length);
         if (previouslyFocused && typeof previouslyFocused.focus === "function") {
@@ -1628,6 +1791,13 @@
     function onKey(e) {
         if (!isModalOpen()) return;
         trapFocus(e);
+        if (listViewOpen) {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                closeListView();
+            }
+            return;
+        }
         if (actionInFlight && e.key === "Enter") {
             e.preventDefault();
             return;

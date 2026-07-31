@@ -16,6 +16,31 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 import pytest
 
 
+@pytest.fixture(autouse=True)
+def _clean_batch_inventory_cache():
+    """Le cache d'inventaire de `/batch-sync` est un global de module (voir
+    `routes/sync.py::_get_batch_inventory`) : sans reset, un test qui n'envoie
+    pas `resume_enqueue=true` pourrait silencieusement lire l'inventaire laissé
+    par un test précédent utilisant la même URL/clé factices."""
+    import routes.sync as sync_routes
+
+    sync_routes._batch_inventory_cache.clear()
+    yield
+    sync_routes._batch_inventory_cache.clear()
+
+
+@pytest.fixture(autouse=True)
+def _clean_batch_progress_counters():
+    """`_batch_total`/`_batch_done` (services/background_tasks.py) sont des
+    globaux de module utilisés par la barre de progression batch : sans reset,
+    un test pourrait lire un total laissé par un test précédent."""
+    import services.background_tasks as bg
+
+    bg.reset_batch_progress()
+    yield
+    bg.reset_batch_progress()
+
+
 @pytest.fixture
 def isolated_db(tmp_path, monkeypatch):
     """Redirige db_manager vers une base SQLite temporaire et jetable.

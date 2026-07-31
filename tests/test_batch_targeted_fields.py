@@ -66,7 +66,13 @@ def test_batch_sync_enqueues_fields_override(monkeypatch, isolated_db):
     assert res.status_code == 200
     assert res.get_json()["success"] is True
     assert len(enqueued) == 1
-    assert enqueued[0] == (10, "One Piece", True, "summary,alt_titles")
+    assert enqueued[0] == {
+        "series_id": 10,
+        "series_name": "One Piece",
+        "force_update": True,
+        "fields_override": "summary,alt_titles",
+        "is_batch": True,
+    }
 
 
 def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
@@ -107,13 +113,21 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
     app.register_blueprint(sync_bp)
     client = app.test_client()
 
-    # Pas de targeted_fields → 3-tuple
+    expected = {
+        "series_id": 10,
+        "series_name": "One Piece",
+        "force_update": False,
+        "fields_override": None,
+        "is_batch": True,
+    }
+
+    # Pas de targeted_fields → fields_override=None
     res = client.post(
         "/batch-sync",
         data={"selected_series": ["10"], "resume_enqueue": "true"},
     )
     assert res.status_code == 200
-    assert enqueued[0] == (10, "One Piece", False)
+    assert enqueued[0] == expected
 
     enqueued.clear()
     res = client.post(
@@ -121,7 +135,7 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
         data={"selected_series": ["10"], "targeted_fields": "ALL"},
     )
     assert res.status_code == 200
-    assert enqueued[0] == (10, "One Piece", False)
+    assert enqueued[0] == expected
 
 
 def test_stop_batch_rejects_late_chunks(monkeypatch, isolated_db):
@@ -200,4 +214,10 @@ def test_stop_batch_rejects_late_chunks(monkeypatch, isolated_db):
     )
     assert resume.status_code == 200
     assert bg.is_batch_enqueue_enabled() is True
-    assert enqueued == [(11, "Naruto", False)]
+    assert enqueued == [{
+        "series_id": 11,
+        "series_name": "Naruto",
+        "force_update": False,
+        "fields_override": None,
+        "is_batch": True,
+    }]

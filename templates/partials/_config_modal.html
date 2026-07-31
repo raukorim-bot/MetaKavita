@@ -205,6 +205,32 @@
                                 </div>
                             </div>
                         </div>
+
+                        {# Section indépendante du gros formulaire de config : ses champs n'ont
+                           pas de `name`, donc saveConfig() (qui sérialise #configForm en entier)
+                           ne les envoie jamais à /save-config. Son propre bouton (type=button)
+                           poste séparément vers /account/password. #}
+                        <div class="config-section config-section--account">
+                            <h4 class="config-section-title">{{ t.account_title }}</h4>
+                            <div class="form-group">
+                                <label>{{ t.account_current_password }}</label>
+                                <input type="password" id="account_current_password" autocomplete="current-password">
+                            </div>
+                            <div class="form-group-row">
+                                <div class="form-group">
+                                    <label>{{ t.account_new_password }}</label>
+                                    <input type="password" id="account_new_password" autocomplete="new-password">
+                                </div>
+                                <div class="form-group">
+                                    <label>{{ t.account_confirm_password }}</label>
+                                    <input type="password" id="account_new_password_confirm" autocomplete="new-password">
+                                </div>
+                            </div>
+                            <div class="inline-field-row">
+                                <button type="button" class="btn-secondary" onclick="changeAccountPassword(this)">{{ t.account_change_btn }}</button>
+                                <span id="accountPasswordFeedback" class="field-hint m-0"></span>
+                            </div>
+                        </div>
                     </div>
                 </div>
 

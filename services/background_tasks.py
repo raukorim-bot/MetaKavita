@@ -28,6 +28,18 @@ sync_queue = queue.Queue()
 _batch_enqueue_lock = threading.Lock()
 _batch_enqueue_enabled = True
 
+# Compteurs DÉDIÉS à la barre de progression batch — délibérément séparés de
+# `sync_queue.qsize()`. Cette file est partagée avec le webhook et le polling
+# auto-sync (voir routes/sync.py::webhook et _auto_sync_worker ci-dessous) ;
+# un événement Kavita ou un tick auto-sync arrivant en plein batch faisait
+# gonfler/dégonfler `qsize()` sans rapport avec l'avancement réel du batch,
+# ce qui faisait sauter la barre de façon erratique côté UI (batch.js). Seuls
+# les items tagués `is_batch=True` (voir `make_sync_item`) font avancer ces
+# compteurs et sont diffusés via `broadcast_batch_progress`.
+_batch_progress_lock = threading.Lock()
+_batch_total = 0
+_batch_done = 0
+
 
 def set_batch_enqueue_enabled(enabled: bool) -> None:
     global _batch_enqueue_enabled
@@ -38,6 +50,46 @@ def set_batch_enqueue_enabled(enabled: bool) -> None:
 def is_batch_enqueue_enabled() -> bool:
     with _batch_enqueue_lock:
         return _batch_enqueue_enabled
+
+
+def make_sync_item(series_id, series_name, force_update, fields_override=None, is_batch=False):
+    """Structure unique poussée dans `sync_queue` par les 3 producteurs (batch-sync,
+    webhook, auto-sync). `is_batch` est le seul signal utilisé pour la barre de
+    progression batch — voir le commentaire sur `_batch_total` ci-dessus."""
+    return {
+        "series_id": series_id,
+        "series_name": series_name,
+        "force_update": force_update,
+        "fields_override": fields_override,
+        "is_batch": is_batch,
+    }
+
+
+def register_batch_enqueue(count, new_batch):
+    """Un paquet /batch-sync vient d'empiler `count` séries taguées `is_batch`.
+
+    `new_batch=True` (1er paquet, `resume_enqueue=true` côté UI) redémarre le
+    compteur à zéro ; les paquets suivants du même batch s'additionnent dessus,
+    puisque le total réel n'est connu qu'une fois tous les paquets envoyés mais
+    que le premier paquet doit déjà pouvoir afficher une progression.
+    À appeler AVANT `sync_queue.put(...)` pour que le worker ne lise jamais un
+    total pas encore à jour.
+    """
+    global _batch_total, _batch_done
+    with _batch_progress_lock:
+        if new_batch:
+            _batch_total = 0
+            _batch_done = 0
+        _batch_total += max(0, int(count))
+
+
+def reset_batch_progress():
+    """Stop / drain : la barre ne doit plus attendre des séries qui viennent
+    d'être jetées de la file (voir routes/sync.py::stop_batch)."""
+    global _batch_total, _batch_done
+    with _batch_progress_lock:
+        _batch_total = 0
+        _batch_done = 0
 
 
 def broadcast_batch_progress(remaining, active=None, stopped=False):
@@ -65,30 +117,37 @@ def drain_sync_queue() -> int:
             drained += 1
         except queue.Empty:
             break
+    reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=True)
     return drained
 
 
 def _worker():
+    global _batch_total, _batch_done
     while True:
         item = sync_queue.get()
         try:
             if item is None:
                 break
-            # 3-tuple historique (webhook / auto-sync) ou 4-tuple batch (masque champs).
-            if len(item) == 4:
-                series_id, series_name, force_update, fields_override = item
-            else:
-                series_id, series_name, force_update = item
-                fields_override = None
+            series_id = item["series_id"]
+            series_name = item["series_name"]
+            force_update = item["force_update"]
+            fields_override = item.get("fields_override")
+            is_batch = bool(item.get("is_batch"))
 
             config = load_config()
             t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
 
-            remaining = sync_queue.qsize()
-            logging.info(t.get('log_worker_start').format(series_name, remaining))
-            broadcast_batch_progress(remaining, active=series_name)
+            if is_batch:
+                with _batch_progress_lock:
+                    remaining = max(0, _batch_total - _batch_done - 1)
+                logging.info(t.get('log_worker_start').format(series_name, remaining))
+                broadcast_batch_progress(remaining, active=series_name)
+            else:
+                # Item hors batch (webhook / auto-sync) : ne touche jamais à la
+                # barre de progression batch, même si un batch tourne en parallèle.
+                logging.info(t.get('log_worker_start').format(series_name, sync_queue.qsize()))
 
             # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
             enrich_series(
@@ -98,9 +157,13 @@ def _worker():
                 targeted_fields_override=fields_override,
             )
 
-            if sync_queue.empty():
-                logging.info(t.get('log_batch_finished'))
-                broadcast_batch_progress(0)
+            if is_batch:
+                with _batch_progress_lock:
+                    _batch_done = min(_batch_total, _batch_done + 1)
+                    batch_finished = _batch_total > 0 and _batch_done >= _batch_total
+                if batch_finished:
+                    logging.info(t.get('log_batch_finished'))
+                    broadcast_batch_progress(0)
         finally:
             # Toujours appeler task_done() pour chaque get() réussi (sauf sentinel
             # de shutdown). Sinon unfinished_tasks croît et tout futur join() bloque.
@@ -154,7 +217,7 @@ def _auto_sync_worker():
                         if to_process:
                             logging.info(t.get('log_auto_sync_found').format(len(to_process)))
                             for s in to_process:
-                                sync_queue.put((s['id'], s['name'], False))
+                                sync_queue.put(make_sync_item(s['id'], s['name'], False))
 
                 except Exception as e:
                     logging.error(f"❌ [Auto-Sync] Erreur : {e}")

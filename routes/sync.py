@@ -12,6 +12,7 @@ renommez.
 import logging
 import queue
 import secrets
+import time
 
 from flask import Blueprint, request, jsonify, Response
 
@@ -24,10 +25,40 @@ from services.background_tasks import (
     set_batch_enqueue_enabled,
     is_batch_enqueue_enabled,
     drain_sync_queue,
+    make_sync_item,
+    register_batch_enqueue,
 )
 from services.enrichment_engine import enrich_series
 
 sync_bp = Blueprint('sync', __name__)
+
+# Inventaire Kavita mis en cache pour la durée d'un batch (voir _get_batch_inventory).
+_BATCH_INVENTORY_TTL = 900  # secondes ; filet de sécurité, pas le mécanisme normal
+_batch_inventory_cache = {}
+
+
+def _get_batch_inventory(kavita, library_id, force_refresh):
+    """Inventaire Kavita pour `/batch-sync`, réutilisé entre les paquets d'UN batch.
+
+    Le front (voir `batch.js`) découpe un batch en paquets d'environ 50 séries
+    et poste un `/batch-sync` par paquet. Sans ce cache, chaque paquet
+    déclenchait un appel complet à `get_all_series()` — sur 1000 séries en 20
+    paquets, 20 aller-retours HTTP identiques vers Kavita, et 20 purges du
+    cache mémoire des types de bibliothèque (voir
+    `kavita_api.py::get_all_series`). Le premier paquet d'un batch
+    (`resume_enqueue=true`) force un instantané frais ; les paquets suivants du
+    même batch réutilisent cet instantané. Le TTL borne la durée de vie de ce
+    cache pour un batch anormalement long ou interrompu ; ce n'est pas ainsi
+    qu'un batch normal se rafraîchit.
+    """
+    key = (getattr(kavita, 'url', None), getattr(kavita, 'api_key', None), library_id)
+    now = time.time()
+    cached = _batch_inventory_cache.get(key)
+    if not force_refresh and cached and (now - cached[0]) < _BATCH_INVENTORY_TTL:
+        return cached[1]
+    series = kavita.get_all_series(library_id=library_id)
+    _batch_inventory_cache[key] = (now, series)
+    return series
 
 
 @sync_bp.route('/reset-errors', methods=['POST'])
@@ -50,8 +81,10 @@ def force_sync():
 @sync_bp.route('/batch-sync', methods=['POST'])
 def batch_sync():
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
-    # Premier paquet d'un nouveau batch : réarme l'acceptation après un Stop.
-    if request.form.get('resume_enqueue') == 'true':
+    # Premier paquet d'un nouveau batch : réarme l'acceptation après un Stop ET
+    # force un inventaire Kavita frais (voir _get_batch_inventory).
+    is_new_batch = request.form.get('resume_enqueue') == 'true'
+    if is_new_batch:
         set_batch_enqueue_enabled(True)
     elif not is_batch_enqueue_enabled():
         return jsonify(
@@ -78,7 +111,7 @@ def batch_sync():
     if not kavita.authenticate():
         return jsonify(success=False, msg=t.get('err_kavita', "Connexion échouée."))
 
-    all_series = kavita.get_all_series(library_id=lib_id)
+    all_series = _get_batch_inventory(kavita, lib_id, force_refresh=is_new_batch)
     cached = get_all_cached_data()
 
     if not selected_ids:
@@ -109,11 +142,11 @@ def batch_sync():
     log_msg = t.get('log_batch_added', "🚀 {0} série(s) ajoutée(s) (Total : {1})")
     logging.info(log_msg.format(len(series_to_process), total_after_add))
 
+    # Enregistré AVANT le put() : le worker peut dépiler le tout premier item
+    # dès la ligne suivante et lirait sinon un total pas encore à jour.
+    register_batch_enqueue(len(series_to_process), new_batch=is_new_batch)
     for s in series_to_process:
-        if fields_override is not None:
-            sync_queue.put((s['id'], s['name'], force_update, fields_override))
-        else:
-            sync_queue.put((s['id'], s['name'], force_update))
+        sync_queue.put(make_sync_item(s['id'], s['name'], force_update, fields_override, is_batch=True))
 
     msg_added = t.get('batch_added').replace('{}', str(len(series_to_process)))
     return jsonify(success=True, msg=msg_added)
@@ -195,7 +228,7 @@ def webhook():
     force_update = str(force_param).lower() in ['true', '1', 'yes'] if force_param is not None else False
 
     if series_id and series_name:
-        sync_queue.put((series_id, series_name, force_update))
+        sync_queue.put(make_sync_item(series_id, series_name, force_update))
         mode_str = " (⚠️ Mode Forcé)" if force_update else ""
         logging.info(f"⚡ [Webhook] Événement reçu ! Série '{series_name}' (ID: {series_id}){mode_str} ajoutée à la file.")
         return jsonify(success=True, message="Event reçu", force_update=force_update), 200

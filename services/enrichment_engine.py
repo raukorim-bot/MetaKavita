@@ -190,6 +190,91 @@ def _candidates_empty(payload):
     return not (payload.get("above") or payload.get("below"))
 
 
+def _candidates_have_a_strong_hit(payload):
+    """True si au moins un candidat dépasse le VRAI seuil d'acceptation.
+
+    En mode manuel, la cascade Comic tourne avec le seuil scrapers mis à 0.0
+    (`_install_zero_match_threshold`) pour que l'utilisateur puisse voir les
+    correspondances faibles au lieu de les perdre — elles finissent dans
+    `below`, pas rejetées. `above` reste donc le seul signal comparable au
+    critère Auto (`_has_useful_provider_data`, qui lui tourne avec le seuil
+    réel et renvoie `None` sous ce seuil). Se baser sur `_candidates_empty`
+    ici ferait dépendre le déclenchement du fallback Manga Comic Flexible du
+    nombre de candidats FAIBLES trouvés plutôt que de l'existence d'un BON
+    candidat — exactement la divergence Auto/Manuel que ce garde-fou évite.
+    """
+    return bool((payload or {}).get("above"))
+
+
+def _apply_comic_flexible_manga_fallback(
+    candidates_payload,
+    used_providers,
+    *,
+    library_type,
+    forced_provider,
+    super_review,
+    search_query,
+    fallback_query,
+    config,
+    series_name,
+    smart_completion,
+    is_forced_id,
+    existing_metadata,
+    smart_scoring,
+    t,
+):
+    """Bascule Comic → Manga pour une bibliothèque Flexible, cohérente avec le
+    mode Auto : condition de déclenchement (`_candidates_have_a_strong_hit`,
+    pas `_candidates_empty`) ET remplacement conditionnel (la vague Manga ne
+    remplace la vague Comic que si elle a trouvé quelque chose — sinon
+    l'utilisateur perdrait les candidats Comic faibles qu'il pouvait encore
+    choisir manuellement, contrainte propre au mode manuel qui n'existe pas
+    côté Auto).
+
+    Retourne (candidates_payload, used_providers), inchangés si la bascule ne
+    s'applique pas ou n'apporte rien.
+    """
+    if not (
+        library_type == "ComicFlexible"
+        and (forced_provider == "AUTO" or super_review)
+        and not _candidates_have_a_strong_hit(candidates_payload)
+    ):
+        return candidates_payload, used_providers
+
+    from metadata_fetcher import fetch_metadata
+
+    manga_providers = _providers_from_config(config, "Manga", series_name)
+    if super_review:
+        manga_providers = expand_providers_for_super_review(
+            config, "Manga", preferred_ids=manga_providers
+        )
+    if not manga_providers:
+        return candidates_payload, used_providers
+
+    logging.info(
+        t.get(
+            "log_flexible_manga_fallback",
+            "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
+        ).format(series_name, " > ".join(manga_providers))
+    )
+    manga_payload, manga_used = fetch_metadata(
+        search_query,
+        manga_providers,
+        smart_completion,
+        return_candidates=True,
+        fallback_query=fallback_query,
+        library_type="Manga",
+        is_forced_id=is_forced_id,
+        forced_provider=forced_provider,
+        existing_metadata=existing_metadata,
+        smart_scoring=smart_scoring,
+    )
+    used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
+    if not _candidates_empty(manga_payload):
+        candidates_payload = manga_payload
+    return candidates_payload, used_providers
+
+
 def _scrape_manual_candidates(
     series_id,
     series_name,
@@ -282,31 +367,23 @@ def _scrape_manual_candidates(
         **fetch_kwargs,
     )
 
-    if (
-        library_type == "ComicFlexible"
-        and (forced_provider == "AUTO" or super_review)
-        and _candidates_empty(candidates_payload)
-    ):
-        manga_providers = _providers_from_config(config, "Manga", series_name)
-        if super_review:
-            manga_providers = expand_providers_for_super_review(
-                config, "Manga", preferred_ids=manga_providers
-            )
-        if manga_providers:
-            manga_payload, manga_used = fetch_metadata(
-                search_query,
-                manga_providers,
-                smart_completion,
-                return_candidates=True,
-                fallback_query=fallback_query,
-                library_type="Manga",
-                is_forced_id=is_forced_id,
-                forced_provider=forced_provider,
-                existing_metadata=existing_metadata,
-                smart_scoring=smart_scoring,
-            )
-            used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
-            candidates_payload = manga_payload
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+    candidates_payload, used_providers = _apply_comic_flexible_manga_fallback(
+        candidates_payload,
+        used_providers,
+        library_type=library_type,
+        forced_provider=forced_provider,
+        super_review=super_review,
+        search_query=search_query,
+        fallback_query=fallback_query,
+        config=config,
+        series_name=series_name,
+        smart_completion=smart_completion,
+        is_forced_id=is_forced_id,
+        existing_metadata=existing_metadata,
+        smart_scoring=smart_scoring,
+        t=t,
+    )
 
     if isinstance(candidates_payload, dict):
         candidates_payload["query"] = search_query
@@ -659,38 +736,24 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 return_candidates=True,
                 **fetch_kwargs,
             )
-            # Comic Flexible : vague Manga si Comic above+below vides
-            if (
-                library_type == "ComicFlexible"
-                and (forced_provider == "AUTO" or super_review)
-                and _candidates_empty(candidates_payload)
-            ):
-                manga_providers = _providers_from_config(config, "Manga", series_name)
-                if super_review:
-                    manga_providers = expand_providers_for_super_review(
-                        config, "Manga", preferred_ids=manga_providers
-                    )
-                if manga_providers:
-                    logging.info(
-                        t.get(
-                            "log_flexible_manga_fallback",
-                            "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
-                        ).format(series_name, " > ".join(manga_providers))
-                    )
-                    manga_payload, manga_used = fetch_metadata(
-                        search_query,
-                        manga_providers,
-                        smart_completion,
-                        return_candidates=True,
-                        fallback_query=fallback_query,
-                        library_type="Manga",
-                        is_forced_id=is_forced_id,
-                        forced_provider=forced_provider,
-                        existing_metadata=existing_metadata,
-                        smart_scoring=smart_scoring,
-                    )
-                    used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
-                    candidates_payload = manga_payload
+            # Comic Flexible : même critère de bascule Manga qu'en Auto (voir
+            # _apply_comic_flexible_manga_fallback).
+            candidates_payload, used_providers = _apply_comic_flexible_manga_fallback(
+                candidates_payload,
+                used_providers,
+                library_type=library_type,
+                forced_provider=forced_provider,
+                super_review=super_review,
+                search_query=search_query,
+                fallback_query=fallback_query,
+                config=config,
+                series_name=series_name,
+                smart_completion=smart_completion,
+                is_forced_id=is_forced_id,
+                existing_metadata=existing_metadata,
+                smart_scoring=smart_scoring,
+                t=t,
+            )
 
             if _candidates_empty(candidates_payload):
                 logging.warning(t.get("log_not_found").format(series_name, "API(s)"))

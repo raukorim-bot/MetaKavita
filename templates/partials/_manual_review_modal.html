@@ -6,7 +6,11 @@
             <div class="modal-header mr-header">
                 <div class="mr-header-top">
                     <h3 class="m-0" id="mrModalTitle">{{ t.mr_title }} <span id="mrQueueBadge" class="mr-queue-badge">0</span></h3>
-                    <button type="button" class="close-btn" onclick="closeManualReviewModal()" aria-label="{{ t.mr_kbd_act_close }}">&times;</button>
+                    <div class="mr-header-actions">
+                        <button type="button" class="btn-secondary mr-list-toggle-btn" id="mrListToggleBtn"
+                                onclick="mrToggleListView()" title="{{ t.mr_list_open }}">📋 {{ t.mr_list_open }}</button>
+                        <button type="button" class="close-btn" onclick="closeManualReviewModal()" aria-label="{{ t.mr_kbd_act_close }}">&times;</button>
+                    </div>
                 </div>
                 <div class="mr-series-block">
                     <div class="mr-series-meta">
@@ -23,6 +27,23 @@
                     </div>
                 </div>
                 <div id="mrFusionBar" class="mr-fusion-bar" style="display:none;" aria-live="polite"></div>
+            </div>
+
+            <div id="mrListPanel" class="modal-scroll-body mr-list-panel" style="display:none;">
+                <div class="mr-list-toolbar">
+                    <p class="mr-list-hint">{{ t.mr_list_hint }}</p>
+                    <div class="mr-list-bulk-row">
+                        <label class="mr-list-threshold-label" for="mrListThreshold">
+                            {{ t.mr_list_threshold_label }}
+                            <input type="number" id="mrListThreshold" min="0.30" max="1" step="0.05"
+                                   value="{{ '%.2f' % match_accept_threshold }}">
+                        </label>
+                        <button type="button" class="btn-primary" id="mrBulkAcceptBtn" onclick="mrBulkAccept()">{{ t.mr_list_bulk_accept }}</button>
+                    </div>
+                    <p id="mrListFeedback" class="field-hint m-0" aria-live="polite"></p>
+                </div>
+                <div id="mrListBody" class="mr-list-body"></div>
+                <p id="mrListEmpty" class="mr-empty-hint" style="display:none;">{{ t.mr_empty }}</p>
             </div>
 
             <div id="mrPickPanel" class="modal-scroll-body mr-pick-panel">

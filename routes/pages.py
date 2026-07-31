@@ -18,6 +18,7 @@ from config_manager import (
 )
 from db_manager import get_all_cached_data, clean_orphaned_cache, get_provider_stats, get_lifetime_stats
 from kavita_api import KavitaAPI
+from scrapers.utils import get_match_accept_threshold
 from translations import translations
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
@@ -143,7 +144,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            has_kavita_api_key=has_kavita_api_key,
                            has_deepl_api_key=has_deepl_api_key,
                            has_azure_api_key=has_azure_api_key,
-                           scraper_has_api_key=scraper_has_api_key)
+                           scraper_has_api_key=scraper_has_api_key,
+                           match_accept_threshold=get_match_accept_threshold(config))
 
 
 @pages_bp.route('/', methods=['GET'])

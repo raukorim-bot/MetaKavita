@@ -369,6 +369,55 @@ def create_user(username, password):
         return False, "setup_err_generic"
 
 
+def update_password(user_id, current_password, new_password):
+    """Change le mot de passe d'un compte déjà authentifié (écran Config).
+
+    Revérifie `current_password` par le même chemin que `/login`
+    (`verify_credentials`) : la route appelante est protégée par une session
+    valide, mais rien n'empêche un onglet resté ouvert de tenter des mots de
+    passe au hasard, donc ce contrôle reste nécessaire, pas redondant.
+
+    Retourne (ok: bool, message_d_erreur: str | None) — la chaîne est une CLÉ
+    de traduction, comme `create_user`.
+    """
+    if len(new_password or "") < MIN_PASSWORD_LENGTH:
+        return False, "setup_err_password_too_short"
+
+    try:
+        conn = _connect()
+        c = conn.cursor()
+        _ensure_users_table(c)
+        c.execute("SELECT username FROM users WHERE id = ?", (user_id,))
+        row = c.fetchone()
+        conn.close()
+    except sqlite3.Error as e:
+        logging.error("[Auth] Lecture du compte impossible : %s", e)
+        return False, "account_err_generic"
+
+    if not row:
+        return False, "account_err_generic"
+    username = row[0]
+
+    if not verify_credentials(username, current_password):
+        return False, "account_err_wrong_current"
+
+    try:
+        conn = _connect()
+        c = conn.cursor()
+        _ensure_users_table(c)
+        c.execute(
+            "UPDATE users SET password_hash = ? WHERE id = ?",
+            (generate_password_hash(new_password, method=PASSWORD_HASH_METHOD), user_id),
+        )
+        conn.commit()
+        conn.close()
+        logging.info("[Auth] Mot de passe changé pour '%s'.", username)
+        return True, None
+    except sqlite3.Error as e:
+        logging.error("[Auth] Mise à jour du mot de passe impossible : %s", e)
+        return False, "account_err_generic"
+
+
 def _get_dummy_password_hash():
     """Hachage factice mémorisé, pour l'égalisation de temps de `verify_credentials`."""
     global _dummy_password_hash

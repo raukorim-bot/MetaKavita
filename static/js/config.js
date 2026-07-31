@@ -430,3 +430,62 @@ function regenerateWebhookToken(btn) {
         btn.innerText = originalText;
     });
 }
+
+// --- CHANGEMENT DE MOT DE PASSE (écran Config) ---
+// Requêtes indépendantes de #configForm : ces champs n'ont pas de `name`, donc
+// saveConfig() (FormData sur tout le formulaire) ne les touche jamais.
+function changeAccountPassword(btn) {
+    const feedback = document.getElementById('accountPasswordFeedback');
+    const currentInput = document.getElementById('account_current_password');
+    const newInput = document.getElementById('account_new_password');
+    const confirmInput = document.getElementById('account_new_password_confirm');
+    if (!feedback || !currentInput || !newInput || !confirmInput) return;
+
+    const current = currentInput.value;
+    const newPwd = newInput.value;
+    const confirm = confirmInput.value;
+
+    const showFeedback = (text, ok) => {
+        feedback.textContent = text;
+        feedback.className = 'field-hint m-0' + (ok ? ' field-hint--ok' : ' field-hint--error');
+    };
+
+    if (!current || !newPwd || !confirm) {
+        showFeedback(window.AppTranslations.account_fill_all || 'Remplissez les trois champs.', false);
+        return;
+    }
+    if (newPwd !== confirm) {
+        showFeedback(window.AppTranslations.account_err_mismatch || 'Les mots de passe ne correspondent pas.', false);
+        return;
+    }
+
+    const originalText = btn.innerText;
+    btn.innerText = '⏳...';
+    btn.disabled = true;
+
+    fetch(getRootPath() + '/account/password', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            current_password: current,
+            new_password: newPwd,
+            new_password_confirm: confirm,
+        }),
+    })
+    .then(res => res.json())
+    .then(data => {
+        btn.innerText = originalText;
+        btn.disabled = false;
+        showFeedback(data.success ? data.message : data.error, !!data.success);
+        if (data.success) {
+            currentInput.value = '';
+            newInput.value = '';
+            confirmInput.value = '';
+        }
+    })
+    .catch(() => {
+        btn.innerText = originalText;
+        btn.disabled = false;
+        showFeedback('Erreur réseau.', false);
+    });
+}

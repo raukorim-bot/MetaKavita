@@ -2,11 +2,15 @@
 Routes mode manuel C29 : liste / pick / confirm / skip des pending reviews.
 """
 
+import json
+import logging
+
 from flask import Blueprint, request, jsonify
 
 from config_manager import load_config
 from db_manager import list_pending_reviews, get_pending_review, count_pending_reviews, update_pending_review
 from metadata_fetcher import candidate_card_for_ui
+from scrapers.utils import get_match_accept_threshold
 from services.enrichment_engine import (
     apply_manual_review,
     preview_manual_review,
@@ -191,6 +195,82 @@ def api_manual_review_skip(review_id):
     if not ok:
         return jsonify(success=False, error="Skip échoué"), 400
     return jsonify(success=True, count=count_pending_reviews())
+
+
+@manual_review_bp.route("/api/manual-reviews/bulk-accept", methods=["POST"])
+def api_manual_reviews_bulk_accept():
+    """Accepte en masse le TOP1 de chaque review dont le score dépasse un seuil.
+
+    Volontairement pas une nouvelle automatisation : reprend exactement le
+    chemin « Confirmer sans édition » (`apply_manual_review` avec le seul
+    `base_provider`, sans `include_providers` ni `edited_preview`) déjà utilisé
+    par `/choice` quand `MANUAL_REVIEW_EDIT` est désactivé. `/batch-sync` reste
+    le seul endroit qui scrape automatiquement ; ceci ne fait qu'appliquer des
+    résultats déjà scrapés et déjà en attente d'un geste humain.
+
+    Ne touche qu'aux reviews encore `awaiting_pick` : une review déjà en
+    `awaiting_confirm` a un preview en cours de personnalisation par
+    l'utilisateur (choix de fournisseur, édition de champs...) que ce bouton
+    ne doit pas écraser silencieusement.
+
+    Corps JSON optionnel : `{"threshold": 0.6, "review_ids": [...]}`. Sans
+    `review_ids`, s'applique à toute la file `awaiting_pick`.
+    """
+    data = _parse_json()
+    try:
+        threshold = float(data.get("threshold", get_match_accept_threshold()))
+    except (TypeError, ValueError):
+        threshold = get_match_accept_threshold()
+    threshold = max(0.0, min(1.0, threshold))
+
+    wanted_ids = data.get("review_ids")
+    if wanted_ids is not None and not isinstance(wanted_ids, list):
+        wanted_ids = [wanted_ids]
+    wanted_ids = set(str(rid) for rid in wanted_ids) if wanted_ids else None
+
+    rows = list_pending_reviews(state="awaiting_pick", limit=2000)
+
+    accepted, skipped, failed = [], [], []
+    for r in rows:
+        review_id = r["review_id"]
+        if wanted_ids is not None and str(review_id) not in wanted_ids:
+            continue
+
+        try:
+            cands = json.loads(r.get("candidates_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            cands = {}
+        above = cands.get("above") if isinstance(cands, dict) else None
+
+        top = above[0] if above else None
+        provider = (top or {}).get("provider")
+        try:
+            score = float((top or {}).get("score", 0.0))
+        except (TypeError, ValueError):
+            score = 0.0
+
+        if not top or not provider or score < threshold:
+            skipped.append(review_id)
+            continue
+
+        try:
+            ok, msg, _detail = apply_manual_review(review_id, provider, include_providers=[])
+        except Exception as exc:
+            logging.error("[manual_review] bulk-accept crash sur %s : %s", review_id, exc)
+            ok, msg = False, str(exc)
+        if ok:
+            accepted.append(review_id)
+        else:
+            failed.append({"review_id": review_id, "error": msg})
+
+    return jsonify(
+        success=True,
+        accepted=len(accepted),
+        skipped=len(skipped),
+        failed=failed,
+        threshold=threshold,
+        remaining=count_pending_reviews(),
+    )
 
 
 @manual_review_bp.route("/api/manual-reviews/purge", methods=["POST"])

@@ -807,6 +807,94 @@ def test_a_rejected_seed_value_is_never_written_to_the_logs(isolated_db, monkeyp
 
 
 # ---------------------------------------------------------------------------
+# Changement de mot de passe
+# ---------------------------------------------------------------------------
+
+def test_change_password_requires_the_current_one(client):
+    _complete_setup(client)
+
+    res = client.post("/account/password", json={
+        "current_password": "wrong password",
+        "new_password": "new correct horse",
+        "new_password_confirm": "new correct horse",
+    })
+    assert res.status_code == 400
+    assert res.get_json()["success"] is False
+    # L'ancien mot de passe doit rester valide : rien n'a dû changer.
+    assert auth_manager.verify_credentials("admin", "correct horse") is not None
+
+
+def test_change_password_updates_the_hash(client):
+    _complete_setup(client)
+
+    res = client.post("/account/password", json={
+        "current_password": "correct horse",
+        "new_password": "new correct horse",
+        "new_password_confirm": "new correct horse",
+    })
+    assert res.status_code == 200
+    assert res.get_json()["success"] is True
+
+    assert auth_manager.verify_credentials("admin", "correct horse") is None
+    assert auth_manager.verify_credentials("admin", "new correct horse") is not None
+
+
+def test_change_password_refuses_mismatched_confirmation(client):
+    _complete_setup(client)
+
+    res = client.post("/account/password", json={
+        "current_password": "correct horse",
+        "new_password": "new correct horse",
+        "new_password_confirm": "something else",
+    })
+    assert res.status_code == 400
+    assert auth_manager.verify_credentials("admin", "correct horse") is not None
+
+
+def test_change_password_refuses_a_too_short_new_password(client):
+    _complete_setup(client)
+
+    res = client.post("/account/password", json={
+        "current_password": "correct horse",
+        "new_password": "short",
+        "new_password_confirm": "short",
+    })
+    assert res.status_code == 400
+    assert auth_manager.verify_credentials("admin", "correct horse") is not None
+
+
+def test_change_password_requires_an_active_session(client):
+    """Sans session (ex: cookie expiré), le gate doit rediriger avant la vue —
+    même comportement que n'importe quelle autre route protégée."""
+    _complete_setup(client)
+    client.get("/logout")
+
+    res = client.post("/account/password", json={
+        "current_password": "correct horse",
+        "new_password": "new correct horse",
+        "new_password_confirm": "new correct horse",
+    })
+    assert res.status_code == 302
+    assert "/login" in res.headers["Location"]
+
+
+def test_a_wrong_current_password_counts_as_a_failed_login_attempt(client):
+    """Sinon un onglet resté ouvert deviendrait un oracle de brute-force sans le
+    verrouillage qui protège /login."""
+    _complete_setup(client)
+
+    for _ in range(auth_manager.MAX_FAILED_ATTEMPTS):
+        client.post("/account/password", json={
+            "current_password": "wrong password",
+            "new_password": "new correct horse",
+            "new_password_confirm": "new correct horse",
+        })
+
+    locked, _remaining = auth_manager.is_locked_out("127.0.0.1")
+    assert locked is True
+
+
+# ---------------------------------------------------------------------------
 # Fail-closed
 # ---------------------------------------------------------------------------
 
