@@ -81,7 +81,17 @@ function applyBatchProgressPayload(payload) {
             batchNagFired = true;
             try {
                 if (window.SupporterNag && typeof window.SupporterNag.onBatchComplete === 'function') {
-                    window.SupporterNag.onBatchComplete({ remaining: 0, stopped: false, total: batchProgressTotal });
+                    // real_sends (services/background_tasks.py) : nombre de séries
+                    // RÉELLEMENT écrites vers Kavita. Un batch entièrement composé de
+                    // séries déjà à jour (skip silencieux) tombe à 0 — le nagware
+                    // supporter ne doit pas se déclencher pour rien.
+                    const realSends = parseInt(payload.real_sends, 10);
+                    window.SupporterNag.onBatchComplete({
+                        remaining: 0,
+                        stopped: false,
+                        total: batchProgressTotal,
+                        real_sends: isNaN(realSends) ? 0 : realSends,
+                    });
                 }
             } catch (e) { /* pubs supporter : jamais bloquer le batch */ }
         }

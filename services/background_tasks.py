@@ -39,6 +39,13 @@ _batch_enqueue_enabled = True
 _batch_progress_lock = threading.Lock()
 _batch_total = 0
 _batch_done = 0
+_batch_real_sends = 0
+
+# Messages renvoyés par enrich_series()/kavita_payload.py qui correspondent à une
+# ÉCRITURE effective vers Kavita (voir services/kavita_payload.py::_apply_kavita_write).
+# Tout le reste ("Déjà à jour.", "PENDING_REVIEW", "Introuvable.", une erreur...) ne
+# touche jamais Kavita — voir _worker() / le nagware supporter (batch.js).
+_REAL_SEND_MESSAGES = {"Succès", "NEEDS_RELOCK"}
 
 
 def set_batch_enqueue_enabled(enabled: bool) -> None:
@@ -75,25 +82,34 @@ def register_batch_enqueue(count, new_batch):
     À appeler AVANT `sync_queue.put(...)` pour que le worker ne lise jamais un
     total pas encore à jour.
     """
-    global _batch_total, _batch_done
+    global _batch_total, _batch_done, _batch_real_sends
     with _batch_progress_lock:
         if new_batch:
             _batch_total = 0
             _batch_done = 0
+            _batch_real_sends = 0
         _batch_total += max(0, int(count))
 
 
 def reset_batch_progress():
     """Stop / drain : la barre ne doit plus attendre des séries qui viennent
     d'être jetées de la file (voir routes/sync.py::stop_batch)."""
-    global _batch_total, _batch_done
+    global _batch_total, _batch_done, _batch_real_sends
     with _batch_progress_lock:
         _batch_total = 0
         _batch_done = 0
+        _batch_real_sends = 0
 
 
-def broadcast_batch_progress(remaining, active=None, stopped=False):
-    """Notifie l'UI (barre de progression batch) via Socket.IO."""
+def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=None):
+    """Notifie l'UI (barre de progression batch) via Socket.IO.
+
+    `real_sends` (uniquement sur le message de fin) : nombre de séries du batch
+    réellement écrites vers Kavita — voir `_REAL_SEND_MESSAGES`. Sert de garde-fou
+    au nagware supporter (batch.js) : un batch entièrement composé de séries déjà
+    à jour (skip silencieux, aucune écriture) ne doit pas déclencher la demande de
+    soutien, même si `remaining` tombe bien à 0.
+    """
     try:
         from extensions import socketio
         payload = {
@@ -102,6 +118,8 @@ def broadcast_batch_progress(remaining, active=None, stopped=False):
         }
         if active is not None:
             payload["active"] = active
+        if real_sends is not None:
+            payload["real_sends"] = int(real_sends)
         socketio.emit("batch_progress", payload)
     except Exception as exc:
         logging.debug("batch_progress emit skipped: %s", exc)
@@ -124,7 +142,7 @@ def drain_sync_queue() -> int:
 
 
 def _worker():
-    global _batch_total, _batch_done
+    global _batch_total, _batch_done, _batch_real_sends
     while True:
         item = sync_queue.get()
         try:
@@ -150,7 +168,7 @@ def _worker():
                 logging.info(t.get('log_worker_start').format(series_name, sync_queue.qsize()))
 
             # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
-            enrich_series(
+            _ok, _msg, _used = enrich_series(
                 series_id,
                 series_name,
                 force_update,
@@ -160,10 +178,13 @@ def _worker():
             if is_batch:
                 with _batch_progress_lock:
                     _batch_done = min(_batch_total, _batch_done + 1)
+                    if _msg in _REAL_SEND_MESSAGES:
+                        _batch_real_sends += 1
                     batch_finished = _batch_total > 0 and _batch_done >= _batch_total
+                    real_sends = _batch_real_sends
                 if batch_finished:
                     logging.info(t.get('log_batch_finished'))
-                    broadcast_batch_progress(0)
+                    broadcast_batch_progress(0, real_sends=real_sends)
         finally:
             # Toujours appeler task_done() pour chaque get() réussi (sauf sentinel
             # de shutdown). Sinon unfinished_tasks croît et tout futur join() bloque.

@@ -523,6 +523,12 @@
                 total = parseInt(payload.total, 10) || 0;
             }
             if (total <= 0) return;
+            // Aucune série réellement envoyée à Kavita (batch entièrement composé de
+            // séries déjà à jour, skip silencieux côté enrich_series) : rien à fêter,
+            // ne pas relancer le nagware supporter pour un lot qui n'a rien fait.
+            var realSends = parseInt(payload.real_sends, 10);
+            if (isNaN(realSends)) realSends = 0;
+            if (realSends <= 0) return;
             // Léger délai pour laisser la barre / UI se poser
             setTimeout(function () {
                 var ctx = {

@@ -13,6 +13,13 @@ uniquement par les items tagués `is_batch=True` (voir `make_sync_item` /
 - les items batch avancent bien `remaining` puis signalent la fin ;
 - les paquets successifs d'un même batch s'additionnent, un nouveau batch
   redémarre le compteur, et un Stop/drain le remet à zéro.
+
+`_batch_real_sends` (même fichier) résout un second bug apparenté : le nagware
+supporter (`onBatchComplete`, static/js/license_nag.js) se déclenchait pour un
+batch entièrement composé de séries déjà à jour (skip silencieux, aucune
+écriture Kavita). Le signal de fin de batch expose désormais `real_sends`,
+compté uniquement sur les messages `enrich_series()` qui correspondent à une
+écriture Kavita réelle (`_REAL_SEND_MESSAGES`).
 """
 import services.background_tasks as bg
 
@@ -39,7 +46,59 @@ def test_worker_ignores_non_batch_items_for_progress(mocker, isolated_db):
     assert len(calls) == 3, "seuls les 2 items batch (+ le signal de fin) doivent émettre"
     assert calls[0] == ((1,), {"active": "Batch A"})
     assert calls[1] == ((0,), {"active": "Batch B"})
-    assert calls[2] == ((0,), {})
+    assert calls[2] == ((0,), {"real_sends": 0})
+
+
+def test_batch_finished_reports_zero_real_sends_when_everything_was_skipped(mocker, isolated_db):
+    """Bug rapporté : le nagware supporter se déclenchait pour un batch entièrement
+    composé de séries déjà à jour (`enrich_series` renvoie "Déjà à jour." sans
+    jamais écrire vers Kavita). Le signal de fin doit exposer `real_sends=0`."""
+    mocker.patch(
+        "services.background_tasks.enrich_series",
+        return_value=(True, "Déjà à jour.", []),
+    )
+    mocker.patch("services.background_tasks.load_config", return_value={"UI_LANG": "fr"})
+    calls = []
+    mocker.patch(
+        "services.background_tasks.broadcast_batch_progress",
+        side_effect=lambda *a, **k: calls.append((a, k)),
+    )
+
+    bg.register_batch_enqueue(2, new_batch=True)
+    bg.sync_queue.put(bg.make_sync_item(1, "Already up to date A", False, is_batch=True))
+    bg.sync_queue.put(bg.make_sync_item(2, "Already up to date B", False, is_batch=True))
+    bg.sync_queue.put(None)
+
+    bg._worker()
+
+    assert calls[-1] == ((0,), {"real_sends": 0})
+
+
+def test_batch_finished_counts_only_real_kavita_writes(mocker, isolated_db):
+    """Un batch mixte (1 skip, 1 écriture réelle, 1 mise en review manuelle) ne
+    doit compter que la véritable écriture Kavita dans `real_sends`."""
+    results = iter([
+        (True, "Déjà à jour.", []),
+        (True, "Succès", ["ANILIST"]),
+        (True, "PENDING_REVIEW", []),
+    ])
+    mocker.patch("services.background_tasks.enrich_series", side_effect=lambda *a, **k: next(results))
+    mocker.patch("services.background_tasks.load_config", return_value={"UI_LANG": "fr"})
+    calls = []
+    mocker.patch(
+        "services.background_tasks.broadcast_batch_progress",
+        side_effect=lambda *a, **k: calls.append((a, k)),
+    )
+
+    bg.register_batch_enqueue(3, new_batch=True)
+    bg.sync_queue.put(bg.make_sync_item(1, "Skip", False, is_batch=True))
+    bg.sync_queue.put(bg.make_sync_item(2, "Real write", False, is_batch=True))
+    bg.sync_queue.put(bg.make_sync_item(3, "Parked for review", False, is_batch=True))
+    bg.sync_queue.put(None)
+
+    bg._worker()
+
+    assert calls[-1] == ((0,), {"real_sends": 1})
 
 
 def test_register_batch_enqueue_accumulates_across_packets():
