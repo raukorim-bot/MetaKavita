@@ -69,9 +69,9 @@ Reverse proxy headers (`X-Forwarded-Prefix`, `X-Forwarded-For`, …) are process
 
 **`KAVITA_HTTP_TIMEOUT`** — seconds for Kavita **write** POSTs (metadata 2-pass, series update 2-pass, cover upload). Default `60`. Env or `config.json`. If pass 1 (write) succeeds and pass 2 (re-lock) fails/times out, `update_series_metadata` / `update_series_general` return `(ok, msg, sealed=False)` soft-success; enrichment maps that to status **`NEEDS_RELOCK`** (not plain `COMPLETED`) and schedules `seal_series_locks()` (~2 s). Manual retry: `POST /api/series/<id>/seal-locks` and bulk `POST /api/series/seal-locks-pending` (`routes/series.py`).
 
-**`MAX_TAGS`** — max tags pushed to Kavita. Default `15` (clamped 1–100). Env or `config.json` only — **not** in the Config modal. Use `get_max_tags(config=None)` from `config_manager` in scrapers (`tags[:get_max_tags()]`) and in `services/enrichment_engine.py` when building the Kavita payload (`get_max_tags(config)`).
+**`MAX_TAGS`** — max tags pushed to Kavita. Default `15` (clamped 1–100). Env or `config.json` only — **not** in the Config modal. Use `get_max_tags(config=None)` from `config_manager` in scrapers (`tags[:get_max_tags()]`). In `services/kavita_payload.py` (**BF66**), titles are **deduped** (strip + casefold, order-preserving) **before** the max slice — Kavita UNIQUE on `Tag.NormalizedTitle` rejects duplicate `id:0` inserts with a generic 400.
 
-**`MAX_GENRES`** — max genres pushed to Kavita. Default `5` (clamped 1–50). Env or `config.json` only — **not** in the Config modal. Use `get_max_genres(config=None)` in scrapers (`genres[:get_max_genres()]`) and in `services/enrichment_engine.py` when building the Kavita payload (`get_max_genres(config)`).
+**`MAX_GENRES`** — max genres pushed to Kavita. Default `5` (clamped 1–50). Env or `config.json` only — **not** in the Config modal. Same pattern as tags: scrapers may truncate early; the payload path dedupes then applies `get_max_genres(config)` (**BF66**).
 
 ---
 
@@ -241,12 +241,15 @@ Two independent improvements were made on top of the unified scoring matrix (§6
    own winning score to the returned dict via `attach_match_score()` (key `_match_score`, see
    `scrapers/utils.py`). Direct ID/URL lookups (`is_id=True`) attach `1.0` — an explicit
    identifier lookup has no ambiguity to score. `fetch_metadata()` collects every accepted
-   candidate, then sorts them by score descending (ties broken by original fallback-list
-   position) before picking a winner. If `SMART_COMPLETION` is enabled, gap-filling now follows
-   this same score-descending order instead of the raw list order — the most trustworthy
-   candidate's fields win a "which value fills this gap" contest, not the one that merely
-   happened to run first. A candidate with no `_match_score` (e.g. a community scraper not yet
-   migrated to `score_candidate()`) is treated as "just barely accepted"
+   candidate, then sorts them by score descending before picking a winner. **Tie-break (BF68):**
+   equal scores → prefer non-explicit-adult (`age_rating` not `pornographic`/`erotica`), then
+   original fallback-list position. Auto logs `log_tiebreak_prefer_safe` when that NSFW demotion
+   fires. A single adult winner is unchanged. Manual Review `return_candidates` keeps a **neutral**
+   sort (all cards, no NSFW demotion). Confirm-before-write + score tie → `awaiting_pick` (not
+   silent confirm). If `SMART_COMPLETION` is enabled, gap-filling follows this same sorted order —
+   the most trustworthy candidate's fields win a "which value fills this gap" contest, not the one
+   that merely happened to run first. A candidate with no `_match_score` (e.g. a community scraper
+   not yet migrated to `score_candidate()`) is treated as "just barely accepted"
    (`MATCH_ACCEPT_THRESHOLD`) rather than crashing the sort or being unfairly favored.
 2. **Two-wave execution.** Provider #1 still runs alone and sequentially first; whatever ISBN/
    authors it finds are merged into `existing_metadata` and handed to the *remaining* providers,
@@ -337,6 +340,7 @@ Before touching any code path that calls into `kavita_api.py`, read `kavita_api.
 1. **Never send a partial payload to `POST /api/Series/update`.** Kavita's `SeriesController`/`UpdateSeriesDto` has **no null-guard** on several fields — `localizedName` in particular. If your update logic only intends to change `format`, but omits `localizedName` from the JSON body, Kavita's C# backend deserializes the missing key as `null`, **overwrites** the existing value in the database, and additionally **resets** `nameLocked` / `sortNameLocked` / `localizedNameLocked` to `false` — even though those fields were never meant to be touched. This exact regression silently corrupted alternate titles for real users and crashed a third-party OPDS client (KOReader's "Kamare" plugin), which assumed `localizedName` would always be a string and choked on the resulting `null`. **The mandatory fix pattern:** always `GET /api/Series/{id}` first, merge your intended change into the *complete* current state, and only then `POST` the full object back. See `KavitaAPI.update_series_general()` for the reference implementation of this GET-merge-POST pattern.
 2. **Sanitize GET-only / computed fields before every `POST`.** Properties like `created`, `lastModified`, `totalCount`, `maxCount`, `pages`, and `wordCount` are returned by Kavita's `GET` endpoints but must never be echoed back in a `POST` body — doing so risks triggering Entity Framework Core concurrency exceptions server-side. This sanitization is centralized **once** inside `KavitaAPI.update_series_metadata()`. Do not re-implement a partial version of it ad-hoc in `app.py` or inside a scraper — that exact kind of duplication (only stripping `created`/`lastModified` in one place while forgetting `maxCount`/`totalCount`) is how a `maxCount: -100000` payload once reached Kavita and crashed a sync.
 3. **Respect the 2-pass Lock Guard protocol** (`Unlock → Write → Lock`, documented in `kavita_api.md` §1.B/1.C) whenever your code needs to overwrite a field the user may have manually locked in Kavita's UI. Soft-success on re-lock failure must surface as `NEEDS_RELOCK` + `seal_series_locks`, not silent `COMPLETED`.
+4. **Soft atomicity for general fields (BF67).** `apply_kavita_payload()` calls `update_series_general` (localized name / format) **only when** `update_series_metadata` succeeded. A metadata failure must not still write general fields (that was the #24 failure mode: UNIQUE tag reject + `localizedName` still applied).
 
 #### C. Trace New Settings Through the *Entire* Chain, Not Just One File
 The per-series Publisher Preference toggle (`VF/VA` vs `VO`, v1.5.7) shipped with fully correct code in the HTML template, the JS payload builder, both scrapers' extraction logic, *and* the SQLite schema — yet was completely inert in practice, because a single Flask route (`/save-override`) read the submitted value into a local variable and then simply never forwarded it to the persistence call (then `save_forced_overrides()`, since removed in favour of `save_series_override(SeriesOverride(...))`). No single file was wrong in isolation; the bug only existed in the gap between files. **Whenever you add or touch a per-series or global setting, manually trace it end-to-end**: HTML input → `script.js` payload construction → Flask route parameter extraction → `db_manager.py` write → `db_manager.py` read → `existing_metadata` construction in `app.py` → scraper consumption. A fast way to catch this class of bug is to grep every call site of the persistence function (e.g. `save_series_override(`) and diff the `SeriesOverride` fields against the dataclass.
@@ -416,9 +420,9 @@ Le système gère les sous-chemins (ex: `https://domaine.com/metakavita`) via `P
 
 **`KAVITA_HTTP_TIMEOUT`** — secondes pour les POST d'**écriture** Kavita (metadata 2-pass, update série 2-pass, upload couverture). Défaut `60`. Env ou `config.json`. Si le passage 1 (écriture) réussit et le passage 2 (re-lock) échoue/timeout, `update_series_metadata` / `update_series_general` renvoient `(ok, msg, sealed=False)` soft-success ; l’enrichissement mappe ça en statut **`NEEDS_RELOCK`** (pas un simple `COMPLETED`) et planifie `seal_series_locks()` (~2 s). Retry manuel : `POST /api/series/<id>/seal-locks` et bulk `POST /api/series/seal-locks-pending` (`routes/series.py`).
 
-**`MAX_TAGS`** — nombre max de tags poussés vers Kavita. Défaut `15` (borné 1–100). Env ou `config.json` uniquement — **pas** dans la modal Config. Utiliser `get_max_tags(config=None)` depuis `config_manager` dans les scrapers (`tags[:get_max_tags()]`) et dans `services/enrichment_engine.py` pour le payload Kavita (`get_max_tags(config)`).
+**`MAX_TAGS`** — nombre max de tags poussés vers Kavita. Défaut `15` (borné 1–100). Env ou `config.json` uniquement — **pas** dans la modal Config. Utiliser `get_max_tags(config=None)` depuis `config_manager` dans les scrapers (`tags[:get_max_tags()]`). Dans `services/kavita_payload.py` (**BF66**), les titres sont **dédupliqués** (strip + casefold, ordre conservé) **avant** le slice max — Kavita UNIQUE sur `Tag.NormalizedTitle` refuse les inserts `id:0` en double avec un 400 générique.
 
-**`MAX_GENRES`** — nombre max de genres poussés vers Kavita. Défaut `5` (borné 1–50). Env ou `config.json` uniquement — **pas** dans la modal Config. Utiliser `get_max_genres(config=None)` dans les scrapers (`genres[:get_max_genres()]`) et dans `services/enrichment_engine.py` pour le payload Kavita (`get_max_genres(config)`).
+**`MAX_GENRES`** — nombre max de genres poussés vers Kavita. Défaut `5` (borné 1–50). Env ou `config.json` uniquement — **pas** dans la modal Config. Même schéma que les tags : les scrapers peuvent tronquer tôt ; le chemin payload déduplique puis applique `get_max_genres(config)` (**BF66**).
 
 ---
 
@@ -586,11 +590,15 @@ Deux améliorations indépendantes ont été ajoutées par-dessus la matrice de 
    `_match_score`, voir `scrapers/utils.py`). Une résolution directe par ID/URL (`is_id=True`)
    attache `1.0` — une recherche par identifiant explicite n'a par nature aucune ambiguïté à
    scorer. `fetch_metadata()` collecte tous les candidats acceptés, puis les trie par score
-   décroissant (égalité → position d'origine dans la liste de fallback) avant de désigner un
-   vainqueur. Si `SMART_COMPLETION` est activé, le remplissage des champs manquants suit
-   désormais ce même ordre décroissant par score plutôt que l'ordre brut de la liste : c'est le
-   candidat le plus digne de confiance qui gagne le droit de combler un champ vide, pas celui qui
-   se trouvait juste être exécuté en premier. Un candidat sans `_match_score` (ex : scraper
+   décroissant avant de désigner un vainqueur. **Départage (BF68) :** scores égaux → préférence
+   non-adulte explicite (`age_rating` hors `pornographic`/`erotica`), puis position d'origine
+   dans la liste de fallback. Auto journalise `log_tiebreak_prefer_safe` quand cette démotion
+   NSFW s'applique. Un seul vainqueur adulte n'est pas modifié. Manual Review `return_candidates`
+   garde un tri **neutre** (toutes les cartes, pas de démotion NSFW). Confirm-before-write +
+   égalité de score → `awaiting_pick` (pas de confirm silencieux). Si `SMART_COMPLETION` est
+   activé, le remplissage des champs manquants suit ce même ordre trié : c'est le candidat le
+   plus digne de confiance qui gagne le droit de combler un champ vide, pas celui qui se
+   trouvait juste être exécuté en premier. Un candidat sans `_match_score` (ex : scraper
    communautaire non encore migré vers `score_candidate()`) est traité comme "juste accepté"
    (`MATCH_ACCEPT_THRESHOLD`) plutôt que de faire planter le tri ou d'être injustement favorisé.
 2. **Exécution en deux vagues.** Le provider #1 tourne toujours seul et en premier, séquentiel ;
@@ -682,6 +690,7 @@ Avant de toucher à un chemin de code qui appelle `kavita_api.py`, lisez intégr
 1. **Ne jamais envoyer de payload partiel à `POST /api/Series/update`.** Le `SeriesController`/`UpdateSeriesDto` de Kavita n'a **aucune protection contre les valeurs nulles** sur plusieurs champs — notamment `localizedName`. Si votre logique de mise à jour ne vise à changer que `format` mais omet `localizedName` du corps JSON, le backend C# de Kavita désérialise la clé manquante en `null`, **écrase** la valeur existante en base, et **réinitialise en plus** `nameLocked` / `sortNameLocked` / `localizedNameLocked` à `false` — alors même que ces champs n'étaient pas censés être touchés. Cette régression exacte a silencieusement corrompu les titres alternatifs d'utilisateurs réels et fait planter un client OPDS tiers (l'extension "Kamare" de KOReader), qui supposait que `localizedName` serait toujours une chaîne de caractères et s'est bloqué sur le `null` résultant. **Le motif de correction obligatoire :** toujours faire un `GET /api/Series/{id}` en premier, fusionner le changement voulu dans l'état actuel *complet*, puis seulement ensuite renvoyer l'objet entier en `POST`. Voir `KavitaAPI.update_series_general()` pour l'implémentation de référence de ce motif GET-fusion-POST.
 2. **Assainir les champs GET-uniquement / calculés avant chaque `POST`.** Des propriétés comme `created`, `lastModified`, `totalCount`, `maxCount`, `pages` et `wordCount` sont renvoyées par les endpoints `GET` de Kavita mais ne doivent jamais être réinjectées dans un corps `POST` — cela risque de déclencher des exceptions de concurrence d'état côté Entity Framework Core. Cet assainissement est centralisé **une seule fois** dans `KavitaAPI.update_series_metadata()`. Ne réimplémentez pas une version partielle de cette logique dans `app.py` ou dans un scraper — c'est exactement ce type de duplication (ne retirer que `created`/`lastModified` à un endroit en oubliant `maxCount`/`totalCount`) qui a un jour laissé passer un payload `maxCount: -100000` vers Kavita et fait planter une synchronisation.
 3. **Respecter le protocole de verrouillage à 2 passages** (`Unlock → Write → Lock`, documenté dans `kavita_api.md` §1.B/1.C) chaque fois que votre code doit écraser un champ que l'utilisateur a pu verrouiller manuellement dans l'interface de Kavita. Un soft-success sur échec de re-lock doit remonter en `NEEDS_RELOCK` + `seal_series_locks`, pas en `COMPLETED` silencieux.
+4. **Atomicité soft des champs généraux (BF67).** `apply_kavita_payload()` n'appelle `update_series_general` (nom localisé / format) **que si** `update_series_metadata` a réussi. Un échec metadata ne doit plus écrire les champs généraux (mode de panne #24 : rejet UNIQUE des tags + `localizedName` quand même appliqué).
 
 #### C. Tracer un Nouveau Réglage sur *Toute* la Chaîne, Pas Seulement un Fichier
 L'interrupteur de Préférence d'Éditeur par série (`VF/VA` vs `VO`, v1.5.7) a été livré avec un code entièrement correct dans le template HTML, la construction du payload JS, la logique d'extraction des deux scrapers, *et* le schéma SQLite — et pourtant il n'avait strictement aucun effet en pratique, car une seule route Flask (`/save-override`) lisait la valeur soumise dans une variable locale puis oubliait tout simplement de la transmettre à l'appel de persistance (alors `save_forced_overrides()`, depuis retiré au profit de `save_series_override(SeriesOverride(...))`). Aucun fichier n'était fautif isolément ; le bug n'existait que dans l'interstice entre les fichiers. **Chaque fois que vous ajoutez ou modifiez un réglage par série ou global, tracez-le manuellement de bout en bout** : champ HTML → construction du payload dans `script.js` → extraction du paramètre dans la route Flask → écriture dans `db_manager.py` → lecture dans `db_manager.py` → construction de `existing_metadata` dans `app.py` → consommation par le scraper. Un moyen rapide de détecter cette classe de bug consiste à rechercher tous les appels de la fonction de persistance (ex : `save_series_override(`) et à comparer les champs du `SeriesOverride` avec la dataclass.
