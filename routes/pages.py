@@ -23,6 +23,7 @@ from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
 from services.mr_achievements import evaluate_from_lifetime
 from services.stats_service import compute_playful_stats
+from services.scraper_diagnostics import list_scrapers_inventory
 
 pages_bp = Blueprint('pages', __name__)
 
@@ -192,4 +193,19 @@ def stats():
         playful_enabled=playful_enabled,
         playful=playful,
         mr_achievements=mr_achievements,
+    )
+
+
+@pages_bp.route('/diagnostics')
+def diagnostics():
+    """Page premium de diagnostic (préflight Internet/Kavita + probes scrapers)."""
+    config = load_config()
+    ui_lang = config.get('UI_LANG', 'fr')
+    t = translations.get(ui_lang, translations['fr'])
+    return render_template(
+        'diagnostics.html',
+        config=config,
+        t=t,
+        app_version=get_current_version(),
+        scrapers=list_scrapers_inventory(config),
     )

@@ -174,6 +174,7 @@ def build_titles_struct(labels: Dict[str, str]) -> List[Dict[str, str]]:
 
 
 def resolve_cover_url(entity: dict) -> Optional[str]:
+    """Cover Wikidata uniquement : propriété P18 (fichier Commons). Pas de fallback externe."""
     for val in _claim_values(entity, P_IMAGE):
         if isinstance(val, str) and val.strip():
             return commons_file_url(val.strip())

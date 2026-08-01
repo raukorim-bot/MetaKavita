@@ -2,10 +2,37 @@ import logging
 import requests
 import urllib.parse
 from typing import Optional, Dict, Any, List
+import re
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_tags, get_max_genres
 from secure_logging import safe_exc_str
+
+
+def _isbn_query_variants(isbn: str) -> List[str]:
+    """ISBN-13 et ISBN-10 : Google indexe parfois un seul des deux (ex. Dune Ace)."""
+    clean = re.sub(r"[\s\-]", "", str(isbn or ""))
+    if not clean:
+        return []
+    out = [clean]
+    if len(clean) == 13 and clean.startswith("978") and clean.isdigit():
+        core = clean[3:12]
+        total = sum((10 - i) * int(core[i]) for i in range(9))
+        check = (11 - (total % 11)) % 11
+        isbn10 = core + ("X" if check == 10 else str(check))
+        if isbn10 not in out:
+            out.append(isbn10)
+    elif len(clean) == 10:
+        body = clean[:9]
+        if body.isdigit() and (clean[9].isdigit() or clean[9].upper() == "X"):
+            core = "978" + body
+            total = sum(int(core[i]) * (1 if i % 2 == 0 else 3) for i in range(12))
+            check = (10 - (total % 10)) % 10
+            isbn13 = core + str(check)
+            if isbn13 not in out:
+                out.append(isbn13)
+    return out
+
 
 class GoogleBooksScraper(BaseScraper):
     id = "GOOGLEBOOKS"
@@ -20,6 +47,17 @@ class GoogleBooksScraper(BaseScraper):
     has_direct_id_support = True
     needs_api_key = True
     uses_unified_scoring = True
+
+    # Google Books géolocalise la requête via l'IP source pour le endpoint
+    # volumes:list. Sur certaines IP (notamment françaises/résidentielles, cas
+    # typique d'un serveur auto-hébergé), Google échoue à déterminer le pays
+    # de façon fiable et renvoie tantôt `totalItems: 0` sur une requête
+    # pourtant valide, tantôt une erreur 503 "Service temporarily unavailable"
+    # (backendFailed). Forcer `country` (ISO-3166-1) contourne ce problème
+    # documenté côté Google — voir developers.google.com/books/docs/v1/reference/volumes/list
+    # et les multiples rapports (Stack Overflow) de "totalItems=0 en France
+    # mais OK depuis les US".
+    DEFAULT_COUNTRY = "US"
     
     translations = {
         "fr": {
@@ -59,7 +97,8 @@ class GoogleBooksScraper(BaseScraper):
             if is_id:
                 logging.info(self.t("direct_id").format(query))
                 url = f"https://www.googleapis.com/books/v1/volumes/{query}"
-                params = {"key": api_key} if api_key else {}
+                params = {"country": self.DEFAULT_COUNTRY}
+                if api_key: params["key"] = api_key
                 res = requests.get(url, params=params, timeout=15)
                 if res.status_code == 200:
                     item = res.json()
@@ -77,17 +116,19 @@ class GoogleBooksScraper(BaseScraper):
 
             if ex_isbn:
                 logging.info(self.t("search_isbn").format(ex_isbn))
-                p_isbn = {"q": f"isbn:{ex_isbn}"}
-                if api_key: p_isbn["key"] = api_key
-                res = requests.get(url, params=p_isbn, timeout=12)
-                if res.status_code == 200:
-                    items = res.json().get("items", [])
-                    if items:
-                        vol_info = items[0].get("volumeInfo", {})
-                        logging.info(self.t("matched_isbn").format(ex_isbn, vol_info.get('title')))
+                for isbn_try in _isbn_query_variants(ex_isbn):
+                    p_isbn = {"q": f"isbn:{isbn_try}", "country": self.DEFAULT_COUNTRY}
+                    if api_key: p_isbn["key"] = api_key
+                    res = requests.get(url, params=p_isbn, timeout=12)
+                    if res.status_code == 200:
+                        items = res.json().get("items", [])
+                        if items:
+                            vol_info = items[0].get("volumeInfo", {})
+                            logging.info(self.t("matched_isbn").format(isbn_try, vol_info.get('title')))
+                            break
 
             if not items:
-                params = {"q": cleaned, "maxResults": 10, "orderBy": "relevance"}
+                params = {"q": cleaned, "maxResults": 10, "orderBy": "relevance", "country": self.DEFAULT_COUNTRY, "printType": "books"}
                 if google_lang: params["langRestrict"] = google_lang
                 if api_key: params["key"] = api_key
                 res = requests.get(url, params=params, timeout=12)
@@ -95,7 +136,7 @@ class GoogleBooksScraper(BaseScraper):
                     items = res.json().get("items", [])
 
             if not items:
-                params = {"q": cleaned, "maxResults": 10, "orderBy": "relevance"}
+                params = {"q": cleaned, "maxResults": 10, "orderBy": "relevance", "country": self.DEFAULT_COUNTRY, "printType": "books"}
                 if api_key: params["key"] = api_key
                 res = requests.get(url, params=params, timeout=12)
                 if res.status_code == 200:
@@ -194,7 +235,7 @@ class GoogleBooksScraper(BaseScraper):
         config = load_config()
         api_key = config.get("GOOGLEBOOKS_API_KEY", "").strip()
         url = "https://www.googleapis.com/books/v1/volumes"
-        params = {"q": cleaned, "maxResults": 4}
+        params = {"q": cleaned, "maxResults": 4, "country": self.DEFAULT_COUNTRY, "printType": "books"}
         if api_key: params["key"] = api_key
         try:
             res = requests.get(url, params=params, timeout=10)

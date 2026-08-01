@@ -129,6 +129,26 @@ def test_entity_to_candidate_mapping():
     assert any(t["lang"] == "fr" for t in cand["titles"])
 
 
+def test_resolve_cover_none_without_p18():
+    """Sans P18 Wikidata, pas de fallback externe — cover_url reste None."""
+    from scrapers.wikidata_map import resolve_cover_url
+
+    entity = {
+        "id": "Q1",
+        "claims": {
+            "P212": [
+                {
+                    "mainsnak": {
+                        "snaktype": "value",
+                        "datavalue": {"value": "978-0-441-17271-9", "type": "string"},
+                    }
+                }
+            ]
+        },
+    }
+    assert resolve_cover_url(entity) is None
+
+
 def test_extract_id_from_url():
     s = WikidataScraper()
     assert s.extract_id_from_url("https://www.wikidata.org/wiki/Q12345") == "Q12345"

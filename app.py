@@ -58,21 +58,20 @@ class WebSocketLogHandler(logging.Handler):
             return
 
         try:
-            # `socketio.emit()` peut échouer AVANT que `socketio.init_app(app)`
-            # n'ait tourné plus bas dans ce module (`self.server` vaut alors
-            # `None`) — c'est le cas dès qu'un import exécuté avant cette ligne
-            # journalise quoi que ce soit (ex: `scrapers/__init__.py` charge et
-            # journalise tous les scrapers à l'import, avant la création de
-            # `app`). Un `logging.Handler.emit()` ne doit JAMAIS laisser une
-            # exception remonter : sans ce garde-fou, ÇA CASSE l'appelant
-            # d'origine (potentiellement en plein import de module, donc tout
-            # le démarrage de l'application) au lieu de simplement priver la
-            # console Live Logs de cette ligne. `self.handleError()` est le
-            # mécanisme standard `logging` pour ce cas (best-effort, jamais
-            # bloquant).
+            # `socketio.emit()` échoue AVANT `socketio.init_app(app)` (`server`
+            # vaut `None`) — typiquement pendant `_boot_config = load_config()`
+            # ou le chargement des scrapers à l'import. Un `emit()` de Handler
+            # ne doit JAMAIS faire remonter d'exception (sinon ça casse le boot)
+            # NI appeler `handleError()` pour ce cas attendu : handleError dump
+            # un traceback "--- Logging error ---" sur stderr à chaque ligne
+            # loguée pendant le démarrage Gunicorn, ce qui pollue les logs Docker
+            # sans apport (le FileHandler / StreamHandler ont déjà écrit la ligne).
+            if getattr(socketio, "server", None) is None:
+                return
             socketio.emit('log_update', {'data': log_entry})
         except Exception:
-            self.handleError(record)
+            # Best-effort Live Logs : ignorer silencieusement (pas de handleError).
+            return
 
 ws_handler = WebSocketLogHandler()
 ws_formatter = logging.Formatter('%(asctime)s | %(message)s', datefmt='%H:%M:%S')
@@ -268,6 +267,7 @@ from routes.series import series_bp
 from routes.sync import sync_bp
 from routes.misc import misc_bp
 from routes.manual_review import manual_review_bp
+from routes.diagnostics import diagnostics_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pages_bp)
@@ -276,6 +276,7 @@ app.register_blueprint(series_bp)
 app.register_blueprint(sync_bp)
 app.register_blueprint(misc_bp)
 app.register_blueprint(manual_review_bp)
+app.register_blueprint(diagnostics_bp)
 
 # --- ENREGISTREMENT DES HANDLERS SOCKET.IO (effet de bord Ã  l'import) ---
 import sockets.handlers  # noqa: F401

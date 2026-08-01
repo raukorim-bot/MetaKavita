@@ -48,6 +48,86 @@ function closeProvidersModal() {
     if (modal) modal.style.display = 'none';
 }
 
+function resetDiagInlinePill(selectName) {
+    const pill = document.querySelector(`.diag-inline-pill[data-for="${selectName}"]`);
+    if (!pill) return;
+    pill.hidden = true;
+    pill.dataset.status = '';
+    pill.textContent = '—';
+    pill.title = '';
+}
+
+function probeProviderFromModal(selectName, btn) {
+    const select = document.querySelector(`#providersForm select[name="${selectName}"]`);
+    const pill = document.querySelector(`.diag-inline-pill[data-for="${selectName}"]`);
+    if (!select) return;
+    const id = select.value;
+    if (!id || id === 'NONE') {
+        resetDiagInlinePill(selectName);
+        return;
+    }
+
+    if (btn) btn.disabled = true;
+    if (pill) {
+        pill.hidden = false;
+        pill.dataset.status = 'running';
+        pill.textContent = '…';
+        pill.title = '';
+    }
+
+    fetch(getRootPath() + '/api/scrapers/' + encodeURIComponent(id) + '/probe', {
+        method: 'POST',
+        headers: {
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+            'X-Requested-With': 'XMLHttpRequest',
+        },
+        body: '{}',
+    })
+    .then(res => res.json().then(data => ({ ok: res.ok, data })))
+    .then(({ ok, data }) => {
+        const result = (data && data.result) || {};
+        const status = ok ? (result.status || 'down') : 'down';
+        if (pill) {
+            // Si l'utilisateur a changé le provider pendant le fetch, ignorer le résultat
+            if (select.value !== id) {
+                resetDiagInlinePill(selectName);
+                return;
+            }
+            pill.hidden = false;
+            pill.dataset.status = status;
+            const labels = { ok: 'OK', degraded: '!', down: '✕', skipped: '—', running: '…' };
+            pill.textContent = labels[status] || status;
+            const cause = result.cause || '';
+            const meta = (result.metadata && result.metadata.status) || '';
+            const covers = (result.covers && result.covers.status) || '';
+            pill.title = [id, cause, 'meta=' + meta, 'covers=' + covers].filter(Boolean).join(' · ');
+        }
+    })
+    .catch(() => {
+        if (select.value !== id) {
+            resetDiagInlinePill(selectName);
+            return;
+        }
+        if (pill) {
+            pill.hidden = false;
+            pill.dataset.status = 'down';
+            pill.textContent = '✕';
+            pill.title = 'error';
+        }
+    })
+    .finally(() => {
+        if (btn) btn.disabled = false;
+    });
+}
+
+document.addEventListener('click', function (e) {
+    const btn = e.target.closest && e.target.closest('.btn-diag-probe');
+    if (!btn) return;
+    e.preventDefault();
+    probeProviderFromModal(btn.getAttribute('data-provider-select'), btn);
+});
+
 function saveProvidersConfig() {
     const form = document.getElementById('providersForm');
     if (!form) return;
@@ -311,11 +391,14 @@ function handleProviderChange(changedSelect) {
     ];
     
     const newValue = changedSelect.value;
+    // Le résultat de test ne concerne que l'ancien provider : on invalide la pastille.
+    resetDiagInlinePill(name);
 
     if (newValue !== 'NONE') {
         selects.forEach(otherSelect => {
             if (otherSelect && otherSelect !== changedSelect && otherSelect.value === newValue) {
                 otherSelect.value = 'NONE';
+                resetDiagInlinePill(otherSelect.name);
             }
         });
     }
@@ -325,7 +408,11 @@ function handleProviderChange(changedSelect) {
         const allProviders = Array.from(p1.options).map(opt => opt.value).filter(val => val !== 'NONE');
         const usedByOthers = [selects[1] ? selects[1].value : 'NONE', selects[2] ? selects[2].value : 'NONE'];
         const freeProvider = allProviders.find(p => !usedByOthers.includes(p));
-        p1.value = freeProvider || allProviders[0];
+        const next = freeProvider || allProviders[0];
+        if (p1.value !== next) {
+            p1.value = next;
+            resetDiagInlinePill(p1.name);
+        }
     }
 
     saveConfig();

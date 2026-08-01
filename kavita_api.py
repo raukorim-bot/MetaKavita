@@ -125,7 +125,9 @@ class KavitaAPI:
         ``dns``, ``connection``, ``ssl``, ``unknown``.
         """
         self.last_auth_error = None
-        logging.info("[DEBUG] Auth Kavita tentée avec URL: '%s' (clé API non loguée).", self.url)
+        # Diagnostic verbeux uniquement en niveau DEBUG (évite le spam INFO à chaque
+        # auth : dashboard, préflight /diagnostics, enrichissement, etc.).
+        logging.debug("Auth Kavita tentée avec URL: %s (clé API non loguée)", self.url)
         if not self.api_key or not self.url:
             self.last_auth_error = "missing"
             return False

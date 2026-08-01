@@ -15,29 +15,41 @@
                             <div class="providers-row">
                                 <div class="form-group">
                                     <label>{{ t.provider_1 }}</label>
-                                    <select name="PROVIDER_1" onchange="handleProviderChange(this)">
-                                        {% for p in manga_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="PROVIDER_1" onchange="handleProviderChange(this)">
+                                            {% for p in manga_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="PROVIDER_1" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="PROVIDER_1" hidden></span>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label>{{ t.provider_2 }}</label>
-                                    <select name="PROVIDER_2" onchange="handleProviderChange(this)">
-                                        <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                        {% for p in manga_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="PROVIDER_2" onchange="handleProviderChange(this)">
+                                            <option value="NONE" {% if config.get("PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                            {% for p in manga_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="PROVIDER_2" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="PROVIDER_2" hidden></span>
+                                    </div>
                                 </div>
                                 <div class="form-group m-0">
                                     <label>{{ t.provider_3 }}</label>
-                                    <select name="PROVIDER_3" onchange="handleProviderChange(this)">
-                                        <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                        {% for p in manga_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="PROVIDER_3" onchange="handleProviderChange(this)">
+                                            <option value="NONE" {% if config.get("PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                            {% for p in manga_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="PROVIDER_3" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="PROVIDER_3" hidden></span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -47,29 +59,41 @@
                             <div class="providers-row">
                                 <div class="form-group">
                                     <label>{{ t.provider_1 }}</label>
-                                    <select name="COMIC_PROVIDER_1" onchange="handleProviderChange(this)">
-                                        {% for p in comic_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="COMIC_PROVIDER_1" onchange="handleProviderChange(this)">
+                                            {% for p in comic_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="COMIC_PROVIDER_1" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="COMIC_PROVIDER_1" hidden></span>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label>{{ t.provider_2 }}</label>
-                                    <select name="COMIC_PROVIDER_2" onchange="handleProviderChange(this)">
-                                        <option value="NONE" {% if config.get("COMIC_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                        {% for p in comic_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="COMIC_PROVIDER_2" onchange="handleProviderChange(this)">
+                                            <option value="NONE" {% if config.get("COMIC_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                            {% for p in comic_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="COMIC_PROVIDER_2" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="COMIC_PROVIDER_2" hidden></span>
+                                    </div>
                                 </div>
                                 <div class="form-group m-0">
                                     <label>{{ t.provider_3 }}</label>
-                                    <select name="COMIC_PROVIDER_3" onchange="handleProviderChange(this)">
-                                        <option value="NONE" {% if config.get("COMIC_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                        {% for p in comic_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="COMIC_PROVIDER_3" onchange="handleProviderChange(this)">
+                                            <option value="NONE" {% if config.get("COMIC_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                            {% for p in comic_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("COMIC_PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="COMIC_PROVIDER_3" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="COMIC_PROVIDER_3" hidden></span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -79,29 +103,41 @@
                             <div class="providers-row">
                                 <div class="form-group">
                                     <label>{{ t.provider_1 }}</label>
-                                    <select name="BOOK_PROVIDER_1" onchange="handleProviderChange(this)">
-                                        {% for p in book_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="BOOK_PROVIDER_1" onchange="handleProviderChange(this)">
+                                            {% for p in book_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_1") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="BOOK_PROVIDER_1" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="BOOK_PROVIDER_1" hidden></span>
+                                    </div>
                                 </div>
                                 <div class="form-group">
                                     <label>{{ t.provider_2 }}</label>
-                                    <select name="BOOK_PROVIDER_2" onchange="handleProviderChange(this)">
-                                        <option value="NONE" {% if config.get("BOOK_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                        {% for p in book_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="BOOK_PROVIDER_2" onchange="handleProviderChange(this)">
+                                            <option value="NONE" {% if config.get("BOOK_PROVIDER_2") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                            {% for p in book_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_2") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="BOOK_PROVIDER_2" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="BOOK_PROVIDER_2" hidden></span>
+                                    </div>
                                 </div>
                                 <div class="form-group m-0">
                                     <label>{{ t.provider_3 }}</label>
-                                    <select name="BOOK_PROVIDER_3" onchange="handleProviderChange(this)">
-                                        <option value="NONE" {% if config.get("BOOK_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
-                                        {% for p in book_providers %}
-                                        <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
-                                        {% endfor %}
-                                    </select>
+                                    <div class="providers-select-row">
+                                        <select name="BOOK_PROVIDER_3" onchange="handleProviderChange(this)">
+                                            <option value="NONE" {% if config.get("BOOK_PROVIDER_3") == "NONE" %}selected{% endif %}>{{ t.provider_none }}</option>
+                                            {% for p in book_providers %}
+                                            <option value="{{ p.id }}" {% if config.get("BOOK_PROVIDER_3") == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                            {% endfor %}
+                                        </select>
+                                        <button type="button" class="btn-secondary btn-diag-probe" data-provider-select="BOOK_PROVIDER_3" title="{{ t.diag_modal_test }}">{{ t.diag_modal_test }}</button>
+                                        <span class="diag-inline-pill" data-for="BOOK_PROVIDER_3" hidden></span>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -109,6 +145,7 @@
                 </div>
 
                 <div class="modal-footer">
+                    <a href="{{ url_for('pages.diagnostics') }}" class="field-hint" style="margin-right: auto; text-decoration: none;">{{ t.diag_open_from_providers }}</a>
                     <button type="button" class="btn-secondary" onclick="closeProvidersModal()">{{ t.get('cancel', 'Annuler') }}</button>
                     <button type="submit" class="btn-primary" style="padding: 10px 18px;">{{ t.save_providers }}</button>
                 </div>

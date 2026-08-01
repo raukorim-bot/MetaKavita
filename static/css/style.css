@@ -1186,6 +1186,15 @@ a.btn-icon.bmc-link:hover {
     background: var(--bg-input);
 }
 
+.help-dropdown-item--muted {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.help-dropdown-item--muted:hover {
+    color: var(--text-main);
+}
+
 a.about-link {
     justify-content: flex-start;
 }
@@ -2926,6 +2935,55 @@ textarea.mr-edit-input[data-field="summary"] {
 .providers-row .form-group {
     margin-bottom: 0;
     min-width: 0;
+}
+.providers-select-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.providers-select-row select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.providers-select-row .btn-diag-probe {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.diag-inline-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    background: rgba(100,116,139,0.2);
+    color: #94a3b8;
+}
+.diag-inline-pill[data-status="ok"] {
+    background: rgba(52,211,153,0.18);
+    color: #34d399;
+}
+.diag-inline-pill[data-status="degraded"] {
+    background: rgba(251,191,36,0.18);
+    color: #fbbf24;
+}
+.diag-inline-pill[data-status="down"] {
+    background: rgba(251,113,133,0.18);
+    color: #fb7185;
+}
+.diag-inline-pill[data-status="skipped"] {
+    background: rgba(100,116,139,0.22);
+    color: #94a3b8;
+}
+.diag-inline-pill[data-status="running"] {
+    background: rgba(56,189,248,0.18);
+    color: #38bdf8;
 }
 
 /* Couvertures (modal existant) */

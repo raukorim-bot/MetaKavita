@@ -36,9 +36,10 @@
 >    autre chose que ce que vous croyez lire.
 > 4. **En cas de doute, ne l'installez pas.** Ouvrez plutôt une issue sur le dépôt.
 >
-> À terme, les scrapers communautaires seront vérifiés par le mainteneur ou un modérateur
-> dans un dépôt dédié. **Tant que ce dépôt n'existe pas, aucun scraper tiers n'est vérifié
-> par qui que ce soit.**
+> Les scrapers communautaires **vérifiés** vivent dans le dépôt dédié
+> [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita).
+> Préférez ce dépôt à un paste / Discord aléatoire. Tout autre `.py` hors de cette source
+> reste **non vérifié** — lisez-le avant de l'installer.
 
 > # 🚨 SECURITY WARNING — READ THIS FIRST
 >
@@ -75,9 +76,10 @@
 >    different from what you think you are reading.
 > 4. **When in doubt, do not install it.** Open an issue on the repository instead.
 >
-> Community scrapers will eventually be vetted by the maintainer or a moderator in a dedicated
-> repository. **Until that repository exists, no third-party scraper has been reviewed by
-> anyone.**
+> **Vetted** community scrapers live in
+> [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita).
+> Prefer that repository over a random paste / Discord drop. Any other `.py` outside that
+> source remains **unreviewed** — read it before installing.
 
 ---
 

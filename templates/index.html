@@ -229,6 +229,7 @@
 					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/ROADMAP.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_roadmap }}</a>
 					<div class="help-dropdown-sep"></div>
 					<button type="button" class="help-dropdown-item" onclick="closeHelpMenu(); openChangelogModal(true);">{{ t.help_changelog }}</button>
+					<a class="help-dropdown-item help-dropdown-item--muted" href="{{ url_for('pages.diagnostics') }}" onclick="closeHelpMenu();">{{ t.help_diagnostics }}</a>
 				</div>
 			</div>
 			<button type="button" class="btn-icon" onclick="openChangelogModal(true)" title="{{ t.help_changelog }}">✨ v{{ app_version }}</button>

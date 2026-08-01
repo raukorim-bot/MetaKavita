@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>MetaKavita · {{ t.diag_title }}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script>
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+        window.ROOT_PATH = "{{ request.script_root }}";
+        window.DIAG_I18N = {{ {
+            'idle': t.diag_status_idle,
+            'running': t.diag_status_running,
+            'ok': t.diag_status_ok,
+            'degraded': t.diag_status_degraded,
+            'down': t.diag_status_down,
+            'skipped': t.diag_status_skipped,
+            'n_a': t.diag_status_na,
+            'cause_ok': t.diag_cause_ok,
+            'cause_network': t.diag_cause_network,
+            'cause_ban': t.diag_cause_ban,
+            'cause_schema': t.diag_cause_schema,
+            'cause_covers_schema': t.diag_cause_covers_schema,
+            'cause_partial': t.diag_cause_partial,
+            'cause_auth_missing': t.diag_cause_auth_missing,
+            'internet_ok': t.diag_internet_ok,
+            'internet_down': t.diag_internet_down,
+            'kavita_ok': t.diag_kavita_ok,
+            'kavita_down': t.diag_kavita_down,
+            'kavita_libs': t.diag_kavita_libs,
+            'net_warn': t.diag_net_warn,
+            'probe_btn': t.diag_probe_one,
+            'ms': t.diag_latency_ms,
+            'err_generic': t.diag_err_generic,
+        }|tojson }};
+    </script>
+    <style>
+        :root {
+            --stats-ink: var(--text-main);
+            --stats-muted: var(--text-muted);
+            --stats-teal: #2dd4bf;
+            --stats-amber: #fbbf24;
+            --stats-coral: #fb7185;
+            --stats-sky: #38bdf8;
+            --stats-lime: #a3e635;
+            --diag-ok: #34d399;
+            --diag-warn: #fbbf24;
+            --diag-bad: #fb7185;
+            --diag-idle: #64748b;
+        }
+        html { height: auto; overflow-x: hidden; overflow-y: auto; scroll-behavior: smooth; }
+        body {
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            height: auto !important;
+            min-height: 100vh;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            background: #07090f;
+            color: var(--stats-ink);
+        }
+        [data-theme="light"] body { background: #f1f5f9; }
+        .dashboard-wrapper, .content {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            padding: 0 !important;
+            background: transparent !important;
+        }
+
+        .stats-nav {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 20px;
+            background: color-mix(in srgb, #07090f 78%, transparent);
+            backdrop-filter: blur(14px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        [data-theme="light"] .stats-nav {
+            background: color-mix(in srgb, #f8fafc 85%, transparent);
+            border-bottom-color: rgba(15,23,42,0.08);
+        }
+        .stats-nav .logo-mini {
+            display: flex; align-items: center; gap: 10px;
+            font-weight: 700; font-size: 1.05rem;
+        }
+        .stats-nav .logo-mini img { width: 28px; height: 28px; border-radius: 7px; }
+        .stats-nav-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .stats-nav .btn-primary, .stats-nav .btn-secondary {
+            padding: 8px 14px; font-size: 13px; text-decoration: none;
+        }
+
+        .diag-story { width: 100%; }
+        .diag-chapter {
+            position: relative;
+            padding: clamp(40px, 6vw, 72px) clamp(16px, 5vw, 64px);
+            overflow: hidden;
+        }
+        .diag-chapter::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(ellipse 60% 50% at 10% 0%, rgba(45,212,191,0.12), transparent 60%),
+                radial-gradient(ellipse 50% 40% at 90% 20%, rgba(56,189,248,0.08), transparent 55%);
+        }
+        .diag-chapter--scrapers::before {
+            background:
+                radial-gradient(ellipse 55% 45% at 80% 10%, rgba(251,191,36,0.1), transparent 55%),
+                radial-gradient(ellipse 40% 40% at 0% 80%, rgba(251,113,133,0.08), transparent 50%);
+        }
+        .chapter-inner {
+            position: relative;
+            z-index: 1;
+            width: min(1120px, 100%);
+            margin: 0 auto;
+        }
+        .chapter-kicker {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            margin-bottom: 14px;
+            color: var(--chapter-accent, var(--stats-sky));
+        }
+        .chapter-kicker::before {
+            content: "";
+            width: 28px; height: 2px;
+            background: currentColor;
+            border-radius: 2px;
+        }
+        .chapter-title {
+            font-size: clamp(1.75rem, 4vw, 2.8rem);
+            font-weight: 700;
+            letter-spacing: -0.045em;
+            line-height: 1.08;
+            margin: 0 0 10px;
+            max-width: 22ch;
+        }
+        .chapter-sub {
+            margin: 0 0 28px;
+            color: var(--stats-muted);
+            font-size: 1.02rem;
+            line-height: 1.5;
+            max-width: 58ch;
+        }
+
+        .preflight-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
+        }
+        @media (max-width: 720px) {
+            .preflight-grid { grid-template-columns: 1fr; }
+        }
+        .preflight-card {
+            position: relative;
+            border-radius: 22px;
+            padding: 22px 22px 20px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            overflow: hidden;
+            min-height: 150px;
+            transition: border-color 0.35s ease, transform 0.35s cubic-bezier(.2,.8,.2,1);
+        }
+        [data-theme="light"] .preflight-card {
+            background: #fff;
+            border-color: rgba(15,23,42,0.08);
+            box-shadow: 0 10px 30px rgba(15,23,42,0.06);
+        }
+        .preflight-card:hover { transform: translateY(-2px); }
+        .preflight-card .glow {
+            position: absolute;
+            width: 160px; height: 160px;
+            border-radius: 50%;
+            filter: blur(40px);
+            opacity: 0.35;
+            right: -40px; top: -40px;
+            background: var(--card-accent, var(--stats-teal));
+            pointer-events: none;
+        }
+        .preflight-card[data-status="ok"] { border-color: color-mix(in srgb, var(--diag-ok) 45%, transparent); }
+        .preflight-card[data-status="down"] { border-color: color-mix(in srgb, var(--diag-bad) 50%, transparent); }
+        .preflight-label {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            color: var(--stats-muted);
+            margin-bottom: 10px;
+        }
+        .preflight-status-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 10px;
+        }
+        .diag-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 7px;
+            padding: 5px 11px;
+            border-radius: 999px;
+            font-size: 0.78rem;
+            font-weight: 700;
+            letter-spacing: 0.02em;
+            background: rgba(100,116,139,0.18);
+            color: #94a3b8;
+            opacity: 0;
+            transform: translateY(6px);
+            animation: diagFadeIn 0.45s cubic-bezier(.2,.8,.2,1) forwards;
+        }
+        .diag-pill.is-visible { opacity: 1; }
+        .diag-pill .dot {
+            width: 8px; height: 8px; border-radius: 50%;
+            background: currentColor;
+            box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 25%, transparent);
+        }
+        .diag-pill[data-status="ok"] { background: rgba(52,211,153,0.16); color: var(--diag-ok); }
+        .diag-pill[data-status="degraded"] { background: rgba(251,191,36,0.16); color: var(--diag-warn); }
+        .diag-pill[data-status="down"] { background: rgba(251,113,133,0.16); color: var(--diag-bad); }
+        .diag-pill[data-status="skipped"],
+        .diag-pill[data-status="n_a"],
+        .diag-pill[data-status="idle"] { background: rgba(100,116,139,0.18); color: #94a3b8; }
+        .diag-pill[data-status="running"] {
+            background: rgba(56,189,248,0.16); color: var(--stats-sky);
+        }
+        .diag-pill[data-status="running"] .dot {
+            animation: diagPulse 1s ease-in-out infinite;
+        }
+        @keyframes diagFadeIn {
+            to { opacity: 1; transform: none; }
+        }
+        @keyframes diagPulse {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.45; transform: scale(0.85); }
+        }
+        .preflight-detail {
+            margin: 0;
+            color: var(--stats-muted);
+            font-size: 0.92rem;
+            line-height: 1.45;
+            max-width: 42ch;
+        }
+        .preflight-meta {
+            margin-top: 14px;
+            font-size: 0.78rem;
+            color: var(--stats-muted);
+            font-variant-numeric: tabular-nums;
+        }
+        .diag-alert {
+            margin-top: 18px;
+            padding: 12px 16px;
+            border-radius: 14px;
+            background: rgba(251,113,133,0.1);
+            border: 1px solid rgba(251,113,133,0.28);
+            color: #fda4af;
+            font-size: 0.9rem;
+            display: none;
+        }
+        .diag-alert.is-visible { display: block; animation: diagFadeIn 0.4s ease forwards; }
+        [data-theme="light"] .diag-alert { color: #be123c; background: rgba(251,113,133,0.12); }
+
+        .diag-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            align-items: center;
+            margin-bottom: 18px;
+        }
+        .diag-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px 14px;
+            margin: 0 0 18px;
+            padding: 0;
+            list-style: none;
+            font-size: 0.8rem;
+            color: var(--stats-muted);
+        }
+        .diag-legend li { display: inline-flex; align-items: center; gap: 6px; }
+        .diag-legend .swatch {
+            width: 10px; height: 10px; border-radius: 50%;
+        }
+        .swatch-ok { background: var(--diag-ok); }
+        .swatch-degraded { background: var(--diag-warn); }
+        .swatch-down { background: var(--diag-bad); }
+        .swatch-skipped { background: #64748b; }
+
+        .diag-table-wrap {
+            border-radius: 18px;
+            border: 1px solid rgba(255,255,255,0.07);
+            background: rgba(255,255,255,0.025);
+            overflow: auto;
+            max-height: min(70vh, 720px);
+        }
+        [data-theme="light"] .diag-table-wrap {
+            background: #fff;
+            border-color: rgba(15,23,42,0.08);
+            box-shadow: 0 12px 36px rgba(15,23,42,0.06);
+        }
+        .diag-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.88rem;
+        }
+        .diag-table th, .diag-table td {
+            padding: 12px 14px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+            vertical-align: middle;
+        }
+        [data-theme="light"] .diag-table th,
+        [data-theme="light"] .diag-table td {
+            border-bottom-color: rgba(15,23,42,0.06);
+        }
+        .diag-table th {
+            position: sticky; top: 0; z-index: 2;
+            font-size: 0.7rem;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--stats-muted);
+            background: #0b0f18;
+        }
+        [data-theme="light"] .diag-table th { background: #f8fafc; }
+        .diag-table tbody tr { transition: background 0.2s; }
+        .diag-table tbody tr:hover { background: rgba(45, 212, 191, 0.05); }
+        .diag-table tbody tr.is-probing { background: rgba(56,189,248,0.06); }
+        .diag-name {
+            font-weight: 650;
+            letter-spacing: -0.02em;
+        }
+        .diag-id {
+            display: block;
+            font-size: 0.72rem;
+            color: var(--stats-muted);
+            font-weight: 500;
+            margin-top: 2px;
+        }
+        .diag-types {
+            display: flex; flex-wrap: wrap; gap: 4px;
+        }
+        .type-chip {
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            padding: 2px 7px;
+            border-radius: 999px;
+            background: rgba(56,189,248,0.12);
+            color: var(--stats-sky);
+        }
+        .diag-detail-cell {
+            max-width: 220px;
+            color: var(--stats-muted);
+            font-size: 0.8rem;
+            line-height: 1.35;
+        }
+        .diag-latency {
+            font-variant-numeric: tabular-nums;
+            color: var(--stats-muted);
+            white-space: nowrap;
+        }
+        .diag-actions .btn-secondary {
+            padding: 6px 10px;
+            font-size: 12px;
+        }
+        .diag-actions .btn-secondary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .reveal {
+            opacity: 0;
+            transform: translateY(24px);
+            transition: opacity 0.65s ease, transform 0.65s cubic-bezier(.2,.8,.2,1);
+        }
+        .reveal.is-in { opacity: 1; transform: none; }
+        .reveal-delay-1 { transition-delay: 0.08s; }
+        .reveal-delay-2 { transition-delay: 0.16s; }
+        @media (prefers-reduced-motion: reduce) {
+            .reveal, .diag-pill { opacity: 1; transform: none; animation: none; transition: none; }
+            html { scroll-behavior: auto; }
+        }
+    </style>
+</head>
+<body>
+<div class="dashboard-wrapper">
+    <nav class="stats-nav">
+        <div class="logo-mini">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+            MetaKavita
+        </div>
+        <div class="stats-nav-actions">
+            <button type="button" class="btn-secondary" onclick="toggleTheme()" aria-label="Theme">◐</button>
+            <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.stats_back }}</a>
+        </div>
+    </nav>
+
+    <main class="content diag-story">
+        <section class="diag-chapter">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal" style="--chapter-accent: var(--stats-teal);">{{ t.diag_kicker }}</p>
+                <h1 class="chapter-title reveal reveal-delay-1">{{ t.diag_hero_title }}</h1>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.diag_hero_sub }}</p>
+
+                <div class="preflight-grid reveal reveal-delay-2">
+                    <article class="preflight-card" id="cardInternet" data-status="idle" style="--card-accent: var(--stats-sky);">
+                        <div class="glow"></div>
+                        <p class="preflight-label">{{ t.diag_internet_label }}</p>
+                        <div class="preflight-status-row">
+                            <span class="diag-pill is-visible" data-status="idle" id="pillInternet">
+                                <span class="dot"></span><span class="label">{{ t.diag_status_idle }}</span>
+                            </span>
+                        </div>
+                        <p class="preflight-detail" id="detailInternet">{{ t.diag_preflight_waiting }}</p>
+                        <p class="preflight-meta" id="metaInternet"></p>
+                    </article>
+                    <article class="preflight-card" id="cardKavita" data-status="idle" style="--card-accent: var(--stats-teal);">
+                        <div class="glow"></div>
+                        <p class="preflight-label">{{ t.diag_kavita_label }}</p>
+                        <div class="preflight-status-row">
+                            <span class="diag-pill is-visible" data-status="idle" id="pillKavita">
+                                <span class="dot"></span><span class="label">{{ t.diag_status_idle }}</span>
+                            </span>
+                        </div>
+                        <p class="preflight-detail" id="detailKavita">{{ t.diag_preflight_waiting }}</p>
+                        <p class="preflight-meta" id="metaKavita"></p>
+                    </article>
+                </div>
+                <div class="diag-alert" id="netWarn" role="status">{{ t.diag_net_warn }}</div>
+                <div class="diag-toolbar" style="margin-top: 18px;">
+                    <button type="button" class="btn-secondary" id="btnPreflight">{{ t.diag_rerun_preflight }}</button>
+                </div>
+            </div>
+        </section>
+
+        <section class="diag-chapter diag-chapter--scrapers">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal" style="--chapter-accent: var(--stats-amber);">{{ t.diag_scrapers_kicker }}</p>
+                <h2 class="chapter-title reveal reveal-delay-1">{{ t.diag_scrapers_title }}</h2>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.diag_scrapers_sub }}</p>
+
+                <ul class="diag-legend reveal">
+                    <li><span class="swatch swatch-ok"></span> {{ t.diag_legend_ok }}</li>
+                    <li><span class="swatch swatch-degraded"></span> {{ t.diag_legend_degraded }}</li>
+                    <li><span class="swatch swatch-down"></span> {{ t.diag_legend_down }}</li>
+                    <li><span class="swatch swatch-skipped"></span> {{ t.diag_legend_skipped }}</li>
+                </ul>
+
+                <div class="diag-toolbar reveal">
+                    <button type="button" class="btn-primary" id="btnProbeAll">{{ t.diag_probe_all }}</button>
+                    <span class="preflight-meta" id="probeAllProgress"></span>
+                </div>
+
+                <div class="diag-table-wrap reveal">
+                    <table class="diag-table" id="scrapersTable">
+                        <thead>
+                            <tr>
+                                <th>{{ t.diag_col_provider }}</th>
+                                <th>{{ t.diag_col_types }}</th>
+                                <th>{{ t.diag_col_global }}</th>
+                                <th>{{ t.diag_col_metadata }}</th>
+                                <th>{{ t.diag_col_covers }}</th>
+                                <th>{{ t.diag_col_cause }}</th>
+                                <th>{{ t.diag_col_latency }}</th>
+                                <th>{{ t.diag_col_detail }}</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                        {% for s in scrapers %}
+                            <tr data-scraper-id="{{ s.id }}" data-supports-covers="{{ '1' if s.supports_covers else '0' }}">
+                                <td>
+                                    <span class="diag-name">{{ s.display_name }}</span>
+                                    <span class="diag-id">{{ s.id }}{% if s.needs_api_key and not s.has_api_key %} · {{ t.diag_key_missing_hint }}{% endif %}</span>
+                                </td>
+                                <td>
+                                    <div class="diag-types">
+                                        {% for ty in s.supported_types %}
+                                        <span class="type-chip">{{ ty }}</span>
+                                        {% endfor %}
+                                    </div>
+                                </td>
+                                <td class="cell-global">
+                                    <span class="diag-pill is-visible" data-status="idle"><span class="dot"></span><span class="label">{{ t.diag_status_idle }}</span></span>
+                                </td>
+                                <td class="cell-meta">
+                                    <span class="diag-pill is-visible" data-status="idle"><span class="dot"></span><span class="label">—</span></span>
+                                </td>
+                                <td class="cell-covers">
+                                    <span class="diag-pill is-visible" data-status="{% if s.supports_covers %}idle{% else %}n_a{% endif %}"><span class="dot"></span><span class="label">{% if s.supports_covers %}—{% else %}{{ t.diag_status_na }}{% endif %}</span></span>
+                                </td>
+                                <td class="cell-cause">—</td>
+                                <td class="cell-latency diag-latency">—</td>
+                                <td class="cell-detail diag-detail-cell">—</td>
+                                <td class="diag-actions">
+                                    <button type="button" class="btn-secondary btn-probe-one" data-id="{{ s.id }}">{{ t.diag_probe_one }}</button>
+                                </td>
+                            </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+</div>
+<script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/diagnostics.js') }}"></script>
+</body>
+</html>
