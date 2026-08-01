@@ -8,11 +8,15 @@ from config_manager import get_max_genres, get_max_tags
 class AnilistScraper(BaseScraper):
     id = "ANILIST"
     display_name = "AniList (International)"
+    # Comic stays: AniList has no COMIC Media type; manhwa/manhua/comics live under MANGA.
+    # Book: search still uses type MANGA but candidates are filtered to format NOVEL.
     supported_types = {"Manga", "Comic", "Book"}
     rate_limit = 1.0
     proxy_domains = ["anilist.co"]
     has_direct_id_support = True
     uses_unified_scoring = True
+
+    _BOOK_FORMATS = frozenset({"NOVEL"})
 
     translations = {
         "fr": {
@@ -46,7 +50,7 @@ class AnilistScraper(BaseScraper):
                 query ($id: Int) {
                   Media(id: $id, type: MANGA) {
                     id idMal description(asHtml: false) coverImage { extraLarge } title { romaji english native }
-                    genres tags { name } startDate { year } status isAdult countryOfOrigin
+                    format genres tags { name } startDate { year } status isAdult countryOfOrigin
                     staff { edges { role node { name { full } } } }
                     characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
                     externalLinks { url site }
@@ -60,7 +64,7 @@ class AnilistScraper(BaseScraper):
                 query ($search: String) {
                   Media(search: $search, type: MANGA) {
                     id idMal description(asHtml: false) coverImage { extraLarge } title { romaji english native }
-                    genres tags { name } startDate { year } status isAdult countryOfOrigin
+                    format genres tags { name } startDate { year } status isAdult countryOfOrigin
                     staff { edges { role node { name { full } } } }
                     characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
                     externalLinks { url site }
@@ -73,7 +77,7 @@ class AnilistScraper(BaseScraper):
                 response = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': variables}, timeout=10)
                 if response.status_code == 200:
                     data = response.json().get('data', {}).get('Media')
-                    if data:
+                    if data and self._library_allows(data, library_type):
                         return attach_match_score(self._build_candidate(data), 1.0)
             except Exception as e:
                 logging.error(self.t("err").format(e))
@@ -88,7 +92,7 @@ class AnilistScraper(BaseScraper):
               Page(page: 1, perPage: 5) {
                 media(search: $search, type: MANGA) {
                   id idMal description(asHtml: false) coverImage { extraLarge } title { romaji english native }
-                  genres tags { name } startDate { year } status isAdult countryOfOrigin
+                  format genres tags { name } startDate { year } status isAdult countryOfOrigin
                   staff { edges { role node { name { full } } } }
                   characters(sort: ROLE, perPage: 15) { edges { role node { name { full } } } }
                   externalLinks { url site }
@@ -106,6 +110,8 @@ class AnilistScraper(BaseScraper):
                     best_score = -1.0
 
                     for item in media_list:
+                        if not self._library_allows(item, library_type):
+                            continue
                         candidate = self._build_candidate(item)
                         if not candidate: continue
                         
@@ -121,6 +127,14 @@ class AnilistScraper(BaseScraper):
                 logging.error(self.t("err").format(e))
             return None
 
+    def _library_allows(self, data: dict, library_type: str) -> bool:
+        """Book libraries only accept AniList NOVEL format; Manga/Comic keep MANGA type results."""
+        lib = (library_type or "Manga").strip()
+        if lib != "Book":
+            return True
+        fmt = str((data or {}).get("format") or "").upper()
+        return fmt in self._BOOK_FORMATS
+
     def _build_candidate(self, data: dict) -> dict:
         title_dict = data.get('title', {}) or {}
         romaji_title = title_dict.get('romaji', '')
@@ -129,8 +143,12 @@ class AnilistScraper(BaseScraper):
         alt_titles = [t for t in title_dict.values() if t]
 
         country = str(data.get('countryOfOrigin', '')).upper()
+        al_format = str(data.get("format") or "").upper()
         format_type = "manga"
-        if country in ["KR", "CN"]: format_type = "webtoon"
+        if al_format == "NOVEL":
+            format_type = "book"
+        elif country in ["KR", "CN"]:
+            format_type = "webtoon"
 
         from localized_titles import native_lang_from_country
         native_lang = native_lang_from_country(country)

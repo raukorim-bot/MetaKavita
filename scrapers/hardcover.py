@@ -97,10 +97,16 @@ class HardcoverScraper(BaseScraper):
                     s_node = s_data.get("data", {}).get("search", {})
                     r_node = s_node.get("results", {}) if isinstance(s_node, dict) else {}
                     hits = r_node.get("hits", []) if isinstance(r_node, dict) else []
-                    for h in hits:
-                        if hits and isinstance(hits[0], dict) and isinstance(hits[0].get("document"), dict):
-                            best_match = hits[0]["document"]
-                            logging.info(self.t("matched_isbn").format(existing_isbn, best_match.get('title')))
+                    if hits and isinstance(hits, list):
+                        for h in hits:
+                            if isinstance(h, dict) and isinstance(h.get("document"), dict):
+                                candidate_docs.append(h["document"])
+                        if candidate_docs:
+                            logging.info(
+                                self.t("matched_isbn").format(
+                                    existing_isbn, candidate_docs[0].get("title")
+                                )
+                            )
 
             # 2. RECHERCHE PAR ID / SLUG BRUT
             if not candidate_docs and is_id:

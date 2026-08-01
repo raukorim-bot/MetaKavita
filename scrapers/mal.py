@@ -110,13 +110,24 @@ class MalScraper(BaseScraper):
         return "RELEASING"
 
     @staticmethod
-    def _map_age(nsfw: str) -> str:
-        raw = (nsfw or "white").lower()
+    def _map_age(nsfw) -> Optional[str]:
+        """Map MAL nsfw flag → internal age_rating, or None if unknown/absent.
+
+        BF56: do not invent ``safe`` when the API omitted ``nsfw``. Explicit
+        ``white`` still maps to safe (authoritative Everyone signal).
+        """
+        if nsfw is None:
+            return None
+        raw = str(nsfw).strip().lower()
+        if not raw:
+            return None
         if raw == "black":
             return "pornographic"
         if raw == "gray":
             return "suggestive"
-        return "safe"
+        if raw == "white":
+            return "safe"
+        return None
 
     @staticmethod
     def _map_format(media_type: str) -> Optional[str]:
@@ -222,7 +233,7 @@ class MalScraper(BaseScraper):
             "status": self._map_status(node.get("status") or ""),
             "staff": staff,
             "publisher": publisher,
-            "age_rating": self._map_age(node.get("nsfw") or "white"),
+            "age_rating": self._map_age(node.get("nsfw")) or "",
             "format": self._map_format(media_type),
             "mal_id": manga_id,
             "url": f"https://myanimelist.net/manga/{manga_id}",

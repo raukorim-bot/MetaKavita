@@ -1,6 +1,12 @@
 ## [1.6.2] - 2026-08-01 (Age Safeguarding + Comic Hotfix + Audit Hardening)
 
 EN
+### 🐛 Bug Fixes (pre-release audit)
+* **BF69. SMART_COMPLETION no longer backfills `age_rating`** — Empty/omitted winner age (BF56) was treated as a fusion hole, so a secondary `pornographic`/`erotica` could overwrite BF68 prefer-safe and lock in Kavita. `age_rating` is now never hole-filled via smart fusion / `merge_candidates`.
+* **BF70. Hardcover ISBN Typesense hits discarded** — ISBN search logged a match but never appended documents to `candidate_docs`, so the path always fell through to title search. Hits are appended like the text path.
+* **BF71. MAL no longer invents `safe` when `nsfw` is absent** — Explicit `white`/`gray`/`black` still map; missing/unknown → omit (BF56).
+* **BF72. AniList Book cascade filters `format: NOVEL`** — Manga/Comic unchanged (AniList has no COMIC type; MANGA remains correct). Book libraries skip non-novel Media.
+
 ### 🐛 Bug Fixes
 *Found and reported against a live Kavita library by **angusmaul** — thanks.*
 * **BF53. `AGE_RATING_MAP` wrote the wrong Kavita enum values (safeguarding) (thanks angusmaul)** — Scrapers emit an internal vocabulary (`safe` / `suggestive` / `erotica` / `pornographic`). `kavita_constants.AGE_RATING_MAP` then converts those strings to the integer Kavita expects on `Series/metadata.ageRating`. Through v1.6.1 that map used `1–4`, which matches **MangaDex content ratings**, not Kavita's `AgeRating` enum (`GET /api/metadata/age-ratings` / `AgeRating.cs`). The practical write was therefore: `safe→Rating Pending`, `suggestive→Early Childhood`, `erotica→Everyone`, `pornographic→G`. Because `ageRatingLocked` is set at the same time, Kavita's own scanner could not correct it — defeating age-restriction accounts (child profiles would see material MetaKavita had just labelled general-audiences). Fixed mapping: `safe→3` (Everyone), `suggestive→8` (Teen), `erotica→12` (R18+), `pornographic→14` (X18+). Docs (`kavita_api.md` §3.B, `DEVELOPER.md`) and `tests/test_age_rating_map.py` updated so this cannot silently drift again. **Already-written series keep the locked wrong value until re-enriched with `age` in targeted fields.**
@@ -21,6 +27,12 @@ EN
 * **BF68. Score-tie prefers safer age rating (issue #25)** — Smart Scoring ties (`≥2` at max score) demote `pornographic`/`erotica` only for Auto winner selection, with an i18n live-log (`log_tiebreak_prefer_safe`). Mono-adult and strict higher score unchanged. Manual Review `return_candidates` keeps neutral sort (no NSFW demotion; all cards). Confirm-before-write + score tie → `awaiting_pick` via attached `_tie_review_payload` (no double scrape), not silent confirm. Tests: `tests/test_tiebreak_prefer_safe_bf68.py`.
 
 FR
+### 🐛 Correctifs (audit pré-release)
+* **BF69. SMART_COMPLETION ne rebouche plus `age_rating`** — Un âge vainqueur omis (BF56) était traité comme un trou de fusion, donc un secondaire `pornographic`/`erotica` pouvait annuler BF68 prefer-safe et se verrouiller dans Kavita. `age_rating` n’est plus jamais comblé par la fusion smart / `merge_candidates`.
+* **BF70. Hardcover ISBN Typesense : hits jetés** — La recherche ISBN loguait un match sans l’ajouter à `candidate_docs`, donc retombait toujours en recherche titre. Les hits sont appendés comme sur le chemin texte.
+* **BF71. MAL n’invente plus `safe` si `nsfw` absent** — `white`/`gray`/`black` explicites inchangés ; absent/inconnu → omit (BF56).
+* **BF72. Cascade Book AniList filtrée sur `format: NOVEL`** — Manga/Comic inchangés (pas de type COMIC AniList ; MANGA reste correct). Les libs Book ignorent les Media non-novel.
+
 ### 🐛 Correctifs
 *Repérés et signalés sur une bibliothèque Kavita réelle par **angusmaul** — merci.*
 * **BF53. `AGE_RATING_MAP` écrivait les mauvaises valeurs d'enum Kavita (safeguarding) (merci angusmaul)** — Les scrapers émettent un vocabulaire interne (`safe` / `suggestive` / `erotica` / `pornographic`). `kavita_constants.AGE_RATING_MAP` convertit ensuite ces chaînes vers l'entier attendu par Kavita sur `Series/metadata.ageRating`. Jusqu'en v1.6.1, cette map utilisait `1–4`, ce qui correspond aux **content ratings MangaDex**, pas à l'enum `AgeRating` de Kavita (`GET /api/metadata/age-ratings` / `AgeRating.cs`). L'écriture réelle était donc : `safe→Rating Pending`, `suggestive→Early Childhood`, `erotica→Everyone`, `pornographic→G`. Comme `ageRatingLocked` est posé en même temps, le scanner Kavita ne pouvait pas corriger — ce qui contournait les comptes à restriction d'âge (un profil enfant voyait du contenu que MetaKavita venait d'étiqueter tout public). Mapping corrigé : `safe→3` (Everyone), `suggestive→8` (Teen), `erotica→12` (R18+), `pornographic→14` (X18+). Docs (`kavita_api.md` §3.B, `DEVELOPER.md`) et `tests/test_age_rating_map.py` mis à jour pour éviter toute dérive silencieuse. **Les séries déjà écrites gardent la mauvaise valeur verrouillée tant qu'elles ne sont pas ré-enrichies avec `age` dans les champs ciblés.**

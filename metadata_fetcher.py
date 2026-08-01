@@ -95,6 +95,18 @@ _FUSION_SKIP_KEYS = (
     'links', 'external_links', 'url', MATCH_SCORE_KEY,
 )
 
+# Never hole-fill these via SMART_COMPLETION / merge_candidates.
+# age_rating: BF56 winners often emit "" (omit); treating that as a hole let a
+# secondary adult rating undo BF68 prefer-safe and lock pornographic/erotica.
+_FUSION_NEVER_FILL_KEYS = frozenset({"age_rating"})
+
+
+def _fusion_can_fill(master_data, key, value) -> bool:
+    """True when smart fusion may copy ``value`` onto ``master_data[key]``."""
+    if key in _FUSION_SKIP_KEYS or key in _FUSION_NEVER_FILL_KEYS:
+        return False
+    return (not master_data.get(key)) and bool(value)
+
 
 def merge_candidates(ordered_entries, smart_fusion=False):
     """
@@ -135,7 +147,7 @@ def merge_candidates(ordered_entries, smart_fusion=False):
                     master_data['titles'] = merged
                     filled_something = True
                 continue
-            if not master_data.get(key) and value:
+            if _fusion_can_fill(master_data, key, value):
                 master_data[key] = value
                 filled_something = True
 
@@ -588,7 +600,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                                 master_data['titles'] = merged
                                 filled_something = True
                             continue
-                        if not master_data.get(key) and value:
+                        if _fusion_can_fill(master_data, key, value):
                             master_data[key] = value
                             filled_something = True
 

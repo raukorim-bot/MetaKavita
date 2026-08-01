@@ -57,6 +57,19 @@ def test_build_candidate_maps_fields():
     assert "ベルセルク" in cand["alternative_titles"]
 
 
+def test_map_age_bf56_omit_when_nsfw_absent():
+    s = MalScraper()
+    assert s._map_age(None) is None
+    assert s._map_age("") is None
+    assert s._map_age("white") == "safe"
+    assert s._map_age("gray") == "suggestive"
+    assert s._map_age("black") == "pornographic"
+    node = dict(SAMPLE_NODE)
+    del node["nsfw"]
+    cand = s._build_candidate(node)
+    assert cand["age_rating"] == ""
+
+
 def test_media_ok_filters_novels_for_manga_lib():
     s = MalScraper()
     assert s._media_ok("manga", "Manga") is True
