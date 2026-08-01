@@ -85,6 +85,11 @@ def _safe_match_score(candidate):
     return max(0.0, min(1.0, score))
 
 
+def _is_explicit_adult(data) -> bool:
+    """True when age_rating is pornographic or erotica (BF68 tie-break only)."""
+    return str((data or {}).get("age_rating") or "").lower() in ("pornographic", "erotica")
+
+
 _FUSION_SKIP_KEYS = (
     '_provider_used', '_fusion_providers', 'anilist_id', 'mal_id', 'mangabaka_id',
     'links', 'external_links', 'url', MATCH_SCORE_KEY,
@@ -645,10 +650,64 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         if not accepted:
             return
 
-        # Meilleur score gagne ; égalité → ordre de fallback. `_safe_match_score()`
-        # protège contre les scrapers communautaires mal formés.
-        accepted.sort(key=lambda entry: (-_safe_match_score(entry[2]), entry[0]))
+        # Meilleur score gagne. Auto (non-return_candidates) : égalité →
+        # non-adult d'abord (BF68), puis ordre de fallback. MR/return_candidates :
+        # tri neutre (-score, idx) uniquement — pas de dépriorisation NSFW.
+        if return_candidates:
+            accepted.sort(
+                key=lambda entry: (-_safe_match_score(entry[2]), entry[0])
+            )
+            tie = []
+        else:
+            accepted.sort(
+                key=lambda entry: (
+                    -_safe_match_score(entry[2]),
+                    1 if _is_explicit_adult(entry[2]) else 0,
+                    entry[0],
+                )
+            )
+            max_s = _safe_match_score(accepted[0][2])
+            tie = [
+                e for e in accepted
+                if abs(_safe_match_score(e[2]) - max_s) < 0.001
+            ]
+            prefer_safe = (
+                len(tie) >= 2
+                and any(_is_explicit_adult(e[2]) for e in tie)
+                and any(not _is_explicit_adult(e[2]) for e in tie)
+            )
+            if prefer_safe:
+                winner_provider = accepted[0][1]
+                msg = t.get(
+                    "log_tiebreak_prefer_safe",
+                    "[{0}] Tie at {1:.2f}: preferring safer match ({2}) over explicit-adult candidate(s).",
+                )
+                logging.info(msg.format(current_query, max_s, winner_provider))
+
         apply_accepted(accepted)
+
+        if (not return_candidates) and base_provider_set and len(tie) >= 2:
+            master_data["_score_tie"] = True
+            # Payload pick prêt pour CBW — tri d'affichage neutre (-score, idx).
+            display = sorted(
+                accepted,
+                key=lambda entry: (-_safe_match_score(entry[2]), entry[0]),
+            )
+            real_threshold = get_match_accept_threshold()
+            above, below = [], []
+            for _, p, data in display:
+                score = _safe_match_score(data)
+                is_below = score < real_threshold
+                card = build_candidate_card(p, data, below_threshold=is_below)
+                if is_below:
+                    below.append(card)
+                else:
+                    above.append(card)
+            master_data["_tie_review_payload"] = {
+                "above": above,
+                "below": below,
+                "query": current_query,
+            }
 
     restore_threshold = None
     if return_candidates:

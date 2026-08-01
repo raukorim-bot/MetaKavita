@@ -22,6 +22,17 @@ from scrapers.utils import MATCH_SCORE_KEY
 from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kavita_format_enum
 
 
+def _dedupe_titles(values):
+    """Order-preserving dedupe of tag/genre titles (strip + casefold key)."""
+    seen, out = set(), []
+    for v in values or []:
+        key = (v or "").strip().casefold()
+        if key and key not in seen:
+            seen.add(key)
+            out.append(v)
+    return out
+
+
 def _broadcast_enrichment_stats(deltas):
     """Pousse les compteurs lifetime vers le dashboard (Socket.IO)."""
     try:
@@ -205,6 +216,8 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
     pd.pop("_provider_used", None)
     pd.pop("_fusion_providers", None)
     pd.pop(MATCH_SCORE_KEY, None)
+    pd.pop("_score_tie", None)
+    pd.pop("_tie_review_payload", None)
     edited_localized = pd.pop("_edited_localized_name", None)
     summary_already_translated = bool(pd.pop("_summary_translated", None))
 
@@ -242,14 +255,17 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
     if "genres" in active and pd.get("genres"):
         meta["genres"] = [
             {"id": 0, "title": g}
-            for g in pd["genres"][: get_max_genres(config)]
+            for g in _dedupe_titles(pd["genres"])[: get_max_genres(config)]
         ]
         meta["genresLocked"] = True
 
     # 5. Tags & personnages
     if "tags" in active:
         if pd.get("tags"):
-            meta["tags"] = [{"id": 0, "title": tag} for tag in pd["tags"][: get_max_tags(config)]]
+            meta["tags"] = [
+                {"id": 0, "title": tag}
+                for tag in _dedupe_titles(pd["tags"])[: get_max_tags(config)]
+            ]
             meta["tagsLocked"] = True
         if pd.get("characters"):
             characters_payload = []
@@ -528,7 +544,8 @@ def apply_kavita_payload(
     general_ok = True
     general_msg = ""
     general_sealed = True
-    if localized_name or format_val:
+    # BF67: n'appeler general que si la metadata a réussi (atomicité soft).
+    if success and (localized_name or format_val):
         general_ok, general_msg, general_sealed = kavita.update_series_general(
             series_id,
             localized_name=localized_name,

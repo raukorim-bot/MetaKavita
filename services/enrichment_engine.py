@@ -849,6 +849,9 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         # Purement diagnostique (Smart Scoring, voir metadata_fetcher.py) : jamais lu ni
         # envoyé à Kavita, mais on l'enlève pour ne pas polluer les dumps de debug.
         chosen_score = provider_data.pop(MATCH_SCORE_KEY, None)
+        # BF68: égalité de score → awaiting_pick (pas confirm silencieux).
+        score_tie = bool(provider_data.pop('_score_tie', False))
+        tie_review_payload = provider_data.pop('_tie_review_payload', None)
 
         msg_found = t.get('log_found').format(series_name) + f" (Base: {actual_provider})"
         if fusion_providers:
@@ -863,7 +866,41 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         )
 
         # Confirm-before-write (MR off) : park preview, pas d'écriture immédiate.
+        # BF68: score tie → pick normal (pas awaiting_confirm).
         if not manual_mode and bool(config.get("CONFIRM_BEFORE_WRITE")):
+            if score_tie:
+                from services.manual_review import create_review_from_candidates
+
+                payload = tie_review_payload if isinstance(tie_review_payload, dict) else None
+                if not payload or not ((payload.get("above") or []) or (payload.get("below") or [])):
+                    # Filet rare : reconstruire une carte unique depuis le vainqueur.
+                    from metadata_fetcher import build_candidate_card
+                    import copy as _copy
+                    card = build_candidate_card(
+                        actual_provider,
+                        _copy.deepcopy(provider_data),
+                        below_threshold=False,
+                    )
+                    payload = {
+                        "above": [card],
+                        "below": [],
+                        "query": search_query,
+                    }
+                create_review_from_candidates(
+                    series_id,
+                    series_name,
+                    payload,
+                    library_id=kavita.get_cached_library_id(series_id),
+                )
+                _emit_series_status(series_id, "PENDING_REVIEW", series_name)
+                logging.info(
+                    f"[{series_name}] 👁️ PENDING_REVIEW "
+                    f"(score tie → pick; "
+                    f"above={len((payload or {}).get('above') or [])}, "
+                    f"below={len((payload or {}).get('below') or [])})"
+                )
+                return True, "PENDING_REVIEW", used_providers or []
+
             import copy
             from services.manual_review import create_confirm_from_auto
 
