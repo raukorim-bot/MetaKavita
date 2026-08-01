@@ -11,6 +11,7 @@ from config_manager import load_config
 from db_manager import list_pending_reviews, get_pending_review, count_pending_reviews, update_pending_review
 from metadata_fetcher import candidate_card_for_ui
 from scrapers.utils import get_match_accept_threshold
+from secure_logging import safe_exc_str
 from services.enrichment_engine import (
     apply_manual_review,
     preview_manual_review,
@@ -52,8 +53,8 @@ def api_list_manual_reviews():
             try:
                 cands, _n = translate_candidate_summaries(cands, config=config)
                 update_pending_review(r["review_id"], candidates_json=cands)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug("pending list summary translation failed: %s", safe_exc_str(e))
         preview = None
         if r.get("preview_json"):
             try:

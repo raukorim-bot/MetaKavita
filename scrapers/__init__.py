@@ -5,7 +5,6 @@ import importlib.util
 import inspect
 import logging
 from .base import BaseScraper
-from .utils import clean_title
 
 class _ScraperRegistry:
     def __init__(self):

@@ -167,6 +167,38 @@ def library_type_for_scraper(scraper, detected_type: str) -> str:
         return "Manga"
     return "Comic"
 
+
+# Année de run façon Kavita Flexible / Comic Vine : "Batman (2025)", "Saga (2012-)",
+# "Spawn (1992–)". Ne match pas une année hors parenthèses ("Blade Runner 2049").
+_COMIC_YEAR_PAREN_RE = re.compile(
+    r"\(\s*(?P<year>19\d{2}|20\d{2})\s*(?:[–\-—]\s*(?:\d{2,4})?)?\s*\)"
+)
+
+
+def extract_year_from_title(title: str) -> Optional[int]:
+    """Extrait la première année de run entre parenthèses d'un nom de série Kavita."""
+    if not title:
+        return None
+    m = _COMIC_YEAR_PAREN_RE.search(str(title))
+    return int(m.group("year")) if m else None
+
+
+def apply_title_year_hint(existing_metadata: Optional[dict], *titles) -> dict:
+    """
+    Si `existing_metadata` n'a pas encore d'`year`, la remplit depuis le premier
+    titre qui porte un `(YYYY)` Kavita-style. Mutates and returns the dict.
+    """
+    meta = existing_metadata if isinstance(existing_metadata, dict) else {}
+    if meta.get("year"):
+        return meta
+    for raw in titles:
+        hint = extract_year_from_title(raw)
+        if hint:
+            meta["year"] = hint
+            break
+    return meta
+
+
 def clean_title(title: str, library_type: str = "Manga") -> str:
     title = str(title)
     title = re.sub(r'(?i)\.(cbz|cbr|zip|rar|epub|pdf)$', '', title)
@@ -174,7 +206,11 @@ def clean_title(title: str, library_type: str = "Manga") -> str:
     if library_type in ("Comic", "ComicFlexible"):
         title = re.sub(r'(?<!\d)\.|\.(?!\d)', ' ', title)
         title = re.sub(r'\[.*?\]', '', title)
+        # IDs / éditeurs hors année pure (ex: (168592), (Antarctic Press, 1992–)).
         title = re.sub(r'\((?!\d{4}\))[^\)]*?\)', '', title)
+        # Runs Kavita Flexible : (2025), (2012-), (1992–) — hors du filtre name ComicVine ;
+        # l'année est réinjectée via extract_year_from_title → existing_metadata.
+        title = _COMIC_YEAR_PAREN_RE.sub('', title)
         title = re.sub(r'\s{2,}', ' ', title)
         title = re.sub(r'^\d{1,3}\s*[-_]\s+', '', title)
         title = re.sub(r'^0\d{1,2}\s+', '', title)

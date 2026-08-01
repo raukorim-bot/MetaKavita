@@ -157,7 +157,6 @@ class MangaUpdatesScraper(BaseScraper):
             'status': status,
             'staff': staff,
             'publisher': publisher,
-            'age_rating': 'safe',
             'format': format_type,
             'url': site_url
         }

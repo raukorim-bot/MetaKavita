@@ -5,6 +5,7 @@ from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_tags, get_max_genres
+from secure_logging import safe_exc_str
 
 class GoogleBooksScraper(BaseScraper):
     id = "GOOGLEBOOKS"
@@ -164,6 +165,12 @@ class GoogleBooksScraper(BaseScraper):
         subtitle = volume_info.get("subtitle", "")
         alt_titles = [subtitle] if subtitle else []
 
+        # BF56: maturityRating Google est binaire — MATURE → erotica ; sinon omettre
+        # (NOT_MATURE n'est pas une preuve « Everyone », ne pas inventer safe).
+        age_rating = ""
+        if (volume_info.get("maturityRating") or "").upper() == "MATURE":
+            age_rating = "erotica"
+
         return {
             'title': fetched_title,
             'alternative_titles': alt_titles,
@@ -172,11 +179,10 @@ class GoogleBooksScraper(BaseScraper):
             'genres': genres[:get_max_genres()],
             'tags': tags[:get_max_tags()],
             'year': year,
-            'status': 'FINISHED',
             'staff': staff,
             'publisher': volume_info.get("publisher"),
             'isbn': isbn,
-            'age_rating': 'safe',
+            'age_rating': age_rating,
             'format': 'book',
             'url': info_link,
             'links': [info_link] if info_link else []
@@ -201,5 +207,6 @@ class GoogleBooksScraper(BaseScraper):
                         if cover_url.startswith("http://"): cover_url = cover_url.replace("http://", "https://")
                         title = vol.get("title", "Inconnu")
                         covers.append({"provider": "GoogleBooks", "title": title, "url": cover_url})
-        except Exception: pass
+        except Exception as e:
+            logging.debug("GoogleBooks cover search failed: %s", safe_exc_str(e))
         return covers

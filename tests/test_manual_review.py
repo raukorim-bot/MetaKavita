@@ -526,7 +526,14 @@ def test_record_manual_review_telemetry_bumps_fusion_weak_super(isolated_db):
 
 def test_get_lifetime_stats_includes_manual_keys_after_telemetry(isolated_db):
     isolated_db.record_manual_review_telemetry(0.88, is_top1=True, field_edits=1)
-    isolated_db.record_manual_skip_telemetry()
+    # Skip telemetry is inlined in close_pending_review(skip_telemetry=True)
+    isolated_db.park_pending_review(
+        "skip-telem-keys",
+        42,
+        "SkipTelem",
+        {"above": [], "below": [], "query": "q"},
+    )
+    isolated_db.close_pending_review("skip-telem-keys", skip_telemetry=True)
     life = isolated_db.get_lifetime_stats()
     for key in (
         "manual_reviews",

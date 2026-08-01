@@ -11,7 +11,7 @@ from routes.manual_review import manual_review_bp
 
 
 def _seed_review(isolated_db, review_id, series_id, series_name, above, state="awaiting_pick"):
-    isolated_db.save_pending_review(
+    isolated_db.park_pending_review(
         review_id,
         series_id,
         series_name,

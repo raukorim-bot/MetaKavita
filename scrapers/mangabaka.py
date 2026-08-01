@@ -5,6 +5,7 @@ from .base import BaseScraper
 from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import load_config, get_max_tags, get_max_genres
 from kavita_constants import normalize_provider_status
+from secure_logging import safe_exc_str
 
 class MangaBakaScraper(BaseScraper):
     id = "MANGABAKA"
@@ -180,7 +181,8 @@ class MangaBakaScraper(BaseScraper):
                 genres_str = " ".join([str(g) for g in genres_list]).upper()
                 if "MANHWA" in tags_str or "WEBTOON" in tags_str or "MANHWA" in genres_str or "WEBTOON" in genres_str:
                     format_type = "webtoon"
-        except Exception: pass
+        except Exception as e:
+            logging.debug("MangaBaka format_type detection failed: %s", safe_exc_str(e))
 
         # --- GESTION DE L'ÉDITEUR ---
         publisher = None

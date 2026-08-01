@@ -159,7 +159,6 @@ class ShikimoriScraper(BaseScraper):
             'status': status,
             'staff': staff,
             'publisher': publisher,
-            'age_rating': 'safe',
             'format': format_type,
             'mal_id': manga_id,
             'url': site_url

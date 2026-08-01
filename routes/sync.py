@@ -10,7 +10,6 @@ renommez.
 """
 
 import logging
-import queue
 import secrets
 import time
 
@@ -36,6 +35,9 @@ sync_bp = Blueprint('sync', __name__)
 # Inventaire Kavita mis en cache pour la durée d'un batch (voir _get_batch_inventory).
 _BATCH_INVENTORY_TTL = 900  # secondes ; filet de sécurité, pas le mécanisme normal
 _batch_inventory_cache = {}
+
+# Once-per-process: prefer X-Webhook-Token; ?token= is legacy (BF63 / B15).
+_webhook_query_token_warned = False
 
 
 def _get_batch_inventory(kavita, library_id, force_refresh):
@@ -205,11 +207,21 @@ def webhook():
     # browser history, and `Referer` headers on any onward request. A header is not
     # logged by default anywhere in that chain.
     #
-    # The query form is deliberately kept working. Existing users have already pasted
-    # `?token=...` URLs into their Kavita webhook settings, and breaking those silently
-    # would stop their automation with no error they could see — so this is additive,
-    # and the header simply wins when both are present.
-    token = request.headers.get('X-Webhook-Token') or request.args.get('token')
+    # The query form is deliberately kept working (legacy / deprecated, BF63). Existing
+    # users have already pasted `?token=...` URLs into automation, and breaking those
+    # silently would stop their pipelines with no error they could see — so this stays
+    # additive, and the header simply wins when both are present.
+    header_token = request.headers.get('X-Webhook-Token')
+    query_token = request.args.get('token')
+    token = header_token or query_token
+
+    global _webhook_query_token_warned
+    if query_token and not header_token and not _webhook_query_token_warned:
+        _webhook_query_token_warned = True
+        logging.warning(
+            "⚠️ [Webhook] Auth via ?token= (legacy). Prefer the X-Webhook-Token header — "
+            "query tokens appear in proxy access logs / Referer / browser history."
+        )
 
     # `secrets.compare_digest` raises TypeError on `str` arguments containing
     # non-ASCII characters, so a token with an accent or an emoji in it would turn a

@@ -195,3 +195,74 @@ def test_an_admin_password_already_in_the_file_is_preserved(config_env):
     })
 
     assert config_env.load_config()["ADMIN_PASSWORD"] == "legacy-plaintext"
+
+
+# ---------------------------------------------------------------------------
+# BF64 — TARGET_LANG dérivé de UI_LANG quand absent (file > env > dérivé)
+# ---------------------------------------------------------------------------
+
+def test_fresh_seed_derives_target_lang_from_default_ui_lang(config_env):
+    """Install neuve sans env : UI_LANG=en → TARGET_LANG=EN (plus de FR silencieux)."""
+    config = config_env.load_config()
+    assert config["UI_LANG"] == "en"
+    assert config["TARGET_LANG"] == "EN"
+    saved = _saved_file(config_env)
+    assert saved["TARGET_LANG"] == "EN"
+    assert saved["UI_LANG"] == "en"
+
+
+def test_missing_target_lang_derives_from_env_ui_lang_fr(config_env, monkeypatch):
+    monkeypatch.setenv("UI_LANG", "fr")
+    config = config_env.load_config()
+    assert config["UI_LANG"] == "fr"
+    assert config["TARGET_LANG"] == "FR"
+
+
+def test_missing_target_lang_derives_from_file_ui_lang(config_env):
+    config_env.save_config({
+        "UI_LANG": "fr",
+        "SECRET_KEY": "k",
+        "WEBHOOK_TOKEN": "w",
+    })
+    assert config_env.load_config()["TARGET_LANG"] == "FR"
+
+
+def test_existing_target_lang_in_file_is_preserved(config_env, monkeypatch):
+    """Pas de migration : un TARGET_LANG=FR explicite reste FR même avec UI_LANG=en."""
+    monkeypatch.setenv("UI_LANG", "en")
+    config_env.save_config({
+        "UI_LANG": "en",
+        "TARGET_LANG": "FR",
+        "SECRET_KEY": "k",
+        "WEBHOOK_TOKEN": "w",
+    })
+    assert config_env.load_config()["TARGET_LANG"] == "FR"
+
+
+def test_env_target_lang_wins_over_ui_lang_derivation(config_env, monkeypatch):
+    monkeypatch.setenv("UI_LANG", "en")
+    monkeypatch.setenv("TARGET_LANG", "ES")
+    config = config_env.load_config()
+    assert config["UI_LANG"] == "en"
+    assert config["TARGET_LANG"] == "ES"
+
+
+def test_file_target_lang_wins_over_env(config_env, monkeypatch):
+    monkeypatch.setenv("TARGET_LANG", "EN")
+    config_env.save_config({
+        "TARGET_LANG": "FR",
+        "UI_LANG": "fr",
+        "SECRET_KEY": "k",
+        "WEBHOOK_TOKEN": "w",
+    })
+    assert config_env.load_config()["TARGET_LANG"] == "FR"
+
+
+def test_target_lang_from_ui_lang_helper():
+    import config_manager as cm
+    assert cm.target_lang_from_ui_lang("en") == "EN"
+    assert cm.target_lang_from_ui_lang("fr") == "FR"
+    assert cm.target_lang_from_ui_lang("ES") == "ES"
+    assert cm.target_lang_from_ui_lang("pt-br") == "PT-BR"
+    assert cm.target_lang_from_ui_lang("") == "EN"
+    assert cm.target_lang_from_ui_lang(None) == "EN"

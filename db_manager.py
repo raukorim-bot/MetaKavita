@@ -1,7 +1,9 @@
 import sqlite3
 import os
+import logging
 
 from models import SeriesOverride
+from secure_logging import safe_exc_str
 
 
 def _resolve_data_dir() -> str:
@@ -118,25 +120,6 @@ def _ensure_pending_reviews_table(c):
     c.execute(
         "CREATE INDEX IF NOT EXISTS idx_pending_reviews_state ON pending_reviews(state)"
     )
-
-
-def increment_provider_win(provider_id):
-    """Incrémente le compteur de victoires d'un scraper (télémétrie C7)."""
-    pid = _normalize_provider_stat_id(provider_id)
-    if not pid:
-        return
-    if not os.path.exists(DB_FILE):
-        init_db()
-    conn = _connect()
-    c = conn.cursor()
-    _ensure_provider_stats_table(c)
-    c.execute(
-        '''INSERT INTO provider_stats (provider_id, wins) VALUES (?, 1)
-           ON CONFLICT(provider_id) DO UPDATE SET wins = wins + 1''',
-        (pid,),
-    )
-    conn.commit()
-    conn.close()
 
 
 def record_enrichment_telemetry(used_providers):
@@ -324,25 +307,6 @@ def record_manual_review_telemetry(
     }
 
 
-def record_manual_skip_telemetry():
-    """Télémétrie : +1 skip manuel."""
-    if not os.path.exists(DB_FILE):
-        init_db()
-    conn = _connect()
-    c = conn.cursor()
-    _ensure_lifetime_stats_table(c)
-    _bump_lifetime_stat(c, "manual_skips", 1)
-    conn.commit()
-    conn.close()
-    return {
-        "manual_reviews_delta": 0,
-        "manual_skips_delta": 1,
-        "manual_top1_accepts_delta": 0,
-        "manual_score_sum_delta": 0.0,
-        "manual_field_edits_delta": 0,
-    }
-
-
 def record_manual_research_telemetry():
     """Télémétrie : +1 re-recherche titre depuis la review manuelle."""
     if not os.path.exists(DB_FILE):
@@ -422,65 +386,6 @@ _PENDING_REVIEW_COLUMNS = (
     "review_id, series_id, series_name, candidates_json, preview_json, "
     "state, created_at, base_provider, chosen_score, library_id"
 )
-
-
-def save_pending_review(
-    review_id,
-    series_id,
-    series_name,
-    candidates_json,
-    preview_json=None,
-    state="awaiting_pick",
-    created_at=None,
-    base_provider=None,
-    chosen_score=None,
-    library_id=None,
-):
-    """
-    Insert ou remplace une review manuelle en attente.
-
-    Idempotent par `series_id` : toute review existante pour la série est
-    remplacée (contrainte UNIQUE) dans la même transaction.
-    """
-    import json
-    from datetime import datetime, timezone
-
-    if not os.path.exists(DB_FILE):
-        init_db()
-    if created_at is None:
-        created_at = datetime.now(timezone.utc).isoformat()
-    if not isinstance(candidates_json, str):
-        candidates_json = json.dumps(candidates_json, ensure_ascii=False)
-    if preview_json is not None and not isinstance(preview_json, str):
-        preview_json = json.dumps(preview_json, ensure_ascii=False)
-
-    sid = int(series_id)
-    conn = _connect()
-    c = conn.cursor()
-    _ensure_pending_reviews_table(c)
-    # Remplace toute review existante pour cette série (évite les doublons)
-    c.execute("DELETE FROM pending_reviews WHERE series_id = ?", (sid,))
-    c.execute(
-        '''INSERT INTO pending_reviews
-           (review_id, series_id, series_name, candidates_json, preview_json,
-            state, created_at, base_provider, chosen_score, library_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-        (
-            review_id,
-            sid,
-            series_name,
-            candidates_json,
-            preview_json,
-            state or "awaiting_pick",
-            created_at,
-            base_provider,
-            chosen_score,
-            library_id,
-        ),
-    )
-    conn.commit()
-    conn.close()
-    return review_id
 
 
 def park_pending_review(
@@ -651,19 +556,6 @@ def update_pending_review(review_id, **fields):
     return touched
 
 
-def delete_pending_review(review_id):
-    if not os.path.exists(DB_FILE):
-        init_db()
-    conn = _connect()
-    c = conn.cursor()
-    _ensure_pending_reviews_table(c)
-    c.execute("DELETE FROM pending_reviews WHERE review_id = ?", (review_id,))
-    deleted = c.rowcount
-    conn.commit()
-    conn.close()
-    return deleted
-
-
 def delete_pending_by_series(series_id):
     if not os.path.exists(DB_FILE):
         init_db()
@@ -732,12 +624,12 @@ def save_series_override(override: SeriesOverride, *, purge_pending: bool = True
     """
     Persiste un SeriesOverride complet en une seule opération atomique.
 
-    Préférer cette fonction à `save_forced_overrides()` dans tout nouveau code :
-    en exigeant un objet à champs nommés plutôt qu'une liste d'arguments
-    positionnels, elle rend beaucoup plus visible (à la relecture comme à la
-    complétion IDE) tout champ oublié lors de la construction de l'objet —
-    c'est exactement l'angle mort qui avait fait disparaître silencieusement
-    `publisher_pref` dans l'ancienne route `/save-override`.
+    Exige un objet à champs nommés plutôt qu'une liste d'arguments positionnels
+    (l'ancien wrapper `save_forced_overrides` a été retiré) : cela rend beaucoup
+    plus visible (à la relecture comme à la complétion IDE) tout champ oublié
+    lors de la construction de l'objet — c'est exactement l'angle mort qui avait
+    fait disparaître silencieusement `publisher_pref` dans l'ancienne route
+    `/save-override`.
 
     `purge_pending` : True (défaut) purge les reviews manuelles de la série —
     comportement historique après un override UI. False pour une re-recherche
@@ -771,23 +663,12 @@ def save_series_override(override: SeriesOverride, *, purge_pending: bool = True
     if purge_pending:
         try:
             delete_pending_by_series(override.series_id)
-        except Exception:
-            pass
-
-def save_forced_overrides(series_id, forced_id, alt_title, forced_provider="AUTO", targeted_fields="ALL", publisher_pref="GLOBAL", alt_title_langs=""):
-    """Wrapper rétro-compatible (arguments positionnels) autour de save_series_override().
-    Conservé pour les appelants existants (ex: scripts de debug) ; tout nouveau code HTTP
-    (voir routes/series.py) doit construire un SeriesOverride explicite et appeler
-    save_series_override() directement."""
-    save_series_override(SeriesOverride(
-        series_id=series_id,
-        forced_id=forced_id,
-        alternative_title=alt_title,
-        forced_provider=forced_provider,
-        targeted_fields=targeted_fields,
-        publisher_pref=publisher_pref,
-        alt_title_langs=alt_title_langs or "",
-    ))
+        except Exception as e:
+            logging.debug(
+                "override orphan pending_review purge failed (series_id=%s): %s",
+                override.series_id,
+                safe_exc_str(e),
+            )
 
 def reset_errors():
     """Réinitialise les statuts NOT_FOUND et IGNORED en PENDING."""

@@ -42,7 +42,9 @@ class MangaNewsScraper(BaseScraper):
             "no_match": "⚠️ [Manga-News] Aucun résultat VF pertinent pour '{0}' (Score max: {1}%)",
             "matched": "🎯 [Manga-News] Match validé sur : {0} (Score: {1}%)",
             "err": "[Manga-News] Erreur : {0}",
-            "covers_err": "[Covers] Erreur Manga-News : {0}"
+            "covers_err": "[Covers] Erreur Manga-News : {0}",
+            "cover_provider_series": "Manga-News (Série)",
+            "cover_provider_volume": "Manga-News (Tome)",
         },
         "en": {
             "direct_url": "[Manga-News] Direct URL/ID request: '{0}'",
@@ -50,7 +52,9 @@ class MangaNewsScraper(BaseScraper):
             "no_match": "⚠️ [Manga-News] No relevant VF result for '{0}' (Max score: {1}%)",
             "matched": "🎯 [Manga-News] Match validated on: {0} (Score: {1}%)",
             "err": "[Manga-News] Error: {0}",
-            "covers_err": "[Covers] Manga-News error: {0}"
+            "covers_err": "[Covers] Manga-News error: {0}",
+            "cover_provider_series": "Manga-News (Series)",
+            "cover_provider_volume": "Manga-News (Volume)",
         }
     }
 
@@ -160,12 +164,15 @@ class MangaNewsScraper(BaseScraper):
                 t_text = theme_a.get_text(strip=True)
                 if t_text and t_text not in tags: tags.append(t_text)
 
-        age_rating = "safe"
+        # BF56: pas de défaut safe — seulement si #agenumber donne un signal.
+        age_rating = ""
         age_div = soup.find(id='agenumber')
         if age_div:
             age_text = age_div.get_text().lower()
-            if "18" in age_text or "averti" in age_text: age_rating = "pornographic"
-            elif "16" in age_text or "14" in age_text: age_rating = "suggestive"
+            if "18" in age_text or "averti" in age_text:
+                age_rating = "pornographic"
+            elif "16" in age_text or "14" in age_text:
+                age_rating = "suggestive"
 
         format_type = "manga"
         type_str = " ".join(genres).lower()
@@ -375,7 +382,7 @@ class MangaNewsScraper(BaseScraper):
                 if main_url:
                     if not main_url.startswith('http'): main_url = f"https://www.manga-news.com{main_url}"
                     covers.append({
-                        "provider": "Manga-News (Série)",
+                        "provider": self.t("cover_provider_series"),
                         "title": candidates[best_url],
                         "url": main_url
                     })
@@ -391,7 +398,7 @@ class MangaNewsScraper(BaseScraper):
                             
                             if v_url not in [c['url'] for c in covers]:
                                 covers.append({
-                                    "provider": "Manga-News (Tome)",
+                                    "provider": self.t("cover_provider_volume"),
                                     "title": v_title,
                                     "url": v_url
                                 })

@@ -182,11 +182,9 @@ class OpenLibraryScraper(BaseScraper):
             'genres': genres[:get_max_genres()] if genres else ["Fiction"],
             'tags': tags[:get_max_tags()],
             'year': year,
-            'status': 'FINISHED',
             'staff': staff,
             'publisher': publisher,
             'isbn': isbn,
-            'age_rating': 'safe',
             'format': 'book',
             'url': site_url
         }

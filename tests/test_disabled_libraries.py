@@ -5,7 +5,6 @@ from config_manager import (
     parse_library_id_list,
     get_disabled_library_ids,
     is_library_enabled,
-    filter_enabled_libraries,
     format_disabled_libraries,
 )
 
@@ -31,62 +30,15 @@ def test_empty_denylist_enables_all():
     assert get_disabled_library_ids(cfg) == set()
     assert is_library_enabled(1, cfg) is True
     assert is_library_enabled("99", cfg) is True
-    libs = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}]
-    assert filter_enabled_libraries(libs, cfg) == libs
 
 
-def test_denylist_filters_libraries():
+def test_denylist_filters_via_is_library_enabled():
     cfg = {"DISABLED_LIBRARIES": "2,5"}
     assert is_library_enabled(1, cfg) is True
     assert is_library_enabled(2, cfg) is False
     assert is_library_enabled("5", cfg) is False
-    libs = [
-        {"id": 1, "name": "Manga"},
-        {"id": 2, "name": "Comics"},
-        {"id": 5, "name": "Books"},
-    ]
-    enabled = filter_enabled_libraries(libs, cfg)
-    assert [lib["id"] for lib in enabled] == [1]
-
-
-def test_heal_total_library_denylist_resets_when_all_disabled(tmp_path, monkeypatch):
-    """Wipe accidentel : denylist == tous les IDs → reset + save."""
-    import config_manager as cm
-
-    monkeypatch.setattr(cm, "DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(cm, "CONFIG_FILE", str(tmp_path / "config.json"))
-    cm.save_config({
-        "SECRET_KEY": "s",
-        "WEBHOOK_TOKEN": "w",
-        "DISABLED_LIBRARIES": "1,2,3",
-    })
-    config = cm.load_config()
-    libs = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}, {"id": 3, "name": "C"}]
-
-    healed_cfg, healed = cm.heal_total_library_denylist(config, libs)
-    assert healed is True
-    assert healed_cfg["DISABLED_LIBRARIES"] == ""
-    assert cm.get_disabled_library_ids(healed_cfg) == set()
-    on_disk = cm.load_config()
-    assert not (on_disk.get("DISABLED_LIBRARIES") or "").strip()
-
-
-def test_heal_total_library_denylist_skips_partial_denylist(tmp_path, monkeypatch):
-    import config_manager as cm
-
-    monkeypatch.setattr(cm, "DATA_DIR", str(tmp_path))
-    monkeypatch.setattr(cm, "CONFIG_FILE", str(tmp_path / "config.json"))
-    cm.save_config({
-        "SECRET_KEY": "s",
-        "WEBHOOK_TOKEN": "w",
-        "DISABLED_LIBRARIES": "2",
-    })
-    config = cm.load_config()
-    libs = [{"id": 1, "name": "A"}, {"id": 2, "name": "B"}, {"id": 3, "name": "C"}]
-
-    healed_cfg, healed = cm.heal_total_library_denylist(config, libs)
-    assert healed is False
-    assert cm.get_disabled_library_ids(healed_cfg) == {"2"}
+    assert is_library_enabled(None, cfg) is True
+    assert is_library_enabled("", cfg) is True
 
 
 def test_get_all_series_never_filters_disabled_libraries():

@@ -27,7 +27,8 @@ from db_manager import (
 from translations import translations
 from kavita_api import KavitaAPI
 from scrapers import ScraperRegistry
-from scrapers.utils import MATCH_SCORE_KEY
+from scrapers.utils import MATCH_SCORE_KEY, apply_title_year_hint
+from secure_logging import safe_exc_str
 from services.kavita_payload import (
     build_kavita_payload,
     apply_kavita_payload,
@@ -54,7 +55,7 @@ _processing_series_ids = set()
 
 ALL_TARGETED_FIELDS = [
     "summary", "cover", "staff", "genres", "tags", "year",
-    "status", "publisher", "age", "format", "weblinks", "alt_titles",
+    "status", "publisher", "age", "format", "weblinks", "alt_titles", "language",
 ]
 
 
@@ -340,6 +341,11 @@ def _scrape_manual_candidates(
         existing_metadata = kavita.get_series_deep_metadata(series_id) or {}
         existing_metadata["publisher_pref"] = cache_data.get("publisher_pref", "GLOBAL")
 
+    # Comic / Flexible : année de run dans le nom Kavita "(YYYY)" → contexte scrapers
+    # avant la vague Comic (et avant tout fallback Manga).
+    if library_type in ("Comic", "ComicFlexible"):
+        apply_title_year_hint(existing_metadata, search_query, series_name)
+
     fetch_type = "Comic" if library_type == "ComicFlexible" else library_type
     if forced_provider != "AUTO" and forced_provider in ScraperRegistry._scrapers:
         scraper = ScraperRegistry.get(forced_provider)
@@ -599,8 +605,12 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             try:
                 from db_manager import delete_pending_by_series
                 delete_pending_by_series(int(series_id))
-            except Exception:
-                pass
+            except Exception as e:
+                logging.debug(
+                    "[%s] orphan pending_review purge failed: %s",
+                    series_name,
+                    safe_exc_str(e),
+                )
             return True, "Déjà à jour.", []
 
         # --- Détermination du type de bibliothèque ---
@@ -704,6 +714,10 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 logging.info(t.get('log_isbn_detected', "[{0}] 📑 ISBN détecté dans Kavita : {1}").format(series_name, existing_metadata['isbn']))
             if existing_metadata.get('authors'):
                 logging.info(t.get('log_authors_detected', "[{0}] ✍️ Auteur(s) détecté(s) dans Kavita : {1}").format(series_name, ', '.join(existing_metadata['authors'])))
+
+        # Comic / Flexible : année "(YYYY)" du nom → existing_metadata avant vague Comic.
+        if library_type in ("Comic", "ComicFlexible"):
+            apply_title_year_hint(existing_metadata, search_query, series_name)
 
         # --- APPEL DU SCRAPER ---
         from metadata_fetcher import fetch_metadata

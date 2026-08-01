@@ -8,6 +8,8 @@ together:
   streaming rather than after the whole body is already in memory.
 - **BF48** the webhook accepts its token from the `X-Webhook-Token` header, while
   the historical `?token=` query form keeps working.
+- **BF63** Config/docs prefer the header; `?token=` stays accepted (legacy) and
+  emits a once-per-process warning when used without the header.
 - **BF49** `config.json` is written 0600.
 
 Comme le reste de la suite (voir tests/conftest.py), ces tests n'importent
@@ -303,6 +305,54 @@ def test_webhook_empty_configured_token_rejects_everything(monkeypatch):
     assert client.post("/webhook", json={}).status_code == 401
     assert client.post("/webhook?token=", json={}).status_code == 401
     assert client.post("/webhook", headers={"X-Webhook-Token": ""}, json={}).status_code == 401
+
+
+def test_webhook_query_token_warns_once_when_header_absent(webhook_client, monkeypatch, caplog):
+    """BF63: legacy ?token= still authenticates, but warns once (noise-low) when no header."""
+    import logging
+    import routes.sync as sync
+
+    monkeypatch.setattr(sync, "_webhook_query_token_warned", False)
+    with caplog.at_level(logging.WARNING, logger="root"):
+        first = webhook_client.post("/webhook?token=s3cret-token", json={})
+        second = webhook_client.post("/webhook?token=s3cret-token", json={})
+
+    assert first.status_code == 400
+    assert second.status_code == 400
+    legacy_msgs = [r for r in caplog.records if "?token=" in r.getMessage() and "legacy" in r.getMessage()]
+    assert len(legacy_msgs) == 1
+
+
+def test_webhook_header_path_does_not_emit_legacy_query_warning(webhook_client, monkeypatch, caplog):
+    """Preferred path: X-Webhook-Token alone must not trip the query deprecation warning."""
+    import logging
+    import routes.sync as sync
+
+    monkeypatch.setattr(sync, "_webhook_query_token_warned", False)
+    with caplog.at_level(logging.WARNING, logger="root"):
+        res = webhook_client.post(
+            "/webhook", headers={"X-Webhook-Token": "s3cret-token"}, json={}
+        )
+
+    assert res.status_code == 400
+    assert not any("?token=" in r.getMessage() and "legacy" in r.getMessage() for r in caplog.records)
+
+
+def test_webhook_header_with_stale_query_skips_legacy_warning(webhook_client, monkeypatch, caplog):
+    """Header present ⇒ no legacy warning even if a stale ?token= is also in the URL."""
+    import logging
+    import routes.sync as sync
+
+    monkeypatch.setattr(sync, "_webhook_query_token_warned", False)
+    with caplog.at_level(logging.WARNING, logger="root"):
+        res = webhook_client.post(
+            "/webhook?token=stale",
+            headers={"X-Webhook-Token": "s3cret-token"},
+            json={},
+        )
+
+    assert res.status_code == 400
+    assert not any("?token=" in r.getMessage() and "legacy" in r.getMessage() for r in caplog.records)
 
 
 # --------------------------------------------------------------------------

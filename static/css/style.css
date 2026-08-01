@@ -2865,6 +2865,12 @@ textarea.mr-edit-input[data-field="summary"] {
     gap: 8px;
     align-items: stretch;
 }
+.webhook-url-input {
+    cursor: pointer;
+    font-size: 11px;
+    background: var(--bg-card);
+    width: 100%;
+}
 .inline-field-row > input,
 .inline-field-row > .webhook-url-input {
     flex: 1;
@@ -2872,6 +2878,7 @@ textarea.mr-edit-input[data-field="summary"] {
     cursor: pointer;
     font-size: 11px;
     background: var(--bg-card);
+    width: auto;
 }
 .inline-field-row > .btn-secondary {
     flex-shrink: 0;

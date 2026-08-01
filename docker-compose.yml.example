@@ -82,10 +82,12 @@ services:
       # All these values can also be configured later from the Web UI.
 
       # - DEEPL_API_KEY=ta_cle_api_deepl
+      # Defaults: UI_LANG=en, TARGET_LANG=EN (aligned). Set fr/FR for French installs.
+      # Défauts : UI_LANG=en, TARGET_LANG=EN (alignés). Pour le français : fr / FR.
+      # If TARGET_LANG is omitted, it is derived from UI_LANG (en→EN, fr→FR).
+      # Si TARGET_LANG est omis, il est dérivé de UI_LANG (en→EN, fr→FR).
       # - TARGET_LANG=FR
-      # Fresh install tip: set English UI before first open (default is French).
-      # Install neuve : forcer l'anglais avant la 1ère ouverture (défaut = français).
-      # - UI_LANG=en
+      # - UI_LANG=fr
       # - PROVIDER_1=MANGABAKA
       # - PROVIDER_2=KITSU
       # - PROVIDER_3=ANILIST

@@ -107,13 +107,12 @@ change » → en général parce que `data/config.json` contient déjà une vale
 Couche de persistance SQLite (`data/cache.db`, table unique `series_cache`). `_ensure_schema()`
 fait des `ALTER TABLE ADD COLUMN` défensifs (avec `try/except` silencieux) pour permettre les
 montées de version sans script de migration formel — fonctionne bien à cette échelle (une seule
-table, peu de colonnes) mais ne passerait pas à l'échelle d'un schéma plus complexe. Expose deux
-API pour écrire un override : `save_series_override(SeriesOverride)` (la voie moderne, préférée
-par tout le nouveau code) et `save_forced_overrides(...)` (wrapper positionnel rétro-compatible,
-gardé uniquement pour `debug_concurrency.py`). Toute nouvelle colonne de configuration par série
-doit être ajoutée à la fois dans `_ensure_schema()`, dans `SeriesOverride` (`models.py`), et dans
-`get_all_cached_data()` — ces trois points de synchronisation manuelle sont documentés en section
-11.C de `DEVELOPER.md`.
+table, peu de colonnes) mais ne passerait pas à l'échelle d'un schéma plus complexe. Expose une
+seule API pour écrire un override : `save_series_override(SeriesOverride)` (champs nommés).
+L'ancien wrapper positionnel `save_forced_overrides(...)` a été retiré — toute nouvelle colonne
+de configuration par série doit être ajoutée à la fois dans `_ensure_schema()`, dans
+`SeriesOverride` (`models.py`), et dans `get_all_cached_data()` — ces trois points de
+synchronisation manuelle sont documentés en section 11.C de `DEVELOPER.md`.
 
 ### `models.py`
 Un seul dataclass : `SeriesOverride` (id, ID/URL forcé, titre alternatif, provider forcé, champs

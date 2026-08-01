@@ -128,7 +128,8 @@ def overlay_edited_preview(provider_data: dict, edited_preview) -> dict:
             try:
                 data["year"] = int(raw_year)
             except (TypeError, ValueError):
-                data["year"] = raw_year
+                # BF61: ne pas garder une string — Kavita attend un int YYYY.
+                data["year"] = None
 
     if "genres" in edited_preview:
         data["genres"] = _split_csv(edited_preview["genres"])
@@ -222,10 +223,15 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
             meta["summary"] = translate_text(pd["summary"], config.get("DEEPL_API_KEY"), target_lang)
         meta["summaryLocked"] = True
 
-    # 2. Année
-    if "year" in active and pd.get("year"):
-        meta["releaseYear"] = pd["year"]
-        meta["releaseYearLocked"] = True
+    # 2. Année (BF61: int YYYY uniquement — pas de string / lock sur parse fail)
+    if "year" in active and pd.get("year") not in (None, ""):
+        try:
+            year_int = int(pd["year"])
+        except (TypeError, ValueError):
+            year_int = None
+        if year_int is not None and 1000 <= year_int <= 2100:
+            meta["releaseYear"] = year_int
+            meta["releaseYearLocked"] = True
 
     # 3. Statut
     if "status" in active and pd.get("status") in PUBLICATION_STATUS_MAP:
@@ -386,13 +392,15 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
         if safe_links:
             meta["webLinks"] = ",".join(safe_links)
 
-    # 12. Langue
-    target_lang = (config.get("TARGET_LANG") or "").strip()
-    if target_lang:
-        current_lang = (meta.get("language") or "").strip()
-        if force_update or not current_lang:
-            meta["language"] = target_lang.lower()
-            meta["languageLocked"] = True
+    # 12. Langue (BF57) — uniquement si le champ est dans le masque ciblé.
+    # Avant : écriture hors active_fields à chaque enrich réussi.
+    if "language" in active:
+        target_lang = (config.get("TARGET_LANG") or "").strip()
+        if target_lang:
+            current_lang = (meta.get("language") or "").strip()
+            if force_update or not current_lang:
+                meta["language"] = target_lang.lower()
+                meta["languageLocked"] = True
 
     meta["seriesId"] = int(series_id)
     cover_url = pd.get("cover_url")

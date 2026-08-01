@@ -237,8 +237,8 @@ docker compose up -d --build
 | `AZURE_API_KEY` | Microsoft Azure Translator API Key (Primary Translation Engine). | *(Empty)* |
 | `AZURE_REGION` | Microsoft Azure Translator API Region (e.g. `francecentral`). | *(Empty)* |
 | `DEEPL_API_KEY` | Your DeepL Translation API Key (Fallback Translation Engine). | *(Empty)* |
-| `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! | `EN` |
-| `UI_LANG` | Dashboard interface language (`fr` or `en`). On a fresh install you can set `UI_LANG=en` in Compose before opening the UI. Language can also be changed in Settings without filling Kavita credentials first. | `en` |
+| `TARGET_LANG` | Output language for summaries (`FR`, `EN`, `ES`...). Also dynamically changes Google Books search language! When absent from `config.json` and env, derived from `UI_LANG` (`en`→`EN`, `fr`→`FR`). | `EN` |
+| `UI_LANG` | Dashboard interface language (`fr` or `en`). On a fresh install you can set `UI_LANG=fr` in Compose before opening the UI. Language can also be changed in Settings without filling Kavita credentials first. | `en` |
 | `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | How to build Kavita `localizedName`: `all` (join unique titles with `" / "`), `prefer` (filter/order by `LOCALIZED_TITLE_LANGS`), `none` (do not write). Never rewrites Series `name`. Also in Config modal. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Comma-separated BCP-47-ish tags when mode is `prefer` (e.g. `en, ja-ro, ja`). Order = priority. Per-series override via `alt_title_langs`. | *(Empty)* |
@@ -306,13 +306,13 @@ The token can be sent two ways. **Prefer the header** — a token in the query s
 X-Webhook-Token: <YOUR_WEBHOOK_TOKEN>
 ```
 
-The historical query form still works and is not deprecated, so existing integrations keep running untouched:
+The historical query form still works (**legacy / deprecated**, not removed) so existing integrations keep running untouched:
 
 `POST http://<your-metakavita-ip>:5010/webhook?token=<YOUR_WEBHOOK_TOKEN>`
 
 If both are supplied, the header wins.
 
-You can view your ready-to-use Webhook URL or generate a new token anytime directly inside the **Config Modal** (under the Planning section).
+In the **Config Modal** (Planning section) you get the base webhook URL (`/webhook`, no token in the query string), a separate copyable token field, and a one-click regenerate button. Send the token as `X-Webhook-Token`.
 
 **Payload Example:**
 ```json
@@ -570,8 +570,8 @@ docker compose up -d --build
 | `AZURE_API_KEY` | Ta clé d'API Microsoft Azure Translator (Moteur principal). | *(Vide)* |
 | `AZURE_REGION` | Ta région Azure Translator (ex: `francecentral`). | *(Vide)* |
 | `DEEPL_API_KEY` | Ta clé API DeepL pour la traduction (Repli de secours). | *(Vide)* |
-| `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`...). Modifie dynamiquement la langue de recherche Google Books ! | `FR` |
-| `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). Sur une install neuve, tu peux forcer `UI_LANG=en` dans Compose avant d'ouvrir l'UI. La langue se change aussi dans Config sans devoir remplir Kavita d'abord. | `fr` |
+| `TARGET_LANG` | Langue cible des résumés (`FR`, `EN`...). Modifie dynamiquement la langue de recherche Google Books ! Absent du fichier et de l'env → dérivé de `UI_LANG` (`en`→`EN`, `fr`→`FR`). | `EN` |
+| `UI_LANG` | Langue de l'interface MetaKavita (`fr` ou `en`). Sur une install neuve, tu peux forcer `UI_LANG=fr` dans Compose avant d'ouvrir l'UI. La langue se change aussi dans Config sans devoir remplir Kavita d'abord. | `en` |
 | `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | Construction de Kavita `localizedName` : `all` (joindre les titres uniques avec `" / "`), `prefer` (filtre/ordre via `LOCALIZED_TITLE_LANGS`), `none` (ne pas écrire). Ne réécrit jamais Series `name`. Aussi dans la modal Config. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Tags BCP-47-ish séparés par des virgules en mode `prefer` (ex. `en, ja-ro, ja`). Ordre = priorité. Override par série via `alt_title_langs`. | *(Vide)* |
@@ -639,13 +639,13 @@ Le jeton peut être transmis de deux façons. **Privilégiez l'en-tête** : un j
 X-Webhook-Token: <TON_WEBHOOK_TOKEN>
 ```
 
-La forme historique en paramètre d'URL reste fonctionnelle et n'est pas dépréciée : les intégrations existantes continuent de marcher sans modification.
+La forme historique en paramètre d'URL reste fonctionnelle (**legacy / dépréciée**, non retirée) : les intégrations existantes continuent de marcher sans modification.
 
 `POST http://<ton-ip-metakavita>:5010/webhook?token=<TON_WEBHOOK_TOKEN>`
 
 Si les deux sont fournis, l'en-tête est prioritaire.
 
-Vous pouvez consulter votre URL Webhook prête à l'emploi ou régénérer un jeton à tout moment directement depuis la **Modal Config** (dans la section Planification).
+Dans la **Modal Config** (section Planification) vous avez l'URL de base (`/webhook`, sans jeton dans la query), un champ jeton copiable à part, et un bouton de régénération. Envoyez le jeton via `X-Webhook-Token`.
 
 **Exemple de payload :**
 ```json

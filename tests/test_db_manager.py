@@ -1,6 +1,6 @@
 """
 Non-régression : bug historique de la route `/save-override` où `publisher_pref`
-était extrait du formulaire mais jamais transmis à `save_forced_overrides()`,
+était extrait du formulaire mais jamais transmis à la persistance d'override,
 et disparaissait donc silencieusement du cache local (voir CHANGELOG).
 
 Ces tests verrouillent le comportement de persistance de db_manager.py
@@ -32,19 +32,17 @@ def test_save_series_override_roundtrip_persists_publisher_pref(isolated_db):
     assert entry["publisher_pref"] == "ORIGINAL"
 
 
-def test_save_forced_overrides_backward_compatible_wrapper_persists_publisher_pref(isolated_db):
-    """save_forced_overrides() est l'API historique (arguments positionnels),
-    conservée pour les appelants existants (ex: debug_concurrency.py). Elle doit
-    rester un simple adaptateur vers save_series_override() et donc persister
-    tous les champs, y compris publisher_pref."""
-    isolated_db.save_forced_overrides(
+def test_save_series_override_named_fields_persists_publisher_pref(isolated_db):
+    """Named SeriesOverride fields (vs historical positional args) must all
+    round-trip, including publisher_pref — the field that was silently dropped."""
+    isolated_db.save_series_override(SeriesOverride(
         series_id=7,
         forced_id="",
-        alt_title="",
+        alternative_title="",
         forced_provider="AUTO",
         targeted_fields="ALL",
         publisher_pref="ORIGINAL",
-    )
+    ))
 
     cached = isolated_db.get_all_cached_data()
     assert cached[7]["publisher_pref"] == "ORIGINAL"
@@ -79,16 +77,16 @@ def test_save_series_override_roundtrip_persists_alt_title_langs(isolated_db):
     assert cached[42]["alt_title_langs"] == "en, ja-ro"
 
 
-def test_save_forced_overrides_persists_alt_title_langs(isolated_db):
-    isolated_db.save_forced_overrides(
+def test_save_series_override_persists_alt_title_langs(isolated_db):
+    isolated_db.save_series_override(SeriesOverride(
         series_id=8,
         forced_id="",
-        alt_title="",
+        alternative_title="",
         forced_provider="AUTO",
         targeted_fields="ALL",
         publisher_pref="GLOBAL",
         alt_title_langs="ja",
-    )
+    ))
     assert isolated_db.get_all_cached_data()[8]["alt_title_langs"] == "ja"
 
 

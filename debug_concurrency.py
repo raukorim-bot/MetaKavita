@@ -15,7 +15,8 @@ import threading
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from db_manager import init_db, get_all_cached_data, save_forced_overrides, update_status
+    from db_manager import init_db, get_all_cached_data, save_series_override, update_status
+    from models import SeriesOverride
 except Exception as e:
     print(f"❌ Impossible d'importer db_manager: {e}")
     sys.exit(1)
@@ -67,7 +68,13 @@ def simulate_app_apply_series_cover_FIXED(kavita_mock, series_id, new_cover_url)
             all_fields = [f for f in current_fields.split(',') if f != 'cover']
             
         new_targeted_fields = ",".join(all_fields)
-        save_forced_overrides(int(series_id), forced_id, alt_title, forced_provider, new_targeted_fields)
+        save_series_override(SeriesOverride(
+            series_id=int(series_id),
+            forced_id=forced_id,
+            alternative_title=alt_title,
+            forced_provider=forced_provider,
+            targeted_fields=new_targeted_fields,
+        ))
         print(f"   [DB FIX] 🔒 Champ 'cover' retiré de targeted_fields (Nouveaux champs autorisés: '{new_targeted_fields}')")
 
 
@@ -103,7 +110,13 @@ def run_tests():
     init_db()
     test_series_id = 88888
     update_status(test_series_id, "PENDING")
-    save_forced_overrides(test_series_id, "", "", "AUTO", "ALL")
+    save_series_override(SeriesOverride(
+        series_id=test_series_id,
+        forced_id="",
+        alternative_title="",
+        forced_provider="AUTO",
+        targeted_fields="ALL",
+    ))
 
     kavita = MockKavitaServer()
 
@@ -137,7 +150,13 @@ def run_tests():
     print("─"*65)
 
     # Reset
-    save_forced_overrides(test_series_id, "", "", "AUTO", "ALL")
+    save_series_override(SeriesOverride(
+        series_id=test_series_id,
+        forced_id="",
+        alternative_title="",
+        forced_provider="AUTO",
+        targeted_fields="ALL",
+    ))
 
     # 1. Scraping auto initial
     simulate_process_series_logic(kavita, test_series_id, "http://provider.com/cover_manga.jpg", global_auto_cover=True)
@@ -159,7 +178,13 @@ def run_tests():
     print("⚡ SCÉNARIO 3 : SIMULATION DE CONCURRENCE (Rivalité de Threads)")
     print("─"*65)
 
-    save_forced_overrides(test_series_id, "", "", "AUTO", "ALL")
+    save_series_override(SeriesOverride(
+        series_id=test_series_id,
+        forced_id="",
+        alternative_title="",
+        forced_provider="AUTO",
+        targeted_fields="ALL",
+    ))
     race_kavita = MockKavitaServer()
 
     def slow_batch_worker():

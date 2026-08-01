@@ -1,16 +1,9 @@
 import requests
 import logging
-import unicodedata
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
 from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import get_max_tags
-
-
-def normalize_str(s):
-    if not s:
-        return ""
-    return "".join(c for c in unicodedata.normalize('NFD', s.lower()) if unicodedata.category(c) != 'Mn').strip()
 
 
 class KitsuScraper(BaseScraper):
@@ -70,12 +63,15 @@ class KitsuScraper(BaseScraper):
         elif manga_type == 'manga':
             format_type = 'manga'
 
-        age_rating = "safe"
-        raw_age = attrs.get('ageRating', '')
+        # BF56: n'émettre un âge que si Kitsu fournit un guide explicite.
+        age_rating = ""
+        raw_age = attrs.get('ageRating', '') or ''
         if raw_age in ['R', 'R18']:
             age_rating = "pornographic"
         elif raw_age == 'PG':
             age_rating = "suggestive"
+        elif raw_age == 'G':
+            age_rating = "safe"
 
         tags = []
         for item in (included or []):

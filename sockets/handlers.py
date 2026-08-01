@@ -12,7 +12,7 @@ l'importer une fois (pour effet de bord) depuis app.py, après
 import logging
 from urllib.parse import quote
 
-from flask import request, session
+from flask import request
 from flask_socketio import disconnect
 
 import auth_manager

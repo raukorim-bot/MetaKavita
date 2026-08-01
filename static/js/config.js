@@ -346,9 +346,10 @@ function regenerateWebhookToken(btn) {
     .then(data => {
         btn.disabled = false;
         if (data.success) {
-            const webhookInput = document.getElementById('webhookUrlInput');
-            if (webhookInput) {
-                webhookInput.value = `${getRootPath()}/webhook?token=${data.new_token}`;
+            // URL stays /webhook (no ?token=); only the separate token field changes.
+            const tokenInput = document.getElementById('webhookTokenInput');
+            if (tokenInput) {
+                tokenInput.value = data.new_token;
             }
             btn.innerText = "✅ OK";
             setTimeout(() => { btn.innerText = originalText; }, 2000);

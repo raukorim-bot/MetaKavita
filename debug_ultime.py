@@ -13,8 +13,14 @@ def test_kavita_payloads(series_id):
     print("="*80)
     
     config = load_config()
-    kavita = KavitaAPI(config.get('KAVITA_URL'), '5ICZyZBqCPAMyMfFc9CB')
-    
+    kavita_url = config.get('KAVITA_URL')
+    kavita_api_key = config.get('KAVITA_API_KEY')
+    if not kavita_url or not kavita_api_key:
+        print("❌ Kavita URL ou API Key introuvable dans la configuration (KAVITA_URL / KAVITA_API_KEY).")
+        sys.exit(1)
+
+    kavita = KavitaAPI(kavita_url, kavita_api_key)
+
     if not kavita.authenticate():
         print("❌ Échec de l'authentification Kavita. Vérifiez l'URL et l'API Key.")
         return

@@ -87,7 +87,7 @@
                                                des virgules. On la découpe explicitement en liste (tf_list) avant de tester
                                                l'appartenance : `'age' in tf_raw` ferait un test de SOUS-CHAÎNE sur la chaîne
                                                brute (ex: matcherait par accident un futur champ nommé "average" ou "package"),
-                                               ce qui n'est sans danger aujourd'hui que par coïncidence (aucun des 12 noms de
+                                               ce qui n'est sans danger aujourd'hui que par coïncidence (aucun des noms de
                                                champ actuels n'est une sous-chaîne d'un autre). #}
                                             {% set tf_raw = series.targeted_fields|default('ALL') %}
                                             {% set tf_list = tf_raw.split(',') if tf_raw not in ('ALL', 'NONE') else [] %}
@@ -103,6 +103,7 @@
                                             <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-format-{{ series.id }}" {% if tf_raw == 'ALL' or 'format' in tf_list %}checked{% endif %}> Sens lecture</label>
                                             <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-{{ series.id }}" {% if tf_raw == 'ALL' or 'weblinks' in tf_list %}checked{% endif %}> Liens & IDs</label>
                                             <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-{{ series.id }}" {% if tf_raw == 'ALL' or 'alt_titles' in tf_list %}checked{% endif %}> Titres Alternatifs</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-language-{{ series.id }}" {% if tf_raw == 'ALL' or 'language' in tf_list %}checked{% endif %}> Langue</label>
                                         </div>
                                         <div style="margin-top: 8px;">
                                             <span class="input-hint">{{ t.alt_title_langs_label }}</span>

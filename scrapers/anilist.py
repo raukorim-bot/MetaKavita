@@ -158,7 +158,8 @@ class AnilistScraper(BaseScraper):
             'status': data.get('status'),
             'staff': data.get('staff', {}).get('edges', []),
             'characters': data.get('characters', {}).get('edges', []),
-            'age_rating': 'pornographic' if data.get('isAdult') else 'safe',
+            # BF56: isAdult=False n'implique pas Everyone — omettre plutôt qu'inventer safe.
+            'age_rating': 'pornographic' if data.get('isAdult') else '',
             'format': format_type,
             'publisher': None,
             'anilist_id': data.get('id'),

@@ -18,6 +18,8 @@ from kavita_api import KavitaAPI
 from models import SeriesOverride
 from scrapers import ScraperRegistry
 from scrapers.utils import library_type_for_scraper
+from services.enrichment_engine import ALL_TARGETED_FIELDS
+from secure_logging import safe_exc_str
 
 series_bp = Blueprint('series', __name__)
 
@@ -60,8 +62,8 @@ def toggle_ignore():
             deleted = delete_pending_by_series(int(series_id))
             if deleted:
                 emit_pending_count()
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("ignore-series orphan purge failed: %s", safe_exc_str(e))
     return jsonify(success=True, new_status=new_status)
 
 
@@ -130,7 +132,7 @@ def apply_series_cover(series_id):
 
         current_fields = override.targeted_fields
         if current_fields == 'ALL':
-            all_fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles']
+            all_fields = list(ALL_TARGETED_FIELDS)
         else:
             all_fields = current_fields.split(',')
 
@@ -169,8 +171,8 @@ def seal_series_locks(series_id):
         from services.kavita_payload import _emit_series_status
         cache = get_all_cached_data().get(int(series_id), {})
         _emit_series_status(series_id, 'COMPLETED', cache.get('alternative_title') or '')
-    except Exception:
-        pass
+    except Exception as e:
+        logging.debug("seal-locks status emit failed: %s", safe_exc_str(e))
     return jsonify(success=True, status='COMPLETED', message=msg)
 
 

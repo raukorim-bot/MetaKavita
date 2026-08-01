@@ -245,7 +245,7 @@ function syncSingle(id, name, btn) {
         const altLangsInput = document.getElementById('alt-langs-' + id);
         const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
         
-        const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
+        const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles', 'language'];
         const activeFields = fields.filter(f => {
             const cb = document.getElementById(`field-${f}-${id}`);
             return cb && cb.checked;

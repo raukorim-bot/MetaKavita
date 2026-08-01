@@ -279,7 +279,6 @@ def entity_to_candidate(
         "status": None,
         "staff": staff,
         "characters": [],
-        "age_rating": "safe",
         "format": fmt,
         "publisher": publisher,
         "isbn": isbn or None,

@@ -3,9 +3,9 @@ Contrats de données (dataclasses) partagés entre la couche persistance
 (db_manager.py) et la couche HTTP (routes/).
 
 Objectif (voir DEVELOPER.md section 11.C "Tracer un nouveau reglage sur toute
-la chaine") : remplacer les longues signatures positionnelles (ex:
-`save_forced_overrides(series_id, forced_id, alt_title, forced_provider,
-targeted_fields, publisher_pref)`) par un objet explicite a champs nommes.
+la chaine") : remplacer les longues signatures positionnelles (ex. l'ancien
+`save_forced_overrides(series_id, forced_id, alt_title, …)` retiré) par un
+objet explicite a champs nommes via `save_series_override(SeriesOverride(...))`.
 Un bug de production reel (le reglage "Preference d'Editeur" par serie qui
 n'etait jamais transmis a la fonction de sauvegarde) a ete cause exactement
 par ce type de signature a arguments positionnels multiples.

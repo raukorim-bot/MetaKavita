@@ -199,8 +199,13 @@
 
                             <div class="form-group m-0">
                                 <label>{{ t.webhook_url_label }}</label>
+                                <input type="text" id="webhookUrlInput" class="webhook-url-input" readonly value="{{ request.script_root }}/webhook" onclick="this.select();" title="{{ t.webhook_copy_title }}">
+                                <small class="field-hint">{{ t.webhook_header_hint }}</small>
+                            </div>
+                            <div class="form-group m-0">
+                                <label>{{ t.webhook_token_label }}</label>
                                 <div class="inline-field-row">
-                                    <input type="text" id="webhookUrlInput" class="webhook-url-input" readonly value="{{ request.script_root }}/webhook?token={{ config.get('WEBHOOK_TOKEN', '') }}" onclick="this.select();" title="Cliquer pour tout sélectionner">
+                                    <input type="text" id="webhookTokenInput" class="webhook-url-input" readonly value="{{ config.get('WEBHOOK_TOKEN', '') }}" onclick="this.select();" title="{{ t.webhook_copy_title }}">
                                     <button type="button" class="btn-secondary" onclick="regenerateWebhookToken(this)">{{ t.regen_webhook_btn }}</button>
                                 </div>
                             </div>

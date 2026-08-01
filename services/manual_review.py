@@ -20,6 +20,7 @@ from db_manager import (
     update_pending_review,
 )
 from metadata_fetcher import merge_candidates
+from secure_logging import safe_exc_str
 
 # Marqueur interne : résumé déjà passé par translate_text (évite double trad. à l'apply).
 SUMMARY_TRANSLATED_KEY = "_summary_translated"
@@ -420,8 +421,8 @@ def purge_all_reviews(reset_status: str = "PENDING") -> dict:
     if deleted > 0:
         try:
             record_manual_purge_telemetry(deleted)
-        except Exception:
-            pass
+        except Exception as e:
+            logging.debug("manual purge telemetry failed: %s", safe_exc_str(e))
     emit_pending_count()
     _safe_emit(
         "manual_review_purged",

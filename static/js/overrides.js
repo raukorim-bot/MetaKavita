@@ -3,7 +3,7 @@
 
 const TARGETED_FIELD_KEYS = [
     'summary', 'cover', 'staff', 'genres', 'tags', 'year',
-    'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'
+    'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles', 'language'
 ];
 
 let allPanelsExpanded = false; // Mémorise l'état global du déploiement des options
@@ -62,7 +62,7 @@ function saveOverride(seriesId, btn) {
     const altLangsInput = document.getElementById('alt-langs-' + seriesId);
     const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
     
-    const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles'];
+    const fields = TARGETED_FIELD_KEYS;
     const activeFields = fields.filter(f => {
         const cb = document.getElementById(`field-${f}-${seriesId}`);
         return cb && cb.checked;

@@ -7,7 +7,7 @@ import difflib
 from bs4 import BeautifulSoup
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score, extract_year_from_title
 from config_manager import load_config, get_max_tags
 from secure_logging import safe_exc_str
 
@@ -65,13 +65,23 @@ class ComicVineScraper(BaseScraper):
             "err_missing": "❌ Clé API ComicVine manquante. Veuillez la configurer dans les paramètres.",
             "direct_id": "🎯 [ComicVine] Requête directe par ID : '{0}'",
             "search_vol": "🔍 [ComicVine] Recherche de Volume pour '{0}'...",
-            "err_search": "[ComicVine] Erreur recherche : {0}"
+            "err_search": "[ComicVine] Erreur recherche : {0}",
+            "lbl_synopsis": "📖 [Synopsis] : {0}",
+            "lbl_album": "📖 [Album : {0}]",
+            "lbl_series": "📚 [Série : {0}]",
+            "cover_provider_series": "ComicVine (Série)",
+            "unknown_title": "Inconnu",
         },
         "en": {
             "err_missing": "❌ ComicVine API Key is missing. Please configure it in settings.",
             "direct_id": "🎯 [ComicVine] Direct request by ID: '{0}'",
             "search_vol": "🔍 [ComicVine] Volume Search for '{0}'...",
-            "err_search": "[ComicVine] Search error: {0}"
+            "err_search": "[ComicVine] Search error: {0}",
+            "lbl_synopsis": "📖 [Synopsis]: {0}",
+            "lbl_album": "📖 [Issue: {0}]",
+            "lbl_series": "📚 [Series: {0}]",
+            "cover_provider_series": "ComicVine (Series)",
+            "unknown_title": "Unknown",
         }
     }
 
@@ -82,7 +92,12 @@ class ComicVineScraper(BaseScraper):
                 return match.group(1)
         return None
 
-    def _evaluate_volume_candidates(self, volume_results: list, query_base: str) -> Optional[dict]:
+    def _evaluate_volume_candidates(
+        self,
+        volume_results: list,
+        query_base: str,
+        year_hint: Optional[int] = None,
+    ) -> Optional[dict]:
         if not volume_results: return None
         
         norm_query = normalize_str(query_base)
@@ -107,6 +122,20 @@ class ComicVineScraper(BaseScraper):
                     
                 if any(fk in pub_name for fk in FOREIGN_KEYWORDS):
                     score -= 400.0
+
+                # Run year (Kavita Flexible "(YYYY)" / existing_metadata) vs ComicVine start_year.
+                if year_hint is not None:
+                    start_raw = vol.get("start_year")
+                    try:
+                        start_year = int(start_raw) if start_raw is not None else None
+                    except (TypeError, ValueError):
+                        start_year = None
+                    if start_year is not None:
+                        delta = abs(start_year - int(year_hint))
+                        if delta <= 1:
+                            score += 200.0
+                        elif delta > 5:
+                            score -= 100.0
 
                 candidates.append((score, vol))
 
@@ -145,6 +174,14 @@ class ComicVineScraper(BaseScraper):
                 volume_id = str(query)
         else:
             cleaned_query = clean_title(query, library_type=library_type)
+            year_hint = None
+            if existing_metadata and existing_metadata.get("year") is not None:
+                try:
+                    year_hint = int(existing_metadata["year"])
+                except (TypeError, ValueError):
+                    year_hint = None
+            if year_hint is None:
+                year_hint = extract_year_from_title(query)
 
             logging.info(self.t("search_vol").format(cleaned_query))
             url_volumes = "https://comicvine.gamespot.com/api/volumes/"
@@ -162,7 +199,9 @@ class ComicVineScraper(BaseScraper):
                 res_v = requests.get(url_volumes, params=params_vol, headers=headers, timeout=12)
                 if res_v.status_code == 200:
                     vol_results = res_v.json().get("results", [])
-                    matched_volume = self._evaluate_volume_candidates(vol_results, cleaned_query)
+                    matched_volume = self._evaluate_volume_candidates(
+                        vol_results, cleaned_query, year_hint=year_hint
+                    )
             except Exception as e:
                 logging.error(self.t("err_search").format(safe_exc_str(e)))
 
@@ -174,8 +213,11 @@ class ComicVineScraper(BaseScraper):
                     res_v = requests.get(url_volumes, params=params_vol, headers=headers, timeout=12)
                     if res_v.status_code == 200:
                         vol_results = res_v.json().get("results", [])
-                        matched_volume = self._evaluate_volume_candidates(vol_results, base_q)
-                except Exception: pass
+                        matched_volume = self._evaluate_volume_candidates(
+                            vol_results, base_q, year_hint=year_hint
+                        )
+                except Exception as e:
+                    logging.debug("ComicVine passe-2 search failed: %s", safe_exc_str(e))
 
             # 🎯 PASSE 3 : Fallback via /search/
             if not matched_volume:
@@ -192,7 +234,9 @@ class ComicVineScraper(BaseScraper):
                     res_s = requests.get(url_search, params=params_search, headers=headers, timeout=12)
                     if res_s.status_code == 200:
                         s_results = res_s.json().get("results", [])
-                        matched_volume = self._evaluate_volume_candidates(s_results, cleaned_query)
+                        matched_volume = self._evaluate_volume_candidates(
+                            s_results, cleaned_query, year_hint=year_hint
+                        )
                 except Exception as e:
                     logging.error(self.t("err_search").format(safe_exc_str(e)))
 
@@ -226,7 +270,8 @@ class ComicVineScraper(BaseScraper):
                                 if isinstance(parent_vol, dict):
                                     volume_id = parent_vol.get("id")
                                     volume_name = parent_vol.get("name")
-                except Exception: pass
+                except Exception as e:
+                    logging.debug("ComicVine issue search failed: %s", safe_exc_str(e))
 
         if not volume_id and not issue_id: 
             return None
@@ -259,7 +304,8 @@ class ComicVineScraper(BaseScraper):
                             elif any(r in p_role for r in ["penciller", "artist"]): mapped_role = "Art"
                             elif any(r in p_role for r in ["colorist"]): mapped_role = "Color"
                             if mapped_role: staff_credits.append({"role": mapped_role, "node": {"name": {"full": p_name}}})
-            except Exception: pass
+            except Exception as e:
+                logging.debug("ComicVine issue detail/staff parse failed: %s", safe_exc_str(e))
 
         volume_summary = ""
         volume_cover = None
@@ -321,7 +367,10 @@ class ComicVineScraper(BaseScraper):
                                                 f_soup = BeautifulSoup(f_desc, "html.parser")
                                                 issue_1_text = clean_comicvine_html(f_soup).get_text().strip()
                                                 if issue_1_text:
-                                                    volume_summary = f"{volume_summary}\n\n📖 [Synopsis] : {issue_1_text}".strip()
+                                                    volume_summary = (
+                                                        f"{volume_summary}\n\n"
+                                                        + self.t("lbl_synopsis").format(issue_1_text)
+                                                    ).strip()
 
                                         # Staff enrichi via Tome #1
                                         if not staff_credits:
@@ -334,14 +383,18 @@ class ComicVineScraper(BaseScraper):
                                                 elif any(r in p_role for r in ["penciller", "artist"]): mapped_role = "Art"
                                                 elif any(r in p_role for r in ["colorist"]): mapped_role = "Color"
                                                 if mapped_role: staff_credits.append({"role": mapped_role, "node": {"name": {"full": p_name}}})
-                            except Exception: pass
+                            except Exception as e:
+                                logging.debug("ComicVine first-issue staff enrich failed: %s", safe_exc_str(e))
 
-            except Exception: pass
+            except Exception as e:
+                logging.debug("ComicVine volume detail failed: %s", safe_exc_str(e))
 
         final_cover = issue_cover if issue_cover else volume_cover
         final_summary = ""
-        if issue_summary: final_summary += f"📖 [Album : {issue_name}]\n{issue_summary}\n\n"
-        if volume_summary: final_summary += f"📚 [Série : {volume_name}]\n{volume_summary}"
+        if issue_summary:
+            final_summary += self.t("lbl_album").format(issue_name) + f"\n{issue_summary}\n\n"
+        if volume_summary:
+            final_summary += self.t("lbl_series").format(volume_name) + f"\n{volume_summary}"
             
         if not final_summary.strip() and not final_cover: 
             return None
@@ -356,10 +409,8 @@ class ComicVineScraper(BaseScraper):
             'genres': ["Comic Book"],
             'tags': tags[:get_max_tags()],
             'year': year,
-            'status': "FINISHED",
             'staff': staff_credits, 
             'publisher': publisher_name,
-            'age_rating': "safe",
             'format': "comic",
             'url': site_url
         }
@@ -386,6 +437,12 @@ class ComicVineScraper(BaseScraper):
                 for v in res.json().get('results', []):
                     img_dict = v.get('image') or {}
                     cover_url = img_dict.get('original_url') or img_dict.get('super_url')
-                    if cover_url: covers.append({"provider": "ComicVine (Série)", "title": v.get('name', 'Inconnu'), "url": cover_url})
-        except Exception: pass
+                    if cover_url:
+                        covers.append({
+                            "provider": self.t("cover_provider_series"),
+                            "title": v.get("name") or self.t("unknown_title"),
+                            "url": cover_url,
+                        })
+        except Exception as e:
+            logging.debug("ComicVine cover search failed: %s", safe_exc_str(e))
         return covers

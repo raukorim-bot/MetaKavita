@@ -321,7 +321,6 @@ class BedethequeScraper(BaseScraper):
                 'status': status,
                 'staff': unique_staff,
                 'publisher': publisher,
-                'age_rating': 'safe',
                 'format': 'comic',
                 'url': serie_url or album_url,
                 'links': [serie_url] if serie_url else [album_url]

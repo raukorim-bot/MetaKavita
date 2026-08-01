@@ -146,7 +146,7 @@ Vous ne savez pas coder ? Aucun problème. Vous pouvez demander à une IA (ChatG
 >             'status': 'RELEASING',             # 'RELEASING', 'FINISHED', 'HIATUS' ou 'CANCELLED'
 >             'staff': [{'role': 'Story', 'node': {'name': {'full': 'Prénom Nom'}}}, {'role': 'Art', 'node': {'name': {'full': 'Prénom Nom'}}}],
 >             'publisher': 'str_nom_editeur',
->             'age_rating': 'safe',              # 'safe', 'suggestive', ou 'pornographic'
+>             'age_rating': 'safe',              # OPTIONNEL — 'safe'/'suggestive'/'erotica'/'pornographic' SEULEMENT si le site donne un signal ; sinon OMETTRE (ne jamais inventer 'safe', BF56)
 >             'format': 'manga',                 # 'manga', 'webtoon', 'comic' ou 'book'
 >             'url': 'str_url_de_la_page_source',
 >             'isbn': 'str_chiffres_uniquement'  # Optionnel, mais vital pour les romans

@@ -42,6 +42,21 @@ CONFIG_LOCK = threading.RLock()
 _logged_config_path = False
 
 
+def target_lang_from_ui_lang(ui_lang) -> str:
+    """Derive metadata ``TARGET_LANG`` from effective ``UI_LANG`` (BF64).
+
+    Mapping: ``en`` → ``EN``, ``fr`` → ``FR``. Any other non-empty UI tag is
+    uppercased (e.g. ``es`` → ``ES``, ``pt-br`` → ``PT-BR``). Empty / missing → ``EN``.
+    """
+    raw = (ui_lang or "").strip()
+    if not raw:
+        return "EN"
+    low = raw.lower()
+    if low in ("en", "fr"):
+        return low.upper()
+    return raw.upper()
+
+
 def load_config():
     global _logged_config_path
     with CONFIG_LOCK:
@@ -70,7 +85,10 @@ def load_config():
             "DEEPL_API_KEY": "",
             "AZURE_API_KEY": "",
             "AZURE_REGION": "",
-            "TARGET_LANG": "FR",
+            # Aligned pair for fresh installs (BF64): English UI → English metadata.
+            # If TARGET_LANG is absent from file and env, load_config() still derives
+            # it from the effective UI_LANG via target_lang_from_ui_lang().
+            "TARGET_LANG": "EN",
             "UI_LANG": "en",
             "PUBLISHER_PREFERENCE": "LOCALIZED",
             # Titres localizedName : all (défaut multi) | prefer | none
@@ -202,6 +220,18 @@ def load_config():
                 config[key] = os.getenv(key, config.get(key, ""))
             else:
                 config[key] = file_config.get(key, os.getenv(key, config.get(key, "")))
+
+        # BF64 — TARGET_LANG absent from file and env → derive from effective UI_LANG.
+        # Precedence stays config.json > env > derived default. An explicit empty
+        # string in the file is preserved (do not invent a language). Existing
+        # installs that already store TARGET_LANG are never overwritten.
+        _target_in_file = "TARGET_LANG" in file_config
+        _env_target = os.getenv("TARGET_LANG")
+        _target_in_env = (
+            _env_target is not None and str(_env_target).strip() != ""
+        )
+        if not _target_in_file and not _target_in_env:
+            config["TARGET_LANG"] = target_lang_from_ui_lang(config.get("UI_LANG"))
 
         mode = (config.get("LOCALIZED_TITLE_MODE") or "all").strip().lower()
         config["LOCALIZED_TITLE_MODE"] = mode if mode in ("all", "prefer", "none") else "all"
@@ -368,50 +398,10 @@ def is_library_enabled(library_id, config=None) -> bool:
     return str(library_id) not in disabled
 
 
-def filter_enabled_libraries(libraries, config=None) -> list:
-    """Conserve les bibliothèques absentes de la dénylist (pour auto-sync)."""
-    if not libraries:
-        return []
-    disabled = get_disabled_library_ids(config)
-    if not disabled:
-        return list(libraries)
-    return [lib for lib in libraries if str(lib.get("id")) not in disabled]
-
-
 def format_disabled_libraries(ids) -> str:
     """Sérialise un iterable d'IDs en chaîne config DISABLED_LIBRARIES."""
     cleaned = parse_library_id_list(ids)
     return ",".join(sorted(cleaned, key=_library_id_sort_key))
-
-
-def heal_total_library_denylist(config, all_libraries) -> tuple:
-    """Reset DISABLED_LIBRARIES si elle égale exactement tous les IDs Kavita.
-
-    Corrige le wipe accidentel du 1er save setup (SYNC_LIBRARIES_PRESENT sans
-    cases). Retourne ``(config, healed)`` — ``healed=True`` si écriture disque.
-    """
-    if not all_libraries:
-        return config, False
-    all_ids = {
-        str(lib.get("id"))
-        for lib in all_libraries
-        if lib.get("id") is not None
-    }
-    if not all_ids:
-        return config, False
-    disabled = get_disabled_library_ids(config)
-    if disabled != all_ids:
-        return config, False
-
-    config = dict(config)
-    config["DISABLED_LIBRARIES"] = ""
-    save_config(config)
-    logging.info(
-        "[Config] Heal: dénylist totale (%s biblio(s)) réinitialisée — "
-        "wipe accidentel probable ; auto-sync à nouveau actif.",
-        len(all_ids),
-    )
-    return config, True
 
 
 def get_kavita_http_timeout(config=None) -> int:

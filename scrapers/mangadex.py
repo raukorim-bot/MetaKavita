@@ -86,10 +86,15 @@ class MangaDexScraper(BaseScraper):
         elif raw_status == "hiatus": status = "HIATUS"
         elif raw_status == "cancelled": status = "CANCELLED"
 
-        raw_rating = attrs.get("contentRating", "safe").lower()
-        age_rating = "safe"
-        if raw_rating in ["erotica", "pornographic"]: age_rating = "pornographic"
-        elif raw_rating == "suggestive": age_rating = "suggestive"
+        # BF56: contentRating MangaDex est autoritatif ; absent → ne pas inventer safe.
+        raw_rating = (attrs.get("contentRating") or "").lower()
+        age_rating = ""
+        if raw_rating in ("safe",):
+            age_rating = "safe"
+        elif raw_rating in ("erotica", "pornographic"):
+            age_rating = "pornographic"
+        elif raw_rating == "suggestive":
+            age_rating = "suggestive"
 
         orig_lang = str(attrs.get("originalLanguage", "")).lower()
         format_type = "manga"

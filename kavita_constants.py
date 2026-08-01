@@ -15,6 +15,7 @@ clé du mapping local de app.py, qui attendait "FINISHED").
 """
 
 from typing import Optional
+import re
 
 # --- STATUT DE PUBLICATION (Series/metadata -> publicationStatus) ---
 # Voir kavita_api.md section 3.A
@@ -26,12 +27,16 @@ PUBLICATION_STATUS_MAP = {
 }
 
 # --- CLASSIFICATION D'ÂGE (Series/metadata -> ageRating) ---
-# Voir kavita_api.md section 3.B
+# Enum Kavita réel (AgeRating.cs / GET /api/metadata/age-ratings) — PAS les
+# content ratings MangaDex. Les scrapers émettent un vocabulaire interne
+# ("safe" / "suggestive" / "erotica" / "pornographic") ; ce dict seul convertit
+# vers l'entier Kavita écrit par services/kavita_payload.py.
+# Voir kavita_api.md section 3.B et DEVELOPER.md (AGE_RATING_MAP / BF53).
 AGE_RATING_MAP = {
-    "safe": 1,
-    "suggestive": 2,
-    "erotica": 3,
-    "pornographic": 4,
+    "safe": 3,           # Everyone
+    "suggestive": 8,     # Teen
+    "erotica": 12,       # R18+
+    "pornographic": 14,  # X18+
 }
 
 # --- NORMALISATION DES STATUTS BRUTS FOURNISSEURS ---
@@ -62,14 +67,31 @@ def normalize_provider_status(raw_status) -> Optional[str]:
 
 
 # --- SENS DE LECTURE / FORMAT (Series/update -> format) ---
-# Voir kavita_api.md section 3.C. Détection par mots-clés car les fournisseurs
-# renvoient des libellés libres ("Manga", "Manhwa (KR)", "Light Novel", ...).
+# Voir kavita_api.md section 3.C. Les scrapers émettent surtout des tokens
+# courts ("manga"/"comic"/"webtoon"/"book") ; certains labels libres existent
+# encore ("Manhwa (KR)", "Light Novel"). BF58 : plus de matching par sous-chaîne
+# (ex. "BOOK" dans "COMIC BOOK" → Novel, "US" dans "MUST…" → Comic).
+
+# Tokens exacts du contrat scraper (insensible à la casse).
+_FORMAT_EXACT = {
+    "manga": 1,
+    "comic": 2,
+    "bd": 2,
+    "book": 3,
+    "novel": 3,
+    "webtoon": 4,
+    "manhwa": 4,
+}
+
+# Table documentaire (priorité Comic avant Novel pour "COMIC BOOK").
 FORMAT_KEYWORDS = (
     (4, ("WEBTOON", "MANHWA", "KR")),
-    (3, ("NOVEL", "LIGHT", "BOOK")),
     (2, ("COMIC", "BD", "US", "FR")),
+    (3, ("NOVEL", "BOOK")),
     (1, ("MANGA", "JP")),
 )
+
+_FORMAT_TOKEN_RE = re.compile(r"[A-Z0-9]+")
 
 
 def resolve_kavita_format_enum(raw_format) -> Optional[int]:
@@ -77,11 +99,33 @@ def resolve_kavita_format_enum(raw_format) -> Optional[int]:
     Détecte l'enum Kavita `format` (1=Manga, 2=Comic/BD, 3=Novel, 4=Webtoon)
     à partir d'une chaîne libre renvoyée par un scraper (ex: provider_data['format']).
     Retourne None si aucun mot-clé connu n'est détecté.
+
+    BF58 : exact match d'abord, puis tokens (word-split), jamais `keyword in string`.
     """
     if not raw_format:
         return None
-    fmt = str(raw_format).upper()
-    for enum_value, keywords in FORMAT_KEYWORDS:
-        if any(keyword in fmt for keyword in keywords):
-            return enum_value
+    text = str(raw_format).strip()
+    if not text:
+        return None
+
+    exact = _FORMAT_EXACT.get(text.lower())
+    if exact is not None:
+        return exact
+
+    tokens = set(_FORMAT_TOKEN_RE.findall(text.upper()))
+    if not tokens:
+        return None
+
+    if tokens & {"WEBTOON", "MANHWA"} or "KR" in tokens:
+        return 4
+    # Comic avant Book — "COMIC BOOK" → Comic (2), pas Novel
+    if tokens & {"COMIC", "BD"}:
+        return 2
+    if tokens & {"NOVEL", "BOOK"}:
+        return 3
+    if tokens & {"MANGA", "JP"}:
+        return 1
+    # Codes région seuls (évite "US" dans "MUST" grâce au split)
+    if tokens & {"US", "FR"}:
+        return 2
     return None

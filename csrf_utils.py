@@ -14,7 +14,7 @@ CSRF_SESSION_KEY = "_csrf_token"
 CSRF_HEADER = "X-CSRF-Token"
 CSRF_FORM_FIELD = "csrf_token"
 
-# Endpoints exemptés (auth webhook = token query ; login GET n'est pas POST)
+# Endpoints exemptés (auth webhook = X-Webhook-Token / ?token= legacy ; login GET n'est pas POST)
 CSRF_EXEMPT_ENDPOINTS = frozenset({
     "sync.webhook",
     "static",

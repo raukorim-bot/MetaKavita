@@ -8,6 +8,7 @@ Fiches séries : /series/{id}/{slug}
 import logging
 import re
 import time
+import unicodedata
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
 
@@ -198,11 +199,30 @@ class BdthequeScraper(BaseScraper):
             return "RELEASING"
         return "RELEASING"
 
-    def _parse_age(self, public: str) -> str:
-        text = (public or "").lower()
-        if any(x in text for x in ("adulte", "erotique", "érotique", "porn")):
+    def _parse_age(self, public: str):
+        """Map BDTheque « Public » → vocabulaire interne, ou None si inconnu.
+
+        Safeguarding (BF56): ne jamais inventer ``safe`` / under-rater l'adulte.
+        « Ados - Adultes » contient la sous-chaîne adulte mais n'est pas R18 —
+        on le traite comme Teen (suggestive), pas erotica.
+        """
+        text = (public or "").strip().lower()
+        if not text:
+            return None
+        folded = "".join(
+            c for c in unicodedata.normalize("NFD", text)
+            if unicodedata.category(c) != "Mn"
+        )
+        if any(k in folded for k in ("erotique", "porn", "xxx")):
+            return "erotica"
+        # Combo ado+adulte BDTheque — avant le match « adulte » nu
+        if "ados" in folded:
             return "suggestive"
-        return "safe"
+        if "adulte" in folded or "adult" in folded:
+            return "erotica"
+        if any(k in folded for k in ("tout public", "jeunesse", "enfant", "all ages")):
+            return "safe"
+        return None
 
     def _row_links(self, row) -> List[str]:
         return [format_author_name(a.get_text(strip=True)) for a in row.find_all("a")]
@@ -338,7 +358,7 @@ class BdthequeScraper(BaseScraper):
             "status": self._parse_status(status_raw),
             "staff": staff,
             "publisher": publisher,
-            "age_rating": self._parse_age(public),
+            "age_rating": self._parse_age(public) or "",
             "format": "comic",
             "url": series_url,
             "links": [series_url],

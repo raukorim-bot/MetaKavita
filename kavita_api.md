@@ -55,7 +55,7 @@ Pour les listes de catégories (`TagDto`) et de personnes (`PersonDto`), fournir
 | `summary` | `string` | `summaryLocked` | `bool` | HTML / UTF-8 | Synopsis / Résumé traduit de l'œuvre. |
 | `releaseYear` | `int` | `releaseYearLocked` | `bool` | Entier YYYY | Année de début de publication (ex: `2005`). |
 | `publicationStatus` | `int` | `publicationStatusLocked` | `bool` | Enum `0`-`3` | Statut d'édition (voir section Enums). |
-| `ageRating` | `int` | `ageRatingLocked` | `bool` | Enum `0`-`4` | Classification d'âge (voir section Enums). |
+| `ageRating` | `int` | `ageRatingLocked` | `bool` | Enum `-1`–`14` | Classification d'âge (voir section Enums). |
 | `language` | `string` | `languageLocked` | `bool` | Code ISO (ex: `"fr"`) | Langue cible de la fiche. |
 | `webLinks` | `string` | *N/A* | *N/A* | Chaîne CSV | URLs externes séparées par des virgules (`"url1,url2"`). |
 
@@ -136,11 +136,29 @@ Pour les listes de catégories (`TagDto`) et de personnes (`PersonDto`), fournir
 * `3` = **Cancelled / Discontinued** (Abandonné)
 
 ### B. Classification d'Âge (`ageRating`)
-* `0` = **Unknown** (Non spécifié)
-* `1` = **Safe** (Tout public)
-* `2` = **Suggestive** (Avertissement / Ado)
-* `3` = **Erotica** (Public averti)
-* `4` = **Pornographic** (Contenu adulte / Hentai)
+Enum Kavita réel (`API/Entities/Enums/AgeRating.cs`, aussi exposé par
+`GET /api/metadata/age-ratings`). **Ne pas confondre** avec le vocabulaire
+interne MetaKavita (`safe` / `suggestive` / `erotica` / `pornographic`) que les
+scrapers émettent — la conversion vit uniquement dans
+`kavita_constants.AGE_RATING_MAP` (`safe→3`, `suggestive→8`, `erotica→12`,
+`pornographic→14`).
+
+* `-1` = **Not Applicable** (restriction de profil uniquement)
+* `0` = **Unknown**
+* `1` = **Rating Pending**
+* `2` = **Early Childhood**
+* `3` = **Everyone**
+* `4` = **G**
+* `5` = **Everyone 10+**
+* `6` = **PG**
+* `7` = **Kids to Adults**
+* `8` = **Teen**
+* `9` = **MA15+**
+* `10` = **Mature 17+**
+* `11` = **M**
+* `12` = **R18+**
+* `13` = **Adults Only 18+**
+* `14` = **X18+**
 
 ### C. Sens de Lecture / Format (`format`)
 * `0` = **Unknown / Default** (Par défaut)

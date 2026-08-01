@@ -55,17 +55,6 @@ class HardcoverScraper(BaseScraper):
             return url.split('/books/')[-1].split('/')[0].split('?')[0]
         return None
 
-    def _parse_graphql_errors(self, data: Dict[str, Any]) -> str:
-        errors = data.get("errors")
-        if isinstance(errors, list) and len(errors) > 0:
-            first_err = errors[0]
-            if isinstance(first_err, dict):
-                return first_err.get("message", "Erreur GraphQL inconnue")
-            return str(first_err)
-        elif isinstance(errors, str):
-            return errors
-        return "Erreur GraphQL inconnue"
-
     def fetch(self, query: str, library_type: str = "Book", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         config = load_config()
         api_key = config.get("HARDCOVER_API_KEY", "").strip()
@@ -272,11 +261,9 @@ class HardcoverScraper(BaseScraper):
             'genres': genres[:get_max_genres()] if genres else ["Fiction"],
             'tags': ["Hardcover"],
             'year': year,
-            'status': 'FINISHED',
             'staff': unique_staff,
             'publisher': b.get("publisher"),
             'isbn': isbn,
-            'age_rating': 'safe',
             'format': 'book',
             'url': f"https://hardcover.app/books/{slug}" if slug else "https://hardcover.app/"
         }
