@@ -41,7 +41,7 @@
 - [x] **BF66. Tag/genre dedupe before MAX caps (v1.6.2, issue #24):** Case-insensitive order-preserving dedupe in `build_kavita_payload` before tag/genre slices.
 - [x] **BF67. Soft atomicity for general fields (v1.6.2, issue #24):** `update_series_general` only after successful metadata write.
 - [x] **BF68. Score-tie prefers safer age (v1.6.2, issue #25):** Auto demotes pornographic/erotica only on equal score (with log); MR unchanged; CBW+tie → awaiting_pick.
-- [x] **BF55. ComicVine summary i18n (v1.6.2 hotfix, thanks angusmaul):** Decorative summary/cover labels (`[Series]` / `[Synopsis]` / …) follow `UI_LANG` instead of always writing French into Kavita.
+- [x] **BF55. ComicVine summary i18n (v1.6.2 hotfix, thanks ThoughtzThruKeyz, #26):** Decorative summary/cover labels (`[Series]` / `[Synopsis]` / …) follow `UI_LANG` instead of always writing French into Kavita.
 - [x] **BF57. Series language gated by targeted fields (v1.6.2):** `language` / `languageLocked` only written when `language` is in the active mask (included in `ALL` by default).
 - [x] **BF54. Comic run-year in search title (v1.6.2 hotfix, thanks angusmaul):** Comic `clean_title` now strips Kavita Flexible `(YYYY)` / `(YYYY-)` from the search string; year is re-injected into `existing_metadata` and used by ComicVine `start_year` ranking. Avoids Comic miss → Manga false-positive on names like `Batman (2025)`. Manga fallback not score-penalized.
 - [x] **BF53. Age rating enum map (v1.6.2 hotfix, thanks angusmaul):** `AGE_RATING_MAP` wrongly used MangaDex ordinals `1–4` instead of Kavita's `AgeRating` enum, so `pornographic` was written as **G** (and locked). Remapped to Everyone/Teen/R18+/X18+ (`3/8/12/14`); docs + regression test.
