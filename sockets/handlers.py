@@ -22,6 +22,7 @@ from db_manager import get_all_cached_data
 from kavita_api import KavitaAPI
 from scrapers import ScraperRegistry
 from scrapers.utils import library_type_for_scraper
+from translations import get_ui_translations
 
 
 def _reject_unauthenticated(event_name):
@@ -34,10 +35,8 @@ def _reject_unauthenticated(event_name):
     """
     if auth_manager.is_authenticated():
         return False
-    logging.warning(
-        "🚨 [Sécurité] Événement WebSocket '%s' rejeté (Non authentifié) IP: %s",
-        event_name, request.remote_addr,
-    )
+    t = get_ui_translations()
+    logging.warning(t.get("log_ws_event_rejected", "🚨 [Sécurité] Événement WebSocket '{0}' rejeté (Non authentifié) IP: {1}").format(event_name, request.remote_addr))
     disconnect()
     return True
 
@@ -64,10 +63,8 @@ def handle_connect():
     décidait si une fenêtre d'émission existait ou non.
     """
     if not auth_manager.is_authenticated():
-        logging.warning(
-            "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: %s",
-            request.remote_addr,
-        )
+        t = get_ui_translations()
+        logging.warning(t.get("log_ws_connect_rejected", "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {0}").format(request.remote_addr))
         return False
 
     # Compteur + résumé file review manuelle (mode C29).
@@ -114,6 +111,7 @@ def handle_fetch_covers_stream(data):
     search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or query
 
     config = load_config()
+    t = get_ui_translations(config=config)
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
     library_type = kavita.get_library_type_for_series(series_id)
 
@@ -149,7 +147,7 @@ def handle_fetch_covers_stream(data):
                 # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket sur le réseau
                 socketio.sleep(0)
         except Exception as e:
-            logging.error(f"[Covers Stream] Erreur sur {scraper.id} : {e}")
+            logging.error(t.get("log_covers_stream_err", "[Covers Stream] Erreur sur {0} : {1}").format(scraper.id, e))
         finally:
             finished_counter[0] += 1
             if finished_counter[0] >= total_scrapers:

@@ -1,13 +1,14 @@
 import logging
 import requests
 from config_manager import load_config
-from translations import translations
+from translations import translations, get_ui_translations
 
 def translate_azure(text, key, region, target_lang):
     """
     Appelle l'API Microsoft Azure Translator F0 (2M car/mois).
     """
     lang_code = target_lang.lower()
+    t = get_ui_translations()
     if lang_code == "zh":
         lang_code = "zh-Hans"
         
@@ -25,7 +26,7 @@ def translate_azure(text, key, region, target_lang):
         
     payload = [{"Text": text}]
     
-    logging.info(f"[Azure Translator] Tentative vers '{lang_code}' (Région: {region or 'Globale'}). Payload: {len(text)} caractères.")
+    logging.info(t.get("log_azure_attempt", "[Azure Translator] Tentative vers '{0}' (Région: {1}). Payload: {2} caractères.").format(lang_code, region or t.get("label_global_region", "Globale"), len(text)))
     
     response = requests.post(url, params=params, headers=headers, json=payload, timeout=12)
     
@@ -33,7 +34,7 @@ def translate_azure(text, key, region, target_lang):
         result = response.json()
         return result[0]["translations"][0]["text"]
     else:
-        logging.error(f"[Azure Translator] Rejet de l'API (Code {response.status_code}) : {response.text}")
+        logging.error(t.get("log_azure_reject", "[Azure Translator] Requête rejetée ({0}) : {1}").format(response.status_code, response.text))
         response.raise_for_status()
 
 def translate_deepl(text, key, target_lang):
@@ -115,7 +116,7 @@ def translate_text(text, api_key_fallback_ignored=None, target_lang="FR"):
     try:
         # On affiche le log uniquement si l'utilisateur avait volontairement choisi Google
         if provider == "GOOGLE" or (provider != "GOOGLE" and not azure_key and not deepl_key):
-            logging.info(f"✨ [Google Translate] Traduction vers {target_lang}...")
+            logging.info(t.get("log_google_translating", "✨ [Google Translate] Traduction vers {0}...").format(target_lang))
         return translate_google(text_clean, target_lang)
     except Exception as e:
         logging.error(t.get('log_google_fail', "❌ [Google Translate] Échec : {0}").format(e))

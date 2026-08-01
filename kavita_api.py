@@ -9,6 +9,7 @@ from typing import Optional, Tuple
 
 from config_manager import get_kavita_http_timeout
 from secure_logging import safe_exc_str
+from translations import get_ui_translations
 
 # RE-LOCK : 1 retry max, pause courte, timeout retry plafonné — ne pas doubler
 # un KAVITA_HTTP_TIMEOUT de 60–120s sur le chemin chaud d'enrichissement.
@@ -44,6 +45,7 @@ class KavitaAPI:
         self.token = None
         self.headers = {}
         self._write_timeout_override = write_timeout
+        self.t = get_ui_translations()
 
     def _write_timeout(self) -> int:
         if self._write_timeout_override is not None:
@@ -64,7 +66,7 @@ class KavitaAPI:
             (sealed, detail) — sealed=True si verrous posés ; False = soft-fail
             (données déjà écrites à l'étape 1, verrous éventuellement ouverts).
         """
-        last_detail = "re-lock échoué"
+        last_detail = self.t.get("msg_relock_failed", "re-lock échoué")
         for attempt in range(1, _RELOCK_MAX_ATTEMPTS + 1):
             timeout = (
                 write_timeout
@@ -84,35 +86,16 @@ class KavitaAPI:
                 res = requests.post(
                     url, json=payload, headers=self.headers, timeout=timeout
                 )
-                logging.info(
-                    f"   📥 Réponse Kavita (Code {res.status_code}) : {res.text}"
-                )
+                logging.info(self.t.get("log_kavita_response", "   📥 Réponse Kavita (Code {0}) : {1}").format(res.status_code, res.text))
                 if res.status_code == 200:
-                    return True, "Succès"
+                    return True, self.t.get("msg_success", "Succès")
                 last_detail = f"HTTP {res.status_code}: {res.text}"
-                logging.warning(
-                    "⚠️ [AUDIT KAVITA] RE-LOCK %s tentative %s → %s",
-                    label,
-                    attempt,
-                    last_detail,
-                )
+                logging.warning(self.t.get("log_kavita_relock_attempt", "⚠️ [AUDIT KAVITA] RE-LOCK {0} tentative {1} → {2}").format(label, attempt, last_detail))
             except Exception as lock_err:
                 last_detail = str(lock_err)
-                logging.warning(
-                    "⚠️ [AUDIT KAVITA] RE-LOCK %s tentative %s échouée (%s)",
-                    label,
-                    attempt,
-                    lock_err,
-                )
+                logging.warning(self.t.get("log_kavita_relock_attempt_fail", "⚠️ [AUDIT KAVITA] RE-LOCK {0} tentative {1} échouée ({2})").format(label, attempt, lock_err))
 
-        logging.warning(
-            "⚠️ [AUDIT KAVITA] Écriture %s OK, mais RE-LOCK a échoué après %s tentatives (%s) — "
-            "données déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync "
-            "(risque d'écrasement par un scan fichiers Kavita).",
-            label,
-            _RELOCK_MAX_ATTEMPTS,
-            last_detail,
-        )
+        logging.warning(self.t.get("log_kavita_relock_exhausted", "⚠️ [AUDIT KAVITA] Écriture {0} OK, mais RE-LOCK a échoué après {1} tentatives ({2}) — données déjà persistées ; verrous éventuellement ouverts jusqu'au prochain sync (risque d'écrasement par un scan fichiers Kavita).").format(label, _RELOCK_MAX_ATTEMPTS, last_detail))
         return False, last_detail
 
     def authenticate(self) -> bool:
@@ -127,7 +110,7 @@ class KavitaAPI:
         self.last_auth_error = None
         # Diagnostic verbeux uniquement en niveau DEBUG (évite le spam INFO à chaque
         # auth : dashboard, préflight /diagnostics, enrichissement, etc.).
-        logging.debug("Auth Kavita tentée avec URL: %s (clé API non loguée)", self.url)
+        logging.debug(self.t.get("log_kavita_auth_attempt", "Auth Kavita tentée avec URL: {0} (clé API non loguée)").format(self.url))
         if not self.api_key or not self.url:
             self.last_auth_error = "missing"
             return False
@@ -140,12 +123,7 @@ class KavitaAPI:
         except Exception:
             host_l = ""
         if host_l in ("localhost", "127.0.0.1", "::1"):
-            logging.error(
-                "[Erreur Auth] KAVITA_URL pointe vers localhost (%s) — "
-                "injoignable depuis Docker. Utilisez host.docker.internal:<port> "
-                "ou le nom de service sur le même réseau.",
-                self.url,
-            )
+            logging.error(self.t.get("log_kavita_auth_localhost", "[Erreur Auth] KAVITA_URL pointe vers localhost ({0}) — injoignable depuis Docker. Utilisez host.docker.internal:<port> ou le nom de service sur le même réseau.").format(self.url))
             self.last_auth_error = "localhost"
             return False
 
@@ -166,20 +144,20 @@ class KavitaAPI:
         except requests.exceptions.HTTPError as e:
             # Sécurité : on masque la clé API en cas d'erreur de journalisation
             code = e.response.status_code if e.response is not None else "?"
-            logging.error("[Erreur Auth] Le serveur Kavita a rejeté la requête (Code %s).", code)
+            logging.error(self.t.get("log_kavita_auth_rejected", "[Erreur Auth] Le serveur Kavita a rejeté la requête (Code {0}).").format(code))
             self.last_auth_error = "http_401" if code == 401 else "http_other"
             return False
         except requests.exceptions.Timeout:
-            logging.error("[Erreur Auth] Timeout vers Kavita (hôte=%s).", self.url)
+            logging.error(self.t.get("log_kavita_auth_timeout", "[Erreur Auth] Timeout vers Kavita (hôte={0}).").format(self.url))
             self.last_auth_error = "timeout"
             return False
         except requests.exceptions.SSLError as e:
-            logging.error("[Erreur Auth] SSL (%s) hôte=%s", safe_exc_str(e), self.url)
+            logging.error(self.t.get("log_kavita_auth_ssl", "[Erreur Auth] SSL ({0}) hôte={1}").format(safe_exc_str(e), self.url))
             self.last_auth_error = "ssl"
             return False
         except requests.exceptions.ConnectionError as e:
             msg = safe_exc_str(e).lower()
-            logging.error("[Erreur Auth] %s (hôte=%s)", safe_exc_str(e), self.url)
+            logging.error(self.t.get("log_kavita_auth_host", "[Erreur Auth] {0} (hôte={1})").format(safe_exc_str(e), self.url))
             if "name or service not known" in msg or "nodename nor servname" in msg or "getaddrinfo" in msg:
                 self.last_auth_error = "dns"
             else:
@@ -187,7 +165,7 @@ class KavitaAPI:
             return False
         except Exception as e:
             # Ne jamais logger str(e) brut : urllib3 inclut souvent ?apiKey= dans le message
-            logging.error("[Erreur Auth] %s (hôte=%s)", safe_exc_str(e), self.url)
+            logging.error(self.t.get("log_kavita_auth_host", "[Erreur Auth] {0} (hôte={1})").format(safe_exc_str(e), self.url))
             self.last_auth_error = "unknown"
             return False
 
@@ -202,7 +180,7 @@ class KavitaAPI:
             res.raise_for_status()
             return res.json()
         except Exception as e:
-            logging.error(f"[Erreur Libraries] {e}")
+            logging.error(self.t.get("log_kavita_lib_err", "[Erreur Libraries] {0}").format(e))
             return []
 
     @staticmethod
@@ -271,13 +249,13 @@ class KavitaAPI:
                                 s.setdefault('libraryId', lib['id'])
                                 unique_series[s['id']] = s
                 except Exception as inner_e:
-                    logging.error(f"[Erreur] Bibliothèque {lib.get('id')} : {inner_e}")
+                    logging.error(self.t.get("log_kavita_library_item_err", "[Erreur] Bibliothèque {0} : {1}").format(lib.get("id"), inner_e))
 
             all_series = list(unique_series.values())
             all_series.sort(key=lambda x: x.get('name', '').lower())
             return all_series
         except Exception as e:
-            logging.error(f"[Erreur globale] {e}")
+            logging.error(self.t.get("log_kavita_global_err", "[Erreur globale] {0}").format(e))
             return []
 
     def get_library_type_for_series(self, series_id) -> str:
@@ -308,7 +286,7 @@ class KavitaAPI:
                     self._series_library_id_cache[int(series_id)] = data.get('libraryId')
                 return lib_type
         except Exception as e:
-            logging.error(f"[Erreur Library Type for Series] {e}")
+            logging.error(self.t.get("log_kavita_library_type_err", "[Erreur Library Type for Series] {0}").format(e))
 
         return "Manga"
 
@@ -330,7 +308,7 @@ class KavitaAPI:
             if res.status_code == 200:
                 return res.json()
         except Exception as e:
-            logging.error(f"[Erreur get_series] {e}")
+            logging.error(self.t.get("log_kavita_get_series_err", "[Erreur get_series] {0}").format(e))
         return None
 
     def get_series_metadata(self, series_id) -> dict:
@@ -348,7 +326,7 @@ class KavitaAPI:
                 return data[0] if isinstance(data, list) and len(data) > 0 else data
             return None
         except Exception as e:
-            logging.error(f"[Erreur Metadata] {e}")
+            logging.error(self.t.get("log_kavita_metadata_err", "[Erreur Metadata] {0}").format(e))
             return None
 
     def update_series_metadata(self, metadata: dict) -> tuple:
@@ -364,7 +342,7 @@ class KavitaAPI:
             (ok, message, sealed) — sealed=False si écriture OK mais re-lock échoué.
         """
         if not self.token and not self.authenticate():
-            return False, "Non authentifié", False
+            return False, self.t.get("msg_not_authenticated", "Non authentifié"), False
 
         try:
             # ASSAINISSEMENT (kavita_api.md §4.1) : le dict `metadata` provient généralement
@@ -385,7 +363,7 @@ class KavitaAPI:
 
             payload_unlock = {"seriesMetadata": metadata_unlock}
 
-            logging.info("👉 [AUDIT KAVITA] Envoi METADATA (Étape 1 : UNLOCK & WRITE)")
+            logging.info(self.t.get("log_kavita_audit_meta_unlock", "👉 [AUDIT KAVITA] Envoi METADATA (Étape 1 : UNLOCK & WRITE)"))
             logging.info(f"   📦 Payload : {json.dumps(payload_unlock, ensure_ascii=False)}")
 
             write_timeout = self._write_timeout()
@@ -395,14 +373,14 @@ class KavitaAPI:
                 headers=self.headers,
                 timeout=write_timeout,
             )
-            logging.info(f"   📥 Réponse Kavita (Code {res_unlock.status_code}) : {res_unlock.text}")
+            logging.info(self.t.get("log_kavita_response", "   📥 Réponse Kavita (Code {0}) : {1}").format(res_unlock.status_code, res_unlock.text))
 
             if res_unlock.status_code != 200:
                 return False, f"Code {res_unlock.status_code} : {res_unlock.text}", False
 
             # ÉTAPE 2 : Verrouillage de sécurité pour protéger les métadonnées contre les scans de fichiers futurs
             payload_lock = {"seriesMetadata": metadata}
-            logging.info("👉 [AUDIT KAVITA] Envoi METADATA (Étape 2 : RE-LOCK)")
+            logging.info(self.t.get("log_kavita_audit_meta_relock", "👉 [AUDIT KAVITA] Envoi METADATA (Étape 2 : RE-LOCK)"))
 
             sealed, lock_detail = self._post_relock(
                 f"{self.url}/api/Series/metadata",
@@ -411,11 +389,11 @@ class KavitaAPI:
                 write_timeout=write_timeout,
             )
             if sealed:
-                return True, "Succès", True
+                return True, self.t.get("msg_success", "Succès"), True
             # Soft-success : l'étape 1 a déjà persisté les valeurs (cf. issue SqueezedByte).
-            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})", False
+            return True, self.t.get("msg_success_relock_fail", "Succès (écriture OK ; re-lock échoué: {0})").format(lock_detail), False
         except Exception as e:
-            logging.error(f"❌ [AUDIT KAVITA] Crash Metadata : {e}")
+            logging.error(self.t.get("log_kavita_audit_crash_meta", "❌ [AUDIT KAVITA] Crash Metadata : {0}").format(e))
             return False, str(e), False
 
     def update_series_general(self, series_id: int, localized_name: str = None, format_val: int = None) -> tuple:
@@ -446,18 +424,18 @@ class KavitaAPI:
         détruire davantage.
         """
         if not self.token and not self.authenticate():
-            return False, "Non authentifié", False
+            return False, self.t.get("msg_not_authenticated", "Non authentifié"), False
 
         # Sécurité / perf : ne rien faire (et surtout ne pas déclencher de GET inutile)
         # si aucune modification n'est demandée.
         if localized_name is None and format_val is None:
-            return True, "Aucune mise à jour générale", True
+            return True, self.t.get("msg_no_general_update", "Aucune mise à jour générale"), True
 
         # Snapshot de l'état actuel AVANT toute écriture : c'est la seule façon de savoir
         # ce qu'il ne faut surtout pas nuller (voir avertissement ci-dessus).
         current = self.get_series(series_id)
         if not current:
-            return False, "Impossible de récupérer l'état actuel de la série (GET /api/Series/{id} a échoué) — mise à jour annulée par sécurité pour éviter d'écraser localizedName/verrous existants.", False
+            return False, self.t.get("msg_current_series_failed", "Impossible de récupérer l'état actuel de la série (GET /api/Series/{id} a échoué) — mise à jour annulée par sécurité pour éviter d'écraser localizedName/verrous existants."), False
 
         current_name = current.get('name')
         current_sort_name = current.get('sortName')
@@ -509,28 +487,28 @@ class KavitaAPI:
             write_timeout = self._write_timeout()
 
             # Passage 1 : Écriture en mode déverrouillé
-            logging.info("👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 1 : UNLOCK & WRITE)")
+            logging.info(self.t.get("log_kavita_audit_general_unlock", "👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 1 : UNLOCK & WRITE)"))
             logging.info(f"   📦 Payload : {json.dumps(payload_unlock, ensure_ascii=False)}")
 
             res_unlock = requests.post(url, json=payload_unlock, headers=self.headers, timeout=write_timeout)
-            logging.info(f"   📥 Réponse Kavita (Code {res_unlock.status_code}) : {res_unlock.text}")
+            logging.info(self.t.get("log_kavita_response", "   📥 Réponse Kavita (Code {0}) : {1}").format(res_unlock.status_code, res_unlock.text))
 
             if res_unlock.status_code != 200:
                 return False, f"Code {res_unlock.status_code} : {res_unlock.text}", False
 
             # Passage 2 : Application du verrou de sécurité
-            logging.info("👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 2 : RE-LOCK)")
+            logging.info(self.t.get("log_kavita_audit_general_relock", "👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 2 : RE-LOCK)"))
             sealed, lock_detail = self._post_relock(
                 url,
                 payload_lock,
-                label="général",
+                label=self.t.get("label_general", "général"),
                 write_timeout=write_timeout,
             )
             if sealed:
-                return True, "Succès", True
-            return True, f"Succès (écriture OK ; re-lock échoué: {lock_detail})", False
+                return True, self.t.get("msg_success", "Succès"), True
+            return True, self.t.get("msg_success_relock_fail", "Succès (écriture OK ; re-lock échoué: {0})").format(lock_detail), False
         except Exception as e:
-            logging.error(f"❌ [AUDIT KAVITA] Crash General : {e}")
+            logging.error(self.t.get("log_kavita_audit_crash_general", "❌ [AUDIT KAVITA] Crash General : {0}").format(e))
             return False, str(e), False
 
     def seal_series_locks(self, series_id) -> tuple:
@@ -544,14 +522,14 @@ class KavitaAPI:
             (ok, message)
         """
         if not self.token and not self.authenticate():
-            return False, "Non authentifié"
+            return False, self.t.get("msg_not_authenticated", "Non authentifié")
 
         series_id = int(series_id)
         write_timeout = self._write_timeout()
 
         meta = self.get_series_metadata(series_id)
         if not meta:
-            return False, "Impossible de lire les métadonnées Kavita"
+            return False, self.t.get("msg_metadata_read_failed", "Impossible de lire les métadonnées Kavita")
 
         for system_key in ("created", "lastModified", "totalCount", "maxCount", "pages", "wordCount"):
             meta.pop(system_key, None)
@@ -574,7 +552,7 @@ class KavitaAPI:
 
         current = self.get_series(series_id)
         if not current:
-            return False, "Metadata scellées ; GET série échoué pour sceller localizedName/format"
+            return False, self.t.get("msg_metadata_sealed_general_failed", "Metadata scellées ; GET série échoué pour sceller localizedName/format")
 
         general_payload = {
             "id": series_id,
@@ -604,13 +582,13 @@ class KavitaAPI:
         except Exception as exc:
             return False, f"General seal: {exc}"
 
-        return True, "Verrous posés"
+        return True, self.t.get("msg_locks_set", "Verrous posés")
 
     def upload_series_cover(self, series_id, cover_url):
         if not self.token and not self.authenticate():
-            return False, "Non authentifié"
+            return False, self.t.get("msg_not_authenticated", "Non authentifié")
         if not cover_url:
-            return False, "URL de couverture invalide"
+            return False, self.t.get("msg_cover_invalid", "URL de couverture invalide")
 
         try:
             from scrapers import ScraperRegistry
@@ -620,8 +598,8 @@ class KavitaAPI:
             allowed_domains = ScraperRegistry.get_all_proxy_domains()
             ok, reason, domain = validate_proxied_image_url(cover_url, allowed_domains)
             if not ok:
-                logging.warning("[Upload Cover] URL refusée (%s) : %s", reason, cover_url)
-                return False, f"URL de couverture refusée ({reason})"
+                logging.warning(self.t.get("log_cover_url_refused_log", "[Upload Cover] URL refusée ({0}) : {1}").format(reason, cover_url))
+                return False, self.t.get("msg_cover_url_refused", "URL de couverture refusée ({0})").format(reason)
 
             parsed = urlparse(cover_url)
             # Détection propre de l'extension (.jpg, .png, .webp)
@@ -656,12 +634,12 @@ class KavitaAPI:
             )
             if img_res is None:
                 if fetch_reason == "Client HTTP sans contrôle de redirect":
-                    logging.warning("[Upload Cover] curl_cffi sans allow_redirects — fetch annulé par sécurité")
-                    return False, "Téléchargement couverture indisponible (client HTTP trop ancien)"
-                return False, f"Téléchargement couverture refusé ({fetch_reason})"
+                    logging.warning(self.t.get("log_cover_curl_no_redirect", "[Upload Cover] curl_cffi sans allow_redirects — fetch annulé par sécurité"))
+                    return False, self.t.get("msg_cover_client_old", "Téléchargement couverture indisponible (client HTTP trop ancien)")
+                return False, self.t.get("msg_cover_download_refused", "Téléchargement couverture refusé ({0})").format(fetch_reason)
 
             if getattr(img_res, "status_code", None) != 200:
-                return False, f"Impossible de télécharger l'image (Code {img_res.status_code})"
+                return False, self.t.get("msg_cover_download_http", "Impossible de télécharger l'image (Code {0})").format(img_res.status_code)
 
             # 2. Conversion en Base64 pur (sans préfixe Data URI)
             img_base64 = base64.b64encode(img_res.content).decode('utf-8')
@@ -683,14 +661,14 @@ class KavitaAPI:
             res = requests.post(upload_url, json=payload, headers=self.headers, timeout=self._write_timeout())
 
             if res.status_code != 200:
-                logging.error("[DEBUG] Erreur Upload Cover Kavita : code %s", res.status_code)
+                logging.error(self.t.get("log_cover_upload_http_err", "[Upload Cover] Erreur Kavita : code {0}").format(res.status_code))
                 return False, f"Code {res.status_code}"
 
-            return True, "Couverture mise à jour et verrouillée avec succès"
+            return True, self.t.get("msg_cover_updated", "Couverture mise à jour et verrouillée avec succès")
 
         except Exception as e:
-            logging.error("[Erreur Upload Cover] %s", safe_exc_str(e))
-            return False, "Erreur téléchargement couverture"
+            logging.error(self.t.get("log_cover_upload_err", "[Erreur Upload Cover] {0}").format(safe_exc_str(e)))
+            return False, self.t.get("msg_cover_download_error", "Erreur téléchargement couverture")
 
     def update_series_external_ids(self, series_id: int, anilist_id=None, mal_id=None, mangabaka_id=None) -> tuple:
         """
@@ -704,7 +682,7 @@ class KavitaAPI:
         verrous + IDs externes existants avant d'écraser uniquement les IDs fournis.
         """
         if not self.token and not self.authenticate():
-            return False, "Non authentifié"
+            return False, self.t.get("msg_not_authenticated", "Non authentifié")
 
         def _coerce_ext_id(raw):
             if raw is None or raw is False:
@@ -714,7 +692,7 @@ class KavitaAPI:
             try:
                 value = int(str(raw).strip())
             except (TypeError, ValueError):
-                logging.warning("[Update IDs] Identifiant externe ignoré (non numérique) : %r", raw)
+                logging.warning(self.t.get("log_ext_id_ignored", "[Update IDs] Identifiant externe ignoré (non numérique) : {0!r}").format(raw))
                 return None
             return value if value > 0 else None
 
@@ -723,15 +701,11 @@ class KavitaAPI:
         new_mangabaka = _coerce_ext_id(mangabaka_id)
 
         if new_anilist is None and new_mal is None and new_mangabaka is None:
-            return True, "Aucun ID à mettre à jour"
+            return True, self.t.get("msg_no_ids_update", "Aucun ID à mettre à jour")
 
         current = self.get_series(series_id)
         if not current:
-            return False, (
-                "Impossible de récupérer l'état actuel de la série "
-                "(GET /api/Series/{id} a échoué) — mise à jour des IDs externes annulée "
-                "par sécurité pour éviter d'écraser localizedName/verrous existants."
-            )
+            return False, self.t.get("msg_current_series_ids_failed", "Impossible de récupérer l'état actuel de la série (GET /api/Series/{id} a échoué) — mise à jour des IDs externes annulée par sécurité pour éviter d'écraser localizedName/verrous existants.")
 
         payload = {
             "id": int(series_id),
@@ -756,9 +730,9 @@ class KavitaAPI:
         try:
             url = f"{self.url}/api/Series/update"
             res = requests.post(url, json=payload, headers=self.headers, timeout=self._write_timeout())
-            return (True, "Succès") if res.status_code == 200 else (False, f"Code {res.status_code} : {res.text}")
+            return (True, self.t.get("msg_success", "Succès")) if res.status_code == 200 else (False, f"Code {res.status_code} : {res.text}")
         except Exception as e:
-            logging.error(f"[Erreur Update IDs] {e}")
+            logging.error(self.t.get("log_update_ids_err", "[Erreur Update IDs] {0}").format(e))
             return False, str(e)
 
     def get_series_isbn(self, series_id) -> str:
@@ -778,7 +752,7 @@ class KavitaAPI:
                         if chap.get('isbn'):
                             return str(chap.get('isbn')).replace('-', '').replace(' ', '').strip()
         except Exception as e:
-            logging.error(f"[Erreur ISBN] {e}")
+            logging.error(self.t.get("log_isbn_err", "[Erreur ISBN] {0}").format(e))
         return None
 
     def get_series_deep_metadata(self, series_id) -> dict:

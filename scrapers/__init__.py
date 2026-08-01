@@ -5,12 +5,14 @@ import importlib.util
 import inspect
 import logging
 from .base import BaseScraper
+from translations import get_ui_translations
 
 class _ScraperRegistry:
     def __init__(self):
         self._scrapers = {}
 
     def load_all(self):
+        t = get_ui_translations()
         # 1. Charger les scrapers officiels (Inclus dans l'image Docker)
         current_dir = os.path.dirname(__file__)
         for filename in os.listdir(current_dir):
@@ -27,7 +29,7 @@ class _ScraperRegistry:
             try:
                 os.makedirs(custom_dir)
             except Exception as e:
-                logging.error(f"[Registry] Impossible de créer le dossier {custom_dir}: {e}")
+                logging.error(t.get("log_registry_mkdir_fail", "[Registry] Impossible de créer le dossier {0}: {1}").format(custom_dir, e))
         else:
             # On scanne les fichiers Python déposés par l'utilisateur
             for filename in os.listdir(custom_dir):
@@ -42,7 +44,7 @@ class _ScraperRegistry:
             module = importlib.import_module(module_name)
             self._extract_scrapers(module)
         except Exception as e:
-            logging.error(f"[Registry] Erreur au chargement du scraper officiel {module_name}: {e}")
+            logging.error(get_ui_translations().get("log_registry_official_fail", "[Registry] Erreur au chargement du scraper officiel {0}: {1}").format(module_name, e))
 
     def _load_module_by_path(self, module_name, file_path):
         """Charge un scraper externe déposé par un utilisateur depuis le disque."""
@@ -54,7 +56,7 @@ class _ScraperRegistry:
                 spec.loader.exec_module(module)
                 self._extract_scrapers(module)
         except Exception as e:
-            logging.error(f"[Registry] Erreur au chargement du scraper personnalisé ({file_path}): {e}")
+            logging.error(get_ui_translations().get("log_registry_custom_fail", "[Registry] Erreur au chargement du scraper personnalisé ({0}): {1}").format(file_path, e))
 
     def _extract_scrapers(self, module):
         """Extrait et enregistre les classes héritant de BaseScraper *définies* dans ce module.
@@ -72,16 +74,13 @@ class _ScraperRegistry:
                 instance = obj()
                 existing = self._scrapers.get(instance.id)
                 if existing is not None and existing.__class__ is not obj:
-                    logging.warning(
-                        f"⚠️ [Registry] L'id de scraper '{instance.id}' ("
-                        f"{existing.__class__.__module__}.{existing.__class__.__name__}) est "
-                        f"remplacé par {obj.__module__}.{obj.__name__} (chargé après). "
-                        "Vérifiez qu'il s'agit bien d'une surcharge volontaire."
-                    )
+                    old = f"{existing.__class__.__module__}.{existing.__class__.__name__}"
+                    new = f"{obj.__module__}.{obj.__name__}"
+                    logging.warning(get_ui_translations().get("log_registry_replace", "[Registry] Scraper {0} remplacé par {1} (chargé après). Vérifiez qu'il s'agit bien d'une surcharge volontaire.").format(f"{instance.id} ({old})", new))
                 self._scrapers[instance.id] = instance
                 # Petit log optionnel pour confirmer l'enregistrement d'un scraper custom
                 if "custom_scrapers" in module.__name__:
-                    logging.info(f"🔌 Scraper personnalisé chargé : {instance.display_name} ({instance.id})")
+                    logging.info(get_ui_translations().get("log_registry_custom_loaded", "🔌 Scraper personnalisé chargé : {0} ({1})").format(instance.display_name, instance.id))
 
     def get(self, scraper_id: str) -> BaseScraper:
         return self._scrapers.get(scraper_id)

@@ -60,10 +60,6 @@ def target_lang_from_ui_lang(ui_lang) -> str:
 def load_config():
     global _logged_config_path
     with CONFIG_LOCK:
-        if not _logged_config_path:
-            logging.info("[Config] Fichier de configuration : %s", CONFIG_FILE)
-            _logged_config_path = True
-
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR, exist_ok=True)
 
@@ -146,9 +142,16 @@ def load_config():
                     config.update(file_config)
             except json.JSONDecodeError as e:
                 config_parse_failed = True
+                from translations import get_ui_translations
+                _t = get_ui_translations(
+                    ui_lang=os.getenv("UI_LANG") or config.get("UI_LANG")
+                )
                 logging.error(
-                    "[Config] config.json illisible (%s) — conservation du fichier corrompu ; "
-                    "defaults en mémoire uniquement (pas d'écrasement automatique).",
+                    _t.get(
+                        "log_config_unreadable",
+                        "[Config] config.json illisible (%s) — conservation du fichier corrompu ; "
+                        "defaults en mémoire uniquement (pas d'écrasement automatique).",
+                    ),
                     e,
                 )
                 try:
@@ -158,9 +161,15 @@ def load_config():
                         # pour cette session : on garde une copie du JSON cassé.
                         if not os.path.exists(bak):
                             os.replace(CONFIG_FILE, bak)
-                            logging.error("[Config] Copie de sauvegarde écrite : %s", bak)
+                            logging.error(
+                                _t.get("log_config_bak_written", "[Config] Copie de sauvegarde écrite : %s"),
+                                bak,
+                            )
                 except OSError as bak_err:
-                    logging.error("[Config] Impossible de sauvegarder config.json.bak : %s", bak_err)
+                    logging.error(
+                        _t.get("log_config_bak_failed", "[Config] Impossible de sauvegarder config.json.bak : %s"),
+                        bak_err,
+                    )
 
         # --- FUSION DE L'ENVIRONNEMENT -------------------------------------
         # Précédence : config.json > variable d'environnement > défaut.
@@ -193,12 +202,19 @@ def load_config():
         # preuve censée être à usage unique.
         config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", "")
         if os.getenv("ADMIN_PASSWORD") and not config["ADMIN_PASSWORD"]:
+            from translations import get_ui_translations
+            _t = get_ui_translations(
+                ui_lang=os.getenv("UI_LANG") or config.get("UI_LANG")
+            )
             logging.warning(
-                "[Config] ADMIN_PASSWORD est défini dans l'environnement mais cette "
-                "variable est supprimée : l'accès est protégé par le compte créé au "
-                "premier démarrage. Pour préconfigurer ce compte sans passer par "
-                "l'écran de configuration, utilisez ADMIN_PASSWORD_HASH "
-                "(cf. `python debug/hash_password.py`)."
+                _t.get(
+                    "log_config_admin_password_env",
+                    "[Config] ADMIN_PASSWORD est défini dans l'environnement mais cette "
+                    "variable est supprimée : l'accès est protégé par le compte créé au "
+                    "premier démarrage. Pour préconfigurer ce compte sans passer par "
+                    "l'écran de configuration, utilisez ADMIN_PASSWORD_HASH "
+                    "(cf. `python debug/hash_password.py`).",
+                )
             )
 
         # Clés connexion : "" dans config.json ne doit pas bloquer un seed env
@@ -315,6 +331,16 @@ def load_config():
                 config["SECRET_KEY"] = secrets.token_hex(24)
             if not config.get("WEBHOOK_TOKEN"):
                 config["WEBHOOK_TOKEN"] = secrets.token_urlsafe(16)
+
+        # Log chemin une fois UI_LANG résolu (visible Live Logs / docker).
+        if not _logged_config_path:
+            from translations import get_ui_translations
+            _t = get_ui_translations(config=config)
+            logging.info(
+                _t.get("log_config_file", "[Config] Fichier de configuration : %s"),
+                CONFIG_FILE,
+            )
+            _logged_config_path = True
 
         return config
 
@@ -517,17 +543,20 @@ def save_config(data):
             with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                 disk = json.load(f)
         except (OSError, json.JSONDecodeError) as exc:
+            from translations import get_ui_translations
+            t = get_ui_translations(config=data)
             raise RuntimeError(
-                f"config.json illisible juste après écriture ({CONFIG_FILE}): {exc}"
+                t.get("log_config_unreadable_after_write", "config.json illisible juste après écriture ({0}): {1}").format(CONFIG_FILE, exc)
             ) from exc
 
         for check_key in ("KAVITA_URL", "KAVITA_API_KEY", "SECRET_KEY", "WEBHOOK_TOKEN"):
             if check_key not in data:
                 continue
             if disk.get(check_key) != data.get(check_key):
+                from translations import get_ui_translations
+                t = get_ui_translations(config=data)
                 raise RuntimeError(
-                    f"Persistance échouée pour {check_key} dans {CONFIG_FILE} "
-                    f"(mémoire ≠ disque)."
+                    t.get("log_config_persist_mismatch", "Persistance échouée pour {0} dans {1} (mémoire ≠ disque).").format(check_key, CONFIG_FILE)
                 )
 
         return CONFIG_FILE

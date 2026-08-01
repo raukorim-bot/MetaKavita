@@ -75,6 +75,7 @@ def get_series_covers(series_id):
     search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
 
     config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
 
     library_type = kavita.get_library_type_for_series(series_id)
@@ -101,7 +102,7 @@ def get_series_covers(series_id):
                     results.append(c)
             return results
         except Exception as e:
-            logging.error(f"[Covers] Erreur sur le scraper {scraper.id} : {e}")
+            logging.error(t.get("log_covers_scraper_err", "[Covers] Erreur sur le scraper {0} : {1}").format(scraper.id, e))
             return []
 
     # Lancement en parallèle de tous les scrapers disponibles
@@ -119,6 +120,7 @@ def get_series_covers(series_id):
 def apply_series_cover(series_id):
     cover_url = request.json.get('cover_url')
     config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
 
     success, msg = kavita.upload_series_cover(series_id, cover_url)
@@ -150,7 +152,7 @@ def apply_series_cover(series_id):
         # série à un re-scraping inutile, voire à l'écrasement d'autres champs si un
         # force_update survient entre-temps).
         update_status(int(series_id), original_status)
-        logging.info(f"🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {series_id} (protégé contre les futurs scrapings automatiques).")
+        logging.info(t.get("log_cover_field_locked", "🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {0} (protégé contre les futurs scrapings automatiques).").format(series_id))
 
     return jsonify({"success": success, "msg": msg})
 

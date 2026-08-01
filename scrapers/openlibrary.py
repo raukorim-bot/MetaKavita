@@ -22,16 +22,16 @@ def extract_description(data: Dict[str, Any]) -> str:
         return desc
     return ""
 
-def safe_get_request(url: str, params: dict = None, headers: dict = None, timeout: int = 12) -> Optional[requests.Response]:
+def safe_get_request(url: str, params: dict = None, headers: dict = None, timeout: int = 12, rate_message: str = "", error_message: str = "") -> Optional[requests.Response]:
     try:
         res = requests.get(url, params=params, headers=headers, timeout=timeout)
         if res.status_code == 429:
-            logging.warning("⚠️ [OpenLibrary] Limite de requêtes atteinte (HTTP 429). Pause de sécurité de 5 secondes...")
+            logging.warning(rate_message or "⚠️ [OpenLibrary] HTTP 429; waiting 5 seconds...")
             time.sleep(5.0)
             res = requests.get(url, params=params, headers=headers, timeout=timeout)
         return res
     except Exception as e:
-        logging.error(f"[OpenLibrary Request] Erreur : {e}")
+        logging.error((error_message or "[OpenLibrary Request] Error: {0}").format(e))
         return None
 
 def is_google_disclaimer_cover(doc_summary: dict, work_data: dict) -> bool:
@@ -42,7 +42,7 @@ def is_google_disclaimer_cover(doc_summary: dict, work_data: dict) -> bool:
             return True
     return False
 
-def fetch_real_cover_from_google(title: str, headers: dict) -> Optional[str]:
+def fetch_real_cover_from_google(title: str, headers: dict, error_message: str = "") -> Optional[str]:
     try:
         gb_res = requests.get("https://www.googleapis.com/books/v1/volumes", params={"q": title, "maxResults": 1}, headers=headers, timeout=5)
         if gb_res.status_code == 200:
@@ -54,7 +54,7 @@ def fetch_real_cover_from_google(title: str, headers: dict) -> Optional[str]:
                     if c_url.startswith("http://"): c_url = c_url.replace("http://", "https://")
                     return c_url
     except Exception as e:
-        logging.error(f"[Google Cover Fallback] Erreur : {e}")
+        logging.error((error_message or "[Google Cover Fallback] Error: {0}").format(e))
     return None
 
 class OpenLibraryScraper(BaseScraper):
@@ -78,6 +78,9 @@ class OpenLibraryScraper(BaseScraper):
             "matched": "🎯 [OpenLibrary] Match validé : '{0}' (Score: {1}%)",
             "err": "[OpenLibrary] Erreur : {0}",
             "covers_err": "[Covers] Erreur OpenLibrary : {0}"
+            ,"rate_limit": "⚠️ [OpenLibrary] Limite de requêtes atteinte (HTTP 429). Pause de sécurité de 5 secondes..."
+            ,"request_err": "[OpenLibrary Request] Erreur : {0}"
+            ,"google_cover_err": "[Google Cover Fallback] Erreur : {0}"
         },
         "en": {
             "display_name": "Open Library (Books/Novels)",
@@ -89,6 +92,9 @@ class OpenLibraryScraper(BaseScraper):
             "matched": "🎯 [OpenLibrary] Match validated: '{0}' (Score: {1}%)",
             "err": "[OpenLibrary] Error: {0}",
             "covers_err": "[Covers] OpenLibrary error: {0}"
+            ,"rate_limit": "⚠️ [OpenLibrary] Request limit reached (HTTP 429). Safety pause for 5 seconds..."
+            ,"request_err": "[OpenLibrary Request] Error: {0}"
+            ,"google_cover_err": "[Google Cover Fallback] Error: {0}"
         }
     }
 
@@ -124,7 +130,7 @@ class OpenLibraryScraper(BaseScraper):
 
         cover_url = None
         if is_google_disclaimer_cover(doc_summary, work_data):
-            cover_url = fetch_real_cover_from_google(title, headers)
+            cover_url = fetch_real_cover_from_google(title, headers, self.t("google_cover_err"))
             
         if not cover_url:
             cover_i = doc_summary.get("cover_i")
@@ -201,7 +207,7 @@ class OpenLibraryScraper(BaseScraper):
             if existing_isbn and not is_id:
                 logging.info(self.t("search_isbn").format(existing_isbn))
                 url = f"https://openlibrary.org/isbn/{existing_isbn}.json"
-                res = safe_get_request(url, headers=headers, timeout=12)
+                res = safe_get_request(url, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
                 if res and res.status_code == 200:
                     logging.info(self.t("matched_isbn").format(existing_isbn))
                     return attach_match_score(self._parse_work_record(res.json(), {}, headers), 1.0)
@@ -213,7 +219,7 @@ class OpenLibraryScraper(BaseScraper):
                     endpoint = f"/isbn/{query}"
                 
                 url = f"https://openlibrary.org{endpoint}.json"
-                res = safe_get_request(url, headers=headers, timeout=12)
+                res = safe_get_request(url, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
                 if res and res.status_code == 200:
                     return attach_match_score(self._parse_work_record(res.json(), {}, headers), 1.0)
                 return None
@@ -225,7 +231,7 @@ class OpenLibraryScraper(BaseScraper):
             search_url = "https://openlibrary.org/search.json"
             params = {"q": cleaned, "limit": 5}
 
-            res = safe_get_request(search_url, params=params, headers=headers, timeout=12)
+            res = safe_get_request(search_url, params=params, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
             if not res or res.status_code != 200: return None
 
             docs = res.json().get("docs", []) or []
@@ -238,7 +244,7 @@ class OpenLibraryScraper(BaseScraper):
                 work_key = doc.get("key")
                 w_data = {}
                 if work_key:
-                    w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5)
+                    w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
                     if w_res and w_res.status_code == 200:
                         w_data = w_res.json()
 
@@ -272,7 +278,7 @@ class OpenLibraryScraper(BaseScraper):
         headers = {"User-Agent": "MetaKavita-Fetcher/1.5 (contact@metakavita.local)", "Accept": "application/json"}
 
         try:
-            res = safe_get_request("https://openlibrary.org/search.json", params={"q": cleaned, "limit": 5}, headers=headers, timeout=10)
+            res = safe_get_request("https://openlibrary.org/search.json", params={"q": cleaned, "limit": 5}, headers=headers, timeout=10, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
             if res and res.status_code == 200:
                 docs = res.json().get("docs", []) or []
                 query_keywords = extract_meaningful_words(cleaned)
@@ -289,7 +295,7 @@ class OpenLibraryScraper(BaseScraper):
 
                     if score >= 0.40:
                         if is_google_disclaimer_cover(doc, {}):
-                            real_c_url = fetch_real_cover_from_google(title, headers)
+                            real_c_url = fetch_real_cover_from_google(title, headers, self.t("google_cover_err"))
                             if real_c_url and real_c_url not in [c['url'] for c in covers]:
                                 covers.append({
                                     "provider": "OpenLibrary",
@@ -297,7 +303,7 @@ class OpenLibraryScraper(BaseScraper):
                                     "url": real_c_url
                                 })
                             elif work_key:
-                                w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5)
+                                w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
                                 if w_res and w_res.status_code == 200:
                                     w_covers = w_res.json().get("covers") or []
                                     for cid in w_covers[1:3]:
@@ -314,7 +320,7 @@ class OpenLibraryScraper(BaseScraper):
                             if doc.get("cover_i"): candidate_cover_ids.append(doc["cover_i"])
 
                             if work_key:
-                                w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5)
+                                w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
                                 if w_res and w_res.status_code == 200:
                                     w_covers = w_res.json().get("covers") or []
                                     for cid in w_covers:

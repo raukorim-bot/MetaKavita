@@ -20,6 +20,7 @@ from db_manager import (
 from translator import translate_text
 from scrapers.utils import MATCH_SCORE_KEY
 from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kavita_format_enum
+from translations import get_ui_translations
 
 
 def _dedupe_titles(values):
@@ -468,13 +469,11 @@ def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
 
     def _run():
         from services.enrichment_engine import _processing_lock, _processing_series_ids
+        t = get_ui_translations()
 
         with _processing_lock:
             if series_id in _processing_series_ids:
-                logging.info(
-                    "[%s] ⏭️ Retry seal ignoré : série déjà en cours de traitement.",
-                    series_name,
-                )
+                logging.info(t.get("log_seal_retry_skip", "[{0}] ⏭️ Retry seal ignoré : série déjà en cours de traitement.").format(series_name))
                 return
             _processing_series_ids.add(series_id)
 
@@ -485,19 +484,17 @@ def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
             config = load_config()
             api = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
             if not api.authenticate():
-                logging.warning(
-                    "[%s] ⚠️ Retry seal : auth Kavita échouée", series_name
-                )
+                logging.warning(t.get("log_seal_retry_auth", "[{0}] ⚠️ Retry seal : auth Kavita échouée").format(series_name))
                 return
             ok, msg = api.seal_series_locks(series_id)
             if ok:
                 update_status(series_id, "COMPLETED")
                 _emit_series_status(series_id, "COMPLETED", series_name)
-                logging.info("[%s] ✅ Retry seal OK — statut COMPLETED", series_name)
+                logging.info(t.get("log_seal_retry_ok", "[{0}] ✅ Retry seal OK — statut COMPLETED").format(series_name))
             else:
-                logging.warning("[%s] ⚠️ Retry seal échoué : %s", series_name, msg)
+                logging.warning(t.get("log_seal_retry_fail", "[{0}] ⚠️ Retry seal échoué : {1}").format(series_name, msg))
         except Exception as exc:
-            logging.warning("[%s] ⚠️ Retry seal crash : %s", series_name, exc)
+            logging.warning(t.get("log_seal_retry_crash", "[{0}] ⚠️ Retry seal crash : {1}").format(series_name, exc))
         finally:
             with _processing_lock:
                 _processing_series_ids.discard(series_id)
@@ -556,7 +553,7 @@ def apply_kavita_payload(
                 t.get(
                     "log_kavita_refused",
                     "[{0}] ❌ Kavita a refusé la mise à jour : {1}",
-                ).format(series_name, f"champs généraux: {general_msg}")
+                ).format(series_name, t.get("log_general_fields_label", "champs généraux: {0}").format(general_msg))
             )
 
     if success and general_ok:
@@ -592,9 +589,7 @@ def apply_kavita_payload(
             else:
                 logging.info(t.get("log_cover_success").format(series_name))
         elif "cover" in active and not cover_still_targeted:
-            logging.info(
-                f"[{series_name}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps."
-            )
+            logging.info(t.get("log_cover_manual_protected", "[{0}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps.").format(series_name))
 
         update_status(series_id, final_status)
         _emit_series_status(series_id, final_status, series_name)
@@ -604,13 +599,11 @@ def apply_kavita_payload(
             _schedule_seal_retry(series_id, series_name)
             return True, "NEEDS_RELOCK", used
 
-        return True, "Succès", used
+        return True, t.get("msg_success", "Succès"), used
 
     if success and not general_ok:
-        logging.error(
-            f"[{series_name}] Métadonnées OK mais champs généraux refusés : {general_msg}"
-        )
-        return False, f"Erreur champs généraux: {general_msg}", used
+        logging.error(t.get("log_meta_ok_general_fail", "[{0}] Métadonnées OK mais champs généraux refusés : {1}").format(series_name, general_msg))
+        return False, t.get("msg_general_fields_error", "Erreur champs généraux: {0}").format(general_msg), used
 
     logging.error(t.get("log_kavita_refused").format(series_name, msg))
-    return False, f"Erreur: {msg}", used
+    return False, t.get("msg_error", "Erreur: {0}").format(msg), used

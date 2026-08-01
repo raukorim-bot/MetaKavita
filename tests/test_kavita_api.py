@@ -212,7 +212,7 @@ class TestUpdateSeriesMetadataSanitization:
 
         assert success is True
         assert sealed is False
-        assert "écriture OK" in msg
+        assert ("écriture OK" in msg) or ("write OK" in msg)
         assert mock_post.call_count == 3  # write + lock + lock retry
         assert mock_post.call_args_list[0].kwargs["timeout"] == 60
         assert mock_post.call_args_list[1].kwargs["timeout"] == 60
@@ -239,7 +239,7 @@ class TestUpdateSeriesMetadataSanitization:
 
         assert success is True
         assert sealed is True
-        assert msg == "Succès"
+        assert msg in ("Succès", "Success")
         assert mock_post.call_count == 3
         assert mock_post.call_args_list[2].kwargs["timeout"] == _RELOCK_RETRY_TIMEOUT_CAP_S
 
@@ -254,7 +254,7 @@ class TestUpdateSeriesMetadataSanitization:
 
         assert success is True
         assert sealed is False
-        assert "re-lock échoué" in msg
+        assert ("re-lock échoué" in msg) or ("re-lock failed" in msg)
         assert mock_post.call_count == 3
 
     def test_write_timeout_override_is_passed_to_posts(self, mocker):
@@ -292,7 +292,7 @@ class TestUpdateSeriesMetadataSanitization:
 
         assert success is True
         assert sealed is False
-        assert "écriture OK" in msg
+        assert ("écriture OK" in msg) or ("write OK" in msg)
         assert mock_post.call_count == 3
 
 

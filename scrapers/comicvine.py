@@ -49,6 +49,39 @@ def clean_comicvine_html(soup):
         if parent: parent.decompose()
     return soup
 
+
+def html_to_summary_text(raw_html: str) -> str:
+    """HTML ComicVine → texte summary propre (sans labels décoratifs)."""
+    if not raw_html:
+        return ""
+    soup = clean_comicvine_html(BeautifulSoup(raw_html, "html.parser"))
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+    for block in soup.find_all(["p", "div", "h2", "h3", "h4"]):
+        block.append("\n\n")
+    return re.sub(r"\n{3,}", "\n\n", soup.get_text()).strip()
+
+
+def compose_summary_parts(*parts: str) -> str:
+    """Assemble les blocs texte non vides, sans emoji / balises MetaKavita."""
+    cleaned = []
+    for part in parts:
+        text = (part or "").strip()
+        if not text:
+            continue
+        key = re.sub(r"\s+", " ", text).casefold()
+        # Nouveau texte déjà entièrement inclus dans un bloc existant → skip.
+        if any(key in re.sub(r"\s+", " ", prev).casefold() for prev in cleaned):
+            continue
+        # Nouveau texte englobe un bloc plus court → remplace le court.
+        cleaned = [
+            prev
+            for prev in cleaned
+            if re.sub(r"\s+", " ", prev).casefold() not in key
+        ]
+        cleaned.append(text)
+    return "\n\n".join(cleaned)
+
 class ComicVineScraper(BaseScraper):
     id = "COMICVINE"
     display_name = "ComicVine (Ultime BD/Comics)"
@@ -67,9 +100,6 @@ class ComicVineScraper(BaseScraper):
             "direct_id": "🎯 [ComicVine] Requête directe par ID : '{0}'",
             "search_vol": "🔍 [ComicVine] Recherche de Volume pour '{0}'...",
             "err_search": "[ComicVine] Erreur recherche : {0}",
-            "lbl_synopsis": "📖 [Synopsis] : {0}",
-            "lbl_album": "📖 [Album : {0}]",
-            "lbl_series": "📚 [Série : {0}]",
             "cover_provider_series": "ComicVine (Série)",
             "unknown_title": "Inconnu",
         },
@@ -79,9 +109,6 @@ class ComicVineScraper(BaseScraper):
             "direct_id": "🎯 [ComicVine] Direct request by ID: '{0}'",
             "search_vol": "🔍 [ComicVine] Volume Search for '{0}'...",
             "err_search": "[ComicVine] Search error: {0}",
-            "lbl_synopsis": "📖 [Synopsis]: {0}",
-            "lbl_album": "📖 [Issue: {0}]",
-            "lbl_series": "📚 [Series: {0}]",
             "cover_provider_series": "ComicVine (Series)",
             "unknown_title": "Unknown",
         }
@@ -291,9 +318,7 @@ class ComicVineScraper(BaseScraper):
                     issue_detail = issue_res.json().get("results", {})
                     if issue_detail and isinstance(issue_detail, dict):
                         raw_issue_desc = issue_detail.get("description") or issue_detail.get("deck") or ""
-                        if raw_issue_desc:
-                            soup_issue = BeautifulSoup(raw_issue_desc, "html.parser")
-                            issue_summary = clean_comicvine_html(soup_issue).get_text().strip()
+                        issue_summary = html_to_summary_text(raw_issue_desc)
                         img_dict = issue_detail.get("image")
                         if isinstance(img_dict, dict): issue_cover = img_dict.get("original_url") or img_dict.get("super_url")
                         
@@ -329,13 +354,9 @@ class ComicVineScraper(BaseScraper):
                     if volume_detail and isinstance(volume_detail, dict):
                         if not volume_name: volume_name = volume_detail.get("name")
                             
-                        raw_vol_desc = volume_detail.get("description") or volume_detail.get("deck") or ""
-                        if raw_vol_desc:
-                            soup_vol = BeautifulSoup(raw_vol_desc, "html.parser")
-                            soup_vol = clean_comicvine_html(soup_vol)
-                            for br in soup_vol.find_all("br"): br.replace_with("\n")
-                            for block in soup_vol.find_all(["p", "div", "h2", "h3", "h4"]): block.append("\n\n")
-                            volume_summary = re.sub(r'\n{3,}', '\n\n', soup_vol.get_text()).strip()
+                        volume_summary = html_to_summary_text(
+                            volume_detail.get("description") or volume_detail.get("deck") or ""
+                        )
                             
                         img_dict = volume_detail.get("image")
                         if isinstance(img_dict, dict): volume_cover = img_dict.get("original_url") or img_dict.get("super_url")
@@ -362,17 +383,14 @@ class ComicVineScraper(BaseScraper):
                                 if f_res.status_code == 200:
                                     f_detail = f_res.json().get("results", {})
                                     if isinstance(f_detail, dict):
-                                        # Résumé enrichi via Tome #1
+                                        # Résumé enrichi via Tome #1 (texte brut, sans balise)
                                         if len(volume_summary) < 150:
-                                            f_desc = f_detail.get("description") or f_detail.get("deck") or ""
-                                            if f_desc:
-                                                f_soup = BeautifulSoup(f_desc, "html.parser")
-                                                issue_1_text = clean_comicvine_html(f_soup).get_text().strip()
-                                                if issue_1_text:
-                                                    volume_summary = (
-                                                        f"{volume_summary}\n\n"
-                                                        + self.t("lbl_synopsis").format(issue_1_text)
-                                                    ).strip()
+                                            issue_1_text = html_to_summary_text(
+                                                f_detail.get("description") or f_detail.get("deck") or ""
+                                            )
+                                            volume_summary = compose_summary_parts(
+                                                volume_summary, issue_1_text
+                                            )
 
                                         # Staff enrichi via Tome #1
                                         if not staff_credits:
@@ -392,11 +410,8 @@ class ComicVineScraper(BaseScraper):
                 logging.debug("ComicVine volume detail failed: %s", safe_exc_str(e))
 
         final_cover = issue_cover if issue_cover else volume_cover
-        final_summary = ""
-        if issue_summary:
-            final_summary += self.t("lbl_album").format(issue_name) + f"\n{issue_summary}\n\n"
-        if volume_summary:
-            final_summary += self.t("lbl_series").format(volume_name) + f"\n{volume_summary}"
+        # Volume d'abord (page série Kavita), puis album si distinct — sans emoji/balises.
+        final_summary = compose_summary_parts(volume_summary, issue_summary)
             
         if not final_summary.strip() and not final_cover: 
             return None
@@ -406,7 +421,7 @@ class ComicVineScraper(BaseScraper):
         candidate = {
             'title': final_title,
             'alternative_titles': [],
-            'summary': final_summary.strip(),
+            'summary': final_summary,
             'cover_url': final_cover,
             'genres': ["Comic Book"],
             'tags': tags[:get_max_tags()],

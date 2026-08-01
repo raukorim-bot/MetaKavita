@@ -27,6 +27,7 @@ from flask import redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db_manager
+from translations import get_ui_translations
 
 
 # --- HACHAGE ---------------------------------------------------------------
@@ -325,7 +326,7 @@ def user_count():
         conn.close()
         return total
     except sqlite3.Error as e:
-        logging.error("[Auth] Table users illisible (%s) — accès refusé par précaution.", e)
+        logging.error(get_ui_translations().get("log_auth_users_unreadable", "[Auth] Table users illisible ({0}) — accès refusé par précaution.").format(e))
         return -1
 
 
@@ -360,12 +361,12 @@ def create_user(username, password):
         )
         conn.commit()
         conn.close()
-        logging.info("[Auth] Compte '%s' créé.", username)
+        logging.info(get_ui_translations().get("log_auth_account_created", "[Auth] Compte '{0}' créé.").format(username))
         return True, None
     except sqlite3.IntegrityError:
         return False, "setup_err_username_taken"
     except sqlite3.Error as e:
-        logging.error("[Auth] Création de compte impossible : %s", e)
+        logging.error(get_ui_translations().get("log_auth_create_fail", "[Auth] Création de compte impossible : {0}").format(e))
         return False, "setup_err_generic"
 
 
@@ -411,10 +412,10 @@ def update_password(user_id, current_password, new_password):
         )
         conn.commit()
         conn.close()
-        logging.info("[Auth] Mot de passe changé pour '%s'.", username)
+        logging.info(get_ui_translations().get("log_auth_password_changed", "[Auth] Mot de passe changé pour '{0}'.").format(username))
         return True, None
     except sqlite3.Error as e:
-        logging.error("[Auth] Mise à jour du mot de passe impossible : %s", e)
+        logging.error(get_ui_translations().get("log_auth_password_update_fail", "[Auth] Mise à jour du mot de passe impossible : {0}").format(e))
         return False, "account_err_generic"
 
 
@@ -444,7 +445,7 @@ def verify_credentials(username, password):
         row = c.fetchone()
         conn.close()
     except sqlite3.Error as e:
-        logging.error("[Auth] Vérification impossible (%s) — refus.", e)
+        logging.error(get_ui_translations().get("log_auth_verify_fail", "[Auth] Vérification impossible ({0}) — refus.").format(e))
         return None
 
     if not row:
@@ -471,7 +472,7 @@ def record_login(user_id):
         conn.commit()
         conn.close()
     except sqlite3.Error as e:
-        logging.warning("[Auth] last_login non mis à jour : %s", e)
+        logging.warning(get_ui_translations().get("log_auth_last_login_fail", "[Auth] last_login non mis à jour : {0}").format(e))
 
 
 def _looks_like_password_hash(value) -> bool:
@@ -545,7 +546,7 @@ def seed_user_from_env():
         conn.commit()
         conn.close()
     except sqlite3.Error as e:
-        logging.error("[Auth] Amorçage depuis ADMIN_PASSWORD_HASH impossible : %s", e)
+        logging.error(get_ui_translations().get("log_auth_hash_seed_fail", "[Auth] Amorçage depuis ADMIN_PASSWORD_HASH impossible : {0}").format(e))
         return False
 
     logging.info(

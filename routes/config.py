@@ -12,6 +12,7 @@ from flask import Blueprint, request, jsonify
 from config_manager import load_config, save_config, CONFIG_LOCK, CONFIG_FILE, format_disabled_libraries
 from scrapers import ScraperRegistry
 from kavita_api import KavitaAPI
+from translations import get_ui_translations
 
 config_bp = Blueprint('config', __name__)
 
@@ -129,9 +130,13 @@ def save_config_ajax():
                 if str(x).strip()
             }
             if not known_ids and not enabled_ids:
+                t = get_ui_translations(config=config)
                 logging.info(
-                    "[Config] SYNC_LIBRARIES_PRESENT sans bibliothèque rendue — "
-                    "dénylist inchangée (évite wipe au 1er save)."
+                    t.get(
+                        "log_config_sync_libs_empty",
+                        "[Config] SYNC_LIBRARIES_PRESENT sans bibliothèque rendue — "
+                        "dénylist inchangée (évite wipe au 1er save).",
+                    )
                 )
             else:
                 all_ids = set()
@@ -145,7 +150,14 @@ def save_config_ajax():
                                 if lib.get('id') is not None
                             }
                 except Exception as e:
-                    logging.warning("[Config] Impossible de recharger les bibliothèques Kavita : %s", e)
+                    t = get_ui_translations(config=config)
+                    logging.warning(
+                        t.get(
+                            "log_config_reload_libs_fail",
+                            "[Config] Impossible de recharger les bibliothèques Kavita : %s",
+                        ),
+                        e,
+                    )
                 if all_ids:
                     config['DISABLED_LIBRARIES'] = format_disabled_libraries(all_ids - enabled_ids)
                 elif not enabled_ids and not all_ids:
@@ -155,20 +167,30 @@ def save_config_ajax():
         config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
         config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'
 
+        t = get_ui_translations(config=config)
         try:
             save_config(config)
         except RuntimeError as exc:
-            logging.error("[Config] Échec persistance config.json : %s", exc)
+            logging.error(
+                t.get("log_config_persist_fail", "[Config] Échec persistance config.json : %s"),
+                exc,
+            )
             return jsonify(success=False, msg=str(exc)), 500
 
         has_url = bool((config.get('KAVITA_URL') or '').strip())
         has_key = bool((config.get('KAVITA_API_KEY') or '').strip())
+        yes = t.get("log_yes", "oui")
+        no = t.get("log_no", "non")
+        empty = t.get("log_empty", "(vide)")
         logging.info(
-            "[Config] Sauvegarde OK — fichier=%s KAVITA_URL=%s clé_API=%s (mise_à_jour=%s)",
+            t.get(
+                "log_config_save_ok",
+                "[Config] Sauvegarde OK — fichier=%s KAVITA_URL=%s clé_API=%s (mise_à_jour=%s)",
+            ),
             CONFIG_FILE,
-            config.get('KAVITA_URL') or '(vide)',
-            'oui' if has_key else 'non',
-            'oui' if kavita_key_updated else 'non',
+            config.get('KAVITA_URL') or empty,
+            yes if has_key else no,
+            yes if kavita_key_updated else no,
         )
 
         # Désactivation du mode manuel : purge la file pour éviter des séries
@@ -180,11 +202,20 @@ def save_config_ajax():
                 deleted = int(result.get("deleted") or 0)
                 if deleted:
                     logging.info(
-                        "[Config] Mode manuel désactivé — file purgée (%s review(s)).",
+                        t.get(
+                            "log_config_manual_purged",
+                            "[Config] Mode manuel désactivé — file purgée (%s review(s)).",
+                        ),
                         deleted,
                     )
             except Exception as exc:
-                logging.warning("[Config] Purge file manuelle après désactivation : %s", exc)
+                logging.warning(
+                    t.get(
+                        "log_config_manual_purge_fail",
+                        "[Config] Purge file manuelle après désactivation : %s",
+                    ),
+                    exc,
+                )
 
         # Désactivation confirm-before-write : purge uniquement les parks auto.
         if was_confirm and not config['CONFIRM_BEFORE_WRITE'] and not config['MANUAL_REVIEW_MODE']:
@@ -194,11 +225,20 @@ def save_config_ajax():
                 deleted = int(result.get("deleted") or 0)
                 if deleted:
                     logging.info(
-                        "[Config] Confirm-before-write désactivé — %s preview(s) purgé(s).",
+                        t.get(
+                            "log_config_confirm_purged",
+                            "[Config] Confirm-before-write désactivé — %s preview(s) purgé(s).",
+                        ),
                         deleted,
                     )
             except Exception as exc:
-                logging.warning("[Config] Purge auto-confirm après désactivation : %s", exc)
+                logging.warning(
+                    t.get(
+                        "log_config_confirm_purge_fail",
+                        "[Config] Purge auto-confirm après désactivation : %s",
+                    ),
+                    exc,
+                )
 
         kavita_ok = False
         kavita_error = None
@@ -209,7 +249,13 @@ def save_config_ajax():
                 if not kavita_ok:
                     kavita_error = getattr(probe, 'last_auth_error', None) or 'unknown'
             except Exception as exc:
-                logging.warning("[Config] Test connexion Kavita après save : %s", exc)
+                logging.warning(
+                    t.get(
+                        "log_config_kavita_probe_fail",
+                        "[Config] Test connexion Kavita après save : %s",
+                    ),
+                    exc,
+                )
                 kavita_error = 'unknown'
         elif not has_url or not has_key:
             kavita_error = 'missing'
@@ -230,5 +276,11 @@ def regenerate_webhook_token():
         new_token = secrets.token_urlsafe(16)
         config['WEBHOOK_TOKEN'] = new_token
         save_config(config)
-    logging.info("🔑 [Sécurité] Nouveau jeton Webhook généré depuis l'interface web.")
+        t = get_ui_translations(config=config)
+    logging.info(
+        t.get(
+            "log_webhook_token_regenerated",
+            "🔑 [Sécurité] Nouveau jeton Webhook généré depuis l'interface web.",
+        )
+    )
     return jsonify(success=True, new_token=new_token)

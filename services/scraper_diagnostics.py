@@ -20,6 +20,7 @@ from metadata_fetcher import throttle_provider
 from scrapers import ScraperRegistry
 from scrapers.base import BaseScraper
 from secure_logging import safe_exc_str
+from translations import get_ui_translations
 
 # Queries known-good (alignées sur debug/debug_all.py)
 TEST_CASES: Dict[str, Dict[str, Any]] = {
@@ -876,7 +877,7 @@ def probe_all(config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
         try:
             results.append(probe_scraper(scraper, config))
         except Exception as e:
-            logging.error("[Diagnostics] Échec probe %s : %s", scraper.id, safe_exc_str(e))
+            logging.error(get_ui_translations().get("log_diag_probe_fail", "[Diagnostics] Échec probe {0} : {1}").format(scraper.id, safe_exc_str(e)))
             results.append({
                 "id": scraper.id,
                 "display_name": scraper.localized_display_name,

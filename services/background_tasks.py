@@ -45,7 +45,7 @@ _batch_real_sends = 0
 # ÉCRITURE effective vers Kavita (voir services/kavita_payload.py::_apply_kavita_write).
 # Tout le reste ("Déjà à jour.", "PENDING_REVIEW", "Introuvable.", une erreur...) ne
 # touche jamais Kavita — voir _worker() / le nagware supporter (batch.js).
-_REAL_SEND_MESSAGES = {"Succès", "NEEDS_RELOCK"}
+_REAL_SEND_MESSAGES = {"Succès", "Success", "NEEDS_RELOCK"}
 
 
 def set_batch_enqueue_enabled(enabled: bool) -> None:

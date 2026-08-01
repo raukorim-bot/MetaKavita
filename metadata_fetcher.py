@@ -539,7 +539,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         try:
             data = scraper.fetch(provider_query, library_type=library_type, is_id=is_id_search, existing_metadata=existing_ctx)
         except Exception as e:
-            logging.error(f"❌ [Scraper {p}] Erreur lors de la récupération pour '{provider_query}': {e}")
+            logging.error(t.get("log_scraper_fetch_err", "❌ [Scraper {0}] Erreur lors de la récupération pour '{1}': {2}").format(p, provider_query, e))
             data = None
 
         return p, data
@@ -654,7 +654,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                     try:
                         _, data = future.result()
                     except Exception as e:
-                        logging.error(f"❌ [Scraper {p}] Erreur inattendue en exécution parallèle : {e}")
+                        logging.error(t.get("log_scraper_parallel_err", "❌ [Scraper {0}] Erreur inattendue en exécution parallèle : {1}").format(p, e))
                         data = None
                     if data and has_useful_data(data):
                         accepted.append((idx, p, data))

@@ -11,6 +11,9 @@ EN
 * **BF71. MAL no longer invents `safe` when `nsfw` is absent** — Explicit `white`/`gray`/`black` still map; missing/unknown → omit (BF56).
 * **BF72. AniList Book cascade filters `format: NOVEL`** — Manga/Comic unchanged (AniList has no COMIC type; MANGA remains correct). Book libraries skip non-novel Media.
 * **BF73. Hardcoded French left in English UI** — Granular field checkboxes (series + batch), publisher-pref labels, config empty-API hint, theme button, JS alerts (config/covers/changelog), empty-library message, seal/skip API errors, webhook ack, changelog fallbacks, and scraper `display_name` (via `localized_display_name`) now follow `UI_LANG`.
+* **BF74. ComicVine summary without decorative labels** — Dropped `📚 [Série : …]` / `📖 [Album|Synopsis]` wrappers from the written Kavita summary. Blocks are plain text joined with blank lines (volume first, then distinct issue text; first-issue enrichment no longer adds a labeled prefix). Cover picker labels unchanged (still i18n).
+* **BF75. Config / CORS Live Logs follow `UI_LANG`** — Boot path, save-config, webhook regenerate, and CORS whitelist messages (piped to the web Live Logs via `WebSocketLogHandler`) use `translations` / `get_ui_translations` instead of hardcoded French.
+* **BF76. Operational Live Logs follow `UI_LANG`** — Enrichment, Kavita writes, webhooks, auth, proxy, scraper, translator, and manual-review logs and API messages now use the FR/EN translation dictionaries.
 
 ### 🐛 Bug Fixes
 *Found and reported against a live Kavita library by **angusmaul** — thanks.*
@@ -42,6 +45,9 @@ FR
 * **BF71. MAL n’invente plus `safe` si `nsfw` absent** — `white`/`gray`/`black` explicites inchangés ; absent/inconnu → omit (BF56).
 * **BF72. Cascade Book AniList filtrée sur `format: NOVEL`** — Manga/Comic inchangés (pas de type COMIC AniList ; MANGA reste correct). Les libs Book ignorent les Media non-novel.
 * **BF73. Français en dur restant en UI anglaise** — Cases du scraping granulaire (série + batch), labels préf. éditeur, hint config sans clé API, bouton thème, alertes JS (config/covers/changelog), message bibliothèque vide, erreurs seal/skip API, ack webhook, fallbacks changelog, et `display_name` scrapers (via `localized_display_name`) suivent désormais `UI_LANG`.
+* **BF74. Summary ComicVine sans balises décoratives** — Suppression des wrappers `📚 [Série : …]` / `📖 [Album|Synopsis]` dans le résumé écrit dans Kavita. Blocs en texte brut joints par une ligne vide (volume d’abord, puis texte album distinct ; l’enrichissement issue #1 n’ajoute plus de préfixe). Labels du picker de covers inchangés (toujours i18n).
+* **BF75. Logs Config / CORS Live Logs selon `UI_LANG`** — Chemin de config au boot, sauvegarde, régénération webhook et messages CORS (relayés vers la console Live Logs via `WebSocketLogHandler`) passent par `translations` / `get_ui_translations` au lieu du français en dur.
+* **BF76. Logs opérationnels Live Logs selon `UI_LANG`** — Enrichissement, écritures Kavita, webhooks, auth, proxy, scrapers, traduction, review manuelle et messages API utilisent désormais les dictionnaires FR/EN.
 
 ### 🐛 Correctifs
 *Repérés et signalés sur une bibliothèque Kavita réelle par **angusmaul** — merci.*

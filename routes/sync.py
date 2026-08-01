@@ -174,7 +174,7 @@ def stop_batch():
     if drained == 0:
         from services.background_tasks import broadcast_batch_progress
         broadcast_batch_progress(0, stopped=True)
-    logging.info(t.get('log_batch_stopped') + f" ({drained} en attente retirée(s))")
+    logging.info(t.get('log_batch_stopped') + t.get("log_batch_drained_suffix", " ({0} en attente retirée(s))").format(drained))
     return jsonify(success=True, msg=t.get('batch_stopped'), drained=drained)
 
 
@@ -196,6 +196,7 @@ def export_errors():
 @sync_bp.route('/webhook', methods=['POST'])
 def webhook():
     config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     webhook_token = config.get('WEBHOOK_TOKEN', '')
 
     # The token may arrive either as the `X-Webhook-Token` header or as the historical
@@ -239,7 +240,7 @@ def webhook():
             token_ok = False
 
     if not token_ok:
-        logging.warning("🚨 [Sécurité] Tentative d'accès au webhook bloquée (Jeton invalide).")
+        logging.warning(t.get("log_webhook_unauthorized", "🚨 [Sécurité] Tentative d'accès au webhook bloquée (Jeton invalide)."))
         return jsonify(success=False, message="Unauthorized"), 401
 
     payload = request.get_json(silent=True) or request.form or {}
@@ -251,14 +252,13 @@ def webhook():
 
     if series_id and series_name:
         sync_queue.put(make_sync_item(series_id, series_name, force_update))
-        mode_str = " (⚠️ Mode Forcé)" if force_update else ""
-        logging.info(f"⚡ [Webhook] Événement reçu ! Série '{series_name}' (ID: {series_id}){mode_str} ajoutée à la file.")
-        t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+        mode_str = t.get("log_webhook_force_mode", " (⚠️ Mode Forcé)") if force_update else ""
+        logging.info(t.get("log_webhook_received", "⚡ [Webhook] Événement reçu ! Série '{0}' (ID: {1}){2} ajoutée à la file.").format(series_name, series_id, mode_str))
         return jsonify(
             success=True,
             message=t.get("webhook_event_received", "Event reçu"),
             force_update=force_update,
         ), 200
 
-    logging.warning("⚠️ [Webhook] Événement ignoré : champs 'seriesId' ou 'name' manquants dans le payload.")
-    return jsonify(success=False, message="Champs requis manquants"), 400
+    logging.warning(t.get("log_webhook_ignored", "⚠️ [Webhook] Événement ignoré : champs 'seriesId' ou 'name' manquants dans le payload."))
+    return jsonify(success=False, message=t.get("msg_webhook_missing_fields", "Champs requis manquants")), 400

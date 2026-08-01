@@ -57,7 +57,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                     full_ids = {s['id'] for s in series_list}
                     cleaned = clean_orphaned_cache(full_ids)
                     if cleaned > 0:
-                        logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")
+                        logging.info(t.get("log_orphans_cleaned", "🧹 Nettoyage : {0} séries orphelines retirées du cache.").format(cleaned))
             else:
                 error_msg = t.get('err_no_libraries', "Aucune bibliothèque trouvée dans Kavita.")
         else:

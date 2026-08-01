@@ -163,5 +163,11 @@ def test_external_ids_aborts_without_snapshot(mocker):
     post = mocker.patch("kavita_api.requests.post")
     ok, msg = api.update_series_external_ids(1, anilist_id=99)
     assert ok is False
-    assert "sécurité" in msg.lower() or "Impossible" in msg
+    low = msg.lower()
+    assert (
+        "sécurité" in low
+        or "security" in low
+        or "Impossible" in msg
+        or "Unable" in msg
+    )
     post.assert_not_called()

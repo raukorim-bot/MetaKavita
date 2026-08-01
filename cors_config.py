@@ -50,18 +50,30 @@ def parse_cors_allowed_origins_detailed(raw: Optional[str] = None) -> Tuple[List
 
 
 def log_cors_config(origins: List[str], star_ignored: bool = False) -> None:
+    from translations import get_ui_translations
+
+    t = get_ui_translations()
     if star_ignored:
         logging.warning(
-            "⚠️ [CORS] L'origine '*' est ignorée : incompatible avec "
-            "Access-Control-Allow-Credentials. Utilisez des origins explicites "
-            "(ex: https://metakavita.home.local.ltd)."
+            t.get(
+                "log_cors_star_ignored",
+                "⚠️ [CORS] L'origine '*' est ignorée : incompatible avec "
+                "Access-Control-Allow-Credentials. Utilisez des origins explicites "
+                "(ex: https://metakavita.home.local.ltd).",
+            )
         )
     if origins:
-        logging.info(f"🌐 [CORS] Whitelist active : {origins}")
+        logging.info(
+            t.get("log_cors_whitelist", "🌐 [CORS] Whitelist active : %s"),
+            origins,
+        )
     else:
         logging.info(
-            "🌐 [CORS] Same-Origin (CORS_ALLOWED_ORIGINS vide ou absent — "
-            "aucune origine cross-origin autorisée)."
+            t.get(
+                "log_cors_same_origin",
+                "🌐 [CORS] Same-Origin (CORS_ALLOWED_ORIGINS vide ou absent — "
+                "aucune origine cross-origin autorisée).",
+            )
         )
 
 

@@ -21,6 +21,7 @@ from db_manager import (
 )
 from metadata_fetcher import merge_candidates
 from secure_logging import safe_exc_str
+from translations import get_ui_translations
 
 # Marqueur interne : résumé déjà passé par translate_text (évite double trad. à l'apply).
 SUMMARY_TRANSLATED_KEY = "_summary_translated"
@@ -166,6 +167,7 @@ def create_review_from_candidates(
     si pas encore résolu — le lien est alors simplement omis côté UI.
     """
     review_id = str(uuid.uuid4())
+    t = get_ui_translations()
     payload = candidates_payload if isinstance(candidates_payload, dict) else {
         "above": [],
         "below": [],
@@ -174,17 +176,9 @@ def create_review_from_candidates(
     try:
         payload, n_tr = translate_candidate_summaries(payload)
         if n_tr:
-            logging.info(
-                "[manual_review] %s résumé(s) traduit(s) avant pick (%s)",
-                n_tr,
-                series_name or series_id,
-            )
+            logging.info(t.get("log_mr_summaries_translated", "[manual_review] {0} résumé(s) traduit(s) avant pick ({1})").format(n_tr, series_name or series_id))
     except Exception as exc:
-        logging.warning(
-            "[manual_review] traduction des résumés échouée pour %s : %s",
-            series_name or series_id,
-            exc,
-        )
+        logging.warning(t.get("log_mr_summaries_fail", "[manual_review] traduction des résumés échouée pour {0} : {1}").format(series_name or series_id, exc))
     park_pending_review(
         review_id=review_id,
         series_id=int(series_id),
@@ -232,6 +226,7 @@ def create_confirm_from_auto(
     from metadata_fetcher import build_candidate_card
 
     review_id = str(uuid.uuid4())
+    t = get_ui_translations()
     provider = (actual_provider or "Inconnu").strip() or "Inconnu"
     data = copy.deepcopy(provider_data) if isinstance(provider_data, dict) else {}
     data["_provider_used"] = provider
@@ -285,11 +280,7 @@ def create_confirm_from_auto(
         },
     )
     emit_pending_count()
-    logging.info(
-        "[%s] ✏️ CONFIRM_BEFORE_WRITE — preview parkée (provider=%s)",
-        series_name or series_id,
-        provider,
-    )
+    logging.info(t.get("log_confirm_parked", "[{0}] ✏️ CONFIRM_BEFORE_WRITE — preview parkée (provider={1})").format(series_name or series_id, provider))
     return review_id
 
 
@@ -333,11 +324,7 @@ def choice_and_merge(
 
     by_provider = _cards_by_provider(candidates_payload)
     if base_provider not in by_provider:
-        logging.warning(
-            "[manual_review] base_provider %s introuvable pour review %s",
-            base_provider,
-            review_id,
-        )
+        logging.warning(get_ui_translations().get("log_mr_provider_missing", "[manual_review] base_provider {0} introuvable pour review {1}").format(base_provider, review_id))
         return None
 
     ordered: List[tuple] = [(base_provider, by_provider[base_provider].get("data") or {})]

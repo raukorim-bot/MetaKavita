@@ -15,6 +15,7 @@ from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version, get_full_changelog_html
 from url_allowlist import validate_proxied_image_url, fetch_with_safe_redirects
 from secure_logging import safe_exc_str
+from translations import get_ui_translations
 
 misc_bp = Blueprint('misc', __name__)
 
@@ -52,6 +53,7 @@ _PROXY_IMAGE_CHUNK_BYTES = 64 * 1024
 
 @misc_bp.route('/api/proxy-image')
 def proxy_image():
+    t = get_ui_translations()
     img_url = request.args.get('url')
     if not img_url:
         return "Missing URL", 400
@@ -60,10 +62,10 @@ def proxy_image():
         allowed_domains = ScraperRegistry.get_all_proxy_domains()
         ok, reason, domain = validate_proxied_image_url(img_url, allowed_domains)
         if not ok:
-            logging.warning("[Proxy] Refus (%s) : %s", reason, img_url)
+            logging.warning(t.get("log_proxy_refuse", "[Proxy] Refus ({0}) : {1}").format(reason, img_url))
             return "Domain not allowed", 403
     except Exception as e:
-        logging.warning("[Proxy] URL invalide : %s", e)
+        logging.warning(t.get("log_proxy_invalid_url", "[Proxy] URL invalide : {0}").format(e))
         return "Invalid URL", 400
 
     try:
@@ -92,7 +94,7 @@ def proxy_image():
             stream=True,
         )
         if res is None:
-            logging.warning("[Proxy] Fetch refusé (%s) : %s", fetch_reason, img_url)
+            logging.warning(t.get("log_proxy_fetch_refuse", "[Proxy] Fetch refusé ({0}) : {1}").format(fetch_reason, img_url))
             return "Redirect not allowed", 403
 
         # Streaming responses hold a live connection until the body is consumed or the
@@ -103,7 +105,7 @@ def proxy_image():
             if res.status_code == 200:
                 raw_type = (res.headers.get('Content-Type') or 'image/jpeg').split(';')[0].strip().lower()
                 if raw_type not in _SAFE_IMAGE_MIMES and not raw_type.startswith('image/'):
-                    logging.warning("[Proxy] Content-Type non image refusé (%s) pour %s", raw_type, final_url)
+                    logging.warning(t.get("log_proxy_ctype", "[Proxy] Content-Type non image refusé ({0}) pour {1}").format(raw_type, final_url))
                     return "Unsupported media type", 415
                 mimetype = raw_type if raw_type.startswith('image/') else 'image/jpeg'
 
@@ -116,10 +118,7 @@ def proxy_image():
                 if declared_length is not None:
                     try:
                         if int(declared_length) > _MAX_PROXY_IMAGE_BYTES:
-                            logging.warning(
-                                "[Proxy] Image refusée : Content-Length %s > %s octets pour %s",
-                                declared_length, _MAX_PROXY_IMAGE_BYTES, final_url,
-                            )
+                            logging.warning(t.get("log_proxy_too_large_cl", "[Proxy] Image trop volumineuse (Content-Length={0}) : {1}").format(declared_length, final_url))
                             return "Image too large", 413
                     except (TypeError, ValueError):
                         # Unparseable header — ignore it and let the streaming check decide.
@@ -135,23 +134,19 @@ def proxy_image():
                         # Abandon mid-download. Overshoot is bounded by one chunk, so the
                         # worst case held in memory is the cap plus 64 KB rather than
                         # whatever the remote host felt like sending.
-                        logging.warning(
-                            "[Proxy] Image refusée : dépassement de %s octets en cours de "
-                            "téléchargement pour %s",
-                            _MAX_PROXY_IMAGE_BYTES, final_url,
-                        )
+                        logging.warning(t.get("log_proxy_too_large_stream", "[Proxy] Image trop volumineuse pendant le streaming : {0}").format(final_url))
                         return "Image too large", 413
                     buffer.write(chunk)
 
                 buffer.seek(0)
                 return send_file(buffer, mimetype=mimetype)
 
-            logging.warning("[Proxy] Échec HTTP %s pour : %s", res.status_code, final_url)
+            logging.warning(t.get("log_proxy_http_fail", "[Proxy] Échec HTTP {0} pour : {1}").format(res.status_code, final_url))
         finally:
             res.close()
 
     except Exception as e:
-        logging.warning("[Proxy] Erreur interne : %s", safe_exc_str(e))
+        logging.warning(t.get("log_proxy_internal", "[Proxy] Erreur interne : {0}").format(safe_exc_str(e)))
 
     return "Error", 500
 

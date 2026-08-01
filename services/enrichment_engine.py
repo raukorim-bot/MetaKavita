@@ -74,6 +74,7 @@ def resolve_active_fields(targeted_fields_raw, override=None):
 
 def _providers_from_config(config, library_type, series_name):
     """Lit COMIC_/BOOK_/PROVIDER_* selon le type, avec auto-réparation si vide."""
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     if library_type == "Comic":
         keys = ("COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3")
         repair_type = "Comic"
@@ -91,12 +92,12 @@ def _providers_from_config(config, library_type, series_name):
         available = ScraperRegistry.get_by_type(repair_type)
         if available:
             providers = [available[0].id]
-            logging.warning(f"[{series_name}] ⚠️ Config invalide. Auto-réparation : utilisation de {providers[0]}")
+            logging.warning(t.get("log_config_repair", "[{0}] ⚠️ Config invalide. Auto-réparation : utilisation de {1}").format(series_name, providers[0]))
         else:
             fallback = ScraperRegistry.get_by_type("Manga")
             if fallback:
                 providers = [fallback[0].id]
-                logging.warning(f"[{series_name}] ⚠️ Config invalide. Secours absolu : utilisation de {providers[0]}")
+                logging.warning(t.get("log_config_repair_absolute", "[{0}] ⚠️ Config invalide. Secours absolu : utilisation de {1}").format(series_name, providers[0]))
 
     return list(dict.fromkeys(providers))
 
@@ -413,28 +414,28 @@ def research_manual_review(review_id, query: str):
         _safe_emit,
     )
 
+    config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     query = (query or "").strip()
     if not query:
-        return False, "Titre de recherche vide.", None
+        return False, t.get("msg_search_title_empty", "Titre de recherche vide."), None
 
     review = get_pending_review(review_id)
     if not review:
-        return False, "Review introuvable.", None
+        return False, t.get("msg_review_missing", "Review introuvable."), None
 
     series_id = int(review["series_id"])
     series_name = review.get("series_name") or str(series_id)
 
     with _processing_lock:
         if series_id in _processing_series_ids:
-            return False, "Déjà en cours de traitement.", None
+            return False, t.get("msg_already_processing", "Déjà en cours de traitement."), None
         _processing_series_ids.add(series_id)
 
-    config = load_config()
-    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     try:
         kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
         if not kavita.authenticate():
-            return False, "Erreur Kavita.", None
+            return False, t.get("msg_kavita_error", "Erreur Kavita."), None
 
         cache_data = get_all_cached_data().get(series_id, {})
         ov = SeriesOverride.from_cache_dict(series_id, cache_data)
@@ -442,12 +443,7 @@ def research_manual_review(review_id, query: str):
         # Comme l'override titre, sans purger la review en cours.
         save_series_override(ov, purge_pending=False, status="PENDING_REVIEW")
 
-        logging.info(
-            "[%s] 🔎 Re-recherche manuelle : « %s » (review %s)",
-            series_name,
-            query,
-            review_id,
-        )
+        logging.info(t.get("log_mr_research", "[{0}] 🔎 Re-recherche manuelle : « {1} » (review {2})").format(series_name, query, review_id))
         candidates_payload, used_providers = _scrape_manual_candidates(
             series_id,
             series_name,
@@ -461,7 +457,7 @@ def research_manual_review(review_id, query: str):
 
         if _candidates_empty(candidates_payload):
             logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
-            return False, "Aucun candidat pour cette recherche.", {
+            return False, t.get("msg_no_candidates", "Aucun candidat pour cette recherche."), {
                 "query": query,
                 "used_providers": used_providers,
             }
@@ -470,12 +466,13 @@ def research_manual_review(review_id, query: str):
             candidates_payload, n_tr = translate_candidate_summaries(candidates_payload, config=config)
             if n_tr:
                 logging.info(
-                    "[manual_review] %s résumé(s) traduit(s) (re-recherche %s)",
-                    n_tr,
-                    series_name,
+                    t.get(
+                        "log_mr_summaries_translated_research",
+                        "[manual_review] {0} résumé(s) traduit(s) (re-recherche {1})",
+                    ).format(n_tr, series_name)
                 )
         except Exception as exc:
-            logging.warning("[manual_review] traduction re-recherche échouée : %s", exc)
+            logging.warning(t.get("log_mr_retranslate_fail", "[manual_review] traduction re-recherche échouée : {0}").format(exc))
 
         update_pending_review(
             review_id,
@@ -523,8 +520,8 @@ def research_manual_review(review_id, query: str):
         emit_pending_count()
         return True, "OK", lite
     except Exception as exc:
-        logging.error("[%s] Crash re-recherche manuelle : %s", series_name, exc)
-        return False, "Erreur interne.", None
+        logging.error(t.get("log_mr_research_crash", "[{0}] Crash re-recherche manuelle : {1}").format(series_name, exc))
+        return False, t.get("err_internal", "Erreur interne."), None
     finally:
         with _processing_lock:
             _processing_series_ids.discard(series_id)
@@ -553,12 +550,10 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
     sid = int(series_id)
     with _processing_lock:
         if sid in _processing_series_ids:
-            logging.warning(
-                f"⏭️ [{series_name}] Traitement déjà en cours pour cette série ailleurs "
-                "(Sync manuel / file d'attente / webhook) : requête ignorée pour éviter "
-                "une écriture concurrente vers Kavita."
-            )
-            return False, "Déjà en cours de traitement.", []
+            config = load_config()
+            t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+            logging.warning(t.get("log_already_processing_detail", "⏭️ [{0}] Traitement déjà en cours pour cette série ailleurs (Sync manuel / file d'attente / webhook) : requête ignorée pour éviter une écriture concurrente vers Kavita.").format(series_name))
+            return False, t.get("msg_already_processing", "Déjà en cours de traitement."), []
         _processing_series_ids.add(sid)
 
     config = load_config()
@@ -568,12 +563,12 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
 
         if not kavita.authenticate():
             logging.error(t.get('log_auth_fail').format(series_name))
-            return False, "Erreur Kavita.", []
+            return False, t.get("msg_kavita_error", "Erreur Kavita."), []
 
         metadata = kavita.get_series_metadata(series_id)
         if not metadata:
             logging.error(t.get('log_meta_fail').format(series_name))
-            return False, "Erreur de métadonnées.", []
+            return False, t.get("msg_meta_error", "Erreur de métadonnées."), []
 
         # Cache tôt : besoin du statut / forced_id avant le court-circuit « déjà à jour ».
         cache_data = get_all_cached_data().get(int(series_id), {})
@@ -581,9 +576,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             # Ne pas clobber une série garée en review manuelle (sinon COMPLETED +
             # ligne pending_reviews orpheline).
             if cache_data.get('status') == 'PENDING_REVIEW':
-                logging.info(
-                    f"[{series_name}] ⏭️ Déjà en PENDING_REVIEW — skip (résumé Kavita présent)."
-                )
+                logging.info(t.get("log_pending_review_skip", "[{0}] ⏭️ Déjà en PENDING_REVIEW — skip (résumé Kavita présent).").format(series_name))
                 return True, "PENDING_REVIEW", []
             # Données présentes mais verrous en attente → tenter seal seul.
             if cache_data.get('status') == 'NEEDS_RELOCK':
@@ -591,11 +584,9 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 if ok_seal:
                     update_status(series_id, 'COMPLETED')
                     _emit_series_status(series_id, 'COMPLETED', series_name)
-                    logging.info(f"[{series_name}] ✅ Seal différé OK — COMPLETED")
-                    return True, "Succès", []
-                logging.warning(
-                    f"[{series_name}] ⚠️ Toujours À sceller ({seal_msg})"
-                )
+                    logging.info(t.get("log_seal_deferred_ok", "[{0}] ✅ Seal différé OK — COMPLETED").format(series_name))
+                    return True, t.get("msg_success", "Succès"), []
+                logging.warning(t.get("log_still_needs_relock", "[{0}] ⚠️ Toujours À sceller ({1})").format(series_name, seal_msg))
                 _emit_series_status(series_id, "NEEDS_RELOCK", series_name)
                 return True, "NEEDS_RELOCK", []
             logging.info(t.get('log_skip').format(series_name))
@@ -611,7 +602,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                     series_name,
                     safe_exc_str(e),
                 )
-            return True, "Déjà à jour.", []
+            return True, t.get("msg_already_up_to_date", "Déjà à jour."), []
 
         # --- Détermination du type de bibliothèque ---
         library_type = kavita.get_library_type_for_series(series_id)
@@ -655,7 +646,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             else:
                 # ID brut : filtre ID-capable uniquement hors Super (Super expand all ensuite)
                 if forced_provider == 'AUTO' and not super_review:
-                    logging.info(f"[{series_name}] 🔄 ID brut détecté en mode AUTO. Lancement de la résolution intelligente (Smart ID Match).")
+                    logging.info(t.get("log_smart_id", "[{0}] 🔄 ID brut détecté en mode AUTO. Lancement de la résolution intelligente (Smart ID Match).").format(series_name))
                     providers_list = [p for p in providers_list if getattr(ScraperRegistry.get(p), 'has_direct_id_support', False)]
 
         before_override = list(providers_list)
@@ -678,7 +669,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 series_name,
                 len(providers_list),
                 len(before_override),
-                f", override {forced_provider} préféré" if forced_provider != "AUTO" else "",
+                t.get("log_override_preferred", ", override {0} préféré").format(forced_provider) if forced_provider != "AUTO" else "",
             )
 
         # Log protégé contre les valeurs None
@@ -686,12 +677,12 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         logging.info(t.get('log_scraping').format(series_name, " > ".join(safe_providers_log), search_query))
         logging.info(t.get('log_lib_type_detected', "[{0}] 📂 Type de bibliothèque détecté : {1}").format(series_name, library_type))
         if manual_mode:
-            mode_label = "Super Review" if super_review else "manuel"
-            logging.info(f"[{series_name}] 👁️ Mode {mode_label} : candidats → file de review.")
+            mode_label = "Super Review" if super_review else t.get("label_manual_mode", "manuel")
+            logging.info(t.get("log_pending_review_counts", "[{0}] 👁️ Mode {1} : candidats → file de review.").format(series_name, mode_label))
         elif smart_scoring:
-            logging.info(f"[{series_name}] 🎯 Smart Scoring activé (meilleur score gagne).")
+            logging.info(t.get("log_smart_scoring_on", "[{0}] 🎯 Smart Scoring activé (meilleur score gagne).").format(series_name))
         else:
-            logging.info(f"[{series_name}] 📋 Fallback classique (ordre de la liste des fournisseurs).")
+            logging.info(t.get("log_classic_fallback", "[{0}] 📋 Fallback classique (ordre de la liste des fournisseurs).").format(series_name))
 
         # --- DÉTECTION DES MÉTADONNÉES PROFONDES KAVITA (ISBN & AUTEURS) ---
         reset_context_on_force = config.get('RESET_CONTEXT_ON_FORCE', False)
@@ -926,7 +917,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
 
     except Exception as e:
         logging.error(t.get('log_crash').format(series_name, e))
-        return False, "Erreur interne.", []
+        return False, t.get("err_internal", "Erreur interne."), []
     finally:
         with _processing_lock:
             _processing_series_ids.discard(sid)
@@ -951,14 +942,16 @@ def apply_manual_review(
     """
     from services.manual_review import choice_and_merge, confirm_pending_review
 
+    config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     review = get_pending_review(review_id)
     if not review:
-        return False, "Review introuvable.", None
+        return False, t.get("msg_review_missing", "Review introuvable."), None
 
     series_id = int(review["series_id"])
     with _processing_lock:
         if series_id in _processing_series_ids:
-            return False, "Déjà en cours de traitement.", None
+            return False, t.get("msg_already_processing", "Déjà en cours de traitement."), None
         _processing_series_ids.add(series_id)
 
     try:
@@ -1029,7 +1022,7 @@ def _apply_manual_review_locked(
         smart_fusion=smart_fusion,
     )
     if not provider_data:
-        return False, "Fusion impossible (provider invalide).", None
+        return False, t.get("msg_merge_impossible", "Fusion impossible (provider invalide)."), None
 
     is_top1 = True if is_auto_confirm else (base_provider == _top1_provider(candidates_payload))
     chosen_score = None
@@ -1055,11 +1048,11 @@ def _apply_manual_review_locked(
 
     kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
     if not kavita.authenticate():
-        return False, "Erreur Kavita.", None
+        return False, t.get("msg_kavita_error", "Erreur Kavita."), None
 
     metadata = kavita.get_series_metadata(series_id)
     if not metadata:
-        return False, "Erreur de métadonnées.", None
+        return False, t.get("msg_meta_error", "Erreur de métadonnées."), None
 
     built = build_kavita_payload(
         provider_data, metadata, active_fields, config, cache_data, force_update, series_id
@@ -1106,7 +1099,7 @@ def _apply_manual_review_locked(
             "lifetime": get_lifetime_stats(),
         })
     confirm_pending_review(review_id, new_status=write_status)
-    return True, ("NEEDS_RELOCK" if write_status == "NEEDS_RELOCK" else "Succès"), {
+    return True, ("NEEDS_RELOCK" if write_status == "NEEDS_RELOCK" else t.get("msg_success", "Succès")), {
         "preview": built.get("preview_fields"),
         "is_top1": is_top1,
         "score": chosen_score,
@@ -1124,11 +1117,12 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
     from services.manual_review import choice_and_merge
     from db_manager import update_pending_review
 
+    config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     review = get_pending_review(review_id)
     if not review:
-        return False, "Review introuvable.", None
+        return False, t.get("msg_review_missing", "Review introuvable."), None
 
-    config = load_config()
     # Mode manuel : fusion = cases cochées uniquement (pas SMART_COMPLETION sidebar).
     includes = [p for p in (include_providers or []) if p and p != base_provider]
     smart_fusion = bool(includes)
@@ -1139,7 +1133,7 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
         smart_fusion=smart_fusion,
     )
     if not provider_data:
-        return False, "Fusion impossible (provider invalide).", None
+        return False, t.get("msg_merge_impossible", "Fusion impossible (provider invalide)."), None
 
     series_id = int(review["series_id"])
     cache_data = get_all_cached_data().get(series_id, {})
@@ -1153,7 +1147,7 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
         if kavita.authenticate():
             metadata = kavita.get_series_metadata(series_id) or {}
     except Exception as exc:
-        logging.warning("[manual_review] preview sans métadonnées Kavita: %s", exc)
+        logging.warning(t.get("log_mr_preview_no_meta", "[manual_review] preview sans métadonnées Kavita: {0}").format(exc))
 
     built = build_kavita_payload(
         provider_data, metadata, active_fields, config, cache_data, True, series_id
