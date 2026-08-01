@@ -37,6 +37,7 @@ class MangaNewsScraper(BaseScraper):
 
     translations = {
         "fr": {
+            "display_name": "Manga-News (Catalogue VF)",
             "direct_url": "[Manga-News] Requête directe par URL/ID : '{0}'",
             "search_title": "[Manga-News] Recherche VF pour : '{0}'",
             "no_match": "⚠️ [Manga-News] Aucun résultat VF pertinent pour '{0}' (Score max: {1}%)",
@@ -47,6 +48,7 @@ class MangaNewsScraper(BaseScraper):
             "cover_provider_volume": "Manga-News (Tome)",
         },
         "en": {
+            "display_name": "Manga-News (French catalog)",
             "direct_url": "[Manga-News] Direct URL/ID request: '{0}'",
             "search_title": "[Manga-News] VF Search for: '{0}'",
             "no_match": "⚠️ [Manga-News] No relevant VF result for '{0}' (Max score: {1}%)",

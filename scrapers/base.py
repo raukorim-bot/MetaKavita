@@ -42,6 +42,14 @@ class BaseScraper(ABC):
         lang_dict = self.translations.get(target_lang, self.translations.get("fr", {}))
         return lang_dict.get(key, default or key)
 
+    @property
+    def localized_display_name(self) -> str:
+        """Nom affiché selon UI_LANG (clé scraper translations.display_name)."""
+        target_lang = self.get_ui_lang().lower()[:2]
+        lang_dict = self.translations.get(target_lang) or self.translations.get("fr") or {}
+        name = lang_dict.get("display_name")
+        return name if name else self.display_name
+
     @abstractmethod
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         """Doit retourner un dictionnaire standardisé de métadonnées, ou None."""

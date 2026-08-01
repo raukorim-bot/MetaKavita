@@ -62,6 +62,7 @@ class ComicVineScraper(BaseScraper):
     uses_unified_scoring = True 
     translations = {
         "fr": {
+            "display_name": "ComicVine (Ultime BD/Comics)",
             "err_missing": "❌ Clé API ComicVine manquante. Veuillez la configurer dans les paramètres.",
             "direct_id": "🎯 [ComicVine] Requête directe par ID : '{0}'",
             "search_vol": "🔍 [ComicVine] Recherche de Volume pour '{0}'...",
@@ -73,6 +74,7 @@ class ComicVineScraper(BaseScraper):
             "unknown_title": "Inconnu",
         },
         "en": {
+            "display_name": "ComicVine (Ultimate Comics)",
             "err_missing": "❌ ComicVine API Key is missing. Please configure it in settings.",
             "direct_id": "🎯 [ComicVine] Direct request by ID: '{0}'",
             "search_vol": "🔍 [ComicVine] Volume Search for '{0}'...",

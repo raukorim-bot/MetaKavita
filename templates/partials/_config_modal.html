@@ -40,7 +40,7 @@
                             <h4 class="config-section-title">{{ t.providers_api_title }}</h4>
                             {% for scraper in scrapers_with_keys %}
                             <div class="form-group{% if loop.last %} m-0{% endif %}">
-                                <label>API Key — {{ scraper.display_name }}</label>
+                                <label>API Key — {{ scraper.localized_display_name }}</label>
                                 <div class="password-wrapper">
                                     <input type="text" name="{{ scraper.id }}_API_KEY" id="{{ scraper.id|lower }}_api_key" value=""
                                            class="secret-masked"
@@ -50,7 +50,7 @@
                                 </div>
                             </div>
                             {% else %}
-                            <p class="field-hint">Aucun fournisseur actif ne nécessite de clé API.</p>
+                            <p class="field-hint">{{ t.no_api_keys_needed }}</p>
                             {% endfor %}
                         </div>
                     </div>

@@ -178,7 +178,16 @@
 			mr_ach_warmup_flavor: "{{ t.mr_ach_warmup_flavor }}",
 			mr_ach_curator_title: "{{ t.mr_ach_curator_title }}",
 			mr_ach_curator_flavor: "{{ t.mr_ach_curator_flavor }}",
-			batch_progress: "{{ t.batch_progress }}"
+			batch_progress: "{{ t.batch_progress }}",
+			err_save_failed: "{{ t.err_save_failed }}",
+			err_network: "{{ t.err_network }}",
+			err_network_dot: "{{ t.err_network_dot }}",
+			url_saved_prefix: "{{ t.url_saved_prefix }}",
+			cover_err_network_scrape: "{{ t.cover_err_network_scrape }}",
+			cover_send_failed: "{{ t.cover_send_failed }}",
+			cover_send_network: "{{ t.cover_send_network }}",
+			cover_live_search_for: "{{ t.cover_live_search_for }}",
+			changelog_loading: "{{ t.changelog_loading }}"
         };
 
     </script>
@@ -235,7 +244,7 @@
 			</div>
 			<button type="button" class="btn-icon" onclick="openChangelogModal(true)" title="{{ t.help_changelog }}">✨ v{{ app_version }}</button>
                 <button type="button" class="btn-icon" onclick="openConfigModal()" title="{{ t.toggle_config }}">⚙️ Config</button>
-                <button type="button" class="btn-icon" onclick="toggleTheme()" title="{{ t.toggle_theme }}">🌓 Thème</button>
+                <button type="button" class="btn-icon" onclick="toggleTheme()" title="{{ t.toggle_theme }}">🌓 {{ t.toggle_theme }}</button>
             </div>
         </header>
 

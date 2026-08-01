@@ -143,7 +143,7 @@ def handle_fetch_covers_stream(data):
                 # Émission vers le client web à l'origine de la recherche
                 socketio.emit('cover_stream_data', {
                     'series_id': int(series_id),
-                    'provider': scraper.display_name,
+                    'provider': scraper.localized_display_name,
                     'covers': results
                 }, to=sid)
                 # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket sur le réseau

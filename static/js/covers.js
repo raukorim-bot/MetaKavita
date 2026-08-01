@@ -164,7 +164,11 @@ function _fetchCoversHttp(seriesId, query, gridEl, onPick) {
         })
         .catch(function () {
             if (!_coverSearchSession || _coverSearchSession.gridEl !== gridEl) return;
-            _setCoverGridError(gridEl, "❌ Erreur réseau ou de scraping.");
+            _setCoverGridError(
+                gridEl,
+                (window.AppTranslations && window.AppTranslations.cover_err_network_scrape) ||
+                    "❌ Erreur réseau ou de scraping."
+            );
         });
 }
 
@@ -197,7 +201,10 @@ function triggerManualCoverSearch() {
                 seriesId: currentCoverModalSeriesId,
                 query: query,
                 gridEl: grid,
-                statusMessage: 'Recherche en direct pour "' + query + '"...',
+                statusMessage: (
+                    (window.AppTranslations && window.AppTranslations.cover_live_search_for) ||
+                    'Recherche en direct pour "{0}"...'
+                ).replace('{0}', query),
                 onPick: function (url) {
                     applyCover(currentCoverModalSeriesId, url);
                 }
@@ -240,12 +247,18 @@ function applyCover(seriesId, coverUrl) {
 
                 closeCoverModal();
             } else {
-                alert("Erreur lors de l'envoi de la couverture : " + data.msg);
+                alert(
+                    ((window.AppTranslations && window.AppTranslations.cover_send_failed) ||
+                        "Erreur lors de l'envoi de la couverture : ") + data.msg
+                );
                 closeCoverModal();
             }
         })
         .catch(function () {
-            alert("Erreur réseau lors de l'envoi de la couverture.");
+            alert(
+                (window.AppTranslations && window.AppTranslations.cover_send_network) ||
+                    "Erreur réseau lors de l'envoi de la couverture."
+            );
             closeCoverModal();
         });
 }

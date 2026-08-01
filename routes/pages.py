@@ -59,7 +59,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                     if cleaned > 0:
                         logging.info(f"🧹 Nettoyage : {cleaned} séries orphelines retirées du cache.")
             else:
-                error_msg = "Aucune bibliothèque trouvée dans Kavita."
+                error_msg = t.get('err_no_libraries', "Aucune bibliothèque trouvée dans Kavita.")
         else:
             err_key = {
                 "localhost": "err_kavita_localhost",
@@ -116,12 +116,12 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         scraper_has_api_key[s.id] = bool((safe_config.get(key_name) or '').strip())
         safe_config[key_name] = ''
 
-    manga_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Manga")]
-    comic_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Comic")]
-    book_providers = [{"id": s.id, "display_name": s.display_name} for s in ScraperRegistry.get_by_type("Book")]
+    manga_providers = [{"id": s.id, "display_name": s.localized_display_name} for s in ScraperRegistry.get_by_type("Manga")]
+    comic_providers = [{"id": s.id, "display_name": s.localized_display_name} for s in ScraperRegistry.get_by_type("Comic")]
+    book_providers = [{"id": s.id, "display_name": s.localized_display_name} for s in ScraperRegistry.get_by_type("Book")]
 
     magic_scrapers = [
-        {"id": s.id, "display_name": s.display_name, "supported_types": list(s.supported_types)}
+        {"id": s.id, "display_name": s.localized_display_name, "supported_types": list(s.supported_types)}
         for s in ScraperRegistry.get_all() if getattr(s, 'has_direct_id_support', False)
     ]
 

@@ -253,7 +253,12 @@ def webhook():
         sync_queue.put(make_sync_item(series_id, series_name, force_update))
         mode_str = " (⚠️ Mode Forcé)" if force_update else ""
         logging.info(f"⚡ [Webhook] Événement reçu ! Série '{series_name}' (ID: {series_id}){mode_str} ajoutée à la file.")
-        return jsonify(success=True, message="Event reçu", force_update=force_update), 200
+        t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+        return jsonify(
+            success=True,
+            message=t.get("webhook_event_received", "Event reçu"),
+            force_update=force_update,
+        ), 200
 
     logging.warning("⚠️ [Webhook] Événement ignoré : champs 'seriesId' ou 'name' manquants dans le payload.")
     return jsonify(success=False, message="Champs requis manquants"), 400

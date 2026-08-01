@@ -10,6 +10,7 @@ EN
 * **BF70. Hardcover ISBN Typesense hits discarded** — ISBN search logged a match but never appended documents to `candidate_docs`, so the path always fell through to title search. Hits are appended like the text path.
 * **BF71. MAL no longer invents `safe` when `nsfw` is absent** — Explicit `white`/`gray`/`black` still map; missing/unknown → omit (BF56).
 * **BF72. AniList Book cascade filters `format: NOVEL`** — Manga/Comic unchanged (AniList has no COMIC type; MANGA remains correct). Book libraries skip non-novel Media.
+* **BF73. Hardcoded French left in English UI** — Granular field checkboxes (series + batch), publisher-pref labels, config empty-API hint, theme button, JS alerts (config/covers/changelog), empty-library message, seal/skip API errors, webhook ack, changelog fallbacks, and scraper `display_name` (via `localized_display_name`) now follow `UI_LANG`.
 
 ### 🐛 Bug Fixes
 *Found and reported against a live Kavita library by **angusmaul** — thanks.*
@@ -40,6 +41,7 @@ FR
 * **BF70. Hardcover ISBN Typesense : hits jetés** — La recherche ISBN loguait un match sans l’ajouter à `candidate_docs`, donc retombait toujours en recherche titre. Les hits sont appendés comme sur le chemin texte.
 * **BF71. MAL n’invente plus `safe` si `nsfw` absent** — `white`/`gray`/`black` explicites inchangés ; absent/inconnu → omit (BF56).
 * **BF72. Cascade Book AniList filtrée sur `format: NOVEL`** — Manga/Comic inchangés (pas de type COMIC AniList ; MANGA reste correct). Les libs Book ignorent les Media non-novel.
+* **BF73. Français en dur restant en UI anglaise** — Cases du scraping granulaire (série + batch), labels préf. éditeur, hint config sans clé API, bouton thème, alertes JS (config/covers/changelog), message bibliothèque vide, erreurs seal/skip API, ack webhook, fallbacks changelog, et `display_name` scrapers (via `localized_display_name`) suivent désormais `UI_LANG`.
 
 ### 🐛 Correctifs
 *Repérés et signalés sur une bibliothèque Kavita réelle par **angusmaul** — merci.*

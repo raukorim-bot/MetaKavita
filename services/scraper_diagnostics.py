@@ -627,7 +627,7 @@ def list_scrapers_inventory(config: Optional[Dict[str, Any]] = None) -> List[Dic
     for scraper in ScraperRegistry.get_all():
         rows.append({
             "id": scraper.id,
-            "display_name": scraper.display_name,
+            "display_name": scraper.localized_display_name,
             "supported_types": sorted(scraper.supported_types or []),
             "needs_api_key": bool(getattr(scraper, "needs_api_key", False)),
             "has_api_key": _has_api_key(scraper, config),
@@ -664,7 +664,7 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
     test_case = _resolve_test_case(scraper, lib_type)
     base = {
         "id": scraper.id,
-        "display_name": scraper.display_name,
+        "display_name": scraper.localized_display_name,
         "library_type": lib_type,
         "supported_types": sorted(scraper.supported_types or []),
     }
@@ -793,7 +793,7 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
                 cover_url = (meta_raw or {}).get("cover_url") if isinstance(meta_raw, dict) else None
                 if cover_url:
                     covers_raw = [{
-                        "provider": scraper.display_name or scraper.id,
+                        "provider": scraper.localized_display_name or scraper.id,
                         "title": (meta_raw or {}).get("title") or "",
                         "url": cover_url,
                     }]
@@ -879,7 +879,7 @@ def probe_all(config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
             logging.error("[Diagnostics] Échec probe %s : %s", scraper.id, safe_exc_str(e))
             results.append({
                 "id": scraper.id,
-                "display_name": scraper.display_name,
+                "display_name": scraper.localized_display_name,
                 "status": "down",
                 "cause": "schema",
                 "latency_ms": 0,

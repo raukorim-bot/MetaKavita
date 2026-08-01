@@ -22,6 +22,7 @@ from services.manual_review import (
     candidate_summaries_need_translation,
     translate_candidate_summaries,
 )
+from translations import translations
 
 manual_review_bp = Blueprint("manual_review", __name__)
 
@@ -191,11 +192,12 @@ def api_manual_review_research(review_id):
 
 @manual_review_bp.route("/api/manual-reviews/<review_id>/skip", methods=["POST"])
 def api_manual_review_skip(review_id):
+    t = translations.get(load_config().get("UI_LANG", "fr"), translations["fr"])
     if not get_pending_review(review_id):
-        return jsonify(success=False, error="Review introuvable"), 404
+        return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
     ok = skip_manual_review(review_id)
     if not ok:
-        return jsonify(success=False, error="Skip échoué"), 400
+        return jsonify(success=False, error=t.get("err_skip_failed", "Skip échoué")), 400
     return jsonify(success=True, count=count_pending_reviews())
 
 

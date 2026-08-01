@@ -159,12 +159,12 @@ function saveProvidersConfig() {
             }
         } else {
             if (btn) btn.innerText = originalText;
-            alert('Erreur de sauvegarde');
+            alert((window.AppTranslations && window.AppTranslations.err_save_failed) || 'Erreur de sauvegarde');
         }
     })
     .catch(() => {
         if (btn) btn.innerText = originalText;
-        alert('Erreur réseau');
+        alert((window.AppTranslations && window.AppTranslations.err_network) || 'Erreur réseau');
     });
 }
 
@@ -359,18 +359,19 @@ function saveConfig(options) {
                     };
                     const msg = errMap[data.kavita_error] ||
                         ((window.AppTranslations && window.AppTranslations.err_kavita) || "Connexion à Kavita échouée.");
-                    alert(msg + "\n\nURL enregistrée : " + (data.kavita_url || "(vide)"));
+                    const urlPrefix = (window.AppTranslations && window.AppTranslations.url_saved_prefix) || "URL enregistrée :";
+                    alert(msg + "\n\n" + urlPrefix + " " + (data.kavita_url || "(vide)"));
                 }
                 window.location.reload();
             }
         } else {
             if (btn) btn.innerText = originalText;
-            alert((data && data.msg) || "Erreur de sauvegarde");
+            alert((data && data.msg) || ((window.AppTranslations && window.AppTranslations.err_save_failed) || "Erreur de sauvegarde"));
         }
     })
     .catch(() => {
         if (btn) btn.innerText = originalText;
-        alert("Erreur réseau");
+        alert((window.AppTranslations && window.AppTranslations.err_network) || "Erreur réseau");
     });
 }
 
@@ -505,6 +506,6 @@ function changeAccountPassword(btn) {
     .catch(() => {
         btn.innerText = originalText;
         btn.disabled = false;
-        showFeedback('Erreur réseau.', false);
+        showFeedback((window.AppTranslations && window.AppTranslations.err_network_dot) || 'Erreur réseau.', false);
     });
 }

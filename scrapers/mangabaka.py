@@ -18,12 +18,14 @@ class MangaBakaScraper(BaseScraper):
 
     translations = {
         "fr": {
+            "display_name": "MangaBaka (API / Rapide)",
             "direct_id": "[MangaBaka V2] Requête directe par ID : {0}",
             "search_title": "[MangaBaka V2] Recherche par titre : '{0}'",
             "err": "[Erreur MangaBaka V2] {0}",
             "covers_err": "[Covers] Erreur MangaBaka V2 : {0}"
         },
         "en": {
+            "display_name": "MangaBaka (API / Fast)",
             "direct_id": "[MangaBaka V2] Direct request by ID: {0}",
             "search_title": "[MangaBaka V2] Title search: '{0}'",
             "err": "[MangaBaka V2 Error] {0}",

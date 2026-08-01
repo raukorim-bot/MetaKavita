@@ -69,6 +69,7 @@ class OpenLibraryScraper(BaseScraper):
 
     translations = {
         "fr": {
+            "display_name": "Open Library (Livres/Romans)",
             "direct_id": "[OpenLibrary] Requête directe par ID/ISBN : '{0}'",
             "search_start": "[OpenLibrary] Recherche pour : '{0}'",
             "search_isbn": "[OpenLibrary] Recherche prioritaire via ISBN Kavita : '{0}'",
@@ -79,6 +80,7 @@ class OpenLibraryScraper(BaseScraper):
             "covers_err": "[Covers] Erreur OpenLibrary : {0}"
         },
         "en": {
+            "display_name": "Open Library (Books/Novels)",
             "direct_id": "[OpenLibrary] Direct ID/ISBN request: '{0}'",
             "search_start": "[OpenLibrary] Search for: '{0}'",
             "search_isbn": "[OpenLibrary] Priority search via Kavita ISBN: '{0}'",

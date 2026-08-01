@@ -20,6 +20,7 @@ from scrapers import ScraperRegistry
 from scrapers.utils import library_type_for_scraper
 from services.enrichment_engine import ALL_TARGETED_FIELDS
 from secure_logging import safe_exc_str
+from translations import translations
 
 series_bp = Blueprint('series', __name__)
 
@@ -159,8 +160,9 @@ def seal_series_locks(series_id):
     """Rescelle les verrous Kavita (après NEEDS_RELOCK) sans re-scraper."""
     config = load_config()
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     if not kavita.authenticate():
-        return jsonify(success=False, error="Auth Kavita échouée"), 502
+        return jsonify(success=False, error=t.get("err_kavita_auth_failed", "Auth Kavita échouée")), 502
 
     ok, msg = kavita.seal_series_locks(series_id)
     if not ok:
@@ -180,9 +182,10 @@ def seal_series_locks(series_id):
 def seal_all_needs_relock():
     """Rescelle toutes les séries en statut NEEDS_RELOCK."""
     config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
     if not kavita.authenticate():
-        return jsonify(success=False, error="Auth Kavita échouée"), 502
+        return jsonify(success=False, error=t.get("err_kavita_auth_failed", "Auth Kavita échouée")), 502
 
     cached = get_all_cached_data()
     targets = [sid for sid, row in cached.items() if (row or {}).get('status') == 'NEEDS_RELOCK']

@@ -96,7 +96,9 @@ function openChangelogModal(forceOpen = false) {
     if (!modal || !body) return;
 
     // Affiche un loader temporaire pendant la requête
-    body.innerHTML = `<div class="loader-spinner">⏳ Chargement des nouveautés...</div>`;
+    const loadingMsg = (window.AppTranslations && window.AppTranslations.changelog_loading) ||
+        '⏳ Chargement des nouveautés...';
+    body.innerHTML = `<div class="loader-spinner">${loadingMsg}</div>`;
     modal.style.display = 'flex';
 
     // Récupération dynamique depuis CHANGELOG.md via l'API

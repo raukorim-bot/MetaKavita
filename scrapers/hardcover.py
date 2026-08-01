@@ -27,6 +27,7 @@ class HardcoverScraper(BaseScraper):
 
     translations = {
         "fr": {
+            "display_name": "Hardcover (Expérimental / GraphQL)",
             "err_missing_key": "❌ Clé API Hardcover manquante. Configurez-la dans les paramètres.",
             "search_title": "🔍 [Hardcover] Recherche Typesense pour '{0}'...",
             "search_isbn": "🔎 [Hardcover] Recherche prioritaire via ISBN Kavita : '{0}'",
@@ -38,6 +39,7 @@ class HardcoverScraper(BaseScraper):
             "covers_err": "❌ [Covers] Erreur Hardcover : {0}"
         },
         "en": {
+            "display_name": "Hardcover (Experimental / GraphQL)",
             "err_missing_key": "❌ Hardcover API Key missing. Please configure it in settings.",
             "search_title": "🔍 [Hardcover] Typesense search for '{0}'...",
             "search_isbn": "🔎 [Hardcover] Priority search via Kavita ISBN: '{0}'",

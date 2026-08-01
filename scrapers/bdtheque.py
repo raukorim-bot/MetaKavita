@@ -112,6 +112,7 @@ class BdthequeScraper(BaseScraper):
 
     translations = {
         "fr": {
+            "display_name": "BDTheque.com (Franco-Belge)",
             "search": "🔍 [BDTheque] Recherche pour '{0}'...",
             "not_found": "⚠️ [BDTheque] Aucune série trouvée pour '{0}'.",
             "scraping": "⚡ [BDTheque] Scraping série ({0})",
@@ -121,6 +122,7 @@ class BdthequeScraper(BaseScraper):
             "invalid_id": "⚠️ [BDTheque] Identifiant série invalide : {0}",
         },
         "en": {
+            "display_name": "BDTheque.com (Franco-Belgian)",
             "search": "🔍 [BDTheque] Searching for '{0}'...",
             "not_found": "⚠️ [BDTheque] No series found for '{0}'.",
             "scraping": "⚡ [BDTheque] Scraping series ({0})",

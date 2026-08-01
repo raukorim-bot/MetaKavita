@@ -57,16 +57,16 @@
                                         </div>
                                         <!-- CHAMP 3 : L'INTERRUPTEUR ÉDITEUR -->
                                         <div>
-                                            <span class="input-hint" style="margin-bottom: 5px;">Éditeur (Publisher) :</span>
+                                            <span class="input-hint" style="margin-bottom: 5px;">{{ t.publisher_pref_label }}</span>
                                             <div class="segmented-control">
                                                 <input type="radio" name="pubpref-{{ series.id }}" id="pub-global-{{ series.id }}" value="GLOBAL" {% if series.publisher_pref == 'GLOBAL' or not series.publisher_pref %}checked{% endif %}>
-                                                <label for="pub-global-{{ series.id }}" title="Suit la configuration générale">Auto</label>
+                                                <label for="pub-global-{{ series.id }}" title="{{ t.publisher_pref_global_title }}">Auto</label>
                                                 
                                                 <input type="radio" name="pubpref-{{ series.id }}" id="pub-loc-{{ series.id }}" value="LOCALIZED" {% if series.publisher_pref == 'LOCALIZED' %}checked{% endif %}>
-                                                <label for="pub-loc-{{ series.id }}" title="Forcer l'éditeur traduit">VF/VA</label>
+                                                <label for="pub-loc-{{ series.id }}" title="{{ t.publisher_pref_localized_title }}">VF/VA</label>
                                                 
                                                 <input type="radio" name="pubpref-{{ series.id }}" id="pub-orig-{{ series.id }}" value="ORIGINAL" {% if series.publisher_pref == 'ORIGINAL' %}checked{% endif %}>
-                                                <label for="pub-orig-{{ series.id }}" title="Forcer l'éditeur Japonais/Coréen">VO</label>
+                                                <label for="pub-orig-{{ series.id }}" title="{{ t.publisher_pref_original_title }}">VO</label>
                                             </div>
                                         </div>
                                         <!-- BOUTON SAUVEGARDER -->
@@ -91,19 +91,19 @@
                                                champ actuels n'est une sous-chaîne d'un autre). #}
                                             {% set tf_raw = series.targeted_fields|default('ALL') %}
                                             {% set tf_list = tf_raw.split(',') if tf_raw not in ('ALL', 'NONE') else [] %}
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-summary-{{ series.id }}" {% if tf_raw == 'ALL' or 'summary' in tf_list %}checked{% endif %}> Résumé</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-cover-{{ series.id }}" {% if tf_raw == 'ALL' or 'cover' in tf_list %}checked{% endif %}> Couverture</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-staff-{{ series.id }}" {% if tf_raw == 'ALL' or 'staff' in tf_list %}checked{% endif %}> Auteurs/Staff</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-genres-{{ series.id }}" {% if tf_raw == 'ALL' or 'genres' in tf_list %}checked{% endif %}> Genres</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-tags-{{ series.id }}" {% if tf_raw == 'ALL' or 'tags' in tf_list %}checked{% endif %}> Thèmes/Persos</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-year-{{ series.id }}" {% if tf_raw == 'ALL' or 'year' in tf_list %}checked{% endif %}> Année</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-status-{{ series.id }}" {% if tf_raw == 'ALL' or 'status' in tf_list %}checked{% endif %}> Statut</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-publisher-{{ series.id }}" {% if tf_raw == 'ALL' or 'publisher' in tf_list %}checked{% endif %}> Éditeur</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-age-{{ series.id }}" {% if tf_raw == 'ALL' or 'age' in tf_list %}checked{% endif %}> Âge</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-format-{{ series.id }}" {% if tf_raw == 'ALL' or 'format' in tf_list %}checked{% endif %}> Sens lecture</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-{{ series.id }}" {% if tf_raw == 'ALL' or 'weblinks' in tf_list %}checked{% endif %}> Liens & IDs</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-{{ series.id }}" {% if tf_raw == 'ALL' or 'alt_titles' in tf_list %}checked{% endif %}> Titres Alternatifs</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-language-{{ series.id }}" {% if tf_raw == 'ALL' or 'language' in tf_list %}checked{% endif %}> Langue</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-summary-{{ series.id }}" {% if tf_raw == 'ALL' or 'summary' in tf_list %}checked{% endif %}> {{ t.field_summary }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-cover-{{ series.id }}" {% if tf_raw == 'ALL' or 'cover' in tf_list %}checked{% endif %}> {{ t.field_cover }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-staff-{{ series.id }}" {% if tf_raw == 'ALL' or 'staff' in tf_list %}checked{% endif %}> {{ t.field_staff }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-genres-{{ series.id }}" {% if tf_raw == 'ALL' or 'genres' in tf_list %}checked{% endif %}> {{ t.field_genres }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-tags-{{ series.id }}" {% if tf_raw == 'ALL' or 'tags' in tf_list %}checked{% endif %}> {{ t.field_tags }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-year-{{ series.id }}" {% if tf_raw == 'ALL' or 'year' in tf_list %}checked{% endif %}> {{ t.field_year }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-status-{{ series.id }}" {% if tf_raw == 'ALL' or 'status' in tf_list %}checked{% endif %}> {{ t.field_status }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-publisher-{{ series.id }}" {% if tf_raw == 'ALL' or 'publisher' in tf_list %}checked{% endif %}> {{ t.field_publisher }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-age-{{ series.id }}" {% if tf_raw == 'ALL' or 'age' in tf_list %}checked{% endif %}> {{ t.field_age }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-format-{{ series.id }}" {% if tf_raw == 'ALL' or 'format' in tf_list %}checked{% endif %}> {{ t.field_format }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-{{ series.id }}" {% if tf_raw == 'ALL' or 'weblinks' in tf_list %}checked{% endif %}> {{ t.field_weblinks }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-{{ series.id }}" {% if tf_raw == 'ALL' or 'alt_titles' in tf_list %}checked{% endif %}> {{ t.field_alt_titles }}</label>
+                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-language-{{ series.id }}" {% if tf_raw == 'ALL' or 'language' in tf_list %}checked{% endif %}> {{ t.field_language }}</label>
                                         </div>
                                         <div style="margin-top: 8px;">
                                             <span class="input-hint">{{ t.alt_title_langs_label }}</span>

@@ -45,6 +45,7 @@ class BedethequeScraper(BaseScraper):
 
     translations = {
         "fr": {
+            "display_name": "Bédéthèque (Franco-Belge)",
             "search": "🔍 [Bédéthèque] Recherche pour '{0}'...",
             "not_found": "⚠️ [Bédéthèque] Aucun album trouvé pour '{0}'.",
             "scraping_serie": "⚡ [Bédéthèque] Scraping de la Série ({0})",
@@ -55,6 +56,7 @@ class BedethequeScraper(BaseScraper):
             "invalid_url": "⚠️ [Bédéthèque] L'URL fournie n'est ni un album ni une série reconnue : {0}"
         },
         "en": {
+            "display_name": "Bedetheque (Franco-Belgian)",
             "search": "🔍 [Bédéthèque] Searching for '{0}'...",
             "not_found": "⚠️ [Bédéthèque] No album found for '{0}'.",
             "scraping_serie": "⚡ [Bédéthèque] Scraping Series ({0})",

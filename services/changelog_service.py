@@ -81,7 +81,10 @@ def get_full_changelog_html() -> str:
             break
 
     if not changelog_path:
-        return f"<p style='color: var(--text-muted);'>Fichier CHANGELOG.md non trouvé (Version v{get_current_version()}).</p>"
+        msg = _t("changelog_not_found", "Fichier CHANGELOG.md non trouvé (Version v{0}).").format(
+            get_current_version()
+        )
+        return f"<p style='color: var(--text-muted);'>{html.escape(msg)}</p>"
 
     try:
         with open(changelog_path, "r", encoding="utf-8") as f:
@@ -155,4 +158,16 @@ def get_full_changelog_html() -> str:
 
     except Exception as e:
         logging.error(f"[Changelog Parser] Erreur : {e}")
-        return f"<p>Version {get_current_version()} activée.</p>"
+        msg = _t("changelog_version_active", "Version {0} activée.").format(get_current_version())
+        return f"<p>{html.escape(msg)}</p>"
+
+
+def _t(key: str, default: str) -> str:
+    """UI string for changelog fallbacks (respects UI_LANG)."""
+    try:
+        from config_manager import load_config
+        from translations import translations
+        lang = load_config().get("UI_LANG", "fr")
+        return translations.get(lang, translations["fr"]).get(key, default)
+    except Exception:
+        return default
