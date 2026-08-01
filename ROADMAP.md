@@ -27,6 +27,8 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.2)
+- [x] **C59. Community scrapers repository (v1.6.2):** Official plug-and-play scrapers live in [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Linked from Help menu, README EN/FR, and `CUSTOM_SCRAPERS.md` (still trust/read before install).
+- [x] **Scraper diagnostics UI (v1.6.2):** `/diagnostics` + probe APIs for Internet/Kavita preflight and per-scraper metadata/covers health.
 - [x] **BF56. Age safeguarding — no invented Everyone (v1.6.2):** Scrapers without an authoritative age signal omit `age_rating` instead of hardcoding `safe`; BDTheque maps Adulte/Érotique → `erotica` (not Teen), and « Ados - Adultes » stays `suggestive`. Prevents locking wrong Everyone/Teen on adult material (follow-up to BF53).
 - [x] **BF58. Format keyword tokens (v1.6.2):** `resolve_kavita_format_enum` no longer uses substring match (`COMIC BOOK`→Novel, `MUST`→Comic); exact scraper tokens + word split, Comic before Book.
 - [x] **BF59. Invented FINISHED status omitted (v1.6.2):** ComicVine / Hardcover / Google Books / OpenLibrary no longer hardcode `status: FINISHED`; omit like BF56 age.
@@ -176,6 +178,8 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.2)
+- [x] **C59. Dépôt scrapers communautaires (v1.6.2) :** scrapers plug-and-play officiels dans [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Liens menu Aide, README EN/FR et `CUSTOM_SCRAPERS.md` (toujours lire / faire confiance avant install).
+- [x] **UI Diagnostic scrapers (v1.6.2) :** page `/diagnostics` + API de probes (préflight Internet/Kavita, santé metadata/covers par scraper).
 - [x] **BF56. Safeguarding âge — plus de Everyone inventé (v1.6.2) :** les scrapers sans signal d'âge autoritatif omettent `age_rating` au lieu de forcer `safe` ; BDTheque mappe Adulte/Érotique → `erotica` (pas Teen), et « Ados - Adultes » reste `suggestive`. Évite de verrouiller un faux Everyone/Teen sur du contenu adulte (suite de BF53).
 - [x] **BF58. Tokens format (v1.6.2) :** `resolve_kavita_format_enum` ne fait plus de match sous-chaîne (`COMIC BOOK`→Novel, `MUST`→Comic) ; tokens scrapers exacts + split mots, Comic avant Book.
 - [x] **BF59. Statut FINISHED inventé omis (v1.6.2) :** ComicVine / Hardcover / Google Books / OpenLibrary n'émettent plus `status: FINISHED` en dur ; omission comme BF56 pour l'âge.

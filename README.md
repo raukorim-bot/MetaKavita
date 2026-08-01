@@ -114,16 +114,17 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 
 ### 🔌 Custom Community Scrapers (Plug & Play)
 
-MetaKavita V1.5.7 introduces an **Auto-Discovery Registry** for user-created scrapers.
+MetaKavita ships an **Auto-Discovery Registry** for user-created scrapers.
 You no longer need to modify the core code or rebuild the Docker image to add a new metadata source:
 
-1. Drop any valid Python scraper file (e.g., `my_custom_site.py`) directly into your `data/scrapers/` folder.
-2. Restart your MetaKavita container (`docker restart metakavita`).
-3. The custom scraper will dynamically integrate into the UI dropdowns, automatically generate API key inputs in the Settings Modal if required, and benefit from the built-in SSRF Image Proxy protection!
+1. Prefer vetted scrapers from the official community repo: **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (v1.6.2 / C59).
+2. Drop any valid Python scraper file (e.g., `my_custom_site.py`) directly into your `data/scrapers/` folder.
+3. Restart your MetaKavita container (`docker restart metakavita`).
+4. The custom scraper will dynamically integrate into the UI dropdowns, automatically generate API key inputs in the Settings Modal if required, and benefit from the built-in SSRF Image Proxy protection!
 
 To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return candidates via `attach_match_score(...)` (see `CUSTOM_SCRAPERS.md` §4). Scrapers that skip this remain usable: they get a neutral score and cannot crash the enrichment pipeline.
 
-> 💡 **Developers**: Please read the `CUSTOM_SCRAPERS.md` file for strict integration contracts and AI Prompts ("Vibecoding") to generate custom scrapers effortlessly.
+> 💡 **Developers**: Read [`CUSTOM_SCRAPERS.md`](./CUSTOM_SCRAPERS.md) for the integration contract and AI prompts ("Vibecoding"). Browse ready-made scrapers in [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita).
 
 ---
 
@@ -351,9 +352,10 @@ Although designed for internal management, several security hardening controls a
 > A `.py` file placed in `data/scrapers/` is **not configuration** — it is imported and run at
 > startup with the application's full privileges. There is no sandbox. A malicious scraper can
 > read `config.json` (and with it your `SECRET_KEY`, `WEBHOOK_TOKEN` and every API key), reach
-> any file the container can, and open outbound network connections. Only install scrapers whose
-> origin you trust, and read them first — including AI-generated ones.
-> **See the full warning in [CUSTOM_SCRAPERS.md](CUSTOM_SCRAPERS.md).**
+> any file the container can, and open outbound network connections. Prefer scrapers from
+> [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita),
+> still read them before install — including AI-generated ones.
+> **Full warning: [CUSTOM_SCRAPERS.md](CUSTOM_SCRAPERS.md).**
 
 #### ⚠️ Important Notice for Public Web Exposure
 The presence of built-in security features **does not guarantee absolute immunity against external threats**. Exposing MetaKavita directly to the open internet is done at your own risk.
@@ -447,16 +449,17 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 
 ### 🔌 Scrapers Communautaires Personnalisés (Plug & Play)
 
-MetaKavita V1.5.7 inaugure un système d'**Auto-Découverte** pour vos propres fournisseurs de données (Scrapers).
+MetaKavita embarque un système d'**Auto-Découverte** pour vos propres fournisseurs de données (Scrapers).
 Il n'est plus nécessaire de modifier le code source ou de recompiler l'image Docker pour ajouter un nouveau site !
 
-1. Glissez n'importe quel fichier de scraper Python valide (ex: `mon_site_perso.py`) directement dans votre dossier `data/scrapers/`.
-2. Redémarrez votre conteneur MetaKavita (`docker restart metakavita`).
-3. Votre scraper personnalisé sera automatiquement détecté, s'ajoutera à l'interface graphique, générera ses champs de clé API dans la configuration, et bénéficiera de la protection SSRF du Proxy d'images natif !
+1. Préférez les scrapers vérifiés du dépôt officiel : **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (v1.6.2 / C59).
+2. Glissez n'importe quel fichier de scraper Python valide (ex: `mon_site_perso.py`) directement dans votre dossier `data/scrapers/`.
+3. Redémarrez votre conteneur MetaKavita (`docker restart metakavita`).
+4. Votre scraper personnalisé sera automatiquement détecté, s'ajoutera à l'interface graphique, générera ses champs de clé API dans la configuration, et bénéficiera de la protection SSRF du Proxy d'images natif !
 
 Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring = True` et retournez vos candidats via `attach_match_score(...)` (voir `CUSTOM_SCRAPERS.md` §4). Sans cela, le scraper reste utilisable : il reçoit un score neutre et ne peut pas faire planter le pipeline d'enrichissement.
 
-> 💡 **Développeurs** : Veuillez lire le fichier `CUSTOM_SCRAPERS.md` à la racine du projet pour connaître le contrat technique et récupérer nos Prompts IA ("Vibecoding") pour générer vos scrapers en 5 minutes.
+> 💡 **Développeurs** : lisez [`CUSTOM_SCRAPERS.md`](./CUSTOM_SCRAPERS.md) pour le contrat et les prompts IA (« Vibecoding »). Scrapers prêts à l'emploi : [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita).
 
 ---
 
@@ -685,9 +688,9 @@ Bien que pensé pour un usage privé, plusieurs mécanismes de protection sont i
 > et exécuté au démarrage avec tous les droits de l'application. Il n'y a aucun bac à sable. Un
 > scraper malveillant peut lire `config.json` (et donc votre `SECRET_KEY`, votre `WEBHOOK_TOKEN`
 > et toutes vos clés d'API), accéder à n'importe quel fichier visible du conteneur et ouvrir des
-> connexions réseau sortantes. N'installez que des scrapers dont vous connaissez la provenance,
+> connexions réseau sortantes. Préférez [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita),
 > et lisez-les avant — y compris ceux générés par une IA.
-> **Avertissement complet dans [CUSTOM_SCRAPERS.md](CUSTOM_SCRAPERS.md).**
+> **Avertissement complet : [CUSTOM_SCRAPERS.md](CUSTOM_SCRAPERS.md).**
 
 #### ⚠️ Avertissement en Cas d'Exposition Publique
 L'existence de ces protections **ne garantit pas une sécurité absolue**. Si vous choisissez d'exposer directement MetaKavita sur Internet, vous le faites sous votre propre responsabilité.
@@ -733,3 +736,4 @@ This README covers everyday usage. For deeper dives, check these files at the pr
 * [`DEVELOPER.md`](./DEVELOPER.md) — Architecture deep-dive (throttling, WebSockets, scraper registry, scoring matrix) and a **Contribution Workflow** section documenting critical pitfalls to avoid when modifying the codebase. *(Analyse approfondie de l'architecture et guide de contribution listant les pièges critiques à éviter.)*
 * [`kavita_api.md`](./kavita_api.md) — Internal technical specification of Kavita's REST API quirks (Lock Guard, 2-pass update protocol, DTO contracts) used by `kavita_api.py`. *(Spécification technique interne des particularités de l'API Kavita.)*
 * [`CUSTOM_SCRAPERS.md`](./CUSTOM_SCRAPERS.md) — Strict integration contract and ready-to-use AI prompts ("Vibecoding") to build your own community scrapers. *(Contrat d'intégration strict et Prompts IA prêts à l'emploi pour créer vos propres scrapers.)*
+* [community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita) — Official plug-and-play community scrapers for MetaKavita (v1.6.2 / C59). *(Dépôt officiel des scrapers communautaires prêts à déposer dans `data/scrapers/`.)*

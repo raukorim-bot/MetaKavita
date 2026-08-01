@@ -1,6 +1,10 @@
-## [1.6.2] - 2026-08-01 (Age Safeguarding + Comic Hotfix + Audit Hardening)
+## [1.6.2] - 2026-08-01 (Age Safeguarding + Comic Hotfix + Community Scrapers)
 
 EN
+### ✨ What's new
+* **C59. Community scrapers repository** — Official plug-and-play scrapers now live in [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Prefer that repo over random pastes; install by dropping `.py` files into `data/scrapers/` (still trust / read before install — see `CUSTOM_SCRAPERS.md`). Linked from the Help menu, README (EN/FR), and the custom-scraper security guide.
+* **Scraper diagnostics UI** — New `/diagnostics` page + API probes (preflight Internet/Kavita, per-scraper metadata/covers health) reachable from Help and the Providers modal.
+
 ### 🐛 Bug Fixes (pre-release audit)
 * **BF69. SMART_COMPLETION no longer backfills `age_rating`** — Empty/omitted winner age (BF56) was treated as a fusion hole, so a secondary `pornographic`/`erotica` could overwrite BF68 prefer-safe and lock in Kavita. `age_rating` is now never hole-filled via smart fusion / `merge_candidates`.
 * **BF70. Hardcover ISBN Typesense hits discarded** — ISBN search logged a match but never appended documents to `candidate_docs`, so the path always fell through to title search. Hits are appended like the text path.
@@ -27,6 +31,10 @@ EN
 * **BF68. Score-tie prefers safer age rating (issue #25)** — Smart Scoring ties (`≥2` at max score) demote `pornographic`/`erotica` only for Auto winner selection, with an i18n live-log (`log_tiebreak_prefer_safe`). Mono-adult and strict higher score unchanged. Manual Review `return_candidates` keeps neutral sort (no NSFW demotion; all cards). Confirm-before-write + score tie → `awaiting_pick` via attached `_tie_review_payload` (no double scrape), not silent confirm. Tests: `tests/test_tiebreak_prefer_safe_bf68.py`.
 
 FR
+### ✨ Nouveautés
+* **C59. Dépôt scrapers communautaires** — Les scrapers plug-and-play officiels vivent désormais dans [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Préférez ce dépôt à un paste aléatoire ; installation en déposant les `.py` dans `data/scrapers/` (toujours lire / faire confiance avant — voir `CUSTOM_SCRAPERS.md`). Lien dans le menu Aide, le README (EN/FR) et le guide de sécurité des scrapers.
+* **UI Diagnostic scrapers** — Nouvelle page `/diagnostics` + API de probes (préflight Internet/Kavita, santé metadata/covers par scraper) accessible depuis Aide et la modal Providers.
+
 ### 🐛 Correctifs (audit pré-release)
 * **BF69. SMART_COMPLETION ne rebouche plus `age_rating`** — Un âge vainqueur omis (BF56) était traité comme un trou de fusion, donc un secondaire `pornographic`/`erotica` pouvait annuler BF68 prefer-safe et se verrouiller dans Kavita. `age_rating` n’est plus jamais comblé par la fusion smart / `merge_candidates`.
 * **BF70. Hardcover ISBN Typesense : hits jetés** — La recherche ISBN loguait un match sans l’ajouter à `candidate_docs`, donc retombait toujours en recherche titre. Les hits sont appendés comme sur le chemin texte.
