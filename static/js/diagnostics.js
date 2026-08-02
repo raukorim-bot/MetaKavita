@@ -201,42 +201,74 @@
         }
     }
 
-    async function probeAll() {
-        const btn = document.getElementById("btnProbeAll");
+    function setProbeButtonsDisabled(disabled) {
+        const btnActive = document.getElementById("btnProbeActive");
+        const btnAll = document.getElementById("btnProbeAll");
+        if (btnActive) btnActive.disabled = disabled;
+        if (btnAll) btnAll.disabled = disabled;
+    }
+
+    function setAllProbeOneEnabled(enabled) {
+        document.querySelectorAll("#scrapersTable .btn-probe-one").forEach((btn) => {
+            btn.disabled = !enabled;
+        });
+    }
+
+    /**
+     * Stream NDJSON probe-all with optional scope (active|all).
+     * Per-row « Tester » stays usable for scrapers outside the current scope
+     * (cascade vs all). Only the row currently being probed is disabled.
+     */
+    async function probeStream(scope) {
+        const scopeNorm = scope === "active" ? "active" : "all";
+        const allRows = Array.from(document.querySelectorAll("#scrapersTable tbody tr[data-scraper-id]"));
+        const targetRows = scopeNorm === "active"
+            ? allRows.filter((row) => row.getAttribute("data-active") === "1")
+            : allRows;
+        const targetIds = new Set(targetRows.map((row) => row.getAttribute("data-scraper-id")));
         const progress = document.getElementById("probeAllProgress");
-        const rows = Array.from(document.querySelectorAll("#scrapersTable tbody tr[data-scraper-id]"));
-        if (btn) btn.disabled = true;
-        // Ne pas tout marquer « running » d'un coup : on allume chaque ligne au start_scraper
-        rows.forEach((row) => {
+
+        setProbeButtonsDisabled(true);
+        // Reset only the rows that will be probed; never lock out-of-scope « Tester ».
+        targetRows.forEach((row) => {
             row.classList.remove("is-probing");
             setPill(row.querySelector(".cell-global"), "idle");
-            const b = row.querySelector(".btn-probe-one");
-            if (b) b.disabled = true;
         });
-        if (progress) progress.textContent = `0 / ${rows.length}`;
+        // Ensure every non-target row keeps an enabled per-scraper Test button.
+        allRows.forEach((row) => {
+            const id = row.getAttribute("data-scraper-id");
+            const b = row.querySelector(".btn-probe-one");
+            if (!b) return;
+            if (!targetIds.has(id)) {
+                b.disabled = false;
+            }
+        });
+        if (progress) progress.textContent = `0 / ${targetRows.length}`;
 
         try {
-            const res = await fetch(root() + "/api/scrapers/probe-all?stream=1", {
-                method: "POST",
-                headers: {
-                    "Accept": "application/x-ndjson",
-                    "Content-Type": "application/json",
-                    "X-Requested-With": "XMLHttpRequest",
-                },
-                body: "{}",
-            });
+            const res = await fetch(
+                root() + `/api/scrapers/probe-all?stream=1&scope=${encodeURIComponent(scopeNorm)}`,
+                {
+                    method: "POST",
+                    headers: {
+                        "Accept": "application/x-ndjson",
+                        "Content-Type": "application/json",
+                        "X-Requested-With": "XMLHttpRequest",
+                    },
+                    body: "{}",
+                }
+            );
             if (!res.ok) {
                 const data = await res.json().catch(() => ({}));
                 throw new Error((data && data.msg) || t("err_generic"));
             }
             if (!res.body || !res.body.getReader) {
-                // Fallback vieux navigateurs : bulk JSON
                 const data = await res.json();
                 (data.results || []).forEach((r) => {
                     const row = document.querySelector(`tr[data-scraper-id="${r.id}"]`);
                     applyResultToRow(row, r);
                 });
-                if (progress) progress.textContent = `${(data.results || []).length} / ${rows.length}`;
+                if (progress) progress.textContent = `${(data.results || []).length} / ${targetRows.length}`;
                 return;
             }
 
@@ -260,7 +292,7 @@
                         continue;
                     }
                     if (msg.type === "start" && progress) {
-                        progress.textContent = `0 / ${msg.total || rows.length}`;
+                        progress.textContent = `0 / ${msg.total || targetRows.length}`;
                     } else if (msg.type === "start_scraper") {
                         const row = document.querySelector(`tr[data-scraper-id="${msg.id}"]`);
                         markRowRunning(row);
@@ -275,7 +307,7 @@
                 }
             }
         } catch (e) {
-            rows.forEach((row) => {
+            targetRows.forEach((row) => {
                 const globalPill = row.querySelector(".cell-global .diag-pill");
                 const st = globalPill && globalPill.dataset.status;
                 if (st === "running" || st === "idle") {
@@ -290,12 +322,17 @@
                 }
             });
         } finally {
-            if (btn) btn.disabled = false;
-            rows.forEach((row) => {
-                const b = row.querySelector(".btn-probe-one");
-                if (b) b.disabled = false;
-            });
+            setProbeButtonsDisabled(false);
+            setAllProbeOneEnabled(true);
         }
+    }
+
+    function probeActive() {
+        return probeStream("active");
+    }
+
+    function probeAll() {
+        return probeStream("all");
     }
 
     function initReveal() {
@@ -319,12 +356,18 @@
         initReveal();
         const btnPre = document.getElementById("btnPreflight");
         if (btnPre) btnPre.addEventListener("click", () => runPreflight());
+        const btnActive = document.getElementById("btnProbeActive");
+        if (btnActive) btnActive.addEventListener("click", () => probeActive());
         const btnAll = document.getElementById("btnProbeAll");
         if (btnAll) btnAll.addEventListener("click", () => probeAll());
         document.querySelectorAll(".btn-probe-one").forEach((btn) => {
             btn.addEventListener("click", () => probeOne(btn.getAttribute("data-id")));
         });
-        runPreflight();
+        // Préflight puis auto-probe de la cascade Config uniquement.
+        (async () => {
+            await runPreflight();
+            await probeActive();
+        })();
     });
 
     // Expose for providers modal reuse

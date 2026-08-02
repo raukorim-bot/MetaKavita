@@ -1,4 +1,4 @@
-﻿# 🚀 MetaKavita - Roadmap & To-Do List
+# 🚀 MetaKavita - Roadmap & To-Do List
 
 **Concept:** Metadata scraping and enrichment tool for Kavita (alternative to Komf), designed for lightweight, self-hosted deployment.
 **Philosophy:** Lightweight, pragmatic, highly secure, and optimized for Manga, Comics & Literature.
@@ -16,7 +16,8 @@
 ### 🔮 Backlog & Future Features (To-Do)
 - [x] **C29. Interactive Manual Batch Mode (QoS) / Manual Review (v1.6.1):** Park-queue Manual Review shipped — silent scrape → `PENDING_REVIEW` → pick / edit / cover modal; no auto-write until confirm. See Latest Releases.
 - [ ] **C29 follow-up. Event-pause worker variant:** Backend emits candidates over WebSockets and pauses the worker with `eventlet.event.Event` until the user picks/skips (alternative QoS mode still open).
-- [ ] **C30. Francophone Book Scrapers:** Integrate dedicated French literature sources (Babelio, SensCritique) without requiring API keys.
+- [x] **C30. Francophone Book Scrapers (v1.6.3):** Babelio, Decitre, and SensCritique ship in core (no API keys). See Latest Releases.
+- [x] **C60. Core comics / manga promotions (v1.6.3):** ANN, LoCG, Planète BD, and Metron (`METRON_API_KEY`) promoted from the community repo into the Docker image.
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
 - [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
 - [ ] **C8. Resiliency & Rate-Limiting Control:** Add an automatic exponential backoff retry mechanism to prevent API blocks (429 errors) during very large batches.
@@ -27,6 +28,7 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.3)
+- [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
 - [x] **BF81. Neutral age crans + hentai/futanari → x18 (v1.6.3, #25/#29):** `r18`/`x18` (+ aliases); central escalate-to-x18 on hentai/futanari tags even if provider age set; NSFW demote still Auto-tie only.
@@ -172,7 +174,8 @@
 ### 🔮 Backlog & Fonctionnalités Futures (À Faire)
 - [x] **C29. Mode Batch Manuel Interactif (QoS) / Review Manuelle (v1.6.1) :** Review Manuelle en file livrée — scrape silencieux → `PENDING_REVIEW` → modale pick / édition / couverture ; pas d'écriture auto tant que l'utilisateur n'a pas confirmé. Voir Dernières Nouveautés.
 - [ ] **C29 suite. Variante Event-pause :** le backend émet les candidats via WebSockets et met le worker en pause avec `eventlet.event.Event` jusqu’au choix utilisateur (mode QoS alternatif encore ouvert).
-- [ ] **C30. Scrapers Littéraires Francophones :** Intégrer des sources spécialisées en littérature française (Babelio, SensCritique) sans clé API.
+- [x] **C30. Scrapers Littéraires Francophones (v1.6.3) :** Babelio, Decitre et SensCritique livrés dans le core (sans clé API). Voir Dernières Nouveautés.
+- [x] **C60. Promotions comics / manga core (v1.6.3) :** ANN, LoCG, Planète BD et Metron (`METRON_API_KEY`) promus du dépôt communautaire dans l’image Docker.
 - [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
 - [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
 - [ ] **C8. Gestion de la Résilience d'API :** Système de retry automatique avec attente exponentielle pour contourner le rate limiting lors des très gros batchs.
@@ -183,6 +186,7 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.3)
+- [x] **C30 / C60. Sept scrapers communautaires dans le core (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron ; défauts BOOK_3=Babelio, COMIC_3=LoCG pour installs neuves.
 - [x] **BF83. INFO CSRF rejeté + refus sous lockout actif (v1.6.3, merci angusmaul) :** distinguer mauvais MDP / CSRF / lockout dans les Live Logs.
 - [x] **BF82. INFO à chaque échec de login (v1.6.3, merci angusmaul) :** username + IP + compteur à chaque tentative ; WARNING lockout inchangé.
 - [x] **BF81. Crans d’âge neutres + hentai/futanari → x18 (v1.6.3, #25/#29) :** `r18`/`x18` (+ aliases) ; escalade centrale vers x18 si tags hentai/futanari même avec âge provider ; démotion NSFW = égalité Auto seulement.

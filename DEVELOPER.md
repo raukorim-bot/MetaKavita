@@ -286,18 +286,25 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 | Scraper ID | Provider Name | Types | Key Features |
 | :--- | :--- | :--- | :--- |
 | `ANILIST` | AniList | Manga, Comic, Book | GraphQL API, spin-off penalties, native `AniListId` mapping. |
+| `ANN` | Anime News Network | Manga | Encyclopedia XML API, no key; covers + staff. |
+| `BABELIO` | Babelio | Book | French literature (HTML); covers + summaries, no key. |
 | `BEDETHEQUE` | Bédéthèque | Comic | Franco-Belgian BD scraper, `curl_cffi` CSRF bypass. |
 | `BDTHEQUE` | BDTheque.com | Comic | Franco-Belgian BD (bdtheque.com, **not** bedetheque). AJAX search + series page; Magic Input `/series/{id}/{slug}`; covers via `data-echo`. |
 | `COMICVINE` | ComicVine | Comic | API Key required. Primary publisher weighting, Issue #1 fallback. |
+| `DECITRE` | Decitre | Book | French bookstore HTML + JSON-LD; ISBN + covers. |
 | `GOOGLEBOOKS` | Google Books | Book, Comic | API Key required. Dynamic `langRestrict`, ISBN targeting. |
 | `HARDCOVER` | Hardcover (Exp) | Book, Comic | API Key required. Hasura GraphQL API & Typesense search. |
 | `KITSU` | Kitsu | Manga | JSON:API integration, no API key required. |
+| `LOCG` | League of Comic Geeks | Comic | Public XHR/HTML comics (no partner API key); covers. |
 | `MANGANEWS` | Manga-News | Manga | VF French catalog scraper, extracts HD webp covers. |
 | `MANGABAKA` | MangaBaka | Manga, Book | `schema=full`, `type` filter (novel for Book), Publisher Preference support. |
 | `MANGADEX` | MangaDex | Manga | Content rating filters (`erotica`), oneshot penalties. |
 | `MANGAUPDATES`| MangaUpdates | Manga | `hit_title` matching, Publisher Preference support. |
+| `METRON` | Metron | Comic | API key (`METRON_API_KEY` Bearer or `user:password`); series + issue credits/covers. |
 | `OPENLIBRARY` | Open Library | Book, Comic | ISBN support, anti-429 retries, Google Disclaimer bypass. |
+| `PLANETEBD` | Planète BD | Comic | French BD + comics (HTML); rich payload + covers. |
 | `MAL` | MyAnimeList | Manga, Book | Official API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID; no user OAuth). Magic Input `myanimelist.net/manga/{id}`. |
+| `SENSCRITIQUE` | SensCritique | Book, Comic | FR GraphQL Apollo; covers, no key. |
 | `SHIKIMORI` | Shikimori | Manga | Multilingual title matching, `/roles` staff extraction. |
 | `WIKIDATA` | Wikidata | Manga, Comic, Book | **Live only** (SPARQL + Entity API) — no offline dump/SQLite mode yet. Magic Input Q-id; shared `wikidata_map`. Best as fallback / ISBN / cross-IDs. |
 
@@ -634,18 +641,25 @@ renvoie n'importe quoi) ne puisse pas faire planter l'enrichissement. Voir `CUST
 | Identifiant | Nom Public | Types | Spécificités & Fonctionnalités |
 | :--- | :--- | :--- | :--- |
 | `ANILIST` | AniList | Manga, Comic, Book | API GraphQL, scoring des candidats contre les spin-offs. |
+| `ANN` | Anime News Network | Manga | Encyclopédie XML publique, sans clé ; covers + staff. |
+| `BABELIO` | Babelio | Book | Littérature FR (HTML) ; covers + résumés, sans clé. |
 | `BEDETHEQUE` | Bédéthèque | Comic | Contournement CSRF `curl_cffi`, match exact de séries franco-belges. |
 | `BDTHEQUE` | BDTheque.com | Comic | BD franco-belge (bdtheque.com, **pas** bedetheque). Recherche AJAX + parse fiche ; Magic Input `/series/{id}/{slug}` ; covers via `data-echo`. |
 | `COMICVINE` | ComicVine | Comic | API Key. Recherche `filter=name:`, priorisation des éditeurs majeurs. |
+| `DECITRE` | Decitre | Book | Librairie FR HTML + JSON-LD ; ISBN + covers. |
 | `GOOGLEBOOKS` | Google Books | Book, Comic | API Key. Replis dynamiques par langue (`langRestrict`), ISBN. |
 | `HARDCOVER` | Hardcover (Exp) | Book, Comic | API Key. GraphQL Hasura + Moteur Typesense. |
 | `KITSU` | Kitsu | Manga | JSON:API, rapide, sans clé requise. |
+| `LOCG` | League of Comic Geeks | Comic | Comics via XHR/HTML public (pas de clé partenaire) ; covers. |
 | `MANGANEWS` | Manga-News | Manga | Catalogue VF, extrait l'éditeur FR et les visuels HD (webp). |
 | `MANGABAKA` | MangaBaka | Manga, Book | Manga + Book ; `schema=full`, filtre `type`, Préférence d'Éditeur. |
 | `MANGADEX` | MangaDex | Manga | Filtres adultes (`erotica`), pénalités Oneshot. |
 | `MANGAUPDATES`| MangaUpdates | Manga | Scraping par `hit_title`, support de la Préférence d'Éditeur. |
+| `METRON` | Metron | Comic | Clé API (`METRON_API_KEY` Bearer ou `user:password`) ; série + crédits/covers issues. |
 | `OPENLIBRARY` | Open Library | Book, Comic | Clés Work (`OL...W`) & ISBNs, contournement Disclaimer Google Books. |
+| `PLANETEBD` | Planète BD | Comic | BD FR + comics (HTML) ; payload riche + covers. |
 | `MAL` | MyAnimeList | Manga, Book | API officielle v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID ; pas d’OAuth utilisateur). Magic Input `myanimelist.net/manga/{id}`. |
+| `SENSCRITIQUE` | SensCritique | Book, Comic | GraphQL Apollo FR ; covers, sans clé. |
 | `SHIKIMORI` | Shikimori | Manga | API Multilingue, extraction `/roles` du staff. |
 | `WIKIDATA` | Wikidata | Manga, Comic, Book | **Live uniquement** (SPARQL + Entity API) — pas de mode dump/SQLite hors-ligne pour l’instant. Magic Input Q-id ; `wikidata_map`. Idéal en fallback / ISBN / IDs croisés. |
 

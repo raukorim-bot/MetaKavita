@@ -381,6 +381,32 @@
             opacity: 0.5;
             cursor: not-allowed;
         }
+        .diag-active-badge {
+            display: inline-block;
+            margin-left: 8px;
+            padding: 1px 7px;
+            border-radius: 4px;
+            font-size: 0.68rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            vertical-align: middle;
+            color: color-mix(in srgb, var(--stats-teal) 90%, #fff);
+            background: color-mix(in srgb, var(--stats-teal) 18%, transparent);
+            border: 1px solid color-mix(in srgb, var(--stats-teal) 35%, transparent);
+        }
+        .diag-inactive-hint {
+            margin: 0 0 14px;
+            font-size: 0.88rem;
+            color: var(--stats-muted);
+            max-width: 52rem;
+            line-height: 1.45;
+        }
+        .diag-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 10px;
+        }
         .reveal {
             opacity: 0;
             transform: translateY(24px);
@@ -451,6 +477,10 @@
                 <p class="chapter-kicker reveal" style="--chapter-accent: var(--stats-amber);">{{ t.diag_scrapers_kicker }}</p>
                 <h2 class="chapter-title reveal reveal-delay-1">{{ t.diag_scrapers_title }}</h2>
                 <p class="chapter-sub reveal reveal-delay-2">{{ t.diag_scrapers_sub }}</p>
+                {% set inactive_count = scrapers|selectattr('active', 'equalto', false)|list|length %}
+                {% if inactive_count > 0 %}
+                <p class="diag-inactive-hint reveal" id="diagInactiveHint">{{ t.diag_inactive_hint }}</p>
+                {% endif %}
 
                 <ul class="diag-legend reveal">
                     <li><span class="swatch swatch-ok"></span> {{ t.diag_legend_ok }}</li>
@@ -460,7 +490,8 @@
                 </ul>
 
                 <div class="diag-toolbar reveal">
-                    <button type="button" class="btn-primary" id="btnProbeAll">{{ t.diag_probe_all }}</button>
+                    <button type="button" class="btn-primary" id="btnProbeActive">{{ t.diag_probe_active }}</button>
+                    <button type="button" class="btn-secondary" id="btnProbeAll">{{ t.diag_probe_all }}</button>
                     <span class="preflight-meta" id="probeAllProgress"></span>
                 </div>
 
@@ -481,9 +512,12 @@
                         </thead>
                         <tbody>
                         {% for s in scrapers %}
-                            <tr data-scraper-id="{{ s.id }}" data-supports-covers="{{ '1' if s.supports_covers else '0' }}">
+                            <tr data-scraper-id="{{ s.id }}" data-supports-covers="{{ '1' if s.supports_covers else '0' }}" data-active="{{ '1' if s.active else '0' }}">
                                 <td>
-                                    <span class="diag-name">{{ s.display_name }}</span>
+                                    <span class="diag-name">
+                                        {{ s.display_name }}
+                                        {% if s.active %}<span class="diag-active-badge" title="{{ t.diag_active_badge }}">{{ t.diag_active_badge }}</span>{% endif %}
+                                    </span>
                                     <span class="diag-id">{{ s.id }}{% if s.needs_api_key and not s.has_api_key %} · {{ t.diag_key_missing_hint }}{% endif %}</span>
                                 </td>
                                 <td>

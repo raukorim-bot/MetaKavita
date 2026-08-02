@@ -64,6 +64,45 @@ SCRAPER_PROBE_CASES: Dict[str, Dict[str, Any]] = {
         "is_id": True,
         "context": {},
     },
+    # Book FR — éviter « Dune » (scoring / couverture variable sur sites FR)
+    "BABELIO": {
+        "library_type": "Book",
+        "query": "Le Petit Prince",
+        "context": {"authors": ["Antoine de Saint-Exupéry"], "isbn": None, "year": 1943},
+    },
+    "DECITRE": {
+        "library_type": "Book",
+        "query": "Le Petit Prince",
+        "context": {"authors": ["Antoine de Saint-Exupéry"], "isbn": None, "year": 1943},
+    },
+    "SENSCRITIQUE": {
+        "library_type": "Book",
+        "query": "Le Petit Prince",
+        "context": {"authors": ["Antoine de Saint-Exupéry"], "isbn": None, "year": 1943},
+    },
+    # Manga — ANN encyclopédie
+    "ANN": {
+        "library_type": "Manga",
+        "query": "Death Note",
+        "context": {"authors": ["Tsugumi Ohba"], "isbn": None, "year": 2003},
+    },
+    # Comic US — éviter « Lanfeust » (BD FR mal scorée / absente)
+    "LOCG": {
+        "library_type": "Comic",
+        "query": "Watchmen",
+        "context": {"authors": ["Alan Moore"], "isbn": None, "year": 1986},
+    },
+    "METRON": {
+        "library_type": "Comic",
+        "query": "Watchmen",
+        "context": {"authors": ["Alan Moore"], "isbn": None, "year": 1986},
+    },
+    # Comic FR
+    "PLANETEBD": {
+        "library_type": "Comic",
+        "query": "Astérix",
+        "context": {"authors": ["Goscinny"], "isbn": None, "year": 1959},
+    },
 }
 
 # Reachability endpoints (hors scrapers/)
@@ -83,7 +122,21 @@ PROBE_URLS: Dict[str, str] = {
     "OPENLIBRARY": "https://openlibrary.org/search.json",
     "HARDCOVER": "https://api.hardcover.app/v1/graphql",
     "WIKIDATA": "https://www.wikidata.org/w/api.php",
+    "BABELIO": "https://www.babelio.com/",
+    "DECITRE": "https://www.decitre.fr/",
+    "SENSCRITIQUE": "https://www.senscritique.com/",
+    "ANN": "https://cdn.animenewsnetwork.com/encyclopedia/api.xml",
+    "LOCG": "https://leagueofcomicgeeks.com/",
+    "PLANETEBD": "https://www.planetebd.com/",
+    "METRON": "https://metron.cloud/api/",
 }
+
+# Slots Config qui alimentent la cascade d'enrichissement (Manga / Comic / Book).
+_ACTIVE_PROVIDER_SLOTS: Tuple[str, ...] = (
+    "PROVIDER_1", "PROVIDER_2", "PROVIDER_3",
+    "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
+    "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
+)
 
 _EXPECTED_FIELDS = ("summary", "cover_url", "genres", "tags", "year", "staff")
 _CAUSE_SEVERITY = {
@@ -621,9 +674,33 @@ def _probe_reachability(url: str, timeout: float = 10.0, *, needs_api_key: bool 
         }
 
 
+def get_active_scraper_ids(config: Optional[Dict[str, Any]] = None) -> List[str]:
+    """
+    IDs uniques des scrapers présents dans la cascade Config (slots PROVIDER_* /
+    COMIC_PROVIDER_* / BOOK_PROVIDER_*), hors NONE / vide, et réellement
+    enregistrés dans le registry (filtre les IDs fantômes).
+    """
+    config = config if config is not None else load_config()
+    seen: set = set()
+    ordered: List[str] = []
+    for key in _ACTIVE_PROVIDER_SLOTS:
+        raw = (config.get(key) or "").strip()
+        if not raw or raw.upper() == "NONE":
+            continue
+        sid = raw.upper()
+        if sid in seen:
+            continue
+        if ScraperRegistry.get(sid) is None:
+            continue
+        seen.add(sid)
+        ordered.append(sid)
+    return ordered
+
+
 def list_scrapers_inventory(config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
     """Inventaire léger pour peupler le tableau sans sonder."""
     config = config if config is not None else load_config()
+    active = set(get_active_scraper_ids(config))
     rows = []
     for scraper in ScraperRegistry.get_all():
         rows.append({
@@ -634,6 +711,7 @@ def list_scrapers_inventory(config: Optional[Dict[str, Any]] = None) -> List[Dic
             "has_api_key": _has_api_key(scraper, config),
             "supports_covers": _supports_covers(scraper),
             "rate_limit": float(getattr(scraper, "rate_limit", 1.0) or 1.0),
+            "active": scraper.id in active,
         })
     rows.sort(key=lambda r: (r["display_name"] or r["id"]).lower())
     return rows
@@ -869,11 +947,36 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
     }
 
 
-def probe_all(config: Optional[Dict[str, Any]] = None) -> List[Dict[str, Any]]:
-    """Probe séquentiel de tous les scrapers enregistrés."""
+def resolve_probe_targets(
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    scope: str = "all",
+) -> List[BaseScraper]:
+    """
+    Liste ordonnée des scrapers à sonder.
+    scope=all → registry entier ; scope=active → cascade Config uniquement.
+    """
+    config = config if config is not None else load_config()
+    scope_norm = (scope or "all").strip().lower()
+    if scope_norm == "active":
+        scrapers: List[BaseScraper] = []
+        for sid in get_active_scraper_ids(config):
+            scraper = ScraperRegistry.get(sid)
+            if scraper is not None:
+                scrapers.append(scraper)
+        return scrapers
+    return list(ScraperRegistry.get_all())
+
+
+def probe_all(
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    scope: str = "all",
+) -> List[Dict[str, Any]]:
+    """Probe séquentiel des scrapers du scope (défaut : registry entier)."""
     config = config if config is not None else load_config()
     results = []
-    for scraper in ScraperRegistry.get_all():
+    for scraper in resolve_probe_targets(config, scope=scope):
         try:
             results.append(probe_scraper(scraper, config))
         except Exception as e:

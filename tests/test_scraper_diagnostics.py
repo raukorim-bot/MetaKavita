@@ -315,6 +315,103 @@ def test_hardcover_probe_uses_slug_not_search():
     assert case["context"] == {}
 
 
+def test_babelio_probe_uses_petit_prince_not_dune():
+    scraper = SimpleNamespace(id="BABELIO", supported_types={"Book"})
+    assert diag._pick_library_type(scraper) == "Book"
+    case = diag._resolve_test_case(scraper, "Book")
+    assert case["query"] == "Le Petit Prince"
+    assert case["is_id"] is False
+
+
+def test_metron_probe_uses_watchmen_not_lanfeust():
+    scraper = SimpleNamespace(id="METRON", supported_types={"Comic"})
+    assert diag._pick_library_type(scraper) == "Comic"
+    case = diag._resolve_test_case(scraper, "Comic")
+    assert case["query"] == "Watchmen"
+    assert "Lanfeust" not in case["query"]
+
+
+def test_ann_probe_uses_death_note():
+    scraper = SimpleNamespace(id="ANN", supported_types={"Manga"})
+    case = diag._resolve_test_case(scraper, "Manga")
+    assert case["query"] == "Death Note"
+
+
+def test_planetebd_probe_uses_asterix():
+    scraper = SimpleNamespace(id="PLANETEBD", supported_types={"Comic"})
+    case = diag._resolve_test_case(scraper, "Comic")
+    assert case["query"] == "Astérix"
+
+
+def test_probe_urls_cover_new_core_scrapers():
+    for sid in ("BABELIO", "DECITRE", "SENSCRITIQUE", "ANN", "LOCG", "PLANETEBD", "METRON"):
+        assert sid in diag.PROBE_URLS
+        assert diag.PROBE_URLS[sid].startswith("https://")
+
+
+def test_get_active_scraper_ids_dedupes_and_filters(monkeypatch):
+    monkeypatch.setattr(
+        diag.ScraperRegistry,
+        "get",
+        lambda sid: SimpleNamespace(id=sid) if sid in {"ANILIST", "BEDETHEQUE", "BABELIO"} else None,
+    )
+    ids = diag.get_active_scraper_ids({
+        "PROVIDER_1": "ANILIST",
+        "PROVIDER_2": "ANILIST",
+        "PROVIDER_3": "NONE",
+        "COMIC_PROVIDER_1": "BEDETHEQUE",
+        "COMIC_PROVIDER_2": "",
+        "COMIC_PROVIDER_3": "GHOST_PROVIDER",
+        "BOOK_PROVIDER_1": "babelio",
+        "BOOK_PROVIDER_2": "NONE",
+        "BOOK_PROVIDER_3": "NONE",
+    })
+    assert ids == ["ANILIST", "BEDETHEQUE", "BABELIO"]
+
+
+def test_resolve_probe_targets_active_scope(monkeypatch):
+    a = SimpleNamespace(id="ANILIST")
+    b = SimpleNamespace(id="BABELIO")
+    monkeypatch.setattr(diag, "get_active_scraper_ids", lambda config=None: ["ANILIST", "BABELIO"])
+    monkeypatch.setattr(
+        diag.ScraperRegistry,
+        "get",
+        lambda sid: {"ANILIST": a, "BABELIO": b}.get(sid),
+    )
+    monkeypatch.setattr(diag.ScraperRegistry, "get_all", lambda: [a, b, SimpleNamespace(id="KITSU")])
+    active = diag.resolve_probe_targets({}, scope="active")
+    assert [s.id for s in active] == ["ANILIST", "BABELIO"]
+    all_targets = diag.resolve_probe_targets({}, scope="all")
+    assert len(all_targets) == 3
+
+
+def test_list_inventory_marks_active(monkeypatch):
+    scrapers = [
+        SimpleNamespace(
+            id="ANILIST",
+            localized_display_name="AniList",
+            supported_types={"Manga"},
+            needs_api_key=False,
+            rate_limit=1.0,
+        ),
+        SimpleNamespace(
+            id="KITSU",
+            localized_display_name="Kitsu",
+            supported_types={"Manga"},
+            needs_api_key=False,
+            rate_limit=1.0,
+        ),
+    ]
+    monkeypatch.setattr(diag.ScraperRegistry, "get_all", lambda: scrapers)
+    monkeypatch.setattr(diag, "get_active_scraper_ids", lambda config=None: ["ANILIST"])
+    monkeypatch.setattr(diag, "_has_api_key", lambda scraper, config: True)
+    monkeypatch.setattr(diag, "_supports_covers", lambda scraper: True)
+    rows = diag.list_scrapers_inventory({})
+    by_id = {r["id"]: r for r in rows}
+    assert by_id["ANILIST"]["active"] is True
+    assert by_id["KITSU"]["active"] is False
+
+
 def test_probe_scraper_hardcover_is_id_uses_meta_cover(monkeypatch):
     calls = []
 
@@ -628,6 +725,7 @@ def diag_client(monkeypatch):
             "has_api_key": True,
             "supports_covers": True,
             "rate_limit": 1.0,
+            "active": True,
         }],
     )
     monkeypatch.setattr("routes.pages.get_current_version", lambda: "9.9.9")
@@ -709,7 +807,7 @@ def test_probe_one_ok(diag_client, monkeypatch):
 def test_probe_all_bulk_json(diag_client, monkeypatch):
     monkeypatch.setattr(
         "routes.diagnostics.probe_all",
-        lambda config=None: [{"id": "ANILIST", "status": "ok"}],
+        lambda config=None, scope="all": [{"id": "ANILIST", "status": "ok"}],
     )
     res = diag_client.post(
         "/api/scrapers/probe-all",
@@ -718,14 +816,33 @@ def test_probe_all_bulk_json(diag_client, monkeypatch):
     assert res.status_code == 200
     body = res.get_json()
     assert body["success"] is True
+    assert body["scope"] == "all"
     assert body["results"][0]["id"] == "ANILIST"
+
+
+def test_probe_all_bulk_json_scope_active(diag_client, monkeypatch):
+    seen = {}
+
+    def _fake_probe_all(config=None, scope="all"):
+        seen["scope"] = scope
+        return [{"id": "ANILIST", "status": "ok"}]
+
+    monkeypatch.setattr("routes.diagnostics.probe_all", _fake_probe_all)
+    res = diag_client.post(
+        "/api/scrapers/probe-all?scope=active",
+        headers={"Accept": "application/json"},
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["scope"] == "active"
+    assert seen["scope"] == "active"
 
 
 def test_probe_all_ndjson_stream(diag_client, monkeypatch):
     scraper = SimpleNamespace(id="ANILIST", display_name="AniList")
     monkeypatch.setattr(
-        "routes.diagnostics.ScraperRegistry.get_all",
-        lambda: [scraper],
+        "routes.diagnostics.resolve_probe_targets",
+        lambda config=None, scope="all": [scraper],
     )
     monkeypatch.setattr(
         "routes.diagnostics.probe_scraper",
@@ -747,11 +864,44 @@ def test_probe_all_ndjson_stream(diag_client, monkeypatch):
     events = [json.loads(ln) for ln in lines]
     types = [e["type"] for e in events]
     assert types[0] == "start"
+    assert events[0].get("scope") == "all"
     assert "start_scraper" in types
     assert "result" in types
     assert types[-1] == "done"
     result_evt = next(e for e in events if e["type"] == "result")
     assert result_evt["result"]["status"] == "ok"
+
+
+def test_probe_all_ndjson_stream_scope_active(diag_client, monkeypatch):
+    scraper = SimpleNamespace(id="ANILIST", display_name="AniList")
+    seen = {}
+
+    def _targets(config=None, scope="all"):
+        seen["scope"] = scope
+        return [scraper] if scope == "active" else [scraper, SimpleNamespace(id="KITSU", display_name="Kitsu")]
+
+    monkeypatch.setattr("routes.diagnostics.resolve_probe_targets", _targets)
+    monkeypatch.setattr(
+        "routes.diagnostics.probe_scraper",
+        lambda s, config=None: {
+            "id": getattr(s, "id", "X"),
+            "status": "ok",
+            "cause": "ok",
+            "metadata": {"status": "ok"},
+            "covers": {"status": "ok", "count": 1},
+        },
+    )
+    res = diag_client.post(
+        "/api/scrapers/probe-all?stream=1&scope=active",
+        headers={"Accept": "application/x-ndjson"},
+    )
+    assert res.status_code == 200
+    events = [json.loads(ln) for ln in res.get_data(as_text=True).splitlines() if ln.strip()]
+    assert seen["scope"] == "active"
+    assert events[0]["total"] == 1
+    assert events[0]["scope"] == "active"
+    result_ids = [e["result"]["id"] for e in events if e["type"] == "result"]
+    assert result_ids == ["ANILIST"]
 
 
 def test_diagnostics_page_renders(diag_client):
@@ -761,3 +911,5 @@ def test_diagnostics_page_renders(diag_client):
     assert "AniList" in html
     assert "cardInternet" in html
     assert "cardKavita" in html
+    assert "btnProbeActive" in html
+    assert 'data-active="1"' in html

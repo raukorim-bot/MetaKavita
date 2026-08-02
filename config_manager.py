@@ -90,15 +90,15 @@ def load_config():
             # Titres localizedName : all (défaut multi) | prefer | none
             "LOCALIZED_TITLE_MODE": "all",
             "LOCALIZED_TITLE_LANGS": "",
+            "BOOK_PROVIDER_1": "GOOGLEBOOKS",
+            "BOOK_PROVIDER_2": "OPENLIBRARY",
+            "BOOK_PROVIDER_3": "BABELIO",
+            "COMIC_PROVIDER_1": "COMICVINE",
+            "COMIC_PROVIDER_2": "ANILIST",
+            "COMIC_PROVIDER_3": "LOCG",
             "PROVIDER_1": "MANGABAKA",
             "PROVIDER_2": "KITSU",
             "PROVIDER_3": "ANILIST",
-            "COMIC_PROVIDER_1": "COMICVINE",
-            "COMIC_PROVIDER_2": "ANILIST",
-            "COMIC_PROVIDER_3": "NONE",
-            "BOOK_PROVIDER_1": "GOOGLEBOOKS",
-            "BOOK_PROVIDER_2": "OPENLIBRARY",
-            "BOOK_PROVIDER_3": "NONE",
             "SMART_COMPLETION": False,
             # Comparaison des providers par score (meilleur match gagne) + exécution en
             # deux vagues. Si False : fallback classique (1er provider utile de la liste).

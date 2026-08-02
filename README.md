@@ -117,7 +117,9 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 MetaKavita ships an **Auto-Discovery Registry** for user-created scrapers.
 You no longer need to modify the core code or rebuild the Docker image to add a new metadata source:
 
-1. Prefer vetted scrapers from the official community repo: **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (v1.6.2 / C59).
+**Built-in (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, and Metron (`METRON_API_KEY`) ship in the image alongside AniList, ComicVine, Bédéthèque, etc. Prefer Config provider slots over sideloading duplicates of these seven.
+
+1. Prefer additional vetted scrapers from the official community repo: **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (national catalogs, webtoons, …).
 2. Drop any valid Python scraper file (e.g., `my_custom_site.py`) directly into your `data/scrapers/` folder.
 3. Restart your MetaKavita container (`docker restart metakavita`).
 4. The custom scraper will dynamically integrate into the UI dropdowns, automatically generate API key inputs in the Settings Modal if required, and benefit from the built-in SSRF Image Proxy protection!
@@ -452,7 +454,9 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 MetaKavita embarque un système d'**Auto-Découverte** pour vos propres fournisseurs de données (Scrapers).
 Il n'est plus nécessaire de modifier le code source ou de recompiler l'image Docker pour ajouter un nouveau site !
 
-1. Préférez les scrapers vérifiés du dépôt officiel : **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (v1.6.2 / C59).
+**Inclus d’office (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD et Metron (`METRON_API_KEY`) sont dans l’image avec AniList, ComicVine, Bédéthèque, etc. Préférez les slots Config plutôt que de sideloader des doublons de ces sept.
+
+1. Pour d’autres scrapers vérifiés : dépôt **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (catalogues nationaux, webtoons, …).
 2. Glissez n'importe quel fichier de scraper Python valide (ex: `mon_site_perso.py`) directement dans votre dossier `data/scrapers/`.
 3. Redémarrez votre conteneur MetaKavita (`docker restart metakavita`).
 4. Votre scraper personnalisé sera automatiquement détecté, s'ajoutera à l'interface graphique, générera ses champs de clé API dans la configuration, et bénéficiera de la protection SSRF du Proxy d'images natif !
