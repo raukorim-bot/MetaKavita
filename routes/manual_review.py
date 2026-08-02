@@ -146,11 +146,15 @@ def api_manual_review_confirm(review_id):
         return jsonify(success=False, error="Review introuvable"), 404
 
     base_provider = (data.get("base_provider") or review.get("base_provider") or "").strip()
-    include_providers = data.get("include_providers") or []
+    # Missing key → None (restore Sources from preview). Present [] → clear.
+    if "include_providers" in data:
+        include_providers = data.get("include_providers")
+        if not isinstance(include_providers, list):
+            include_providers = [include_providers] if include_providers else []
+    else:
+        include_providers = None
     if not base_provider:
         return jsonify(success=False, error="base_provider requis"), 400
-    if not isinstance(include_providers, list):
-        include_providers = [include_providers]
 
     edited_fields = data.get("edited_fields") or data.get("edited_preview") or None
     try:

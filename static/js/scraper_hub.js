@@ -174,6 +174,9 @@
                 action = `<button type="button" class="btn-primary" data-act="install" data-id="${escapeHtml(row.id)}" data-force="1" data-update="1">${escapeHtml(t.update)}</button>`;
             } else if (row.state === "installed") {
                 action = `<button type="button" class="btn-secondary" data-act="install" data-id="${escapeHtml(row.id)}" data-force="1">${escapeHtml(t.reinstall)}</button>`;
+            } else if (row.state === "orphan" || row.orphan) {
+                // Disk file without registry entry — replace (force) so Install is not a 409 dead-end.
+                action = `<button type="button" class="btn-primary" data-act="install" data-id="${escapeHtml(row.id)}" data-force="1">${escapeHtml(t.reinstall || t.install)}</button>`;
             } else {
                 action = `<button type="button" class="btn-primary" data-act="install" data-id="${escapeHtml(row.id)}">${escapeHtml(t.install)}</button>`;
             }
@@ -265,6 +268,12 @@
 
     async function doInstall(row, force) {
         const data = await postJson("/api/scrapers/store/install", { id: row.id, force: !!force });
+        if (data.loaded === false) {
+            throw new Error(data.msg || t.toastError || "load failed");
+        }
+        if (Array.isArray(data.proxy_cover_hosts)) {
+            window.PROXY_COVER_HOSTS = data.proxy_cover_hosts;
+        }
         const scopes = data.scopes || row.scopes || ["series"];
         const onlyVolume = scopes.includes("volume") && !scopes.includes("series");
         if (data.updated || data.action === "updated") {

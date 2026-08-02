@@ -119,10 +119,11 @@ You no longer need to modify the core code or rebuild the Docker image to add a 
 
 **Built-in (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, and Metron (`METRON_API_KEY`) ship in the image alongside AniList, ComicVine, Bédéthèque, etc. Prefer Config provider slots over sideloading duplicates of these seven.
 
-1. Prefer additional vetted scrapers from the official community repo: **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (national catalogs, webtoons, …).
-2. Drop any valid Python scraper file (e.g., `my_custom_site.py`) directly into your `data/scrapers/` folder.
-3. Restart your MetaKavita container (`docker restart metakavita`).
-4. The custom scraper will dynamically integrate into the UI dropdowns, automatically generate API key inputs in the Settings Modal if required, and benefit from the built-in SSRF Image Proxy protection!
+**Manage + Store (v1.6.3 / C61):** Help → **Manage scrapers** (`/manage-scrapers`) and **Community Store** (`/scraper-store`). The registry loads only from `data/scrapers/` (core modules are seeded there on boot). Core scrapers can be disabled (`DISABLED_SCRAPERS`); community ones install/update/delete from the Store (sha256-checked GitHub catalog) with hot reload — no container restart for Magasin installs. Manual drop-ins still need a restart (or a later store/reload action).
+
+1. Prefer additional vetted scrapers from the official community repo: **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (national catalogs, webtoons, …) — install via the Store UI when possible.
+2. Or drop a valid Python scraper file (e.g., `my_custom_site.py`) into `data/scrapers/` and restart (`docker restart metakavita`).
+3. The scraper integrates into provider dropdowns, generates API key fields when `needs_api_key` is set, and joins the SSRF image-proxy allowlist via `proxy_domains`.
 
 To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return candidates via `attach_match_score(...)` (see `CUSTOM_SCRAPERS.md` §4). Scrapers that skip this remain usable: they get a neutral score and cannot crash the enrichment pipeline.
 
@@ -456,10 +457,11 @@ Il n'est plus nécessaire de modifier le code source ou de recompiler l'image Do
 
 **Inclus d’office (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD et Metron (`METRON_API_KEY`) sont dans l’image avec AniList, ComicVine, Bédéthèque, etc. Préférez les slots Config plutôt que de sideloader des doublons de ces sept.
 
-1. Pour d’autres scrapers vérifiés : dépôt **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** (catalogues nationaux, webtoons, …).
-2. Glissez n'importe quel fichier de scraper Python valide (ex: `mon_site_perso.py`) directement dans votre dossier `data/scrapers/`.
-3. Redémarrez votre conteneur MetaKavita (`docker restart metakavita`).
-4. Votre scraper personnalisé sera automatiquement détecté, s'ajoutera à l'interface graphique, générera ses champs de clé API dans la configuration, et bénéficiera de la protection SSRF du Proxy d'images natif !
+**Manage + Magasin (v1.6.3 / C61) :** Aide → **Gérer les scrapers** (`/manage-scrapers`) et **Magasin** (`/scraper-store`). Le registre ne charge que `data/scrapers/` (le core y est semé au démarrage). Les scrapers core se désactivent (`DISABLED_SCRAPERS`) ; les community s’installent / se mettent à jour / se suppriment depuis le Magasin (catalogue GitHub + sha256) avec rechargement à chaud — pas de restart pour une install Magasin. Un dépôt manuel de fichier nécessite encore un restart.
+
+1. Scrapers vérifiés : dépôt **[community-scraper-metakavita](https://github.com/raukorim-bot/community-scraper-metakavita)** — privilégiez l’install via le Magasin.
+2. Ou glissez un `.py` valide dans `data/scrapers/` puis `docker restart metakavita`.
+3. Le scraper apparaît dans les listes de providers, génère ses champs de clé API si `needs_api_key`, et rejoint l’allowlist SSRF via `proxy_domains`.
 
 Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring = True` et retournez vos candidats via `attach_match_score(...)` (voir `CUSTOM_SCRAPERS.md` §4). Sans cela, le scraper reste utilisable : il reçoit un score neutre et ne peut pas faire planter le pipeline d'enrichissement.
 

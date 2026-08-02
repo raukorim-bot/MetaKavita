@@ -152,18 +152,43 @@ _FUSION_SKIP_KEYS = (
 # winner + secondary adult rating would undo BF68 prefer-safe.
 # Manual Review Source checkboxes may fill age (explicit user choice → max info).
 _FUSION_NEVER_FILL_KEYS = frozenset({"age_rating"})
+# Auto: do not pull Hentai/Futanari labels from demoted adult secondaries onto
+# a non-adult prefer-safe winner (BF69 covers age only).
+_FUSION_ADULT_LABEL_KEYS = frozenset({"genres", "tags"})
 
 
-def _fusion_can_fill(master_data, key, value, *, fill_age_rating: bool = False) -> bool:
+def _fusion_can_fill(
+    master_data,
+    key,
+    value,
+    *,
+    fill_age_rating: bool = False,
+    skip_adult_label_fill: bool = False,
+    secondary_data=None,
+) -> bool:
     """True when smart fusion may copy ``value`` onto ``master_data[key]``."""
     if key in _FUSION_SKIP_KEYS:
         return False
     if key in _FUSION_NEVER_FILL_KEYS and not fill_age_rating:
         return False
+    if (
+        skip_adult_label_fill
+        and key in _FUSION_ADULT_LABEL_KEYS
+        and secondary_data is not None
+        and not _is_explicit_adult(master_data)
+        and _is_explicit_adult(secondary_data)
+    ):
+        return False
     return (not master_data.get(key)) and bool(value)
 
 
-def merge_candidates(ordered_entries, smart_fusion=False, *, fill_age_rating: bool = False):
+def merge_candidates(
+    ordered_entries,
+    smart_fusion=False,
+    *,
+    fill_age_rating: bool = False,
+    skip_adult_label_fill: bool = False,
+):
     """
     Fusionne une liste ordonnée `(provider_id, data_dict)`.
 
@@ -172,6 +197,8 @@ def merge_candidates(ordered_entries, smart_fusion=False, *, fill_age_rating: bo
 
     ``fill_age_rating=True`` : autorise le comblement de ``age_rating`` (MR Sources).
     Défaut False = comportement Auto / BF69.
+    ``skip_adult_label_fill=True`` : Auto — refuse genres/tags depuis un secondaire
+    explicit-adult vers un master non-adult.
     """
     if not ordered_entries:
         return None
@@ -205,13 +232,22 @@ def merge_candidates(ordered_entries, smart_fusion=False, *, fill_age_rating: bo
                     master_data['titles'] = merged
                     filled_something = True
                 continue
-            if _fusion_can_fill(master_data, key, value, fill_age_rating=fill_age_rating):
+            if _fusion_can_fill(
+                master_data,
+                key,
+                value,
+                fill_age_rating=fill_age_rating,
+                skip_adult_label_fill=skip_adult_label_fill,
+                secondary_data=data,
+            ):
                 master_data[key] = value
                 filled_something = True
 
         if filled_something:
             master_data['_fusion_providers'] = master_data.get('_fusion_providers', []) + [provider_id]
 
+    if master_data:
+        master_data = apply_explicit_label_age(master_data) or master_data
     return master_data
 
 
@@ -658,12 +694,22 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                                 master_data['titles'] = merged
                                 filled_something = True
                             continue
-                        if _fusion_can_fill(master_data, key, value):
+                        # Auto path: never pull adult genres/tags onto a safer winner.
+                        if _fusion_can_fill(
+                            master_data,
+                            key,
+                            value,
+                            skip_adult_label_fill=True,
+                            secondary_data=data,
+                        ):
                             master_data[key] = value
                             filled_something = True
 
                     if filled_something:
                         master_data['_fusion_providers'] = master_data.get('_fusion_providers', []) + [p]
+
+        if master_data:
+            master_data = apply_explicit_label_age(master_data) or master_data
 
     def run_cascade(current_query, is_id_search_forced):
         nonlocal base_provider_set, master_data

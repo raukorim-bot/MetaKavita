@@ -138,11 +138,21 @@ class PlanetebdScraper(BaseScraper):
                 if not sid:
                     return None
                 logging.info(self.t("direct_id").format(sid))
-                # ID série direct : tenter bd puis comics
-                for kind in ("bd", "comics"):
-                    # slug inconnu → on ne peut pas reconstruire l'URL série seule
-                    pass
-                # Fallback : si URL complète fournie
+                # Bare numeric ID: probe with a placeholder slug — the site
+                # redirects to the canonical /series/<slug>/<id>.html URL.
+                for kind in ("bd", "comics", "mangas"):
+                    probe = f"{_BASE}/{kind}/series/s/{sid}.html"
+                    try:
+                        res = session.get(probe, timeout=20, allow_redirects=True)
+                        if res is None or getattr(res, "status_code", 0) != 200:
+                            continue
+                        final = getattr(res, "url", None) or probe
+                        cand = self._candidate_from_series_or_album(session, final)
+                        if cand:
+                            return attach_match_score(cand, 1.0)
+                    except Exception as e:
+                        logging.debug("PlaneteBD bare-id probe %s failed: %s", probe, e)
+                # Fallback : URL complète fournie
                 if "planetebd.com" in query or query.startswith("/"):
                     cand = self._candidate_from_series_or_album(session, query)
                     if cand:

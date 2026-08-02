@@ -13,9 +13,13 @@ import json
 import logging
 import os
 import shutil
+import threading
 from typing import Dict, Iterable, List, Optional, Set
 
 from config_manager import DATA_DIR
+
+# Serialise read-modify-write on .origins.json (install/delete/seed races).
+_ORIGINS_LOCK = threading.RLock()
 
 CORE_SKIP_FILES = frozenset({
     "__init__.py",
@@ -98,9 +102,10 @@ def set_origin(filename: str, origin: str) -> None:
     if origin not in VALID_ORIGINS:
         raise ValueError(f"invalid origin: {origin}")
     base = os.path.basename(filename)
-    origins = load_origins()
-    origins[base] = origin
-    save_origins(origins)
+    with _ORIGINS_LOCK:
+        origins = load_origins()
+        origins[base] = origin
+        save_origins(origins)
 
 
 def resolve_origin(filename: str) -> str:
@@ -122,28 +127,30 @@ def seed_core_scrapers() -> List[str]:
     dest_dir = data_scrapers_dir()
     src_dir = package_scrapers_dir()
     copied: List[str] = []
-    origins = load_origins()
-    dirty = False
 
-    for filename in list_core_filenames():
-        src = os.path.join(src_dir, filename)
-        dest = os.path.join(dest_dir, filename)
-        if not os.path.isfile(src):
-            continue
-        if not os.path.isfile(dest):
-            try:
-                shutil.copy2(src, dest)
-                copied.append(filename)
-                logging.info("[Scrapers] Core seedé : %s", filename)
-            except OSError as e:
-                logging.error("[Scrapers] Échec seed core %s : %s", filename, e)
+    with _ORIGINS_LOCK:
+        origins = load_origins()
+        dirty = False
+
+        for filename in list_core_filenames():
+            src = os.path.join(src_dir, filename)
+            dest = os.path.join(dest_dir, filename)
+            if not os.path.isfile(src):
                 continue
-        if origins.get(filename) != "core":
-            origins[filename] = "core"
-            dirty = True
+            if not os.path.isfile(dest):
+                try:
+                    shutil.copy2(src, dest)
+                    copied.append(filename)
+                    logging.info("[Scrapers] Core seedé : %s", filename)
+                except OSError as e:
+                    logging.error("[Scrapers] Échec seed core %s : %s", filename, e)
+                    continue
+            if origins.get(filename) != "core":
+                origins[filename] = "core"
+                dirty = True
 
-    if dirty:
-        save_origins(origins)
+        if dirty:
+            save_origins(origins)
     return copied
 
 
@@ -247,10 +254,11 @@ def delete_scraper_file(filename: str) -> None:
         raise PermissionError("core scrapers cannot be deleted")
     if os.path.isfile(path):
         os.remove(path)
-    origins = load_origins()
-    if base in origins:
-        origins.pop(base, None)
-        save_origins(origins)
+    with _ORIGINS_LOCK:
+        origins = load_origins()
+        if base in origins:
+            origins.pop(base, None)
+            save_origins(origins)
 
 
 def normalize_scopes(raw) -> Set[str]:

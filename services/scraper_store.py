@@ -212,26 +212,14 @@ def _installed_index() -> Dict[str, Dict[str, Any]]:
 
 
 def _resolve_local(installed: Dict[str, Dict[str, Any]], file_name: str, sid: str) -> Optional[Dict[str, Any]]:
-    """Trouve l'install locale par fichier, par id, ou fichier présent hors registre."""
+    """Trouve l'install locale par fichier ou id registre (pas les orphelins disque)."""
     by_file = installed["by_file"]
     by_id = installed["by_id"]
     if file_name and file_name in by_file:
         return by_file[file_name]
     if sid and sid in by_id:
         return by_id[sid]
-    # Fichier présent sur disque mais pas (encore) chargé dans le registre
-    if file_name:
-        path = safe_scraper_path(file_name)
-        if path and os.path.isfile(path):
-            content = read_file_bytes(path)
-            return {
-                "id": sid,
-                "file": file_name,
-                "origin": resolve_origin(file_name),
-                "sha256": file_sha256(path),
-                "content": content,
-                "enabled": False,
-            }
+    # Disk-only orphans (file present, not in registry) are NOT "installed".
     return None
 
 
@@ -250,6 +238,13 @@ def enrich_catalog_for_ui(catalog: Dict[str, Any], *, lang: str = "fr") -> Dict[
         is_core = bool(file_name and is_core_filename(file_name)) or sid in core_ids
         catalog_sha = (install.get("sha256") or "").strip().lower()
         local_content = (local or {}).get("content")
+        # Disk file without registry entry (failed prior install).
+        orphan = False
+        if not local and not is_core and file_name:
+            opath = safe_scraper_path(file_name)
+            if opath and os.path.isfile(opath):
+                orphan = True
+                local_content = read_file_bytes(opath)
         # sha catalogue ≠ contenu local (EOL normalisés) → update disponible
         update_available = bool(
             local
@@ -263,6 +258,8 @@ def enrich_catalog_for_ui(catalog: Dict[str, Any], *, lang: str = "fr") -> Dict[
             state = "core"
         elif local:
             state = "update" if update_available else "installed"
+        elif orphan:
+            state = "orphan"
 
         quality = entry.get("quality") or {}
         retired = is_entry_retired(entry)
@@ -299,6 +296,7 @@ def enrich_catalog_for_ui(catalog: Dict[str, Any], *, lang: str = "fr") -> Dict[
                 "bytes": install.get("bytes"),
             },
             "state": state,
+            "orphan": orphan,
             "update_available": update_available,
             "installed_file": (local or {}).get("file") or "",
             "installed_origin": (local or {}).get("origin"),
@@ -306,7 +304,7 @@ def enrich_catalog_for_ui(catalog: Dict[str, Any], *, lang: str = "fr") -> Dict[
 
     # Updates d'abord, puis grade A→E, puis nom (retirés en fin de bande)
     grade_rank = {"A": 0, "B": 1, "C": 2, "D": 3, "E": 4}
-    state_rank = {"update": 0, "available": 1, "installed": 2, "core": 3}
+    state_rank = {"update": 0, "orphan": 1, "available": 2, "installed": 3, "core": 4}
 
     def sort_key(row):
         g = (row.get("quality") or {}).get("grade") or "Z"
@@ -373,6 +371,14 @@ def install_from_catalog(scraper_id: str, *, force: bool = False) -> Dict[str, A
     if is_core_filename(file_name):
         raise StoreError("scraper is already core", status_code=403)
 
+    # Refuse shadowing a core scraper id via a non-core filename.
+    core_ids = _core_ids_from_registry()
+    if sid in core_ids:
+        raise StoreError("scraper id is already core", status_code=403)
+    existing_src = ScraperRegistry.get_source_file(sid)
+    if existing_src and is_core_filename(existing_src):
+        raise StoreError("scraper id is already core", status_code=403)
+
     dest = safe_scraper_path(file_name)
     if dest is None:
         raise StoreError("invalid scraper filename")
@@ -383,8 +389,10 @@ def install_from_catalog(scraper_id: str, *, force: bool = False) -> Dict[str, A
     local_content = (local or {}).get("content")
     local_file = (local or {}).get("file") or ""
     dest_exists = os.path.isfile(dest)
+    # Disk file present but not in registry = orphan (failed prior install).
+    disk_orphan = bool(dest_exists and local is None)
 
-    if dest_exists and not force:
+    if dest_exists and not force and not disk_orphan:
         raise StoreError("already installed; pass force to reinstall", status_code=409)
     # Même id installé sous un autre nom → force requis pour éviter un doublon silencieux
     if local and local_file and local_file != file_name and not force:
@@ -425,27 +433,70 @@ def install_from_catalog(scraper_id: str, *, force: bool = False) -> Dict[str, A
         )
         raise StoreError("sha256 mismatch", status_code=400)
 
+    # Snapshot bytes for rollback (same path, or prior registry file on rename).
+    pre_dest_bytes = read_file_bytes(dest) if dest_exists else None
+    prior_origin = resolve_origin(file_name) if dest_exists else "community"
+    old_file_pending = ""
+    if local_file and local_file != file_name and not is_core_filename(local_file):
+        old_file_pending = local_file
+        if pre_dest_bytes is None and local_content is not None:
+            # Rename path: dest is new; keep old bytes for restore of old_file.
+            pass
+
     # Remplace le .py catalogue dans data/scrapers/
     write_scraper_bytes(file_name, content, origin="community")
 
-    # Si l'ancien fichier avait un autre nom (même id), le retirer pour éviter un doublon
-    if local_file and local_file != file_name and not is_core_filename(local_file):
+    def _rollback_written():
+        """Restore previous working file(s); never leave a broken update in place."""
         try:
-            delete_scraper_file(local_file)
-            logging.info("[Store] Ancien fichier %s retiré après update vers %s", local_file, file_name)
+            if pre_dest_bytes is not None:
+                write_scraper_bytes(file_name, pre_dest_bytes, origin=prior_origin or "community")
+            else:
+                # Fresh install (or orphan replace with no prior registry) — remove.
+                delete_scraper_file(file_name)
         except (PermissionError, ValueError, OSError) as e:
-            logging.warning("[Store] Impossible de retirer l'ancien fichier %s : %s", local_file, e)
+            logging.warning("[Store] Rollback restore failed for %s: %s", file_name, e)
+        # old_file_pending was never deleted before success — still on disk.
+        try:
+            ScraperRegistry.reload()
+        except Exception as e:
+            logging.error("[Store] Rollback reload failed: %s", e)
 
-    ScraperRegistry.reload()
+    try:
+        ScraperRegistry.reload()
+    except Exception as e:
+        _rollback_written()
+        raise StoreError(f"registry reload failed: {e}", status_code=500)
 
     scraper = ScraperRegistry.get(sid, include_disabled=True)
+    if scraper is None:
+        _rollback_written()
+        raise StoreError("scraper failed to load after install", status_code=422)
+
+    # Only after a successful load: drop previous filename on rename.
+    if old_file_pending:
+        try:
+            delete_scraper_file(old_file_pending)
+            logging.info(
+                "[Store] Ancien fichier %s retiré après update vers %s",
+                old_file_pending,
+                file_name,
+            )
+        except (PermissionError, ValueError, OSError) as e:
+            logging.warning(
+                "[Store] Impossible de retirer l'ancien fichier %s : %s",
+                old_file_pending,
+                e,
+            )
+
     action = "updated" if was_update else ("reinstalled" if (dest_exists or local) else "installed")
     return {
         "id": sid,
         "file": file_name,
         "sha256": expected_sha,
-        "loaded": scraper is not None,
+        "loaded": True,
         "updated": action == "updated",
         "action": action,
-        "scopes": sorted(scraper.normalized_scopes()) if scraper else sorted(normalize_scopes(entry.get("scopes"))),
+        "scopes": sorted(scraper.normalized_scopes()),
+        "proxy_cover_hosts": ScraperRegistry.get_proxy_cover_hosts(),
     }

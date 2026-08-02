@@ -64,7 +64,10 @@ def proxy_client(monkeypatch):
     monkeypatch.setattr(
         misc.ScraperRegistry, "get_all_proxy_domains", staticmethod(lambda: ["cdn.example"])
     )
-    monkeypatch.setattr(misc.ScraperRegistry, "get_all", staticmethod(lambda: []))
+    # C61: proxy-image calls get_all(include_disabled=True).
+    monkeypatch.setattr(
+        misc.ScraperRegistry, "get_all", staticmethod(lambda **kwargs: [])
+    )
 
     test_app = Flask(__name__)
     test_app.config.update(TESTING=True, SECRET_KEY="test-secret")

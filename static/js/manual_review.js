@@ -1272,7 +1272,10 @@
             selectedProvider = review.base_provider
                 || (review.above && review.above[0] && review.above[0].provider)
                 || selectedProvider;
-            includeProviders = [];
+            // Restore Sources from persisted preview so confirm re-merges the
+            // same fusion (reopen / queue jump used to wipe includeProviders).
+            includeProviders = ((review.preview && review.preview._fusion_providers) || [])
+                .filter(function (p) { return p && p !== selectedProvider; });
             var nameEl = document.getElementById("mrSeriesQuery");
             var posEl = document.getElementById("mrQueuePos");
             if (nameEl && document.activeElement !== nameEl) {
@@ -1664,6 +1667,12 @@
                 baselinePreview = data.preview || {};
                 coverPicked = false;
                 providerCoverUrl = baselinePreview.cover_url || "";
+                // Keep local queue in sync so list-jump / reopen restores Sources.
+                review.state = "awaiting_confirm";
+                review.preview = baselinePreview;
+                review.base_provider = data.base_provider || selectedProvider;
+                includeProviders = (data.include_providers || fusionList || [])
+                    .filter(function (p) { return p && p !== selectedProvider; });
                 if (coverPickEnabled) {
                     enterCoverPhase(baselinePreview);
                     return;

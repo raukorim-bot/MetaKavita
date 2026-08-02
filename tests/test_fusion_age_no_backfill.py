@@ -36,6 +36,7 @@ def test_fusion_can_fill_skips_age_rating():
 
 
 def test_merge_candidates_does_not_backfill_adult_age():
+    """MR-style merge (skip_adult_label_fill=False) may fill genres; never age."""
     ordered = [
         ("SAFE", {"title": "Safe", "summary": "S", "age_rating": ""}),
         ("ADULT", {"title": "Adult", "age_rating": "pornographic", "genres": ["Adult"]}),
@@ -45,6 +46,19 @@ def test_merge_candidates_does_not_backfill_adult_age():
     assert merged["age_rating"] == ""
     assert merged["genres"] == ["Adult"]
     assert "ADULT" in merged.get("_fusion_providers", [])
+
+
+def test_merge_candidates_auto_skips_adult_genres_onto_safe():
+    ordered = [
+        ("SAFE", {"title": "Safe", "summary": "S", "age_rating": ""}),
+        ("ADULT", {"title": "Adult", "age_rating": "pornographic", "genres": ["Hentai"]}),
+    ]
+    merged = metadata_fetcher.merge_candidates(
+        ordered, smart_fusion=True, skip_adult_label_fill=True
+    )
+    assert merged["_provider_used"] == "SAFE"
+    assert merged.get("age_rating") in ("", None)
+    assert not merged.get("genres")
 
 
 def test_smart_completion_tie_keeps_empty_age_not_adult(monkeypatch, caplog):
@@ -84,5 +98,6 @@ def test_smart_completion_tie_keeps_empty_age_not_adult(monkeypatch, caplog):
     assert result is not None
     assert result["_provider_used"] == "SAFE"
     assert result.get("age_rating") in ("", None)
-    assert result.get("genres") == ["X"]
+    # Auto SMART_COMPLETION must not pull adult genres onto prefer-safe winner.
+    assert "X" not in (result.get("genres") or [])
     assert "preferring safer match" in caplog.text or result.get("_score_tie")

@@ -10,10 +10,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_custom(module_stem: str):
-    path = ROOT / "data" / "scrapers" / f"{module_stem}.py"
+    """Load from core `scrapers/` first (C60+), else sideload `data/scrapers/`."""
+    core = ROOT / "scrapers" / f"{module_stem}.py"
+    path = core if core.is_file() else ROOT / "data" / "scrapers" / f"{module_stem}.py"
     if not path.is_file():
-        pytest.skip(f"custom scraper not present: {path}")
-    spec = importlib.util.spec_from_file_location(f"custom_scrapers.{module_stem}", path)
+        pytest.skip(f"scraper not present: {path}")
+    mod_name = (
+        f"scrapers.{module_stem}"
+        if path.parent.name == "scrapers"
+        else f"custom_scrapers.{module_stem}"
+    )
+    spec = importlib.util.spec_from_file_location(mod_name, path)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)

@@ -160,12 +160,20 @@ Before this fix, `websocket.js` guessed `NOT_FOUND`/`PENDING_REVIEW`/skip-`COMPL
 
 ### 5. Sideloading Scrapers & Auto-Discovery Registry
 
-MetaKavita features a **Dual-Sourced Auto-Discovery Registry** (`ScraperRegistry`). 
-On startup, `scrapers/__init__.py` scans two distinct locations and uses `importlib.util` to dynamically load classes inheriting from `BaseScraper`:
-1.  **Internal Core Scrapers:** Located in the Docker image (`/app/scrapers/`).
-2.  **Community Sideloaded Scrapers:** Located in the user-mounted volume (`/app/data/scrapers/`).
+MetaKavita uses a **data-only Auto-Discovery Registry** (`ScraperRegistry`, C61).
+On startup, `seed_core_scrapers()` copies missing core modules from `/app/scrapers/` into
+`/app/data/scrapers/`, then `load_all()` loads **only** that data directory via
+`importlib.util` (classes inheriting from `BaseScraper`). Core files load as
+`scrapers.<stem>` (relative imports keep working); community files load as
+`custom_scrapers.<stem>`.
 
-If a custom scraper declares `needs_api_key = True`, MetaKavita will dynamically generate a password input in the UI Config Modal and load its value without requiring any frontend code modification.
+* **Manage UI** (`/manage-scrapers`): enable/disable (`DISABLED_SCRAPERS`), delete community files.
+* **Community Store** (`/scraper-store`): install/update from the GitHub catalog with sha256
+  verification; `ScraperRegistry.reload()` hot-reloads without container restart.
+* Manual filesystem drop-ins still require a restart (or a subsequent Magasin/reload).
+
+If a scraper declares `needs_api_key = True`, MetaKavita generates a password input in the
+Config Modal and loads its value without frontend changes.
 
 ---
 

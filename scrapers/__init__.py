@@ -24,6 +24,44 @@ class _ScraperRegistry:
         self._sources = {}  # scraper_id -> basename.py
         self._lock = threading.RLock()
 
+    @staticmethod
+    def _unbind_module_name(module_name: str) -> None:
+        """Drop sys.modules entry and package attribute for a provider module."""
+        sys.modules.pop(module_name, None)
+        if module_name.startswith("scrapers."):
+            stem = module_name.split(".", 1)[1]
+            if "." not in stem:
+                import scrapers as scrapers_pkg
+                if hasattr(scrapers_pkg, stem):
+                    try:
+                        delattr(scrapers_pkg, stem)
+                    except AttributeError:
+                        pass
+        elif module_name.startswith("custom_scrapers."):
+            stem = module_name.split(".", 1)[1]
+            if "." not in stem:
+                custom_pkg = sys.modules.get("custom_scrapers")
+                if custom_pkg is not None and hasattr(custom_pkg, stem):
+                    try:
+                        delattr(custom_pkg, stem)
+                    except AttributeError:
+                        pass
+
+    def _drop_provider_modules(self) -> None:
+        keep = {
+            "scrapers",
+            "scrapers.base",
+            "scrapers.utils",
+            "scrapers.wikidata_map",
+        }
+        stale = [
+            name for name in list(sys.modules)
+            if name.startswith("custom_scrapers.")
+            or (name.startswith("scrapers.") and name not in keep)
+        ]
+        for name in stale:
+            self._unbind_module_name(name)
+
     def load_all(self):
         """Seed core → data/scrapers, puis charge uniquement ce dossier."""
         from services.scraper_manager import (
@@ -49,50 +87,89 @@ class _ScraperRegistry:
                     module_name = f"custom_scrapers.{stem}"
                 self._load_module_by_path(module_name, file_path, source_file=filename)
 
-    def reload(self):
-        """Vide le registre et recharge data/scrapers (après install/delete)."""
-        with self._lock:
-            stale = [
-                name for name in list(sys.modules)
-                if name.startswith("custom_scrapers.")
-                or (
-                    name.startswith("scrapers.")
-                    and name not in (
-                        "scrapers",
-                        "scrapers.base",
-                        "scrapers.utils",
-                        "scrapers.wikidata_map",
-                    )
+    def _bind_module_from_path(self, module_name, file_path):
+        """Exec module into sys.modules + package attr; do not touch _scrapers."""
+        spec = importlib.util.spec_from_file_location(module_name, file_path)
+        if not spec or not spec.loader:
+            return
+        module = importlib.util.module_from_spec(spec)
+        if module_name.startswith("scrapers."):
+            module.__package__ = "scrapers"
+        elif module_name.startswith("custom_scrapers."):
+            module.__package__ = "custom_scrapers"
+            _ensure_custom_package()
+        sys.modules[module_name] = module
+        if module_name.startswith("scrapers."):
+            stem = module_name.split(".", 1)[1]
+            if "." not in stem:
+                import scrapers as scrapers_pkg
+                setattr(scrapers_pkg, stem, module)
+        elif module_name.startswith("custom_scrapers."):
+            stem = module_name.split(".", 1)[1]
+            if "." not in stem:
+                custom_pkg = sys.modules.get("custom_scrapers")
+                if custom_pkg is not None:
+                    setattr(custom_pkg, stem, module)
+        spec.loader.exec_module(module)
+
+    def _rebind_modules_from_sources(self, sources_map: dict) -> None:
+        """Re-exec source files into sys.modules after a failed reload restore."""
+        from services.scraper_manager import data_scrapers_dir, is_core_filename
+
+        custom_dir = data_scrapers_dir()
+        for src in sorted({s for s in sources_map.values() if s}):
+            if not str(src).endswith(".py"):
+                continue
+            path = os.path.join(custom_dir, src)
+            if not os.path.isfile(path):
+                continue
+            stem = src[:-3]
+            module_name = (
+                f"scrapers.{stem}" if is_core_filename(src) else f"custom_scrapers.{stem}"
+            )
+            try:
+                self._unbind_module_name(module_name)
+                self._bind_module_from_path(module_name, path)
+            except Exception as e:
+                logging.error(
+                    "[Registry] rebind failed for %s after reload restore: %s",
+                    src,
+                    e,
                 )
-            ]
-            for name in stale:
-                # Only drop modules we loaded from data/scrapers (not base/utils).
-                mod = sys.modules.get(name)
-                if mod is None:
-                    continue
-                # Keep package helpers; drop provider modules so file reload works.
-                if name in ("scrapers.base", "scrapers.utils", "scrapers.wikidata_map"):
-                    continue
-                sys.modules.pop(name, None)
-            self._scrapers.clear()
-            self._sources.clear()
-            self.load_all()
+
+    def reload(self):
+        """Recharge data/scrapers; restaure map + modules si le reload échoue."""
+        with self._lock:
+            backup_scrapers = dict(self._scrapers)
+            backup_sources = dict(self._sources)
+            try:
+                self._drop_provider_modules()
+                self._scrapers = {}
+                self._sources = {}
+                self.load_all()
+                if not self._scrapers:
+                    raise RuntimeError("registry reload produced an empty scraper map")
+            except Exception as e:
+                logging.error(
+                    "[Registry] reload failed — restoring previous scraper map: %s",
+                    e,
+                )
+                self._scrapers = backup_scrapers
+                self._sources = backup_sources
+                self._rebind_modules_from_sources(backup_sources)
+                raise
 
     def _load_module_by_path(self, module_name, file_path, source_file=None):
         """Charge un scraper depuis le disque (data/scrapers)."""
         try:
-            spec = importlib.util.spec_from_file_location(module_name, file_path)
-            if spec and spec.loader:
-                module = importlib.util.module_from_spec(spec)
-                if module_name.startswith("scrapers."):
-                    module.__package__ = "scrapers"
-                elif module_name.startswith("custom_scrapers."):
-                    module.__package__ = "custom_scrapers"
-                    _ensure_custom_package()
-                sys.modules[module_name] = module
-                spec.loader.exec_module(module)
-                self._extract_scrapers(module, source_file=source_file or os.path.basename(file_path))
+            self._bind_module_from_path(module_name, file_path)
+            module = sys.modules.get(module_name)
+            if module is not None:
+                self._extract_scrapers(
+                    module, source_file=source_file or os.path.basename(file_path)
+                )
         except Exception as e:
+            self._unbind_module_name(module_name)
             logging.error(get_ui_translations().get(
                 "log_registry_custom_fail",
                 "[Registry] Erreur au chargement du scraper personnalisé ({0}): {1}",
@@ -149,52 +226,58 @@ class _ScraperRegistry:
         return True
 
     def get(self, scraper_id: str, *, include_disabled: bool = False) -> BaseScraper:
-        scraper = self._scrapers.get(scraper_id)
-        if not self._passes_filters(scraper, include_disabled=include_disabled):
-            return None
-        return scraper
+        with self._lock:
+            scraper = self._scrapers.get(scraper_id)
+            if not self._passes_filters(scraper, include_disabled=include_disabled):
+                return None
+            return scraper
 
     def get_by_type(self, lib_type: str, *, include_disabled: bool = False, scope: str = "series") -> list:
-        # C35 : Comic (Flexible) = union Comic + Manga (dédupliquée par id)
-        if lib_type == "ComicFlexible":
-            seen = {}
-            for s in list(self._scrapers.values()):
-                if not self._passes_filters(s, include_disabled=include_disabled, scope=scope):
-                    continue
-                if "Comic" in s.supported_types or "Manga" in s.supported_types:
-                    seen[s.id] = s
-            return sorted(seen.values(), key=lambda x: x.display_name)
+        with self._lock:
+            # C35 : Comic (Flexible) = union Comic + Manga (dédupliquée par id)
+            if lib_type == "ComicFlexible":
+                seen = {}
+                for s in list(self._scrapers.values()):
+                    if not self._passes_filters(s, include_disabled=include_disabled, scope=scope):
+                        continue
+                    if "Comic" in s.supported_types or "Manga" in s.supported_types:
+                        seen[s.id] = s
+                return sorted(seen.values(), key=lambda x: x.display_name)
 
-        scrapers = [
-            s for s in self._scrapers.values()
-            if lib_type in s.supported_types
-            and self._passes_filters(s, include_disabled=include_disabled, scope=scope)
-        ]
-        return sorted(scrapers, key=lambda x: x.display_name)
+            scrapers = [
+                s for s in self._scrapers.values()
+                if lib_type in s.supported_types
+                and self._passes_filters(s, include_disabled=include_disabled, scope=scope)
+            ]
+            return sorted(scrapers, key=lambda x: x.display_name)
 
     def get_by_scope(self, scope: str, *, include_disabled: bool = False) -> list:
-        scrapers = [
-            s for s in self._scrapers.values()
-            if self._passes_filters(s, include_disabled=include_disabled, scope=scope)
-        ]
-        return sorted(scrapers, key=lambda x: x.display_name)
+        with self._lock:
+            scrapers = [
+                s for s in self._scrapers.values()
+                if self._passes_filters(s, include_disabled=include_disabled, scope=scope)
+            ]
+            return sorted(scrapers, key=lambda x: x.display_name)
 
     def get_all(self, *, include_disabled: bool = False, scope: str = None) -> list:
-        scrapers = [
-            s for s in self._scrapers.values()
-            if self._passes_filters(s, include_disabled=include_disabled, scope=scope)
-        ]
-        return sorted(scrapers, key=lambda x: x.display_name)
+        with self._lock:
+            scrapers = [
+                s for s in self._scrapers.values()
+                if self._passes_filters(s, include_disabled=include_disabled, scope=scope)
+            ]
+            return sorted(scrapers, key=lambda x: x.display_name)
 
     def get_source_file(self, scraper_id: str) -> str:
-        return self._sources.get(scraper_id) or ""
+        with self._lock:
+            return self._sources.get(scraper_id) or ""
 
     def get_all_proxy_domains(self) -> list:
         """Liste blanche domaines (tous scrapers chargés, y compris disabled)."""
-        domains = set()
-        for s in self._scrapers.values():
-            domains.update(getattr(s, 'proxy_domains', []))
-        return list(domains)
+        with self._lock:
+            domains = set()
+            for s in self._scrapers.values():
+                domains.update(getattr(s, 'proxy_domains', []))
+            return list(domains)
 
     def get_proxy_cover_hosts(self) -> list:
         """Hôtes dont l'<img> navigateur doit passer par /api/proxy-image.
@@ -202,15 +285,16 @@ class _ScraperRegistry:
         Agrège `proxy_domains` des scrapers avec `requires_proxy=True`
         (y compris disabled), pour Manual Review / previews.
         """
-        hosts = set()
-        for s in self._scrapers.values():
-            if not getattr(s, "requires_proxy", False):
-                continue
-            for d in getattr(s, "proxy_domains", []) or []:
-                d = (d or "").strip().lower()
-                if d:
-                    hosts.add(d)
-        return sorted(hosts)
+        with self._lock:
+            hosts = set()
+            for s in self._scrapers.values():
+                if not getattr(s, "requires_proxy", False):
+                    continue
+                for d in getattr(s, "proxy_domains", []) or []:
+                    d = (d or "").strip().lower()
+                    if d:
+                        hosts.add(d)
+            return sorted(hosts)
 
 
 ScraperRegistry = _ScraperRegistry()

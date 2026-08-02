@@ -50,6 +50,25 @@ def _write_scraper(path, class_name, scraper_id, scopes=None):
     """), encoding="utf-8")
 
 
+def _patch_install_load_ok(monkeypatch, store, scraper_id, scopes=None):
+    """Install now requires loaded scraper after reload — stub both."""
+    scopes = set(scopes or {"series"})
+
+    class _Loaded:
+        id = scraper_id
+
+        def normalized_scopes(self):
+            return scopes
+
+    monkeypatch.setattr(store.ScraperRegistry, "reload", lambda: None)
+    monkeypatch.setattr(
+        store.ScraperRegistry,
+        "get",
+        lambda sid, include_disabled=False: _Loaded() if sid == scraper_id else None,
+    )
+    monkeypatch.setattr(store.ScraperRegistry, "get_proxy_cover_hosts", lambda: [])
+
+
 @pytest.fixture
 def isolated_scrapers(tmp_path, monkeypatch):
     """DATA_DIR jetable + registre frais (pas le singleton global)."""
@@ -206,7 +225,7 @@ def test_install_from_catalog_sha256(isolated_scrapers, monkeypatch):
     }
 
     monkeypatch.setattr(store, "fetch_catalog", lambda force=False: catalog)
-    monkeypatch.setattr(store.ScraperRegistry, "reload", lambda: None)
+    _patch_install_load_ok(monkeypatch, store, "WEBTOON_SHA_TEST")
 
     fake = MagicMock()
     fake.content = content
@@ -217,6 +236,7 @@ def test_install_from_catalog_sha256(isolated_scrapers, monkeypatch):
     # Avoid writing into real registry; just check file write + sha
     result = store.install_from_catalog("WEBTOON_SHA_TEST")
     assert result["id"] == "WEBTOON_SHA_TEST"
+    assert result["loaded"] is True
     written = scrapers_dir / file_name
     assert written.is_file()
     assert written.read_bytes() == content
@@ -355,7 +375,7 @@ def test_install_accepts_catalog_crlf_hash_for_lf_download(isolated_scrapers, mo
         }],
     }
     monkeypatch.setattr(store, "fetch_catalog", lambda force=False: catalog)
-    monkeypatch.setattr(store.ScraperRegistry, "reload", lambda: None)
+    _patch_install_load_ok(monkeypatch, store, "WEBTOON_EOL_TEST")
 
     fake = MagicMock()
     fake.content = lf_content  # GitHub raw serves LF
@@ -452,7 +472,7 @@ def test_content_mismatch_marks_update_and_force_replaces(isolated_scrapers, mon
     fake.headers = {"Content-Type": "text/plain; charset=utf-8"}
     fake.raise_for_status = lambda: None
     monkeypatch.setattr(store.requests, "get", lambda *a, **k: fake)
-    monkeypatch.setattr(store.ScraperRegistry, "reload", lambda: None)
+    _patch_install_load_ok(monkeypatch, store, "OUTDATED")
 
     result = store.install_from_catalog("OUTDATED", force=True)
     assert result["action"] == "updated"
@@ -583,3 +603,207 @@ def test_openbd_skips_fabricated_cover_url(monkeypatch):
     cand = mod.OpenbdScraper()._get_isbn("9784088807232")
     assert cand is not None
     assert cand.get("cover_url") in (None, "")
+
+
+def test_install_unloadable_rolls_back(isolated_scrapers, monkeypatch):
+    from services import scraper_store as store
+
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    content = b"# broken - no BaseScraper class\nprint('nope')\n"
+    digest = hashlib.sha256(content).hexdigest()
+    file_name = "broken_unloadable.py"
+    url = f"{store.DEFAULT_RAW_BASE}/{file_name}"
+    catalog = {
+        "schema_version": 1,
+        "raw_base": store.DEFAULT_RAW_BASE,
+        "scrapers": [{
+            "id": "BROKEN_UNLOAD",
+            "file": file_name,
+            "display_name": "Broken",
+            "scopes": ["series"],
+            "install": {
+                "path": file_name,
+                "url": url,
+                "sha256": digest,
+                "bytes": len(content),
+            },
+        }],
+    }
+    monkeypatch.setattr(store, "fetch_catalog", lambda force=False: catalog)
+    registry = isolated_scrapers["registry"]
+    monkeypatch.setattr(store, "ScraperRegistry", registry)
+
+    fake = MagicMock()
+    fake.content = content
+    fake.headers = {"Content-Type": "text/plain"}
+    fake.raise_for_status = lambda: None
+    monkeypatch.setattr(store.requests, "get", lambda *a, **k: fake)
+    monkeypatch.setattr(registry, "reload", lambda: None)
+    monkeypatch.setattr(registry, "get", lambda sid, include_disabled=False: None)
+    monkeypatch.setattr(registry, "get_proxy_cover_hosts", lambda: [])
+
+    deleted = []
+
+    def _del(name):
+        deleted.append(name)
+        p = scrapers_dir / name
+        if p.is_file():
+            p.unlink()
+
+    monkeypatch.setattr(store, "delete_scraper_file", _del)
+
+    with pytest.raises(store.StoreError) as ei:
+        store.install_from_catalog("BROKEN_UNLOAD")
+    assert "failed to load" in ei.value.message.lower()
+    assert file_name in deleted
+
+
+def test_install_rejects_core_id_shadow(isolated_scrapers, monkeypatch):
+    from services import scraper_store as store
+
+    catalog = {
+        "schema_version": 1,
+        "raw_base": store.DEFAULT_RAW_BASE,
+        "scrapers": [{
+            "id": "ANILIST",
+            "file": "anilist_shadow.py",
+            "install": {
+                "path": "anilist_shadow.py",
+                "url": f"{store.DEFAULT_RAW_BASE}/anilist_shadow.py",
+                "sha256": "c" * 64,
+            },
+        }],
+    }
+    monkeypatch.setattr(store, "fetch_catalog", lambda force=False: catalog)
+    monkeypatch.setattr(store, "_core_ids_from_registry", lambda: {"ANILIST", "MANGABAKA"})
+
+    with pytest.raises(store.StoreError) as ei:
+        store.install_from_catalog("ANILIST")
+    assert "already core" in ei.value.message.lower()
+
+
+def test_registry_reload_restores_on_empty(monkeypatch, isolated_scrapers):
+    registry = isolated_scrapers["registry"]
+
+    class _Keep:
+        id = "KEEP"
+
+    registry._scrapers["KEEP"] = _Keep()
+    registry._sources["KEEP"] = "keep.py"
+    backup_ids = set(registry._scrapers)
+    rebound = []
+
+    monkeypatch.setattr(registry, "load_all", lambda: None)
+    monkeypatch.setattr(registry, "_drop_provider_modules", lambda: None)
+    monkeypatch.setattr(
+        registry,
+        "_rebind_modules_from_sources",
+        lambda sources: rebound.append(dict(sources)),
+    )
+
+    with pytest.raises(RuntimeError):
+        registry.reload()
+    assert "KEEP" in registry._scrapers
+    assert set(registry._scrapers) == backup_ids
+    assert rebound and rebound[0].get("KEEP") == "keep.py"
+
+
+def test_install_update_unloadable_restores_previous_bytes(isolated_scrapers, monkeypatch):
+    """Failed update must restore prior file contents (not delete)."""
+    from services import scraper_store as store
+    from services.scraper_manager import sha256_hex, write_scraper_bytes
+
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    file_name = "restore_me.py"
+    good = b"# good\nfrom scrapers.base import BaseScraper\n\nclass G(BaseScraper):\n    id='RESTOREME'\n    display_name='R'\n    supported_types={'Manga'}\n    def fetch(self, query, library_type='Manga', is_id=False, existing_metadata=None):\n        return None\n"
+    bad = b"# bad - no scraper class\nprint(1)\n"
+    write_scraper_bytes(file_name, good, origin="community")
+
+    class _S(_SeriesScraper):
+        id = "RESTOREME"
+
+    registry = isolated_scrapers["registry"]
+    registry._scrapers["RESTOREME"] = _S()
+    registry._sources["RESTOREME"] = file_name
+    monkeypatch.setattr(store, "ScraperRegistry", registry)
+
+    catalog = {
+        "schema_version": 1,
+        "raw_base": store.DEFAULT_RAW_BASE,
+        "scrapers": [{
+            "id": "RESTOREME",
+            "file": file_name,
+            "display_name": "R",
+            "scopes": ["series"],
+            "install": {
+                "path": file_name,
+                "url": f"{store.DEFAULT_RAW_BASE}/{file_name}",
+                "sha256": sha256_hex(bad),
+                "bytes": len(bad),
+            },
+        }],
+    }
+    monkeypatch.setattr(store, "fetch_catalog", lambda force=False: catalog)
+
+    fake = MagicMock()
+    fake.content = bad
+    fake.headers = {"Content-Type": "text/plain"}
+    fake.raise_for_status = lambda: None
+    monkeypatch.setattr(store.requests, "get", lambda *a, **k: fake)
+
+    # reload succeeds but get never finds the id (unloadable)
+    monkeypatch.setattr(registry, "reload", lambda: None)
+    monkeypatch.setattr(registry, "get", lambda sid, include_disabled=False: None)
+    monkeypatch.setattr(registry, "get_proxy_cover_hosts", lambda: [])
+
+    with pytest.raises(store.StoreError) as ei:
+        store.install_from_catalog("RESTOREME", force=True)
+    assert "failed to load" in ei.value.message.lower()
+    assert (scrapers_dir / file_name).is_file()
+    assert (scrapers_dir / file_name).read_bytes() == good
+
+
+def test_disk_orphan_allows_install_without_force(isolated_scrapers, monkeypatch):
+    from services import scraper_store as store
+    from services.scraper_manager import sha256_hex
+
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    registry = isolated_scrapers["registry"]
+    monkeypatch.setattr(store, "ScraperRegistry", registry)
+
+    file_name = "orphan_scraper.py"
+    body = b"# orphan\nfrom scrapers.base import BaseScraper\n\nclass O(BaseScraper):\n    id='ORPHAN1'\n    display_name='O'\n    supported_types={'Manga'}\n    def fetch(self, query, library_type='Manga', is_id=False, existing_metadata=None):\n        return None\n"
+    (scrapers_dir / file_name).write_bytes(body)
+
+    catalog = {
+        "schema_version": 1,
+        "raw_base": store.DEFAULT_RAW_BASE,
+        "scrapers": [{
+            "id": "ORPHAN1",
+            "file": file_name,
+            "display_name": "O",
+            "scopes": ["series"],
+            "install": {
+                "path": file_name,
+                "url": f"{store.DEFAULT_RAW_BASE}/{file_name}",
+                "sha256": sha256_hex(body),
+                "bytes": len(body),
+            },
+        }],
+    }
+    enriched = store.enrich_catalog_for_ui(catalog, lang="en")
+    row = enriched["scrapers"][0]
+    assert row["state"] == "orphan"
+    assert row["orphan"] is True
+
+    monkeypatch.setattr(store, "fetch_catalog", lambda force=False: catalog)
+    _patch_install_load_ok(monkeypatch, store, "ORPHAN1")
+    fake = MagicMock()
+    fake.content = body
+    fake.headers = {"Content-Type": "text/plain"}
+    fake.raise_for_status = lambda: None
+    monkeypatch.setattr(store.requests, "get", lambda *a, **k: fake)
+
+    # No force — orphan path must not 409.
+    result = store.install_from_catalog("ORPHAN1", force=False)
+    assert result["loaded"] is True

@@ -995,7 +995,19 @@ def _apply_manual_review_locked(
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     # Mode manuel : les cases « Fusionner » pilotent seules le comblement des trous.
     # Indépendant du toggle sidebar SMART_COMPLETION (batch auto).
-    includes = [p for p in (include_providers or []) if p and p != base_provider]
+    # include_providers is None → client omitted the key → restore from preview.
+    # include_providers [] → intentional base-only (clear Sources).
+    if include_providers is None:
+        try:
+            prev = json.loads(review.get("preview_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            prev = {}
+        includes = [
+            p for p in ((prev or {}).get("_fusion_providers") or [])
+            if p and p != base_provider
+        ] if isinstance(prev, dict) else []
+    else:
+        includes = [p for p in include_providers if p and p != base_provider]
     smart_fusion = bool(includes)
     if fused is None:
         fused = smart_fusion
