@@ -145,7 +145,7 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Replaces Jikan. Manga + light novels (Book).
 *   **BDTheque.com (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ Franco-Belgian comics (distinct from Bédéthèque / `BEDETHEQUE`).
 *   **Kavita library sync filter (v1.6.1):** Config → Planning checkboxes; `DISABLED_LIBRARIES` denylist for **auto-sync polling only** (dashboard, manual batch, and webhook always see every library).
-*   **Wikidata (v1.6.1):** Optional `WIKIDATA` provider (Manga/Comic/Book) with live SPARQL/Entity API. Prefer as fallback / ISBN / cross-IDs.
+*   **Wikidata (v1.6.3 Magasin):** Optional `WIKIDATA` provider via Community Store (Manga/Comic/Book, live SPARQL/Entity API). Limited metadata scope — prefer as fallback / ISBN / cross-IDs, not a primary.
 *   **Playful Stats & Batch QoS (v1.6.1, C7+)**: Lifetime counters + live topbar KPIs; ephemeral batch field mask; selection persist / auto-uncheck; batch progress bar; collapsible Scraping Options.
 *   **Reliability barometer (v1.6.1)**: Optional sidebar slider for match accept threshold (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`); default remains `0.60` via `get_match_accept_threshold()`.
 
@@ -246,14 +246,14 @@ docker compose up -d --build
 | `PUBLISHER_PREFERENCE` | Prefer Translated/Localized Publishers (`LOCALIZED`) or Japanese/Original (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | How to build Kavita `localizedName`: `all` (join unique titles with `" / "`), `prefer` (filter/order by `LOCALIZED_TITLE_LANGS`), `none` (do not write). Never rewrites Series `name`. Also in Config modal. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Comma-separated BCP-47-ish tags when mode is `prefer` (e.g. `en, ja-ro, ja`). Order = priority. Per-series override via `alt_title_langs`. | *(Empty)* |
-| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MAL`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
+| `PROVIDER_1` | Primary manga metadata source (`MANGABAKA`, `KITSU`, `ANILIST`, `MAL`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, plus Magasin e.g. `WIKIDATA`). | `MANGABAKA` |
 | `MAL_API_KEY` | MyAnimeList **Client ID** (not a secret token) from https://myanimelist.net/apiconfig — sent as `X-MAL-CLIENT-ID`. | _(empty)_ |
 | `PROVIDER_2` | Fallback manga source 1. | `KITSU` |
 | `PROVIDER_3` | Fallback manga source 2. | `ANILIST` |
-| `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `BDTHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
+| `COMIC_PROVIDER_1`| Primary comic metadata source (`BEDETHEQUE`, `BDTHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, plus Magasin e.g. `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Fallback comic source 1. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Fallback comic source 2. | `NONE` |
-| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, `WIKIDATA`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Primary book metadata source (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, plus Magasin e.g. `WIKIDATA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Fallback book source 1. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Fallback book source 2. | `NONE` |
 | `SMART_SCORING`   | Enable Smart Scoring — best match wins (`true` or `false`). Off = classic list-order fallback. | `true` |
@@ -483,7 +483,7 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **MyAnimeList API officielle (v1.6.1)** : provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Remplace Jikan. Manga + light novels (Book).
 *   **BDTheque.com (v1.6.1)** : provider `BDTHEQUE` pour les BD franco-belges sur https://www.bdtheque.com/ (distinct de Bédéthèque / `BEDETHEQUE`).
 *   **Filtre bibliothèques Kavita (v1.6.1)** : cases Config → Planification ; dénylist `DISABLED_LIBRARIES` pour le **polling auto-sync uniquement** (dashboard, batch manuel et webhook voient toutes les biblios).
-*   **Wikidata (v1.6.1)** : provider optionnel `WIKIDATA` (Manga/Comic/Book) en live SPARQL/Entity API. Idéal en fallback / ISBN / IDs croisés.
+*   **Wikidata (v1.6.3 Magasin)** : provider optionnel `WIKIDATA` via le Magasin community (Manga/Comic/Book, SPARQL/Entity API live). Périmètre métadonnées restreint — idéal en fallback / ISBN / IDs croisés, pas en primaire.
 *   **Stats ludiques & QoS batch (v1.6.1, C7+)** : compteurs lifetime + KPI live topbar ; masque de champs batch éphémère ; persistance / décochage auto ; barre de progression batch ; Options de Scraping pliables.
 *   **Baromètre de fiabilité (v1.6.1)** : curseur sidebar optionnel pour le seuil d’acceptation (`MATCH_THRESHOLD_CUSTOM` / `MATCH_ACCEPT_THRESHOLD`) ; défaut `0.60` via `get_match_accept_threshold()`.
 
@@ -584,14 +584,14 @@ docker compose up -d --build
 | `PUBLISHER_PREFERENCE` | Préférer les Éditeurs Traduits/Licenciés (`LOCALIZED`) ou d'origine Japonaise (`ORIGINAL`). | `LOCALIZED` |
 | `LOCALIZED_TITLE_MODE` | Construction de Kavita `localizedName` : `all` (joindre les titres uniques avec `" / "`), `prefer` (filtre/ordre via `LOCALIZED_TITLE_LANGS`), `none` (ne pas écrire). Ne réécrit jamais Series `name`. Aussi dans la modal Config. | `all` |
 | `LOCALIZED_TITLE_LANGS` | Tags BCP-47-ish séparés par des virgules en mode `prefer` (ex. `en, ja-ro, ja`). Ordre = priorité. Override par série via `alt_title_langs`. | *(Vide)* |
-| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MAL`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, `WIKIDATA`). | `MANGABAKA` |
+| `PROVIDER_1` | Source de métadonnées principale Manga (`MANGABAKA`, `KITSU`, `ANILIST`, `MAL`, `MANGADEX`, `MANGAUPDATES`, `MANGANEWS`, `SHIKIMORI`, plus Magasin ex. `WIKIDATA`). | `MANGABAKA` |
 | `MAL_API_KEY` | **Client ID** MyAnimeList (pas un token secret) depuis https://myanimelist.net/apiconfig — envoyé en `X-MAL-CLIENT-ID`. | _(vide)_ |
 | `PROVIDER_2` | Source de secours 1 Manga. | `KITSU` |
 | `PROVIDER_3` | Source de secours 2 Manga. | `ANILIST` |
-| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `BDTHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `WIKIDATA`). | `COMICVINE` |
+| `COMIC_PROVIDER_1`| Source de métadonnées principale Comic (`BEDETHEQUE`, `BDTHEQUE`, `COMICVINE`, `GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, plus Magasin ex. `WIKIDATA`). | `COMICVINE` |
 | `COMIC_PROVIDER_2`| Source de secours 1 Comic. | `ANILIST` |
 | `COMIC_PROVIDER_3`| Source de secours 2 Comic. | `NONE` |
-| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, `WIKIDATA`). | `GOOGLEBOOKS` |
+| `BOOK_PROVIDER_1` | Source de métadonnées principale Roman (`GOOGLEBOOKS`, `OPENLIBRARY`, `HARDCOVER`, `ANILIST`, `MANGABAKA`, `MAL`, plus Magasin ex. `WIKIDATA`). | `GOOGLEBOOKS` |
 | `BOOK_PROVIDER_2` | Source de secours 1 Roman. | `OPENLIBRARY` |
 | `BOOK_PROVIDER_3` | Source de secours 2 Roman. | `NONE` |
 | `SMART_SCORING`   | Activer le Smart Scoring — meilleur match (`true` ou `false`). Off = fallback classique par ordre de liste. | `true` |

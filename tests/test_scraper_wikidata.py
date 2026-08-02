@@ -1,9 +1,14 @@
 """
-Tests Wikidata scraper : mapping claims, extract_id, live mocké.
+Tests Wikidata : mapping claims (core `wikidata_map`) + scraper Magasin si présent.
 """
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
 from unittest.mock import patch
 
-from scrapers.wikidata import WikidataScraper
+import pytest
+
 from scrapers.wikidata_map import (
     commons_file_url,
     entity_to_candidate,
@@ -96,6 +101,31 @@ SAMPLE_ENTITY = {
 }
 
 
+def _community_wikidata_path() -> Path | None:
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[1] / ".." / "community-scraper-metakavita" / "wikidata.py",
+        Path.home() / "community-scraper-metakavita" / "wikidata.py",
+        Path(r"C:\Users\amaur\community-scraper-metakavita\wikidata.py"),
+    ]
+    for path in candidates:
+        resolved = path.resolve()
+        if resolved.is_file():
+            return resolved
+    return None
+
+
+def _load_wikidata_scraper_class():
+    path = _community_wikidata_path()
+    if path is None:
+        pytest.skip("community wikidata.py not available locally")
+    spec = importlib.util.spec_from_file_location("community_wikidata_under_test", path)
+    assert spec and spec.loader
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod.WikidataScraper
+
+
 def test_normalize_qid_variants():
     assert normalize_qid("Q42") == "Q42"
     assert normalize_qid("q42") == "Q42"
@@ -150,6 +180,7 @@ def test_resolve_cover_none_without_p18():
 
 
 def test_extract_id_from_url():
+    WikidataScraper = _load_wikidata_scraper_class()
     s = WikidataScraper()
     assert s.extract_id_from_url("https://www.wikidata.org/wiki/Q12345") == "Q12345"
     assert s.extract_id_from_url("Q99") == "Q99"
@@ -157,6 +188,7 @@ def test_extract_id_from_url():
 
 
 def test_scraper_metadata_contract():
+    WikidataScraper = _load_wikidata_scraper_class()
     s = WikidataScraper()
     assert s.id == "WIKIDATA"
     assert s.supported_types == {"Manga", "Comic", "Book"}
@@ -165,13 +197,17 @@ def test_scraper_metadata_contract():
     assert s.needs_api_key is False
 
 
-@patch.object(WikidataScraper, "_wbgetentities")
-@patch.object(WikidataScraper, "_label_lookup", return_value={"Q999": "Hajime Isayama", "Q888": "Kodansha"})
-def test_fetch_direct_id_live(mock_labels, mock_wb):
-    mock_wb.return_value = {"Q12345": SAMPLE_ENTITY}
-    s = WikidataScraper()
-    result = s.fetch("Q12345", library_type="Manga", is_id=True)
-    assert result is not None
-    assert result["wikidata_id"] == "Q12345"
-    assert result["_match_score"] == 1.0
-    assert result["title"] == "Attack on Titan"
+def test_fetch_direct_id_live():
+    WikidataScraper = _load_wikidata_scraper_class()
+    with patch.object(WikidataScraper, "_wbgetentities") as mock_wb, patch.object(
+        WikidataScraper,
+        "_label_lookup",
+        return_value={"Q999": "Hajime Isayama", "Q888": "Kodansha"},
+    ):
+        mock_wb.return_value = {"Q12345": SAMPLE_ENTITY}
+        s = WikidataScraper()
+        result = s.fetch("Q12345", library_type="Manga", is_id=True)
+        assert result is not None
+        assert result["wikidata_id"] == "Q12345"
+        assert result["_match_score"] == 1.0
+        assert result["title"] == "Attack on Titan"

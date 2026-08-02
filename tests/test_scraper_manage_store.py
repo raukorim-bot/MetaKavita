@@ -127,6 +127,41 @@ def test_seed_reseeds_deleted_core(isolated_scrapers):
     assert target.is_file()
 
 
+def test_purge_demoted_legacy_wikidata_seed(isolated_scrapers):
+    """Former core wikidata.py with relative imports must be removed on upgrade."""
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    assert "wikidata.py" not in sm.list_core_filenames()
+
+    legacy = scrapers_dir / "wikidata.py"
+    legacy.write_text(
+        "from .base import BaseScraper\nfrom .wikidata_map import normalize_qid\n",
+        encoding="utf-8",
+    )
+    sm.set_origin("wikidata.py", "core")
+
+    removed = sm.purge_demoted_core_scrapers()
+    assert "wikidata.py" in removed
+    assert not legacy.is_file()
+    assert "wikidata.py" not in sm.load_origins()
+
+
+def test_purge_keeps_community_wikidata_install(isolated_scrapers):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    community = scrapers_dir / "wikidata.py"
+    community.write_text(
+        "from scrapers.base import BaseScraper\nfrom scrapers.wikidata_map import normalize_qid\n",
+        encoding="utf-8",
+    )
+    sm.set_origin("wikidata.py", "community")
+
+    removed = sm.purge_demoted_core_scrapers()
+    assert "wikidata.py" not in removed
+    assert community.is_file()
+    assert sm.load_origins().get("wikidata.py") == "community"
+
+
 def test_registry_loads_only_data_scrapers(isolated_scrapers):
     registry = isolated_scrapers["registry"]
     scrapers_dir = isolated_scrapers["scrapers_dir"]

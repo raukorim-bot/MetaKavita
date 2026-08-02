@@ -28,6 +28,12 @@ CORE_SKIP_FILES = frozenset({
     "wikidata_map.py",
 })
 
+# Former image-core scrapers now published via Magasin only.
+# Their seeded copies used package-relative imports and break as custom_scrapers.*.
+FORMER_CORE_FILES = frozenset({
+    "wikidata.py",
+})
+
 ORIGINS_FILENAME = ".origins.json"
 VALID_ORIGINS = frozenset({"core", "community", "custom"})
 
@@ -152,6 +158,59 @@ def seed_core_scrapers() -> List[str]:
         if dirty:
             save_origins(origins)
     return copied
+
+
+def _has_package_relative_imports(path: str) -> bool:
+    """True si le fichier ressemble à un ancien scraper core (imports relatifs)."""
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as f:
+            head = f.read(6000)
+    except OSError:
+        return False
+    return "from .base import" in head or "from .utils import" in head or "from .wikidata_map import" in head
+
+
+def purge_demoted_core_scrapers() -> List[str]:
+    """
+    Retire les copies data/scrapers/ qui ne sont plus core.
+
+    Les modules seedés avec des imports relatifs cassent une fois chargés sous
+    ``custom_scrapers.*``. On les purge pour laisser le Magasin installer la
+    version community. Retourne les basenames supprimés.
+    """
+    removed: List[str] = []
+    dest_dir = data_scrapers_dir()
+    core_set = set(list_core_filenames())
+
+    with _ORIGINS_LOCK:
+        origins = load_origins()
+        dirty = False
+        for filename in list(list_data_scraper_files()):
+            if filename in core_set:
+                continue
+            path = os.path.join(dest_dir, filename)
+            stale_core_mark = origins.get(filename) == "core"
+            former_legacy = (
+                filename in FORMER_CORE_FILES and _has_package_relative_imports(path)
+            )
+            if not (stale_core_mark or former_legacy):
+                continue
+            try:
+                os.remove(path)
+                removed.append(filename)
+                logging.info(
+                    "[Scrapers] Ancien core retiré (réinstaller via Magasin) : %s",
+                    filename,
+                )
+            except OSError as e:
+                logging.error("[Scrapers] Échec purge demoted %s : %s", filename, e)
+                continue
+            if filename in origins:
+                origins.pop(filename, None)
+                dirty = True
+        if dirty:
+            save_origins(origins)
+    return removed
 
 
 def list_data_scraper_files() -> List[str]:

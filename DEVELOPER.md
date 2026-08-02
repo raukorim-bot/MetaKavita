@@ -314,7 +314,7 @@ cannot crash enrichment. See `CUSTOM_SCRAPERS.md` §4.
 | `MAL` | MyAnimeList | Manga, Book | Official API v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID; no user OAuth). Magic Input `myanimelist.net/manga/{id}`. |
 | `SENSCRITIQUE` | SensCritique | Book, Comic | FR GraphQL Apollo; covers, no key. |
 | `SHIKIMORI` | Shikimori | Manga | Multilingual title matching, `/roles` staff extraction. |
-| `WIKIDATA` | Wikidata | Manga, Comic, Book | **Live only** (SPARQL + Entity API) — no offline dump/SQLite mode yet. Magic Input Q-id; shared `wikidata_map`. Best as fallback / ISBN / cross-IDs. |
+| `WIKIDATA` | Wikidata (**Magasin**, not core) | Manga, Comic, Book | **Live only** (SPARQL + Entity API) — limited metadata scope; install from Community Store. Magic Input Q-id; mapping helpers in core `wikidata_map`. Best as fallback / ISBN / cross-IDs. |
 
 #### Comic Flexible (C35)
 Kavita library type **ID 5** normalizes to `ComicFlexible` (`kavita_api._normalize_library_type`) — it is **not** flattened to Comic. Enrichment runs `COMIC_PROVIDER_*` first, then falls back to Manga `PROVIDER_*` when no useful hit is found. Manual cover search unions Comic + Manga scrapers. Tests: `tests/test_comic_flexible.py`, `tests/test_library_type_normalize.py`.
@@ -669,7 +669,7 @@ renvoie n'importe quoi) ne puisse pas faire planter l'enrichissement. Voir `CUST
 | `MAL` | MyAnimeList | Manga, Book | API officielle v2 + `X-MAL-CLIENT-ID` (`MAL_API_KEY` = Client ID ; pas d’OAuth utilisateur). Magic Input `myanimelist.net/manga/{id}`. |
 | `SENSCRITIQUE` | SensCritique | Book, Comic | GraphQL Apollo FR ; covers, sans clé. |
 | `SHIKIMORI` | Shikimori | Manga | API Multilingue, extraction `/roles` du staff. |
-| `WIKIDATA` | Wikidata | Manga, Comic, Book | **Live uniquement** (SPARQL + Entity API) — pas de mode dump/SQLite hors-ligne pour l’instant. Magic Input Q-id ; `wikidata_map`. Idéal en fallback / ISBN / IDs croisés. |
+| `WIKIDATA` | Wikidata (**Magasin**, hors core) | Manga, Comic, Book | **Live uniquement** (SPARQL + Entity API) — périmètre restreint ; installer via le Magasin. Magic Input Q-id ; mapping dans le core `wikidata_map`. Idéal en fallback / ISBN / IDs croisés. |
 
 #### Comic Flexible (C35)
 Le type de bibliothèque Kavita **ID 5** se normalise en `ComicFlexible` (`kavita_api._normalize_library_type`) — **pas** aplati en Comic. L’enrichissement lance d’abord `COMIC_PROVIDER_*`, puis bascule sur les `PROVIDER_*` Manga si aucun hit utile. La recherche manuelle de couvertures unionne Comic + Manga. Tests : `tests/test_comic_flexible.py`, `tests/test_library_type_normalize.py`.

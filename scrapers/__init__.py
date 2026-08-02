@@ -66,6 +66,7 @@ class _ScraperRegistry:
         """Seed core → data/scrapers, puis charge uniquement ce dossier."""
         from services.scraper_manager import (
             seed_core_scrapers,
+            purge_demoted_core_scrapers,
             data_scrapers_dir,
             list_data_scraper_files,
             is_core_filename,
@@ -73,6 +74,7 @@ class _ScraperRegistry:
 
         with self._lock:
             seed_core_scrapers()
+            purge_demoted_core_scrapers()
             _ensure_custom_package()
             custom_dir = data_scrapers_dir()
             for filename in list_data_scraper_files():
