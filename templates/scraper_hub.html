@@ -144,6 +144,25 @@
             background: rgba(45,212,191,0.16);
             color: var(--stats-teal);
         }
+        @media (max-width: 820px) {
+            .stats-nav { flex-wrap: wrap; }
+            .hub-tabs { order: 3; width: 100%; justify-content: center; }
+        }
+        .hub-beta-notice {
+            margin: 0 0 18px;
+            padding: 12px 14px;
+            border-radius: 12px;
+            background: rgba(251,191,36,0.1);
+            border: 1px solid rgba(251,191,36,0.28);
+            color: #fde68a;
+            font-size: 0.9rem;
+            line-height: 1.45;
+            max-width: 68ch;
+        }
+        [data-theme="light"] .hub-beta-notice {
+            color: #92400e;
+            background: rgba(251,191,36,0.14);
+        }
         .hub-chapter {
             position: relative;
             padding: clamp(36px, 5vw, 64px) clamp(16px, 5vw, 64px) clamp(48px, 7vw, 88px);
@@ -353,12 +372,7 @@
             <img src="{{ url_for('static', filename='logo.png') }}" alt="">
             MetaKavita
         </div>
-        <div class="hub-tabs" role="tablist">
-            <a class="hub-tab {% if active_tab == 'manage' %}is-active{% endif %}"
-               href="{{ url_for('scrapers_manage.manage') }}">{{ t.scraper_tab_manage }}</a>
-            <a class="hub-tab {% if active_tab == 'store' %}is-active{% endif %}"
-               href="{{ url_for('scrapers_manage.store') }}">{{ t.scraper_tab_store }}</a>
-        </div>
+        {% include 'partials/_scraper_hub_tabs.html' %}
         <div class="stats-nav-actions">
             <button type="button" class="btn-secondary" onclick="toggleTheme()" aria-label="Theme">◐</button>
             <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.stats_back }}</a>
@@ -372,6 +386,7 @@
                 {% if active_tab == 'manage' %}
                 <h1 class="chapter-title reveal reveal-delay-1">{{ t.scraper_manage_hero }}</h1>
                 <p class="chapter-sub reveal reveal-delay-2">{{ t.scraper_manage_sub }}</p>
+                <p class="hub-beta-notice reveal reveal-delay-2" role="note">{{ t.scraper_community_beta_notice }}</p>
                 <div class="hub-toolbar reveal reveal-delay-2">
                     <input type="search" id="hubSearch" placeholder="{{ t.scraper_filter_search }}" autocomplete="off">
                     <select id="hubType" aria-label="{{ t.scraper_filter_type }}">
@@ -390,6 +405,7 @@
                 {% else %}
                 <h1 class="chapter-title reveal reveal-delay-1">{{ t.scraper_store_hero }}</h1>
                 <p class="chapter-sub reveal reveal-delay-2">{{ t.scraper_store_sub }}</p>
+                <p class="hub-beta-notice reveal reveal-delay-2" role="note">{{ t.scraper_community_beta_notice }}</p>
                 <div class="hub-toolbar reveal reveal-delay-2">
                     <input type="search" id="hubSearch" placeholder="{{ t.scraper_filter_search }}" autocomplete="off">
                     <select id="hubType" aria-label="{{ t.scraper_filter_type }}">

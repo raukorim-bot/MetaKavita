@@ -1,0 +1,8 @@
+<div class="hub-tabs" role="tablist" aria-label="{{ t.scraper_hub_kicker }}">
+    <a class="hub-tab {% if active_tab == 'manage' %}is-active{% endif %}"
+       href="{{ url_for('scrapers_manage.manage') }}">{{ t.scraper_tab_manage }}</a>
+    <a class="hub-tab {% if active_tab == 'store' %}is-active{% endif %}"
+       href="{{ url_for('scrapers_manage.store') }}">{{ t.scraper_tab_store }}</a>
+    <a class="hub-tab {% if active_tab == 'diagnostics' %}is-active{% endif %}"
+       href="{{ url_for('pages.diagnostics') }}">{{ t.scraper_tab_diagnostics }}</a>
+</div>

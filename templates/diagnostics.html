@@ -98,6 +98,30 @@
         .stats-nav .btn-primary, .stats-nav .btn-secondary {
             padding: 8px 14px; font-size: 13px; text-decoration: none;
         }
+        .hub-tabs {
+            display: inline-flex; gap: 4px; padding: 4px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+        }
+        [data-theme="light"] .hub-tabs {
+            background: rgba(15,23,42,0.04);
+            border-color: rgba(15,23,42,0.08);
+        }
+        .hub-tab {
+            padding: 7px 14px; border-radius: 9px;
+            font-size: 0.85rem; font-weight: 650;
+            text-decoration: none; color: var(--stats-muted);
+            border: none; background: transparent; cursor: pointer;
+        }
+        .hub-tab.is-active {
+            background: rgba(45,212,191,0.16);
+            color: var(--stats-teal);
+        }
+        @media (max-width: 820px) {
+            .stats-nav { flex-wrap: wrap; }
+            .hub-tabs { order: 3; width: 100%; justify-content: center; }
+        }
 
         .diag-story { width: 100%; }
         .diag-chapter {
@@ -429,6 +453,7 @@
             <img src="{{ url_for('static', filename='logo.png') }}" alt="">
             MetaKavita
         </div>
+        {% include 'partials/_scraper_hub_tabs.html' %}
         <div class="stats-nav-actions">
             <button type="button" class="btn-secondary" onclick="toggleTheme()" aria-label="Theme">◐</button>
             <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.stats_back }}</a>

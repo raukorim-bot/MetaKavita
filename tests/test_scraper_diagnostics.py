@@ -706,6 +706,14 @@ def diag_client(monkeypatch):
     test_app.register_blueprint(diagnostics_bp)
     test_app.register_blueprint(pages_bp)
 
+    @test_app.route("/manage-scrapers", endpoint="scrapers_manage.manage")
+    def _hub_manage():
+        return "manage", 200
+
+    @test_app.route("/scraper-store", endpoint="scrapers_manage.store")
+    def _hub_store():
+        return "store", 200
+
     @test_app.route("/login", endpoint="auth.login")
     def login():
         return "login", 200
@@ -934,3 +942,7 @@ def test_diagnostics_page_renders(diag_client):
     assert "cardKavita" in html
     assert "btnProbeActive" in html
     assert 'data-active="1"' in html
+    assert "/manage-scrapers" in html
+    assert "/scraper-store" in html
+    assert "hub-tabs" in html
+    assert "hub-tab is-active" in html

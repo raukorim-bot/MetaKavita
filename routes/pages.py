@@ -212,4 +212,5 @@ def diagnostics():
         t=t,
         app_version=get_current_version(),
         scrapers=list_scrapers_inventory(config),
+        active_tab="diagnostics",
     )
