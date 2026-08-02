@@ -148,25 +148,30 @@ _FUSION_SKIP_KEYS = (
     'links', 'external_links', 'url', MATCH_SCORE_KEY,
 )
 
-# Never hole-fill these via SMART_COMPLETION / merge_candidates.
-# age_rating: BF56 winners often emit "" (omit); treating that as a hole let a
-# secondary adult rating undo BF68 prefer-safe and lock pornographic/erotica.
+# Auto SMART_COMPLETION must not hole-fill age_rating (BF69): an empty BF56
+# winner + secondary adult rating would undo BF68 prefer-safe.
+# Manual Review Source checkboxes may fill age (explicit user choice → max info).
 _FUSION_NEVER_FILL_KEYS = frozenset({"age_rating"})
 
 
-def _fusion_can_fill(master_data, key, value) -> bool:
+def _fusion_can_fill(master_data, key, value, *, fill_age_rating: bool = False) -> bool:
     """True when smart fusion may copy ``value`` onto ``master_data[key]``."""
-    if key in _FUSION_SKIP_KEYS or key in _FUSION_NEVER_FILL_KEYS:
+    if key in _FUSION_SKIP_KEYS:
+        return False
+    if key in _FUSION_NEVER_FILL_KEYS and not fill_age_rating:
         return False
     return (not master_data.get(key)) and bool(value)
 
 
-def merge_candidates(ordered_entries, smart_fusion=False):
+def merge_candidates(ordered_entries, smart_fusion=False, *, fill_age_rating: bool = False):
     """
     Fusionne une liste ordonnée `(provider_id, data_dict)`.
 
     Le premier entrée utile devient la base (`_provider_used`). Si `smart_fusion`,
     les suivantes comblent les trous (même logique que `apply_accepted` en cascade auto).
+
+    ``fill_age_rating=True`` : autorise le comblement de ``age_rating`` (MR Sources).
+    Défaut False = comportement Auto / BF69.
     """
     if not ordered_entries:
         return None
@@ -200,7 +205,7 @@ def merge_candidates(ordered_entries, smart_fusion=False):
                     master_data['titles'] = merged
                     filled_something = True
                 continue
-            if _fusion_can_fill(master_data, key, value):
+            if _fusion_can_fill(master_data, key, value, fill_age_rating=fill_age_rating):
                 master_data[key] = value
                 filled_something = True
 

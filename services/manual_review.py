@@ -308,7 +308,8 @@ def choice_and_merge(
     `include_providers` (ordre conservé, hors base) comblent les champs vides
     du master lorsque `smart_fusion=True`. En mode review manuelle, l'appelant
     active `smart_fusion` dès qu'au moins une source est cochée — indépendamment
-    du toggle sidebar SMART_COMPLETION.
+    du toggle sidebar SMART_COMPLETION. Contrairement à l'Auto (BF69), les
+    Sources MR peuvent aussi combler ``age_rating`` (choix explicite).
 
     Met à jour la review en `awaiting_confirm` (preview_json laissé vide —
     construit plus tard par la couche apply/preview).
@@ -338,7 +339,10 @@ def choice_and_merge(
         ordered.append((provider, card.get("data") or {}))
         seen.add(provider)
 
-    master = merge_candidates(ordered, smart_fusion=smart_fusion)
+    # MR Sources = max info ; Auto SMART_COMPLETION garde fill_age_rating=False (BF69).
+    master = merge_candidates(
+        ordered, smart_fusion=smart_fusion, fill_age_rating=bool(smart_fusion)
+    )
     if not master:
         return None
 
