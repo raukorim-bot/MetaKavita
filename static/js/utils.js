@@ -8,10 +8,12 @@ const getRootPath = () => window.ROOT_PATH || '';
 
 /**
  * URL d'affichage navigateur pour une couverture externe.
- * Les scrapers avec `requires_proxy=True` (MangaDex, ComicVine) bloquent le hotlink :
- * l'<img> doit passer par `/api/proxy-image` (Referer serveur). L'URL stockée /
- * envoyée à Kavita reste la vraie URL CDN — ne pas persister le résultat.
- * Doit rester aligné avec les flags `requires_proxy` des scrapers.
+ * Les scrapers avec `requires_proxy=True` bloquent le hotlink : l'<img> doit
+ * passer par `/api/proxy-image` (Referer serveur). L'URL stockée / envoyée à
+ * Kavita reste la vraie URL CDN — ne pas persister le résultat.
+ *
+ * Hôtes : `window.PROXY_COVER_HOSTS` (injecté depuis le registre scrapers) +
+ * fallback hardcodé pour pages sans injection.
  */
 function toDisplayCoverUrl(url) {
     if (!url || typeof url !== 'string') return '';
@@ -26,13 +28,17 @@ function toDisplayCoverUrl(url) {
     } catch (e) {
         return '';
     }
-    const needsProxy =
-        host === 'uploads.mangadex.org' ||
-        host === 'mangadex.org' ||
-        host.endsWith('.mangadex.org') ||
-        host === 'static.comicvine.com' ||
-        host === 'comicvine.gamespot.com' ||
-        host.endsWith('.comicvine.com');
+    const fallbackHosts = [
+        'uploads.mangadex.org', 'mangadex.org',
+        'static.comicvine.com', 'comicvine.gamespot.com',
+        'cdn.anime-planet.com', 'anime-planet.com', 'www.anime-planet.com',
+    ];
+    const configured = Array.isArray(window.PROXY_COVER_HOSTS) ? window.PROXY_COVER_HOSTS : [];
+    const hosts = configured.length ? configured : fallbackHosts;
+    const needsProxy = hosts.some((d) => {
+        const dom = String(d || '').toLowerCase();
+        return !!dom && (host === dom || host.endsWith('.' + dom));
+    });
     if (!needsProxy) return trimmed;
     return getRootPath() + '/api/proxy-image?url=' + encodeURIComponent(trimmed);
 }

@@ -42,7 +42,7 @@ def preflight():
 @diagnostics_bp.route("/api/scrapers/<scraper_id>/probe", methods=["POST"])
 def probe_one(scraper_id):
     config = load_config()
-    if not ScraperRegistry.get(scraper_id):
+    if not ScraperRegistry.get(scraper_id, include_disabled=True):
         return jsonify({"success": False, "msg": "Unknown scraper", "id": scraper_id}), 404
     result = probe_scraper(scraper_id, config)
     return jsonify({"success": True, "result": result})

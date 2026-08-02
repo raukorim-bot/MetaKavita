@@ -122,6 +122,9 @@ def load_config():
             # Dénylist d'IDs exclus du polling auto-sync uniquement (virgules). Vide = auto-sync toutes.
             # Dashboard, batch manuel et webhook ne sont pas filtrés.
             "DISABLED_LIBRARIES": "",
+            # Dénylist d'IDs de scrapers désactivés (virgules). Présents sur disque mais
+            # exclus du registre « enabled » (Providers, enrichment). Manage peut les réactiver.
+            "DISABLED_SCRAPERS": "",
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
@@ -227,6 +230,7 @@ def load_config():
             "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE",
             "LOCALIZED_TITLE_MODE", "LOCALIZED_TITLE_LANGS",
             "DISABLED_LIBRARIES",
+            "DISABLED_SCRAPERS",
             "PROVIDER_1", "PROVIDER_2", "PROVIDER_3",
             "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
             "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
@@ -255,6 +259,7 @@ def load_config():
         config["DISABLED_LIBRARIES"] = ",".join(
             sorted(parse_library_id_list(config.get("DISABLED_LIBRARIES")), key=_library_id_sort_key)
         )
+        config["DISABLED_SCRAPERS"] = format_disabled_scrapers(config.get("DISABLED_SCRAPERS"))
 
         for env_key, env_val in os.environ.items():
             if env_key.endswith("_API_KEY") and env_key not in config:
@@ -428,6 +433,52 @@ def format_disabled_libraries(ids) -> str:
     """Sérialise un iterable d'IDs en chaîne config DISABLED_LIBRARIES."""
     cleaned = parse_library_id_list(ids)
     return ",".join(sorted(cleaned, key=_library_id_sort_key))
+
+
+def parse_scraper_id_list(value) -> set:
+    """Parse une liste d'IDs scraper (virgules / points-virgules), normalisés en UPPER."""
+    if value is None:
+        return set()
+    if isinstance(value, (list, tuple, set)):
+        parts = []
+        for item in value:
+            if item is None:
+                continue
+            text = str(item).strip().upper()
+            if text and text != "NONE":
+                parts.append(text)
+        return set(parts)
+    text = str(value).strip()
+    if not text:
+        return set()
+    parts = []
+    for chunk in text.replace(";", ",").split(","):
+        chunk = chunk.strip().upper()
+        if chunk and chunk != "NONE":
+            parts.append(chunk)
+    return set(parts)
+
+
+def get_disabled_scraper_ids(config=None) -> set:
+    """IDs de scrapers désactivés (`DISABLED_SCRAPERS`)."""
+    if config is None:
+        config = load_config()
+    return parse_scraper_id_list(config.get("DISABLED_SCRAPERS"))
+
+
+def is_scraper_enabled(scraper_id, config=None) -> bool:
+    if not scraper_id:
+        return True
+    disabled = get_disabled_scraper_ids(config)
+    if not disabled:
+        return True
+    return str(scraper_id).strip().upper() not in disabled
+
+
+def format_disabled_scrapers(ids) -> str:
+    """Sérialise un iterable d'IDs scraper en chaîne config DISABLED_SCRAPERS."""
+    cleaned = parse_scraper_id_list(ids)
+    return ",".join(sorted(cleaned))
 
 
 def get_kavita_http_timeout(config=None) -> int:

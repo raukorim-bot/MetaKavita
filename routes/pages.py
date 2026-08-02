@@ -109,7 +109,10 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     safe_config['DEEPL_API_KEY'] = ''
     safe_config['AZURE_API_KEY'] = ''
 
-    scrapers_with_keys = [s for s in ScraperRegistry.get_all() if getattr(s, 'needs_api_key', False)]
+    scrapers_with_keys = [
+        s for s in ScraperRegistry.get_all(scope="series")
+        if getattr(s, 'needs_api_key', False)
+    ]
     scraper_has_api_key = {}
     for s in scrapers_with_keys:
         key_name = f"{s.id}_API_KEY"
@@ -122,7 +125,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
 
     magic_scrapers = [
         {"id": s.id, "display_name": s.localized_display_name, "supported_types": list(s.supported_types)}
-        for s in ScraperRegistry.get_all() if getattr(s, 'has_direct_id_support', False)
+        for s in ScraperRegistry.get_all(scope="series")
+        if getattr(s, 'has_direct_id_support', False)
     ]
 
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,

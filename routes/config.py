@@ -58,7 +58,7 @@ def save_config_ajax():
         _apply_secret('DEEPL_API_KEY', 'DEEPL_API_KEY')
         _apply_secret('AZURE_API_KEY', 'AZURE_API_KEY')
 
-        for s in ScraperRegistry.get_all():
+        for s in ScraperRegistry.get_all(scope="series"):
             if getattr(s, 'needs_api_key', False):
                 key_name = f"{s.id}_API_KEY"
                 _apply_secret(key_name, key_name)

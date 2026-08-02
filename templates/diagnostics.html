@@ -11,6 +11,7 @@
     <script>
         document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
         window.ROOT_PATH = "{{ request.script_root }}";
+        window.PROXY_COVER_HOSTS = {{ proxy_cover_hosts|default([])|tojson }};
         window.DIAG_I18N = {{ {
             'idle': t.diag_status_idle,
             'running': t.diag_status_running,

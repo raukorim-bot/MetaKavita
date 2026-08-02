@@ -614,8 +614,8 @@ class KavitaAPI:
             }
 
             # Application du Referer si le domaine source exige un bypass hotlink
-            for scraper in ScraperRegistry.get_all():
-                if any(domain == d or domain.endswith('.' + d) for d in getattr(scraper, 'proxy_domains', [])):
+            for scraper in ScraperRegistry.get_all(include_disabled=True):
+                if any(domain == d or domain.endswith('.' + d) for d in getattr(scraper, 'proxy_domains', []) or []):
                     if getattr(scraper, 'proxy_referer', None):
                         headers["Referer"] = scraper.proxy_referer
                     break

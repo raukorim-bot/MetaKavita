@@ -61,7 +61,7 @@ echo "[entrypoint] Starting MetaKavita as ${APP_USER} (uid $(id -u $APP_USER), g
 # Create the data directory before dropping privileges. The application does
 # `os.makedirs("data")` itself, but by then it is unprivileged and /app is
 # root-owned, so it would fail on a first run with no bind mount.
-mkdir -p "$DATA_DIR"
+mkdir -p "$DATA_DIR" "$DATA_DIR/scrapers"
 
 # Take ownership of everything the application writes: config.json, cache.db,
 # metakavita.log, and any sideloaded scraper under data/scrapers/.

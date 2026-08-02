@@ -702,7 +702,7 @@ def list_scrapers_inventory(config: Optional[Dict[str, Any]] = None) -> List[Dic
     config = config if config is not None else load_config()
     active = set(get_active_scraper_ids(config))
     rows = []
-    for scraper in ScraperRegistry.get_all():
+    for scraper in ScraperRegistry.get_all(include_disabled=True):
         rows.append({
             "id": scraper.id,
             "display_name": scraper.localized_display_name,
@@ -712,6 +712,8 @@ def list_scrapers_inventory(config: Optional[Dict[str, Any]] = None) -> List[Dic
             "supports_covers": _supports_covers(scraper),
             "rate_limit": float(getattr(scraper, "rate_limit", 1.0) or 1.0),
             "active": scraper.id in active,
+            "enabled": ScraperRegistry.get(scraper.id) is not None,
+            "scopes": sorted(scraper.normalized_scopes()) if hasattr(scraper, "normalized_scopes") else ["series"],
         })
     rows.sort(key=lambda r: (r["display_name"] or r["id"]).lower())
     return rows
@@ -721,7 +723,7 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
     """Probe un scraper : reachability + fetch + fetch_covers."""
     config = config if config is not None else load_config()
     if isinstance(scraper_or_id, str):
-        scraper = ScraperRegistry.get(scraper_or_id)
+        scraper = ScraperRegistry.get(scraper_or_id, include_disabled=True)
         if scraper is None:
             return {
                 "id": scraper_or_id,
@@ -965,7 +967,7 @@ def resolve_probe_targets(
             if scraper is not None:
                 scrapers.append(scraper)
         return scrapers
-    return list(ScraperRegistry.get_all())
+    return list(ScraperRegistry.get_all(include_disabled=True))
 
 
 def probe_all(

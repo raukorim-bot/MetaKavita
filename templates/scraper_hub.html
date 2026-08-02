@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>MetaKavita · {{ page_title }}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script>
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+        window.ROOT_PATH = "{{ request.script_root }}";
+        window.PROXY_COVER_HOSTS = {{ proxy_cover_hosts|default([])|tojson }};
+        window.SCRAPER_HUB = {
+            tab: {{ active_tab|tojson }},
+            i18n: {{ {
+                'search': t.scraper_filter_search,
+                'type': t.scraper_filter_type,
+                'scope': t.scraper_filter_scope,
+                'all': t.scraper_filter_all,
+                'status': t.scraper_filter_status,
+                'grade': t.scraper_filter_grade,
+                'covers': t.scraper_filter_covers,
+                'series': t.scraper_scope_series,
+                'volume': t.scraper_scope_volume,
+                'core': t.scraper_origin_core,
+                'community': t.scraper_origin_community,
+                'custom': t.scraper_origin_custom,
+                'enabled': t.scraper_enabled,
+                'disabled': t.scraper_disabled,
+                'enable': t.scraper_enable,
+                'disable': t.scraper_disable,
+                'delete': t.scraper_delete,
+                'deleteConfirm': t.scraper_delete_confirm,
+                'coreNoDelete': t.scraper_core_no_delete,
+                'coreDisabledHint': t.scraper_core_disabled_hint,
+                'volumeHint': t.scraper_volume_hint,
+                'warnDisabled': t.scraper_warn_disabled_slot,
+                'warnMissing': t.scraper_warn_missing_slot,
+                'needsKey': t.scraper_needs_key,
+                'emptyManage': t.scraper_empty_manage,
+                'emptyStore': t.scraper_empty_store,
+                'offline': t.scraper_store_offline,
+                'repoLink': t.scraper_store_repo_link,
+                'install': t.scraper_install,
+                'reinstall': t.scraper_reinstall,
+                'installed': t.scraper_installed,
+                'update': t.scraper_update,
+                'outdated': t.scraper_outdated,
+                'coreBadge': t.scraper_core_badge,
+                'okSeries': t.scraper_install_ok_series,
+                'okVolume': t.scraper_install_ok_volume,
+                'okUpdate': t.scraper_update_ok,
+                'secTitle': t.scraper_security_title,
+                'secCheck': t.scraper_security_check,
+                'secContinue': t.scraper_security_continue,
+                'secCancel': t.scraper_security_cancel,
+                'pickIf': t.scraper_pick_if,
+                'viewCode': t.scraper_view_code,
+                'viewDocs': t.scraper_view_docs,
+                'toastEnabled': t.scraper_toast_enabled,
+                'toastDisabled': t.scraper_toast_disabled,
+                'toastDeleted': t.scraper_toast_deleted,
+                'toastError': t.scraper_toast_error,
+                'coversYes': t.scraper_covers_yes,
+                'coversNo': t.scraper_covers_no,
+                'offStoreHint': t.scraper_off_store_hint,
+                'removedStoreHint': t.scraper_removed_store_hint,
+                'retiredHint': t.scraper_retired_hint,
+                'retiredBadge': t.scraper_retired_badge,
+                'removedStoreBadge': t.scraper_removed_store_badge,
+                'retiredBlocked': t.scraper_retired_blocked,
+            }|tojson }}
+        };
+    </script>
+    <style>
+        :root {
+            --stats-ink: var(--text-main);
+            --stats-muted: var(--text-muted);
+            --stats-teal: #2dd4bf;
+            --stats-amber: #fbbf24;
+            --stats-coral: #fb7185;
+            --stats-sky: #38bdf8;
+            --hub-ok: #34d399;
+        }
+        html { height: auto; overflow-x: hidden; overflow-y: auto; scroll-behavior: smooth; }
+        body {
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            height: auto !important;
+            min-height: 100vh;
+            overflow-x: hidden !important;
+            overflow-y: auto !important;
+            background: #07090f;
+            color: var(--stats-ink);
+        }
+        [data-theme="light"] body { background: #f1f5f9; }
+        .dashboard-wrapper, .content {
+            height: auto !important;
+            min-height: 0 !important;
+            overflow: visible !important;
+            display: block !important;
+            padding: 0 !important;
+            background: transparent !important;
+        }
+        .stats-nav {
+            position: sticky; top: 0; z-index: 40;
+            display: flex; justify-content: space-between; align-items: center;
+            gap: 12px; padding: 12px 20px;
+            background: color-mix(in srgb, #07090f 78%, transparent);
+            backdrop-filter: blur(14px);
+            border-bottom: 1px solid rgba(255,255,255,0.06);
+        }
+        [data-theme="light"] .stats-nav {
+            background: color-mix(in srgb, #f8fafc 85%, transparent);
+            border-bottom-color: rgba(15,23,42,0.08);
+        }
+        .stats-nav .logo-mini {
+            display: flex; align-items: center; gap: 10px;
+            font-weight: 700; font-size: 1.05rem;
+        }
+        .stats-nav .logo-mini img { width: 28px; height: 28px; border-radius: 7px; }
+        .stats-nav-actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .stats-nav .btn-primary, .stats-nav .btn-secondary {
+            padding: 8px 14px; font-size: 13px; text-decoration: none;
+        }
+        .hub-tabs {
+            display: inline-flex; gap: 4px; padding: 4px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.07);
+        }
+        [data-theme="light"] .hub-tabs {
+            background: rgba(15,23,42,0.04);
+            border-color: rgba(15,23,42,0.08);
+        }
+        .hub-tab {
+            padding: 7px 14px; border-radius: 9px;
+            font-size: 0.85rem; font-weight: 650;
+            text-decoration: none; color: var(--stats-muted);
+            border: none; background: transparent; cursor: pointer;
+        }
+        .hub-tab.is-active {
+            background: rgba(45,212,191,0.16);
+            color: var(--stats-teal);
+        }
+        .hub-chapter {
+            position: relative;
+            padding: clamp(36px, 5vw, 64px) clamp(16px, 5vw, 64px) clamp(48px, 7vw, 88px);
+            overflow: hidden;
+        }
+        .hub-chapter::before {
+            content: "";
+            position: absolute; inset: 0; pointer-events: none;
+            background:
+                radial-gradient(ellipse 60% 50% at 12% 0%, rgba(45,212,191,0.12), transparent 60%),
+                radial-gradient(ellipse 50% 40% at 88% 18%, rgba(56,189,248,0.08), transparent 55%);
+        }
+        .hub-chapter--store::before {
+            background:
+                radial-gradient(ellipse 55% 45% at 78% 8%, rgba(251,191,36,0.1), transparent 55%),
+                radial-gradient(ellipse 40% 40% at 4% 80%, rgba(251,113,133,0.08), transparent 50%);
+        }
+        .chapter-inner {
+            position: relative; z-index: 1;
+            width: min(1120px, 100%);
+            margin: 0 auto;
+        }
+        .chapter-kicker {
+            display: inline-flex; align-items: center; gap: 8px;
+            font-size: 0.72rem; font-weight: 700;
+            letter-spacing: 0.14em; text-transform: uppercase;
+            margin-bottom: 14px; color: var(--stats-sky);
+        }
+        .chapter-kicker::before {
+            content: ""; width: 28px; height: 2px;
+            background: currentColor; border-radius: 2px;
+        }
+        .chapter-title {
+            font-size: clamp(1.75rem, 4vw, 2.7rem);
+            font-weight: 700; letter-spacing: -0.045em;
+            line-height: 1.08; margin: 0 0 10px; max-width: 22ch;
+        }
+        .chapter-sub {
+            margin: 0 0 26px; color: var(--stats-muted);
+            font-size: 1.02rem; line-height: 1.5; max-width: 58ch;
+        }
+        .hub-toolbar {
+            display: flex; flex-wrap: wrap; gap: 10px;
+            align-items: center; margin-bottom: 18px;
+        }
+        .hub-toolbar input[type="search"],
+        .hub-toolbar select {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(255,255,255,0.1);
+            color: var(--stats-ink);
+            border-radius: 10px;
+            padding: 8px 12px;
+            font: inherit;
+            font-size: 0.88rem;
+            min-height: 38px;
+        }
+        [data-theme="light"] .hub-toolbar input[type="search"],
+        [data-theme="light"] .hub-toolbar select {
+            background: #fff;
+            border-color: rgba(15,23,42,0.12);
+        }
+        .hub-toolbar input[type="search"] { min-width: min(240px, 100%); flex: 1; }
+        .hub-alerts { display: grid; gap: 8px; margin-bottom: 16px; }
+        .hub-alert {
+            padding: 11px 14px; border-radius: 12px;
+            background: rgba(251,191,36,0.1);
+            border: 1px solid rgba(251,191,36,0.28);
+            color: #fde68a; font-size: 0.88rem;
+        }
+        [data-theme="light"] .hub-alert { color: #92400e; }
+        .hub-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+            gap: 14px;
+        }
+        .hub-card {
+            border-radius: 18px;
+            padding: 18px 18px 16px;
+            background: rgba(255,255,255,0.03);
+            border: 1px solid rgba(255,255,255,0.07);
+            display: flex; flex-direction: column; gap: 10px;
+            min-height: 180px;
+            transition: border-color 0.3s ease, transform 0.3s cubic-bezier(.2,.8,.2,1);
+        }
+        [data-theme="light"] .hub-card {
+            background: #fff;
+            border-color: rgba(15,23,42,0.08);
+            box-shadow: 0 10px 28px rgba(15,23,42,0.05);
+        }
+        .hub-card:hover { transform: translateY(-2px); }
+        .hub-card.is-disabled { opacity: 0.72; }
+        .hub-card-top {
+            display: flex; justify-content: space-between; gap: 10px; align-items: flex-start;
+        }
+        .hub-card-title {
+            font-weight: 700; letter-spacing: -0.02em;
+            font-size: 1.05rem; margin: 0;
+        }
+        .hub-card-id {
+            display: block; margin-top: 3px;
+            font-size: 0.72rem; color: var(--stats-muted); font-weight: 500;
+        }
+        .hub-badges { display: flex; flex-wrap: wrap; gap: 5px; }
+        .hub-badge {
+            font-size: 0.66rem; font-weight: 700;
+            letter-spacing: 0.04em; text-transform: uppercase;
+            padding: 3px 8px; border-radius: 999px;
+            background: rgba(56,189,248,0.12); color: var(--stats-sky);
+        }
+        .hub-badge--core { background: rgba(45,212,191,0.14); color: var(--stats-teal); }
+        .hub-badge--community { background: rgba(251,191,36,0.14); color: var(--stats-amber); }
+        .hub-badge--custom { background: rgba(148,163,184,0.16); color: #94a3b8; }
+        .hub-badge--volume { background: rgba(251,113,133,0.14); color: var(--stats-coral); }
+        .hub-badge--grade { background: rgba(163,230,53,0.14); color: #a3e635; }
+        .hub-badge--warn { background: rgba(251,191,36,0.14); color: var(--stats-amber); }
+        .hub-badge--outdated { background: rgba(251,113,133,0.16); color: var(--stats-coral); }
+        .hub-badge--retired { background: rgba(148,163,184,0.22); color: #cbd5e1; }
+        .hub-badge--removed { background: rgba(251,113,133,0.14); color: var(--stats-coral); }
+        .hub-card.is-retired { opacity: 0.78; }
+        .hub-card.is-outdated { border-color: color-mix(in srgb, var(--stats-coral) 45%, transparent); }
+        .hub-summary {
+            margin: 0; color: var(--stats-muted);
+            font-size: 0.88rem; line-height: 1.45; flex: 1;
+        }
+        .hub-pick {
+            margin: 0; font-size: 0.8rem; color: var(--stats-teal);
+            line-height: 1.35;
+        }
+        .hub-hint {
+            margin: 0; font-size: 0.78rem; color: var(--stats-muted); font-style: italic;
+        }
+        .hub-actions {
+            display: flex; flex-wrap: wrap; gap: 8px; align-items: center;
+            margin-top: 4px;
+        }
+        .hub-actions .btn-primary,
+        .hub-actions .btn-secondary {
+            padding: 7px 12px; font-size: 12px;
+        }
+        .hub-actions .btn-primary:disabled,
+        .hub-actions .btn-secondary:disabled {
+            opacity: 0.5; cursor: not-allowed;
+        }
+        .hub-empty {
+            padding: 28px 18px; text-align: center;
+            border-radius: 18px;
+            border: 1px dashed rgba(255,255,255,0.12);
+            color: var(--stats-muted);
+        }
+        .hub-toast {
+            position: fixed; bottom: 22px; left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            z-index: 80; padding: 12px 18px; border-radius: 12px;
+            background: #0f172a; color: #e2e8f0;
+            border: 1px solid rgba(45,212,191,0.35);
+            box-shadow: 0 16px 40px rgba(0,0,0,0.35);
+            opacity: 0; pointer-events: none;
+            transition: opacity 0.25s ease, transform 0.25s ease;
+            max-width: min(92vw, 420px); text-align: center;
+            font-size: 0.9rem;
+        }
+        .hub-toast.is-visible {
+            opacity: 1; transform: translateX(-50%) translateY(0);
+        }
+        .hub-modal-backdrop {
+            position: fixed; inset: 0; z-index: 90;
+            background: rgba(2,6,23,0.72);
+            display: none; align-items: center; justify-content: center;
+            padding: 20px;
+        }
+        .hub-modal-backdrop.is-open { display: flex; }
+        .hub-modal {
+            width: min(480px, 100%);
+            background: #0b1220;
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 18px;
+            padding: 22px;
+        }
+        [data-theme="light"] .hub-modal {
+            background: #fff;
+            border-color: rgba(15,23,42,0.1);
+        }
+        .hub-modal h3 { margin: 0 0 10px; font-size: 1.2rem; }
+        .hub-modal p { margin: 0 0 12px; color: var(--stats-muted); line-height: 1.45; font-size: 0.92rem; }
+        .hub-modal label {
+            display: flex; gap: 10px; align-items: flex-start;
+            font-size: 0.88rem; margin: 14px 0 18px; cursor: pointer;
+        }
+        .hub-modal-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+        .reveal {
+            opacity: 0; transform: translateY(20px);
+            transition: opacity 0.6s ease, transform 0.6s cubic-bezier(.2,.8,.2,1);
+        }
+        .reveal.is-in { opacity: 1; transform: none; }
+        .reveal-delay-1 { transition-delay: 0.08s; }
+        .reveal-delay-2 { transition-delay: 0.16s; }
+        @media (prefers-reduced-motion: reduce) {
+            .reveal { opacity: 1; transform: none; transition: none; }
+            html { scroll-behavior: auto; }
+        }
+    </style>
+</head>
+<body>
+<div class="dashboard-wrapper">
+    <nav class="stats-nav">
+        <div class="logo-mini">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+            MetaKavita
+        </div>
+        <div class="hub-tabs" role="tablist">
+            <a class="hub-tab {% if active_tab == 'manage' %}is-active{% endif %}"
+               href="{{ url_for('scrapers_manage.manage') }}">{{ t.scraper_tab_manage }}</a>
+            <a class="hub-tab {% if active_tab == 'store' %}is-active{% endif %}"
+               href="{{ url_for('scrapers_manage.store') }}">{{ t.scraper_tab_store }}</a>
+        </div>
+        <div class="stats-nav-actions">
+            <button type="button" class="btn-secondary" onclick="toggleTheme()" aria-label="Theme">◐</button>
+            <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.stats_back }}</a>
+        </div>
+    </nav>
+
+    <main class="content">
+        <section class="hub-chapter {% if active_tab == 'store' %}hub-chapter--store{% endif %}">
+            <div class="chapter-inner">
+                <p class="chapter-kicker reveal">{{ t.scraper_hub_kicker }}</p>
+                {% if active_tab == 'manage' %}
+                <h1 class="chapter-title reveal reveal-delay-1">{{ t.scraper_manage_hero }}</h1>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.scraper_manage_sub }}</p>
+                <div class="hub-toolbar reveal reveal-delay-2">
+                    <input type="search" id="hubSearch" placeholder="{{ t.scraper_filter_search }}" autocomplete="off">
+                    <select id="hubType" aria-label="{{ t.scraper_filter_type }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="Manga">Manga</option>
+                        <option value="Comic">Comic</option>
+                        <option value="Book">Book</option>
+                    </select>
+                    <select id="hubScope" aria-label="{{ t.scraper_filter_scope }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="series">{{ t.scraper_scope_series }}</option>
+                        <option value="volume">{{ t.scraper_scope_volume }}</option>
+                    </select>
+                    <a class="btn-primary block-link" href="{{ url_for('scrapers_manage.store') }}">{{ t.scraper_open_store }}</a>
+                </div>
+                {% else %}
+                <h1 class="chapter-title reveal reveal-delay-1">{{ t.scraper_store_hero }}</h1>
+                <p class="chapter-sub reveal reveal-delay-2">{{ t.scraper_store_sub }}</p>
+                <div class="hub-toolbar reveal reveal-delay-2">
+                    <input type="search" id="hubSearch" placeholder="{{ t.scraper_filter_search }}" autocomplete="off">
+                    <select id="hubType" aria-label="{{ t.scraper_filter_type }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="Manga">Manga</option>
+                        <option value="Comic">Comic</option>
+                        <option value="Book">Book</option>
+                    </select>
+                    <select id="hubScope" aria-label="{{ t.scraper_filter_scope }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="series">{{ t.scraper_scope_series }}</option>
+                        <option value="volume">{{ t.scraper_scope_volume }}</option>
+                    </select>
+                    <select id="hubStatus" aria-label="{{ t.scraper_filter_status }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="stable">stable</option>
+                        <option value="beta">beta</option>
+                        <option value="limited">limited</option>
+                        <option value="untested">untested</option>
+                        <option value="retired">{{ t.scraper_retired_badge }}</option>
+                    </select>
+                    <select id="hubGrade" aria-label="{{ t.scraper_filter_grade }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="A">A</option>
+                        <option value="B">B</option>
+                        <option value="C">C</option>
+                        <option value="D">D</option>
+                        <option value="E">E</option>
+                    </select>
+                    <select id="hubCovers" aria-label="{{ t.scraper_filter_covers }}">
+                        <option value="">{{ t.scraper_filter_all }}</option>
+                        <option value="yes">{{ t.scraper_covers_yes }}</option>
+                        <option value="no">{{ t.scraper_covers_no }}</option>
+                    </select>
+                    <button type="button" class="btn-secondary" id="hubRefresh">{{ t.scraper_refresh_catalog }}</button>
+                    <a class="btn-secondary block-link" href="{{ url_for('scrapers_manage.manage') }}">{{ t.scraper_open_manage }}</a>
+                </div>
+                {% endif %}
+
+                <div class="hub-alerts" id="hubAlerts" hidden></div>
+                <div class="hub-grid reveal reveal-delay-2" id="hubGrid"></div>
+                <div class="hub-empty" id="hubEmpty" hidden>{{ t.scraper_empty_manage if active_tab == 'manage' else t.scraper_empty_store }}</div>
+            </div>
+        </section>
+    </main>
+</div>
+
+<div class="hub-toast" id="hubToast" role="status"></div>
+<div class="hub-modal-backdrop" id="hubModal" aria-hidden="true">
+    <div class="hub-modal" role="dialog" aria-modal="true" aria-labelledby="hubModalTitle">
+        <h3 id="hubModalTitle">{{ t.scraper_security_title }}</h3>
+        <p id="hubModalBody"></p>
+        <ul id="hubModalWarnings" style="margin:0 0 8px; padding-left:1.1rem; color:var(--stats-muted); font-size:0.86rem;"></ul>
+        <label>
+            <input type="checkbox" id="hubModalCheck">
+            <span>{{ t.scraper_security_check }}</span>
+        </label>
+        <div class="hub-modal-actions">
+            <button type="button" class="btn-secondary" id="hubModalCancel">{{ t.scraper_security_cancel }}</button>
+            <button type="button" class="btn-primary" id="hubModalConfirm" disabled>{{ t.scraper_security_continue }}</button>
+        </div>
+    </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+<script src="{{ url_for('static', filename='js/scraper_hub.js') }}"></script>
+</body>
+</html>

@@ -73,8 +73,8 @@ def proxy_image():
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
         }
 
-        for scraper in ScraperRegistry.get_all():
-            if any(domain == d or domain.endswith('.' + d) for d in scraper.proxy_domains):
+        for scraper in ScraperRegistry.get_all(include_disabled=True):
+            if any(domain == d or domain.endswith('.' + d) for d in getattr(scraper, 'proxy_domains', []) or []):
                 if getattr(scraper, 'proxy_referer', None):
                     headers["Referer"] = scraper.proxy_referer
                 break

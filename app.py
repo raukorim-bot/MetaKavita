@@ -273,6 +273,7 @@ from routes.sync import sync_bp
 from routes.misc import misc_bp
 from routes.manual_review import manual_review_bp
 from routes.diagnostics import diagnostics_bp
+from routes.scrapers_manage import scrapers_manage_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pages_bp)
@@ -282,6 +283,7 @@ app.register_blueprint(sync_bp)
 app.register_blueprint(misc_bp)
 app.register_blueprint(manual_review_bp)
 app.register_blueprint(diagnostics_bp)
+app.register_blueprint(scrapers_manage_bp)
 
 # --- ENREGISTREMENT DES HANDLERS SOCKET.IO (effet de bord Ã  l'import) ---
 import sockets.handlers  # noqa: F401
@@ -292,10 +294,12 @@ APP_VERSION = get_current_version()
 @app.context_processor
 def inject_globals():
     from csrf_utils import ensure_csrf_token
+    from scrapers import ScraperRegistry
     return {
         'app_version': APP_VERSION,
         'csrf_token': ensure_csrf_token(),
         'is_authenticated': is_authenticated(),
+        'proxy_cover_hosts': ScraperRegistry.get_proxy_cover_hosts(),
     }
 
 # --- DÃ‰MARRAGE DES WORKERS DE FOND (file de sync + auto-sync pÃ©riodique) ---

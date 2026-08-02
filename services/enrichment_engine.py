@@ -305,7 +305,7 @@ def _scrape_manual_candidates(
     if is_forced_id:
         if str(search_query).startswith("http://") or str(search_query).startswith("https://"):
             if forced_provider == "AUTO":
-                for s in ScraperRegistry.get_all():
+                for s in ScraperRegistry.get_all(scope="series"):
                     if s.extract_id_from_url(search_query):
                         forced_provider = s.id
                         break
@@ -638,7 +638,7 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         if is_forced_id:
             if search_query.startswith('http://') or search_query.startswith('https://'):
                 if forced_provider == 'AUTO':
-                    for s in ScraperRegistry.get_all():
+                    for s in ScraperRegistry.get_all(scope="series"):
                         if s.extract_id_from_url(search_query):
                             forced_provider = s.id
                             logging.info(t.get('log_auto_url_found', "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.").format(series_name, s.display_name))

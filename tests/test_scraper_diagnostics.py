@@ -353,7 +353,9 @@ def test_get_active_scraper_ids_dedupes_and_filters(monkeypatch):
     monkeypatch.setattr(
         diag.ScraperRegistry,
         "get",
-        lambda sid: SimpleNamespace(id=sid) if sid in {"ANILIST", "BEDETHEQUE", "BABELIO"} else None,
+        lambda sid, include_disabled=False: (
+            SimpleNamespace(id=sid) if sid in {"ANILIST", "BEDETHEQUE", "BABELIO"} else None
+        ),
     )
     ids = diag.get_active_scraper_ids({
         "PROVIDER_1": "ANILIST",
@@ -376,9 +378,13 @@ def test_resolve_probe_targets_active_scope(monkeypatch):
     monkeypatch.setattr(
         diag.ScraperRegistry,
         "get",
-        lambda sid: {"ANILIST": a, "BABELIO": b}.get(sid),
+        lambda sid, include_disabled=False: {"ANILIST": a, "BABELIO": b}.get(sid),
     )
-    monkeypatch.setattr(diag.ScraperRegistry, "get_all", lambda: [a, b, SimpleNamespace(id="KITSU")])
+    monkeypatch.setattr(
+        diag.ScraperRegistry,
+        "get_all",
+        lambda include_disabled=False, scope=None: [a, b, SimpleNamespace(id="KITSU")],
+    )
     active = diag.resolve_probe_targets({}, scope="active")
     assert [s.id for s in active] == ["ANILIST", "BABELIO"]
     all_targets = diag.resolve_probe_targets({}, scope="all")
@@ -402,7 +408,16 @@ def test_list_inventory_marks_active(monkeypatch):
             rate_limit=1.0,
         ),
     ]
-    monkeypatch.setattr(diag.ScraperRegistry, "get_all", lambda: scrapers)
+    monkeypatch.setattr(
+        diag.ScraperRegistry,
+        "get_all",
+        lambda include_disabled=False, scope=None: scrapers,
+    )
+    monkeypatch.setattr(
+        diag.ScraperRegistry,
+        "get",
+        lambda sid, include_disabled=False: next((s for s in scrapers if s.id == sid), None),
+    )
     monkeypatch.setattr(diag, "get_active_scraper_ids", lambda config=None: ["ANILIST"])
     monkeypatch.setattr(diag, "_has_api_key", lambda scraper, config: True)
     monkeypatch.setattr(diag, "_supports_covers", lambda scraper: True)
@@ -782,13 +797,19 @@ def test_preflight_route_ok(diag_client, monkeypatch):
 
 
 def test_probe_one_unknown_404(diag_client, monkeypatch):
-    monkeypatch.setattr("routes.diagnostics.ScraperRegistry.get", lambda sid: None)
+    monkeypatch.setattr(
+        "routes.diagnostics.ScraperRegistry.get",
+        lambda sid, include_disabled=False: None,
+    )
     res = diag_client.post("/api/scrapers/NOPE/probe")
     assert res.status_code == 404
 
 
 def test_probe_one_ok(diag_client, monkeypatch):
-    monkeypatch.setattr("routes.diagnostics.ScraperRegistry.get", lambda sid: SimpleNamespace(id=sid))
+    monkeypatch.setattr(
+        "routes.diagnostics.ScraperRegistry.get",
+        lambda sid, include_disabled=False: SimpleNamespace(id=sid),
+    )
     monkeypatch.setattr(
         "routes.diagnostics.probe_scraper",
         lambda sid, config=None: {
