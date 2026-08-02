@@ -168,8 +168,11 @@ def get_trusted_proxy_count() -> int:
         return 0
     if raw and raw != "1":
         logging.warning(
-            "[Auth] TRUSTED_PROXY_COUNT=%r non reconnu — seuls 0 et 1 sont gérés, "
-            "repli sur 1 (un reverse proxy de confiance).",
+            get_ui_translations().get(
+                "log_auth_proxy_count_unrecognized",
+                "[Auth] TRUSTED_PROXY_COUNT=%r unrecognized — only 0 and 1 are supported, "
+                "falling back to 1 (one trusted reverse proxy).",
+            ),
             raw,
         )
     return 1
@@ -226,8 +229,21 @@ def is_locked_out(ip=None):
     return remaining > 0, remaining
 
 
-def register_failed_attempt(ip=None):
-    """Incrémente le compteur d'échecs et retourne le nombre de tentatives."""
+def _username_for_log(username):
+    """Username soumis, pour audit — jamais le mot de passe. Truncate + strip."""
+    s = (username or "").strip().replace("\n", " ").replace("\r", "")
+    if not s:
+        return "-"
+    return s[:64]
+
+
+def register_failed_attempt(ip=None, username=None):
+    """Incrémente le compteur d'échecs et retourne le nombre de tentatives.
+
+    INFO à chaque tentative (user soumis + IP + compteur) ; WARNING inchangé
+    au seuil IP / global. `username` est optionnel pour ne pas casser les
+    appelants unitaires qui ne passent que l'IP.
+    """
     now = _now()
     ip = ip or _client_ip()
     attempts, _ = _failed_attempts.get(ip, (0, 0.0))
@@ -237,24 +253,56 @@ def register_failed_attempt(ip=None):
     _prune_failed_attempts(now)
     _global_lockout_remaining(now)  # purge la fenêtre glissante
 
+    logging.info(
+        get_ui_translations().get(
+            "log_auth_failed_attempt",
+            "[Auth] Failed login for user %r from %s (attempt %s/%s).",
+        ),
+        _username_for_log(username),
+        ip,
+        attempts,
+        MAX_FAILED_ATTEMPTS,
+    )
+
     if attempts >= MAX_FAILED_ATTEMPTS:
         logging.warning(
-            "🚨 [Sécurité] %s tentatives de connexion échouées depuis %s — "
-            "verrouillage %s minutes.",
+            get_ui_translations().get(
+                "log_security_lockout_ip",
+                "🚨 [Security] %s failed login attempts from %s — lockout %s minutes.",
+            ),
             attempts, ip, LOCKOUT_SECONDS // 60,
         )
     elif len(_global_failures) >= GLOBAL_MAX_FAILED_ATTEMPTS:
         # Ce cas-là signale presque toujours une rotation d'adresses : le seuil
         # global est atteint alors qu'aucune IP n'a échoué 5 fois.
         logging.warning(
-            "🚨 [Sécurité] %s tentatives de connexion échouées toutes adresses "
-            "confondues en moins de %s minutes — verrouillage global. Si cette "
-            "instance n'est pas derrière un reverse proxy, posez "
-            "TRUSTED_PROXY_COUNT=0 pour que le verrouillage par IP redevienne "
-            "fiable.",
+            get_ui_translations().get(
+                "log_security_lockout_global",
+                "🚨 [Security] %s failed login attempts across all addresses in under "
+                "%s minutes — global lockout. If this instance is not behind a reverse "
+                "proxy, set TRUSTED_PROXY_COUNT=0 so per-IP lockout is reliable again.",
+            ),
             len(_global_failures), LOCKOUT_SECONDS // 60,
         )
     return attempts
+
+
+def log_lockout_reject(username=None, remaining_seconds=0):
+    """INFO quand une requête est refusée parce que le verrou est déjà actif.
+
+    N'incrémente pas les compteurs (le lockout est consulté avant verify) —
+    audit seulement, pour distinguer « mauvais mot de passe » / CSRF / lockout.
+    """
+    minutes = max(1, (int(remaining_seconds or 0) + 59) // 60)
+    logging.info(
+        get_ui_translations().get(
+            "log_auth_lockout_reject",
+            "[Auth] Login rejected (lockout) for user %r from %s — ~%s min remaining.",
+        ),
+        _username_for_log(username),
+        _client_ip(),
+        minutes,
+    )
 
 
 def clear_failed_attempts(ip=None):

@@ -10,6 +10,7 @@ from kavita_constants import AGE_RATING_MAP
 # Entiers Kavita (AgeRating.cs / GET /api/metadata/age-ratings).
 _EVERYONE = 3
 _TEEN = 8
+_MATURE_17 = 10
 _R18_PLUS = 12
 _X18_PLUS = 14
 
@@ -20,6 +21,10 @@ _LEGACY_WRONG = {1, 2, 4}  # Rating Pending, Early Childhood, G
 def test_age_rating_map_targets_kavita_enum():
     assert AGE_RATING_MAP["safe"] == _EVERYONE
     assert AGE_RATING_MAP["suggestive"] == _TEEN
+    assert AGE_RATING_MAP["mature"] == _MATURE_17
+    assert AGE_RATING_MAP["r18"] == _R18_PLUS
+    assert AGE_RATING_MAP["x18"] == _X18_PLUS
+    # Deprecated aliases still map to the same Kavita ints.
     assert AGE_RATING_MAP["erotica"] == _R18_PLUS
     assert AGE_RATING_MAP["pornographic"] == _X18_PLUS
 
@@ -30,4 +35,7 @@ def test_age_rating_map_rejects_legacy_mangadex_ints():
 
 
 def test_age_rating_map_keys_are_scraper_contract():
-    assert set(AGE_RATING_MAP) == {"safe", "suggestive", "erotica", "pornographic"}
+    assert set(AGE_RATING_MAP) == {
+        "safe", "suggestive", "mature", "r18", "x18",
+        "erotica", "pornographic",
+    }

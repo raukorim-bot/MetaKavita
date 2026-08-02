@@ -138,10 +138,12 @@ Pour les listes de catégories (`TagDto`) et de personnes (`PersonDto`), fournir
 ### B. Classification d'Âge (`ageRating`)
 Enum Kavita réel (`API/Entities/Enums/AgeRating.cs`, aussi exposé par
 `GET /api/metadata/age-ratings`). **Ne pas confondre** avec le vocabulaire
-interne MetaKavita (`safe` / `suggestive` / `erotica` / `pornographic`) que les
-scrapers émettent — la conversion vit uniquement dans
-`kavita_constants.AGE_RATING_MAP` (`safe→3`, `suggestive→8`, `erotica→12`,
-`pornographic→14`).
+interne MetaKavita (`safe` / `suggestive` / `mature` / `r18` / `x18` ;
+aliases dépréciés `erotica`→`r18`, `pornographic`→`x18`) que les scrapers
+émettent — la conversion vit uniquement dans
+`kavita_constants.AGE_RATING_MAP` (`safe→3`, `suggestive→8`, `mature→10`,
+`r18→12`, `x18→14`). `r18` = 18+ restreint (pas forcément porno) ; `x18` =
+explicite sexuel. Tags `hentai`/`futanari` peuvent forcer `x18` (BF81).
 
 * `-1` = **Not Applicable** (restriction de profil uniquement)
 * `0` = **Unknown**

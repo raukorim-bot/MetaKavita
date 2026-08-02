@@ -28,15 +28,19 @@ PUBLICATION_STATUS_MAP = {
 
 # --- CLASSIFICATION D'ÂGE (Series/metadata -> ageRating) ---
 # Enum Kavita réel (AgeRating.cs / GET /api/metadata/age-ratings) — PAS les
-# content ratings MangaDex. Les scrapers émettent un vocabulaire interne
-# ("safe" / "suggestive" / "erotica" / "pornographic") ; ce dict seul convertit
-# vers l'entier Kavita écrit par services/kavita_payload.py.
-# Voir kavita_api.md section 3.B et DEVELOPER.md (AGE_RATING_MAP / BF53).
+# content ratings MangaDex. Vocabulaire interne neutre (BF81) :
+#   safe / suggestive / mature / r18 / x18
+# Aliases deprecated (MangaDex-shaped) : erotica→r18, pornographic→x18.
+# Voir kavita_api.md §3.B et DEVELOPER.md (AGE_RATING_MAP / BF53 / BF80 / BF81).
 AGE_RATING_MAP = {
-    "safe": 3,           # Everyone
-    "suggestive": 8,     # Teen
-    "erotica": 12,       # R18+
-    "pornographic": 14,  # X18+
+    "safe": 3,            # Everyone
+    "suggestive": 8,      # Teen
+    "mature": 10,         # Mature 17+ (intense / themes, not explicit sexual)
+    "r18": 12,            # R18+ (adult restricted — not necessarily porn)
+    "x18": 14,            # X18+ (explicit sexual / hentai)
+    # Deprecated aliases — still accepted from scrapers / community:
+    "erotica": 12,        # → r18
+    "pornographic": 14,   # → x18
 }
 
 # --- NORMALISATION DES STATUTS BRUTS FOURNISSEURS ---

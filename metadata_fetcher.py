@@ -1,4 +1,5 @@
 import logging
+import re
 import sys
 import threading
 import time
@@ -85,9 +86,61 @@ def _safe_match_score(candidate):
     return max(0.0, min(1.0, score))
 
 
+# BF68/BF77/BF81 Auto tie-break only — not a global NSFW ban.
+# r18/x18 are the canonical crans; erotica/pornographic remain aliases.
+_EXPLICIT_ADULT_AGES = frozenset({"r18", "x18", "erotica", "pornographic"})
+_X18_AGES = frozenset({"x18", "pornographic"})
+# Unambiguous genre/tag tokens (whole label or alphanumeric word). Keep tight.
+_EXPLICIT_ADULT_LABELS = frozenset({"hentai", "futanari"})
+
+
+def _has_explicit_adult_labels(data) -> bool:
+    """True when genres/tags contain hentai or futanari (word/token match)."""
+    if not data:
+        return False
+    labels = _as_str_list(data.get("genres"), limit=64) + _as_str_list(data.get("tags"), limit=64)
+    for label in labels:
+        norm = label.casefold().strip()
+        if not norm:
+            continue
+        if norm in _EXPLICIT_ADULT_LABELS:
+            return True
+        for token in re.findall(r"[a-z0-9]+", norm):
+            if token in _EXPLICIT_ADULT_LABELS:
+                return True
+    return False
+
+
 def _is_explicit_adult(data) -> bool:
-    """True when age_rating is pornographic or erotica (BF68 tie-break only)."""
-    return str((data or {}).get("age_rating") or "").lower() in ("pornographic", "erotica")
+    """True when a candidate is r18/x18 (or alias) or has hentai/futanari labels.
+
+    Used only for Auto score-tie demotion (BF68/BF77). ``mature`` is not
+    demoted. After BF81 ``apply_explicit_label_age``, Hentai-tagged candidates
+    carry ``x18`` so age and labels stay aligned for the write path.
+    """
+    if not data:
+        return False
+    if str(data.get("age_rating") or "").strip().lower() in _EXPLICIT_ADULT_AGES:
+        return True
+    return _has_explicit_adult_labels(data)
+
+
+def apply_explicit_label_age(data):
+    """Force ``age_rating`` to ``x18`` when hentai/futanari labels are present.
+
+    Fill if empty, escalate if a lower cran was already set. Never downgrades.
+    No-op when already ``x18``/``pornographic`` or when labels are absent.
+    Mutates ``data`` in place; returns ``data`` (or None if falsy).
+    """
+    if not data:
+        return None
+    if not _has_explicit_adult_labels(data):
+        return data
+    current = str(data.get("age_rating") or "").strip().lower()
+    if current in _X18_AGES:
+        return data
+    data["age_rating"] = "x18"
+    return data
 
 
 _FUSION_SKIP_KEYS = (
@@ -621,6 +674,8 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 _, data = call_provider(p, current_query, is_id_search_forced, current_existing)
                 if not data or not has_useful_data(data):
                     continue
+                # BF81: hentai/futanari → x18 (does not affect match selection here).
+                data = apply_explicit_label_age(data) or data
                 apply_accepted([(idx, p, data)])
                 # Continuer la boucle uniquement pour la fusion / accumulation d'IDs ;
                 # sans smart_fusion, absorb_candidate a déjà été fait et master_data
@@ -662,6 +717,12 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         if not accepted:
             return
 
+        # BF81: hentai/futanari → x18 before sort/apply (scores unchanged).
+        accepted = [
+            (idx, p, apply_explicit_label_age(data) or data)
+            for idx, p, data in accepted
+        ]
+
         # Meilleur score gagne. Auto (non-return_candidates) : égalité →
         # non-adult d'abord (BF68), puis ordre de fallback. MR/return_candidates :
         # tri neutre (-score, idx) uniquement — pas de dépriorisation NSFW.
@@ -688,7 +749,10 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 and any(_is_explicit_adult(e[2]) for e in tie)
                 and any(not _is_explicit_adult(e[2]) for e in tie)
             )
-            if prefer_safe:
+            # Log only when the sorted winner is demonstrably non-adult (BF77):
+            # never claim "safer" if prefer_safe fired but the crown stayed adult.
+            winner_data = accepted[0][2]
+            if prefer_safe and not _is_explicit_adult(winner_data):
                 winner_provider = accepted[0][1]
                 msg = t.get(
                     "log_tiebreak_prefer_safe",

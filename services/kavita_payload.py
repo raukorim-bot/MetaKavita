@@ -54,10 +54,12 @@ def _broadcast_enrichment_stats(deltas):
 
 
 def _preview_list(values, limit=40):
+    """UI comma-list for genres/tags — same order-preserving dedupe as Kavita write (BF66)."""
     if not values:
         return ""
     if isinstance(values, str):
-        return values
+        parts = [p.strip() for p in values.replace(";", ",").split(",") if p.strip()]
+        return ", ".join(_dedupe_titles(parts)[:limit])
     out = []
     for v in values:
         if isinstance(v, str) and v.strip():
@@ -66,9 +68,7 @@ def _preview_list(values, limit=40):
             title = v.get("title") or v.get("name") or ""
             if title:
                 out.append(str(title).strip())
-        if len(out) >= limit:
-            break
-    return ", ".join(out)
+    return ", ".join(_dedupe_titles(out)[:limit])
 
 
 def _staff_preview(staff):

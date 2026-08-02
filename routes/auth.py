@@ -57,11 +57,12 @@ def setup():
         locked, remaining = auth_manager.is_locked_out()
         if locked:
             minutes = max(1, (remaining + 59) // 60)
+            auth_manager.log_lockout_reject(username=username, remaining_seconds=remaining)
             error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
         elif legacy_required and not auth_manager.verify_legacy_password(
             request.form.get('legacy_password', '')
         ):
-            auth_manager.register_failed_attempt()
+            auth_manager.register_failed_attempt(username=username)
             error = t.get('setup_err_legacy_password')
         elif password != confirm:
             error = t.get('setup_err_password_mismatch')
@@ -113,12 +114,14 @@ def login():
         # sinon chaque tentative continuerait de coûter un hachage complet, et
         # le verrou cesserait de protéger le CPU du worker unique.
         locked, remaining = auth_manager.is_locked_out()
+        username = request.form.get('username', '')
         if locked:
             minutes = max(1, (remaining + 59) // 60)
+            auth_manager.log_lockout_reject(username=username, remaining_seconds=remaining)
             error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
         else:
             user = auth_manager.verify_credentials(
-                request.form.get('username', ''),
+                username,
                 request.form.get('password', ''),
             )
             if user:
@@ -127,7 +130,7 @@ def login():
                 auth_manager.record_login(user['id'])
                 return redirect(url_for('pages.index'))
 
-            auth_manager.register_failed_attempt()
+            auth_manager.register_failed_attempt(username=username)
             # Message volontairement identique pour un utilisateur inconnu et un
             # mot de passe erroné : distinguer les deux revient à publier la
             # liste des comptes existants.
@@ -151,6 +154,10 @@ def change_password():
     locked, remaining = auth_manager.is_locked_out()
     if locked:
         minutes = max(1, (remaining + 59) // 60)
+        auth_manager.log_lockout_reject(
+            username=session.get("username"),
+            remaining_seconds=remaining,
+        )
         msg = (t.get('login_err_locked') or '').replace('{}', str(minutes))
         return jsonify(success=False, error=msg), 429
 
@@ -170,7 +177,9 @@ def change_password():
         # sans ça, un onglet resté ouvert deviendrait un oracle de brute-force
         # sans le verrouillage qui protège /login.
         if err_key == "account_err_wrong_current":
-            auth_manager.register_failed_attempt()
+            auth_manager.register_failed_attempt(
+                username=session.get("username"),
+            )
         return jsonify(success=False, error=t.get(err_key, t.get('account_err_generic'))), 400
 
     auth_manager.clear_failed_attempts()

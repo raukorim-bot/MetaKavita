@@ -62,6 +62,12 @@ def test_is_explicit_adult_helper():
     assert metadata_fetcher._is_explicit_adult({"age_rating": "safe"}) is False
     assert metadata_fetcher._is_explicit_adult({}) is False
     assert metadata_fetcher._is_explicit_adult(None) is False
+    # BF77: empty age + unambiguous genre/tag tokens
+    assert metadata_fetcher._is_explicit_adult({"genres": ["Hentai"], "tags": ["Futanari"]}) is True
+    assert metadata_fetcher._is_explicit_adult({"genres": [], "tags": ["Comedy", "Futanari"]}) is True
+    assert metadata_fetcher._is_explicit_adult({"genres": ["Hentai Manga"], "age_rating": ""}) is True
+    assert metadata_fetcher._is_explicit_adult({"genres": ["Comedy"], "tags": ["Fantasy"]}) is False
+    assert metadata_fetcher._is_explicit_adult({"genres": ["Ecchi"], "tags": ["Romance"]}) is False
 
 
 def test_sort_key_prefers_non_adult_on_equal_score():
@@ -350,6 +356,64 @@ def test_nr_p3_tie_adult_plus_safe_prefers_safe_and_logs(monkeypatch, caplog):
     assert result.get("_tie_review_payload")
     assert "preferring safer match" in caplog.text
     assert "SAFE" in caplog.text
+
+
+def test_nr_p6_kannagi_mangabaka_hentai_tags_demoted(monkeypatch, caplog):
+    """BF77 / #25 residual: empty age + Hentai/Futanari demotes like pornographic.
+
+    Replays Kannagi: MangaBaka (mirror, no age) + Kitsu (suggestive) + AniList
+    (pornographic) all at 1.00 — Auto must pick Kitsu, not MangaBaka.
+    """
+    scrapers = {
+        "MANGABAKA": _make_scraper(
+            "MANGABAKA",
+            lambda *a, **k: _useful(
+                "Kannagi",
+                1.0,
+                "",
+                genres=["Hentai"],
+                tags=["Futanari"],
+            ),
+        ),
+        "KITSU": _make_scraper(
+            "KITSU",
+            lambda *a, **k: _useful(
+                "Kannagi",
+                1.0,
+                "suggestive",
+                genres=["Comedy"],
+                tags=["Fantasy", "Harem"],
+            ),
+        ),
+        "ANILIST": _make_scraper(
+            "ANILIST",
+            lambda *a, **k: _useful(
+                "Kannagi",
+                1.0,
+                "pornographic",
+                genres=["Hentai"],
+                tags=["Futanari"],
+            ),
+        ),
+    }
+    _install_fake_registry(monkeypatch, scrapers)
+
+    with caplog.at_level(logging.INFO):
+        result, _ = metadata_fetcher.fetch_metadata(
+            query="Kannagi",
+            providers_list=["MANGABAKA", "KITSU", "ANILIST"],
+            smart_fusion=False,
+            library_type="Manga",
+            existing_metadata={},
+            smart_scoring=True,
+        )
+
+    assert result["_provider_used"] == "KITSU"
+    assert result.get("age_rating") == "suggestive"
+    assert result.get("_score_tie") is True
+    assert "preferring safer match" in caplog.text
+    assert "KITSU" in caplog.text
+    assert "preferring safer match (MANGABAKA)" not in caplog.text
 
 
 def test_nr_p4_return_candidates_keeps_adult_and_neutral_order(monkeypatch):

@@ -103,6 +103,7 @@ from auth_manager import (
     setup_gate,
 )
 from config_manager import load_config
+from translations import get_ui_translations
 from cors_config import (
     parse_cors_allowed_origins_detailed,
     log_cors_config,
@@ -120,8 +121,10 @@ _secret_key = (_boot_config.get("SECRET_KEY") or "").strip()
 if not _secret_key:
     _secret_key = secrets.token_hex(24)
     logging.error(
-        "[Security] SECRET_KEY absente aprÃ¨s load_config â€” clÃ© Ã©phÃ©mÃ¨re gÃ©nÃ©rÃ©e pour ce process uniquement. "
-        "VÃ©rifiez data/config.json."
+        get_ui_translations().get(
+            "log_security_secret_key_ephemeral",
+            "[Security] SECRET_KEY missing after load_config — ephemeral key generated for this process only. Check data/config.json.",
+        )
     )
 app.config['SECRET_KEY'] = _secret_key
 # Cookie de session : Lax rÃ©duit le CSRF cross-site classique ; Secure Ã  activer
@@ -162,8 +165,10 @@ if _trusted_proxies:
     )
 else:
     logging.info(
-        "[Security] TRUSTED_PROXY_COUNT=0 â€” en-tÃªtes X-Forwarded-* ignorÃ©s, "
-        "le verrouillage par IP s'appuie sur l'adresse TCP rÃ©elle."
+        get_ui_translations().get(
+            "log_security_proxy_count_zero",
+            "[Security] TRUSTED_PROXY_COUNT=0 — X-Forwarded-* headers ignored; IP lockout uses the real TCP peer address.",
+        )
     )
 
 root_path = os.environ.get('ROOT_PATH', '')

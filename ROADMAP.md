@@ -26,7 +26,12 @@
 
 ---
 
-### ✨ Latest Releases (v1.5.6 to v1.6.2)
+### ✨ Latest Releases (v1.5.6 to v1.6.3)
+- [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
+- [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
+- [x] **BF81. Neutral age crans + hentai/futanari → x18 (v1.6.3, #25/#29):** `r18`/`x18` (+ aliases); central escalate-to-x18 on hentai/futanari tags even if provider age set; NSFW demote still Auto-tie only.
+- [x] **BF80. Kitsu R → mature / Mature 17+ (v1.6.3, issue #29, thanks angusmaul):** Stop collapsing Kitsu `R`+`R18` into `pornographic`; add `mature→10`; `R→mature`, `R18→pornographic`.
+- [x] **BF77. Auto tie-break genre/tag adult signals (v1.6.3, issue #25, thanks angusmaul):** `_is_explicit_adult` also treats `hentai` / `futanari` genres & tags (MangaBaka empty-age mirror); prefer-safe log only if winner is non-adult.
 - [x] **C59. Community scrapers repository (v1.6.2):** Official plug-and-play scrapers live in [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Linked from Help menu, README EN/FR, and `CUSTOM_SCRAPERS.md` (still trust/read before install).
 - [x] **Scraper diagnostics UI (v1.6.2):** `/diagnostics` + probe APIs for Internet/Kavita preflight and per-scraper metadata/covers health.
 - [x] **BF56. Age safeguarding — no invented Everyone (v1.6.2):** Scrapers without an authoritative age signal omit `age_rating` instead of hardcoding `safe`; BDTheque maps Adulte/Érotique → `erotica` (not Teen), and « Ados - Adultes » stays `suggestive`. Prevents locking wrong Everyone/Teen on adult material (follow-up to BF53).
@@ -177,7 +182,12 @@
 
 ---
 
-### ✨ Dernières Nouveautés (v1.5.6 à v1.6.2)
+### ✨ Dernières Nouveautés (v1.5.6 à v1.6.3)
+- [x] **BF83. INFO CSRF rejeté + refus sous lockout actif (v1.6.3, merci angusmaul) :** distinguer mauvais MDP / CSRF / lockout dans les Live Logs.
+- [x] **BF82. INFO à chaque échec de login (v1.6.3, merci angusmaul) :** username + IP + compteur à chaque tentative ; WARNING lockout inchangé.
+- [x] **BF81. Crans d’âge neutres + hentai/futanari → x18 (v1.6.3, #25/#29) :** `r18`/`x18` (+ aliases) ; escalade centrale vers x18 si tags hentai/futanari même avec âge provider ; démotion NSFW = égalité Auto seulement.
+- [x] **BF80. Kitsu R → mature / Mature 17+ (v1.6.3, issue #29, merci angusmaul) :** plus de fusion `R`+`R18` → `pornographic` ; tier `mature→10` ; `R→mature`, `R18→pornographic`.
+- [x] **BF77. Tie-break Auto : signaux adult genres/tags (v1.6.3, issue #25, merci angusmaul) :** `_is_explicit_adult` traite aussi `hentai` / `futanari` ; log prefer-safe seulement si le vainqueur est non-adulte.
 - [x] **C59. Dépôt scrapers communautaires (v1.6.2) :** scrapers plug-and-play officiels dans [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Liens menu Aide, README EN/FR et `CUSTOM_SCRAPERS.md` (toujours lire / faire confiance avant install).
 - [x] **UI Diagnostic scrapers (v1.6.2) :** page `/diagnostics` + API de probes (préflight Internet/Kavita, santé metadata/covers par scraper).
 - [x] **BF56. Safeguarding âge — plus de Everyone inventé (v1.6.2) :** les scrapers sans signal d'âge autoritatif omettent `age_rating` au lieu de forcer `safe` ; BDTheque mappe Adulte/Érotique → `erotica` (pas Teen), et « Ados - Adultes » reste `suggestive`. Évite de verrouiller un faux Everyone/Teen sur du contenu adulte (suite de BF53).

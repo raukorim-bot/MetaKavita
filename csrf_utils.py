@@ -5,9 +5,13 @@ Exemptés : webhook (auth par jeton dédié), static, OPTIONS.
 Désactivé automatiquement si app.config['TESTING'] (suite pytest).
 """
 
+import logging
 import secrets
 
 from flask import session, request, jsonify, current_app
+
+import auth_manager
+from translations import get_ui_translations
 
 
 CSRF_SESSION_KEY = "_csrf_token"
@@ -61,6 +65,21 @@ def csrf_protect_before_request():
         return None
     if validate_csrf():
         return None
+
+    # Audit INFO — distingue un 403 CSRF d'un mauvais mot de passe / lockout.
+    # Jamais le jeton lui-même (ni attendu ni soumis).
+    username = request.form.get("username") or session.get("username")
+    logging.info(
+        get_ui_translations().get(
+            "log_security_csrf_rejected",
+            "[Security] CSRF rejected — %s %s from %s (user %r).",
+        ),
+        request.method,
+        request.path,
+        auth_manager._client_ip(),
+        auth_manager._username_for_log(username),
+    )
+
     # HTML form login → message simple ; API/AJAX → JSON
     wants_json = (
         request.accept_mimetypes.best == "application/json"

@@ -1,6 +1,6 @@
 """BF66 — Dedupe tags/genres (case-insensitive) before MAX_* caps."""
 
-from services.kavita_payload import _dedupe_titles, build_kavita_payload
+from services.kavita_payload import _dedupe_titles, build_kavita_payload, build_preview_fields
 
 
 def test_nr_g1_unique_tags_genres_noop(monkeypatch):
@@ -69,3 +69,16 @@ def test_dedupe_titles_helper_order_and_empty():
     assert _dedupe_titles(["A", "a", "", "  ", "B", "b "]) == ["A", "B"]
     assert _dedupe_titles(None) == []
     assert _dedupe_titles([]) == []
+
+
+def test_preview_fields_dedupe_tags_genres():
+    """Confirm/MR preview must match payload dedupe (no duplicate France in UI)."""
+    preview = build_preview_fields(
+        {
+            "tags": ["Europe", "France", "Foreign", "France", "Art"],
+            "genres": ["Action", "action", "Comedy"],
+            "summary": "x",
+        }
+    )
+    assert preview["tags"] == "Europe, France, Foreign, Art"
+    assert preview["genres"] == "Action, Comedy"

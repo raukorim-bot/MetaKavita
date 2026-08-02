@@ -730,6 +730,14 @@ translations = {
         "log_cors_star_ignored": "⚠️ [CORS] L'origine '*' est ignorée : incompatible avec Access-Control-Allow-Credentials. Utilisez des origins explicites (ex: https://metakavita.home.local.ltd).",
         "log_cors_whitelist": "🌐 [CORS] Whitelist active : %s",
         "log_cors_same_origin": "🌐 [CORS] Same-Origin (CORS_ALLOWED_ORIGINS vide ou absent — aucune origine cross-origin autorisée).",
+        "log_security_proxy_count_zero": "[Security] TRUSTED_PROXY_COUNT=0 — en-têtes X-Forwarded-* ignorés, le verrouillage par IP s'appuie sur l'adresse TCP réelle.",
+        "log_security_secret_key_ephemeral": "[Security] SECRET_KEY absente après load_config — clé éphémère générée pour ce process uniquement. Vérifiez data/config.json.",
+        "log_auth_proxy_count_unrecognized": "[Auth] TRUSTED_PROXY_COUNT=%r non reconnu — seuls 0 et 1 sont gérés, repli sur 1 (un reverse proxy de confiance).",
+        "log_auth_failed_attempt": "[Auth] Échec de connexion pour l'utilisateur %r depuis %s (tentative %s/%s).",
+        "log_auth_lockout_reject": "[Auth] Connexion refusée (verrouillage) pour l'utilisateur %r depuis %s — ~%s min restantes.",
+        "log_security_csrf_rejected": "[Sécurité] CSRF rejeté — %s %s depuis %s (utilisateur %r).",
+        "log_security_lockout_ip": "🚨 [Sécurité] %s tentatives de connexion échouées depuis %s — verrouillage %s minutes.",
+        "log_security_lockout_global": "🚨 [Sécurité] %s tentatives de connexion échouées toutes adresses confondues en moins de %s minutes — verrouillage global. Si cette instance n'est pas derrière un reverse proxy, posez TRUSTED_PROXY_COUNT=0 pour que le verrouillage par IP redevienne fiable.",
 
         # --- 12. LIVE LOGS OPS ---
         "msg_success": "Succès",
@@ -1567,6 +1575,14 @@ translations = {
         "log_cors_star_ignored": "⚠️ [CORS] Origin '*' is ignored: incompatible with Access-Control-Allow-Credentials. Use explicit origins (e.g. https://metakavita.home.local.ltd).",
         "log_cors_whitelist": "🌐 [CORS] Whitelist active: %s",
         "log_cors_same_origin": "🌐 [CORS] Same-Origin (CORS_ALLOWED_ORIGINS empty or missing — no cross-origin allowed).",
+        "log_security_proxy_count_zero": "[Security] TRUSTED_PROXY_COUNT=0 — X-Forwarded-* headers ignored; IP lockout uses the real TCP peer address.",
+        "log_security_secret_key_ephemeral": "[Security] SECRET_KEY missing after load_config — ephemeral key generated for this process only. Check data/config.json.",
+        "log_auth_proxy_count_unrecognized": "[Auth] TRUSTED_PROXY_COUNT=%r unrecognized — only 0 and 1 are supported, falling back to 1 (one trusted reverse proxy).",
+        "log_auth_failed_attempt": "[Auth] Failed login for user %r from %s (attempt %s/%s).",
+        "log_auth_lockout_reject": "[Auth] Login rejected (lockout) for user %r from %s — ~%s min remaining.",
+        "log_security_csrf_rejected": "[Security] CSRF rejected — %s %s from %s (user %r).",
+        "log_security_lockout_ip": "🚨 [Security] %s failed login attempts from %s — lockout %s minutes.",
+        "log_security_lockout_global": "🚨 [Security] %s failed login attempts across all addresses in under %s minutes — global lockout. If this instance is not behind a reverse proxy, set TRUSTED_PROXY_COUNT=0 so per-IP lockout is reliable again.",
 
         # --- 12. LIVE LOGS OPS ---
         "msg_success": "Success",

@@ -63,14 +63,19 @@ class KitsuScraper(BaseScraper):
         elif manga_type == 'manga':
             format_type = 'manga'
 
-        # BF56: n'émettre un âge que si Kitsu fournit un guide explicite.
+        # BF56/BF80: emit only for known Kitsu ageRating tokens (G/PG/R/R18).
+        # R = mature/17+ (violence, themes) ≠ R18 (explicit). Do not collapse
+        # both to pornographic — that wrote X18+ onto mainstream series (#29).
+        # ageRatingGuide is free-text and often null; it is not required to emit.
         age_rating = ""
-        raw_age = attrs.get('ageRating', '') or ''
-        if raw_age in ['R', 'R18']:
+        raw_age = (attrs.get("ageRating") or "").strip().upper()
+        if raw_age == "R18":
             age_rating = "pornographic"
-        elif raw_age == 'PG':
+        elif raw_age == "R":
+            age_rating = "mature"
+        elif raw_age == "PG":
             age_rating = "suggestive"
-        elif raw_age == 'G':
+        elif raw_age == "G":
             age_rating = "safe"
 
         tags = []
