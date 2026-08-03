@@ -298,6 +298,26 @@ def test_setup_rerun_available_when_authenticated(client):
     assert "KAVITA_URL" in html
 
 
+def test_setup_rerun_shows_saved_scraper_api_key_placeholders(client):
+    """Clés scrapers déjà en config → placeholder « enregistrée », pas un champ vide muet."""
+    import config_manager
+
+    assert _complete_setup(client).status_code == 302
+    config_manager.save_config({
+        **config_manager.load_config(),
+        "COMICVINE_API_KEY": "cv-already-there",
+        "HARDCOVER_API_KEY": "hc-already-there",
+    })
+    res = client.get("/setup")
+    assert res.status_code == 200
+    html = res.data.decode("utf-8", errors="replace")
+    assert 'name="COMICVINE_API_KEY"' in html
+    assert "enregistrée" in html or "saved" in html
+    # Le secret brut ne doit jamais être renvoyé dans le HTML
+    assert "cv-already-there" not in html
+    assert "hc-already-there" not in html
+
+
 def test_setup_rerun_updates_config_without_new_account(client):
     import config_manager
 
@@ -477,7 +497,11 @@ def test_setup_test_kavita_is_non_blocking_endpoint(client, monkeypatch):
     """Le probe échoue → JSON warn, pas d'écriture config ; Finish reste possible."""
     from kavita_api import KavitaAPI
 
-    monkeypatch.setattr(KavitaAPI, "authenticate", lambda self: False)
+    def _fail(self):
+        self.last_auth_error = "connection"
+        return False
+
+    monkeypatch.setattr(KavitaAPI, "authenticate", _fail)
 
     res = client.post("/setup/test-kavita", data={
         "KAVITA_URL": "http://kavita.test",
@@ -487,12 +511,67 @@ def test_setup_test_kavita_is_non_blocking_endpoint(client, monkeypatch):
     assert res.status_code == 200
     body = res.get_json()
     assert body["ok"] is False
-    assert "bibliothèques" in (body.get("message") or "").lower() or "libraries" in (
-        body.get("message") or ""
-    ).lower()
+    assert body.get("error") == "connection"
+    msg = (body.get("message") or "").lower()
+    assert "joindre" in msg or "reach" in msg or "connection" in msg
 
     # Finish avec les mêmes creds (probe non requis côté serveur)
     assert _complete_setup(client).status_code == 302
+
+
+def test_setup_test_kavita_uses_saved_key_when_blank(client, monkeypatch):
+    """Rerun : champ clé vide → probe avec la clé déjà en config."""
+    from kavita_api import KavitaAPI
+
+    assert _complete_setup(client).status_code == 302
+    seen = {}
+
+    def _ok(self):
+        seen["key"] = self.api_key
+        seen["url"] = self.url
+        return True
+
+    monkeypatch.setattr(KavitaAPI, "authenticate", _ok)
+    res = client.post("/setup/test-kavita", data={
+        "KAVITA_URL": "http://kavita.from-form",
+        "KAVITA_API_KEY": "",
+        "UI_LANG": "fr",
+    })
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert seen.get("key") == "test-kavita-key"
+    assert seen.get("url") == "http://kavita.from-form"
+
+
+def test_setup_test_kavita_autofill_falls_back_to_saved_key(client, monkeypatch):
+    """Mot de passe autofill ≠ clé API → 401 puis succès avec la clé sauvée."""
+    from kavita_api import KavitaAPI
+
+    assert _complete_setup(client).status_code == 302
+    calls = []
+
+    def _auth(self):
+        calls.append(self.api_key)
+        if self.api_key == "test-kavita-key":
+            return True
+        self.last_auth_error = "http_401"
+        return False
+
+    monkeypatch.setattr(KavitaAPI, "authenticate", _auth)
+    res = client.post("/setup/test-kavita", data={
+        "KAVITA_URL": "http://kavita.test",
+        "KAVITA_API_KEY": "correct horse",  # mdp MetaKavita autofill
+        "UI_LANG": "fr",
+    })
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is True
+    assert body.get("used_saved_key") is True
+    assert calls == ["correct horse", "test-kavita-key"]
+    assert "autofill" in (body.get("message") or "").lower() or "enregistrée" in (
+        body.get("message") or ""
+    ).lower()
 
 
 def test_setup_page_renders_wizard(client):
@@ -502,6 +581,9 @@ def test_setup_page_renders_wizard(client):
     assert "setupForm" in html
     assert "KAVITA_URL" in html
     assert "AUTO_SYNC_INTERVAL" in html
+    # Dock d'actions hors zone scroll (évite boutons coupés sous la taskbar).
+    assert 'id="setupDock"' in html
+    assert "setup-html" in html
 
 
 def test_setup_csrf_token_not_blanked_by_context(auth_app):

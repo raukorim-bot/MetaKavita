@@ -198,6 +198,10 @@ def _setup_context(
         s for s in ScraperRegistry.get_all(scope="series")
         if getattr(s, 'needs_api_key', False)
     ]
+    scraper_has_api_key = {
+        s.id: bool((config.get(f'{s.id}_API_KEY') or '').strip())
+        for s in scrapers_with_keys
+    }
     manga_providers = [
         {"id": s.id, "display_name": s.localized_display_name}
         for s in ScraperRegistry.get_by_type("Manga")
@@ -225,6 +229,7 @@ def _setup_context(
         min_password_length=auth_manager.MIN_PASSWORD_LENGTH,
         legacy_required=legacy_required,
         scrapers_with_keys=scrapers_with_keys,
+        scraper_has_api_key=scraper_has_api_key,
         manga_providers=manga_providers,
         comic_providers=comic_providers,
         book_providers=book_providers,
@@ -235,6 +240,8 @@ def _setup_context(
         resume_step=0,
         setup_rerun=setup_rerun,
         has_kavita_api_key=bool((config.get('KAVITA_API_KEY') or '').strip()),
+        has_deepl_api_key=bool((config.get('DEEPL_API_KEY') or '').strip()),
+        has_azure_api_key=bool((config.get('AZURE_API_KEY') or '').strip()),
         first_step=1 if setup_rerun else 0,
     )
 
@@ -381,6 +388,27 @@ def setup():
     return render_template('setup.html', **ctx)
 
 
+def _kavita_probe_fail_message(t, detail: str) -> str:
+    """Message UI pour un code last_auth_error (aligné Config / diagnostics)."""
+    err_map = {
+        'missing': 'setup_kavita_test_missing',
+        'localhost': 'err_kavita_localhost',
+        'http_401': 'err_kavita_unauthorized',
+        'timeout': 'err_kavita_timeout',
+        'dns': 'err_kavita_dns',
+        'connection': 'err_kavita_connection',
+        'ssl': 'err_kavita_ssl',
+    }
+    key = err_map.get(detail)
+    if key:
+        return t.get(key) or t.get('err_kavita', 'Connexion à Kavita échouée.')
+    return t.get(
+        'setup_kavita_warn_libs',
+        'Connexion Kavita échouée — les bibliothèques ne pourront pas être chargées '
+        'tant que l’URL ou la clé ne seront pas corrigées (Config).',
+    )
+
+
 @auth_bp.route('/setup/test-kavita', methods=['POST'])
 def setup_test_kavita():
     """Ping auth Kavita pendant le wizard — n'écrit pas la config."""
@@ -391,10 +419,12 @@ def setup_test_kavita():
     t, config = _t(lang_arg)
 
     url = request.form.get('KAVITA_URL', '').strip().rstrip('/')
-    key = request.form.get('KAVITA_API_KEY', '').strip()
-    # Rerun : champ vide = utiliser la clé déjà enregistrée.
-    if not key and auth_manager.is_authenticated():
-        key = (config.get('KAVITA_API_KEY') or '').strip()
+    submitted_key = request.form.get('KAVITA_API_KEY', '').strip()
+    saved_key = (config.get('KAVITA_API_KEY') or '').strip()
+    # Champ vide = clé déjà enregistrée (rerun / Config).
+    key = submitted_key or (
+        saved_key if auth_manager.is_authenticated() else ''
+    )
     if not url or not key:
         return jsonify(
             ok=False,
@@ -407,20 +437,36 @@ def setup_test_kavita():
 
         probe = KavitaAPI(url, key)
         ok = bool(probe.authenticate())
+        # Rerun : le navigateur autofill souvent le mot de passe MetaKavita
+        # dans le seul champ type=password (clé API). Si la valeur tapée est
+        # refusée mais la clé sauvée fonctionne, on la privilégie.
+        used_saved_fallback = False
+        if (
+            not ok
+            and submitted_key
+            and saved_key
+            and submitted_key != saved_key
+            and auth_manager.is_authenticated()
+            and getattr(probe, 'last_auth_error', None) == 'http_401'
+        ):
+            probe_saved = KavitaAPI(url, saved_key)
+            if probe_saved.authenticate():
+                ok = True
+                used_saved_fallback = True
         if ok:
-            return jsonify(
-                ok=True,
-                message=t.get('setup_kavita_test_ok', 'Connexion Kavita réussie.'),
-            )
+            msg = t.get('setup_kavita_test_ok', 'Connexion Kavita réussie.')
+            if used_saved_fallback:
+                msg = t.get(
+                    'setup_kavita_test_ok_saved_key',
+                    'Connexion OK avec la clé enregistrée '
+                    '(le champ contenait probablement un mot de passe autofill — laissez-le vide).',
+                )
+            return jsonify(ok=True, message=msg, used_saved_key=used_saved_fallback)
         detail = getattr(probe, 'last_auth_error', None) or 'unknown'
         return jsonify(
             ok=False,
             error=detail,
-            message=t.get(
-                'setup_kavita_warn_libs',
-                'Connexion Kavita échouée — les bibliothèques ne pourront pas être chargées '
-                'tant que l’URL ou la clé ne seront pas corrigées (Config).',
-            ),
+            message=_kavita_probe_fail_message(t, detail),
         )
     except Exception as exc:
         logging.warning(
@@ -430,11 +476,7 @@ def setup_test_kavita():
         return jsonify(
             ok=False,
             error='unknown',
-            message=t.get(
-                'setup_kavita_warn_libs',
-                'Connexion Kavita échouée — les bibliothèques ne pourront pas être chargées '
-                'tant que l’URL ou la clé ne seront pas corrigées (Config).',
-            ),
+            message=_kavita_probe_fail_message(t, 'unknown'),
         )
 
 

@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ wizard_lang }}" data-theme="dark">
+<html lang="{{ wizard_lang }}" data-theme="dark" class="setup-html">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -7,7 +7,10 @@
     <title>MetaKavita - {{ t.setup_wizard_title }}</title>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-    <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');</script>
+    <script>
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+        window.ROOT_PATH = "{{ request.script_root }}";
+    </script>
     <style>
         :root {
             --su-teal: #2dd4bf;
@@ -18,16 +21,27 @@
             --su-card: rgba(15, 23, 42, 0.72);
             --su-line: rgba(255,255,255,0.08);
         }
-        html, body { min-height: 100%; }
+        /* style.css : body { height:100vh; overflow:hidden } — on reprend le layout ici.
+           100svh = viewport « petit » (chrome navigateur + taskbar Windows visibles). */
+        html.setup-html {
+            height: 100%;
+            overflow: hidden;
+        }
         body.setup-body {
             margin: 0;
             font-family: "Bricolage Grotesque", system-ui, sans-serif;
             background: #07090f;
             color: var(--su-ink);
             display: flex;
-            justify-content: center;
-            align-items: flex-start;
-            padding: 28px 14px 48px;
+            flex-direction: column;
+            align-items: center;
+            height: 100vh !important;
+            height: 100dvh !important;
+            height: 100svh !important;
+            max-height: 100svh;
+            overflow: hidden !important;
+            padding: 12px 14px 8px;
+            padding-bottom: calc(8px + env(safe-area-inset-bottom, 0px));
             box-sizing: border-box;
         }
         body.setup-body::before {
@@ -44,13 +58,20 @@
             position: relative;
             z-index: 1;
             width: min(640px, 100%);
+            flex: 1 1 auto;
+            min-height: 0;
+            max-height: 100%;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
         }
         .setup-brand {
             display: flex;
             align-items: center;
             justify-content: space-between;
             gap: 12px;
-            margin-bottom: 18px;
+            margin-bottom: 10px;
+            flex-shrink: 0;
         }
         .setup-brand-left {
             display: flex;
@@ -95,15 +116,28 @@
             background: var(--su-card);
             border: 1px solid var(--su-line);
             border-radius: 18px;
-            padding: 22px 22px 18px;
+            padding: 18px 22px 14px;
             backdrop-filter: blur(12px);
             box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+        .setup-card > #setupForm {
+            flex: 1 1 auto;
+            min-height: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
         }
         .setup-steps {
             display: flex;
             gap: 6px;
-            margin-bottom: 20px;
+            margin-bottom: 14px;
             flex-wrap: wrap;
+            flex-shrink: 0;
         }
         .setup-step-pill {
             flex: 1 1 0;
@@ -128,7 +162,31 @@
             color: var(--su-sky);
         }
         .setup-panel { display: none; }
-        .setup-panel.is-active { display: block; }
+        .setup-panel.is-active {
+            display: block;
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-x: hidden;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+            padding-right: 2px;
+        }
+        /* Zone d'actions hors scroll : toujours visible (Options / Cascades / …). */
+        .setup-dock {
+            flex-shrink: 0;
+            margin-top: 10px;
+            padding-top: 12px;
+            border-top: 1px solid var(--su-line);
+            background: rgba(15, 23, 42, 0.96);
+        }
+        .setup-dock:empty { display: none; }
+        .setup-dock .setup-actions {
+            margin: 0;
+            padding: 0;
+            border: none;
+            background: transparent;
+        }
         .setup-kicker {
             font-size: 0.72rem;
             font-weight: 700;
@@ -248,7 +306,15 @@
             display: flex;
             flex-wrap: wrap;
             gap: 10px;
-            margin-top: 18px;
+        }
+        .setup-cancel {
+            flex-shrink: 0;
+            margin: 8px 0 0;
+            text-align: center;
+        }
+        .setup-cancel a {
+            color: var(--su-muted);
+            font-size: 0.85rem;
         }
         .setup-actions .btn-primary,
         .setup-actions .btn-secondary {
@@ -330,6 +396,7 @@
                   data-first-step="{{ first_step|default(0) }}"
                   data-setup-rerun="{{ '1' if setup_rerun else '0' }}"
                   data-has-kavita-key="{{ '1' if has_kavita_api_key else '0' }}"
+                  data-test-kavita-url="{{ url_for('auth.setup_test_kavita') }}"
                   data-default-sync="{{ setup_auto_sync_default }}"
                   data-default-target="{{ default_target_lang }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -395,7 +462,8 @@
                     <div class="form-group">
                         <label for="kavita_api_key">{{ t.kavita_api }}</label>
                         <input type="password" name="KAVITA_API_KEY" id="kavita_api_key"
-                               autocomplete="off" data-lpignore="true" data-1p-ignore="true"
+                               autocomplete="new-password" data-lpignore="true" data-1p-ignore="true"
+                               data-form-type="other" readonly
                                placeholder="{% if has_kavita_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}">
                         {% if has_kavita_api_key %}
                         <span class="setup-hint">{{ t.api_key_keep_hint }}</span>
@@ -455,13 +523,23 @@
                     <div id="deepl_fields" class="nested-fields" style="display:none;">
                         <div class="form-group">
                             <label for="deepl_api_key">{{ t.deepl_api }}</label>
-                            <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" autocomplete="off">
+                            <input type="password" name="DEEPL_API_KEY" id="deepl_api_key"
+                                   autocomplete="new-password" data-lpignore="true" data-1p-ignore="true"
+                                   placeholder="{% if has_deepl_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}">
+                            {% if has_deepl_api_key %}
+                            <span class="setup-hint">{{ t.api_key_keep_hint }}</span>
+                            {% endif %}
                         </div>
                     </div>
                     <div id="azure_fields" class="nested-fields" style="display:none;">
                         <div class="form-group">
                             <label for="azure_api_key">{{ t.azure_api }}</label>
-                            <input type="password" name="AZURE_API_KEY" id="azure_api_key" autocomplete="off">
+                            <input type="password" name="AZURE_API_KEY" id="azure_api_key"
+                                   autocomplete="new-password" data-lpignore="true" data-1p-ignore="true"
+                                   placeholder="{% if has_azure_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}">
+                            {% if has_azure_api_key %}
+                            <span class="setup-hint">{{ t.api_key_keep_hint }}</span>
+                            {% endif %}
                         </div>
                         <div class="form-group">
                             <label for="AZURE_REGION">{{ t.azure_region }}</label>
@@ -582,10 +660,16 @@
                     <h2>{{ t.setup_api_title }}</h2>
                     <p class="setup-lead">{{ t.setup_api_intro }}</p>
                     {% for scraper in scrapers_with_keys %}
+                    {% set key_saved = scraper_has_api_key.get(scraper.id) %}
                     <div class="form-group">
                         <label for="{{ scraper.id|lower }}_api_key">API Key — {{ scraper.localized_display_name }}</label>
                         <input type="password" name="{{ scraper.id }}_API_KEY" id="{{ scraper.id|lower }}_api_key"
-                               autocomplete="off" data-lpignore="true">
+                               autocomplete="new-password" data-lpignore="true" data-1p-ignore="true"
+                               data-form-type="other"
+                               placeholder="{% if key_saved %}{{ t.api_key_saved_placeholder }}{% endif %}">
+                        {% if key_saved %}
+                        <span class="setup-hint">{{ t.api_key_keep_hint }}</span>
+                        {% endif %}
                     </div>
                     {% else %}
                     <p class="setup-hint">{{ t.no_api_keys_needed }}</p>
@@ -663,10 +747,12 @@
                         <button type="submit" class="btn-primary" id="btnFinish">{% if setup_rerun %}{{ t.setup_finish_rerun }}{% else %}{{ t.setup_finish }}{% endif %}</button>
                     </div>
                 </div>
+                <!-- Dock dans le <form> pour que type=submit reste lié au POST /setup. -->
+                <div class="setup-dock" id="setupDock" aria-live="polite"></div>
             </form>
             {% if setup_rerun %}
-            <p style="margin: 14px 0 0; text-align: center;">
-                <a href="{{ url_for('pages.index') }}" style="color: var(--su-muted); font-size: 0.85rem;">{{ t.setup_rerun_cancel }}</a>
+            <p class="setup-cancel">
+                <a href="{{ url_for('pages.index') }}">{{ t.setup_rerun_cancel }}</a>
             </p>
             {% endif %}
         </div>
@@ -683,13 +769,44 @@
         const statusEl = document.getElementById('kavitaStatus');
         const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
         const root = () => (window.ROOT_PATH || '{{ request.script_root }}' || '');
+        const testKavitaUrl = form.dataset.testKavitaUrl || (root() + '/setup/test-kavita');
         const resumeStep = Number(form.dataset.resumeStep || firstStep) || firstStep;
         const setupRerun = form.dataset.setupRerun === '1';
         const hasKavitaKey = form.dataset.hasKavitaKey === '1';
         const defaultSync = Number(form.dataset.defaultSync || 360) || 360;
         const defaultTarget = form.dataset.defaultTarget || 'FR';
+        const keyInput = form.KAVITA_API_KEY;
 
         const DRAFT_KEY = setupRerun ? 'metakavita_setup_draft_rerun' : 'metakavita_setup_draft';
+        const dock = document.getElementById('setupDock');
+
+        function parkActions(panel) {
+            if (!dock || !panel) return;
+            const actions = panel.querySelector('.setup-actions');
+            if (!actions) return;
+            // Remettre l'ancienne barre dans son panneau d'origine.
+            const previous = dock.querySelector('.setup-actions');
+            if (previous && previous !== actions) {
+                const homeId = previous.getAttribute('data-home-panel');
+                const home = panels.find((p) => String(p.dataset.panel) === String(homeId));
+                if (home) home.appendChild(previous);
+            }
+            if (!actions.hasAttribute('data-home-panel')) {
+                actions.setAttribute('data-home-panel', panel.dataset.panel);
+            }
+            dock.appendChild(actions);
+        }
+
+        // Rerun : un seul champ password → Chrome y colle souvent le mdp MetaKavita.
+        // readonly jusqu'au focus + purge au chargement = laisser vide = clé sauvée.
+        if (keyInput) {
+            keyInput.addEventListener('focus', () => keyInput.removeAttribute('readonly'), { once: true });
+            if (hasKavitaKey) {
+                keyInput.value = '';
+                setTimeout(() => { keyInput.value = ''; }, 50);
+                setTimeout(() => { keyInput.value = ''; }, 400);
+            }
+        }
 
         function syncBools() {
             document.querySelectorAll('[data-bool]').forEach((cb) => {
@@ -701,12 +818,19 @@
 
         function showStep(n) {
             step = Math.max(firstStep, Math.min(TOTAL - 1, n));
-            panels.forEach((p) => p.classList.toggle('is-active', Number(p.dataset.panel) === step));
+            let activePanel = null;
+            panels.forEach((p) => {
+                const on = Number(p.dataset.panel) === step;
+                p.classList.toggle('is-active', on);
+                if (on) activePanel = p;
+            });
             pills.forEach((p) => {
                 const i = Number(p.dataset.step);
                 p.classList.toggle('is-active', i === step);
                 p.classList.toggle('is-done', i < step);
             });
+            parkActions(activePanel);
+            if (activePanel) activePanel.scrollTop = 0;
         }
 
         function validateAccount() {
@@ -750,23 +874,27 @@
             body.set('KAVITA_API_KEY', key);
             body.set('UI_LANG', form.UI_LANG.value);
             try {
-                const res = await fetch(root() + '/setup/test-kavita', {
+                const res = await fetch(testKavitaUrl, {
                     method: 'POST',
                     headers: { 'X-CSRF-Token': csrf },
+                    credentials: 'same-origin',
                     body,
                 });
-                const data = await res.json();
-                if (data.ok) {
+                let data = null;
+                try { data = await res.json(); } catch (e) { data = null; }
+                if (data && data.ok) {
                     statusEl.className = 'setup-status is-ok';
                     statusEl.textContent = data.message || {{ t.setup_kavita_test_ok|tojson }};
+                    if (data.used_saved_key && keyInput) keyInput.value = '';
                     return true;
                 }
                 statusEl.className = 'setup-status is-warn';
-                statusEl.textContent = data.message || {{ t.setup_kavita_warn_libs|tojson }};
+                statusEl.textContent = (data && data.message)
+                    || {{ t.setup_kavita_warn_libs|tojson }};
                 return false;
             } catch (e) {
                 statusEl.className = 'setup-status is-warn';
-                statusEl.textContent = {{ t.setup_kavita_warn_libs|tojson }};
+                statusEl.textContent = {{ t.setup_kavita_test_network|tojson }};
                 return false;
             }
         }
