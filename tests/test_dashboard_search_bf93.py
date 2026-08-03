@@ -63,6 +63,15 @@ def test_toolbar_search_uses_debounced_schedule():
     assert 'id="searchInput"' in html
     assert 'oninput="scheduleFilterSeries()"' in html
     assert 'id="searchInsideCb"' in html
+    assert "toolbar-group--search" in html
+    assert "toolbar-group--filters" in html
+    assert "toolbar-select-all" in html
+    assert 'id="selectAll"' in html
+    assert "toolbar-body" in html
+    # Workflow: Select all in head, before count badges (stable layout when badge appears).
+    head = html.split("toolbar-body", 1)[0]
+    assert head.index("selectAll") < head.index("selectedCount")
+    assert "toolbar-counts" in head
 
 
 def test_batch_js_filter_avoids_innertext_and_inline_display():
@@ -97,6 +106,18 @@ def test_launch_batch_uses_visible_checked_only():
     body = js[launch_start:next_fn if next_fn != -1 else launch_start + 2000]
     assert "getVisibleCheckedSeriesIds" in body
     assert "querySelectorAll('.series-cb:checked')" not in body
+
+
+def test_main_batch_btn_label_switches_while_running():
+    """BF98 — idle = Lancer ; pendant un batch = Ajouter à la file."""
+    js = _read("static/js/batch.js")
+    assert "function syncMainBatchBtnLabel()" in js
+    assert "function isBatchInProgress()" in js
+    assert "launch_batch_append" in js
+    assert "isBatchInProgress()" in js[js.index("async function launchBatch"):]
+    from translations import translations
+    assert "Ajouter à la file" in translations["fr"]["launch_batch_append"]
+    assert "Add to waiting list" in translations["en"]["launch_batch_append"]
 
 
 def test_toggle_select_all_check_and_clear_semantics():

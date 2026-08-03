@@ -12,6 +12,9 @@ EN
 * **BF95. `ADMIN_PASSWORD` env warning once per boot (thanks SqueezedByte, [#31](https://github.com/raukorim-bot/MetaKavita/issues/31))** — `load_config()` no longer repeats the deprecation WARNING on every request. Message now tells operators to remove the obsolete variable from docker-compose / `-e` and points to `ADMIN_PASSWORD_HASH`.
 * **BF96. Lazy Options panels + selection index (thanks angusmaul, [#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — Override panels are no longer emitted for every series (built on first Options click). Selection lives in a JS `Set` (BF94/C63-safe: filter does not clear; Add to queue uses filtered selected IDs, not the viewport). `content-visibility: auto` on rows.
 * **BF97. Virtual series list for large libraries ([#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — At ≥120 series, the dashboard boots from JSON and renders a scroll window (~60 rows). Select-all / Add to queue / ignore still use the full filtered selection.
+* **BF98. Queue bar labels + Expand-all warning** — Clearer action labels (Run selection / Open queue; FR Lancer la sélection / Voir la file). While a batch is running, the main button switches to Add to waiting list. Run selection clears pause and resumes the waiting list. Expand-all Options confirms with a slow-load warning.
+* **BF99. Denser series rows + toolbar layout** — Shorter series cards, slightly larger titles, improved container responsive breakpoints. Filter bar split into colored Search / Filters / Selection groups on multiple rows.
+* **BF100. Compact Options override panel** — Less empty stretch when Options is open: denser main row, chip-style targeted fields (flex-wrap), tighter padding.
 
 FR
 ### ✨ Nouveautés
@@ -25,6 +28,9 @@ FR
 * **BF95. Warning `ADMIN_PASSWORD` env une fois par boot (merci SqueezedByte, [#31](https://github.com/raukorim-bot/MetaKavita/issues/31))** — `load_config()` ne répète plus le WARNING d’obsolescence à chaque requête. Le message invite à retirer la variable du docker-compose / `-e` et pointe vers `ADMIN_PASSWORD_HASH`.
 * **BF96. Panneaux Options lazy + index de sélection (merci angusmaul, [#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — Plus de panneau override par série dans le HTML (créé au premier clic Options). Sélection en `Set` JS (BF94/C63 : le filtre ne décoche pas ; Ajouter à la file = IDs filtrés cochés, pas le viewport). `content-visibility: auto` sur les lignes.
 * **BF97. Liste virtualisée pour grosses bibliothèques ([#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — Dès ≥120 séries, bootstrap JSON + fenêtre de scroll (~60 lignes). Tout sélectionner / Ajouter à la file / ignore utilisent toujours la sélection filtrée complète.
+* **BF98. Libellés barre de file + avertissement Déplier tout** — Libellés plus clairs (Lancer la sélection / Voir la file). Pendant un batch, le bouton principal bascule en Ajouter à la file d’attente. Lancer la sélection lève la pause et reprend la file. Déplier tout Options demande confirmation (chargement long).
+* **BF99. Cartouches plus denses + barre de filtres** — Hauteur de ligne réduite, titres un peu plus grands, breakpoints responsive améliorés. Barre de filtres en groupes colorés Recherche / Filtres / Sélection sur plusieurs lignes.
+* **BF100. Panneau Options plus compact** — Moins de vide à l’ouverture : ligne principale densifiée, champs ciblés en chips (flex-wrap), paddings réduits.
 
 ## [1.6.3] - 2026-08-02 (Age / i18n / scraper store)
 

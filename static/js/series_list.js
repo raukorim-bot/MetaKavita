@@ -3,7 +3,7 @@
 // Activée quand #seriesContainer[data-virtual="1"] + #seriesIndexData.
 
 (function () {
-    var ROW_HEIGHT = 72;
+    var ROW_HEIGHT = 54;
     var OVERSCAN = 8;
     /** Several Options panels can stay open; all are pinned against recycle. */
     var pinnedPanelIds = new Set();
@@ -61,7 +61,7 @@
         var ignTitle = s.status === 'IGNORED' ? (tr.unignore_btn || 'Unignore') : (tr.ignore_btn || 'Ignore');
         var ignIcon = s.status === 'IGNORED' ? '🔄' : '🚫';
         var checked = (typeof selectedIds !== 'undefined' && selectedIds.has(sid)) ? ' checked' : '';
-        // Pinned + open Options: auto height so the panel is not clipped to 72px.
+        // Pinned + open Options: auto height so the panel is not clipped to ROW_HEIGHT.
         var pinned = pinnedPanelIds.has(sid);
         var heightStyle = pinned
             ? 'min-height:' + ROW_HEIGHT + 'px;height:auto;overflow:visible;'

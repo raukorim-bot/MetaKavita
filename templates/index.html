@@ -20,6 +20,7 @@
             save: "{{ t.save }}",
             update: "{{ t['update'] }}",
             launchBatch: "{{ t.launch_batch }}",
+            launch_batch_append: "{{ t.launch_batch_append }}",
             batch_empty: "{{ t.batch_empty }}",
             batch_sending: "{{ t.batch_sending }}",
             batch_ok: "{{ t.batch_ok }}",
@@ -38,6 +39,10 @@
             batch_queue_state_running: "{{ t.batch_queue_state_running }}",
             batch_queue_toast: "{{ t.batch_queue_toast }}",
             batch_queue_toast_dupes: "{{ t.batch_queue_toast_dupes }}",
+            toggle_all_overrides_warn: {{ t.toggle_all_overrides_warn|tojson }},
+            launch_batch_hint: {{ t.launch_batch_hint|tojson }},
+            launch_batch_append_hint: {{ t.launch_batch_append_hint|tojson }},
+            batch_queue_btn_hint: {{ t.batch_queue_btn_hint|tojson }},
             filter_pending: "{{ t.filter_pending }}",
             filter_pending_review: "{{ t.filter_pending_review }}",
             filter_needs_relock: "{{ t.filter_needs_relock }}",
@@ -321,11 +326,11 @@
                     <div class="batch-actions">
                         <button type="button" class="btn-warning" id="batchResetBtn" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
                         <button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>
-                        <button type="button" class="btn-secondary" id="batchQueueBtn" onclick="openBatchQueueModal()">
+                        <button type="button" class="btn-secondary" id="batchQueueBtn" onclick="openBatchQueueModal()" title="{{ t.batch_queue_btn_hint }}">
                             {{ t.batch_queue_btn }}
                             <span id="batchQueueBadge" class="batch-queue-badge" hidden>0</span>
                         </button>
-                        <button type="submit" class="btn-batch" id="mainBatchBtn">{{ t.launch_batch }}</button>
+                        <button type="submit" class="btn-batch" id="mainBatchBtn" title="{{ t.launch_batch_hint }}">{{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
                 </form>

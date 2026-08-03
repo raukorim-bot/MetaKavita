@@ -205,12 +205,11 @@ function _matchedSeriesIdsForPanels() {
 
 /**
  * Expand/collapse Options for every series in the current filter (matched),
- * including those outside the virtual viewport. CPU cost accepted for cleanup workflows.
+ * including those outside the virtual viewport. Warns before expand (can be slow).
  */
 function toggleAllOverridePanels() {
-    allPanelsExpanded = !allPanelsExpanded;
-
-    if (!allPanelsExpanded) {
+    if (allPanelsExpanded) {
+        allPanelsExpanded = false;
         Object.keys(_overridePanelCache).forEach(function (sid) {
             const panel = _overridePanelCache[sid];
             if (panel) panel.style.display = 'none';
@@ -225,6 +224,15 @@ function toggleAllOverridePanels() {
     }
 
     const ids = _matchedSeriesIdsForPanels();
+    if (ids.length === 0) return;
+
+    const T = window.AppTranslations || {};
+    const warn = (T.toggle_all_overrides_warn ||
+        'Open Options for {0} series? This can take a while and freeze the tab briefly.')
+        .replace('{0}', String(ids.length));
+    if (!window.confirm(warn)) return;
+
+    allPanelsExpanded = true;
     // Pin all first (one virtual re-render), then attach/open each panel.
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.pinOpenPanels === 'function') {
         window.SeriesList.pinOpenPanels(ids);

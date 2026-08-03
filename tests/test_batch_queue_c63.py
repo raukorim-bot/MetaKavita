@@ -145,3 +145,82 @@ def test_api_batch_queue_routes(bq, monkeypatch):
     res = client.post("/api/batch-queue/clear")
     assert res.status_code == 200
     assert res.get_json()["count"] == 0
+
+
+def test_batch_sync_unpauses_and_hydrates(bq, monkeypatch, isolated_db):
+    """Lancer la sélection lève la pause et hydrate toute la file SQLite."""
+    from flask import Flask
+    from routes.sync import sync_bp
+    import services.background_tasks as bg
+
+    puts = []
+    bg.reset_batch_progress()
+    bg.set_batch_enqueue_enabled(True)
+
+    class FakeQueue:
+        def qsize(self):
+            return len(puts)
+
+        def put(self, item):
+            puts.append(item)
+
+        def empty(self):
+            return len(puts) == 0
+
+        def get_nowait(self):
+            if not puts:
+                raise bg.queue.Empty()
+            return puts.pop(0)
+
+        def task_done(self):
+            pass
+
+    class FakeKavita:
+        def __init__(self, *a, **k):
+            pass
+
+        def authenticate(self):
+            return True
+
+        def get_all_series(self, library_id=None):
+            return [
+                {"id": 10, "name": "One Piece"},
+                {"id": 11, "name": "Naruto"},
+            ]
+
+    fake_q = FakeQueue()
+    monkeypatch.setattr("routes.sync.KavitaAPI", FakeKavita)
+    monkeypatch.setattr("routes.sync.load_config", lambda: {
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "x",
+        "UI_LANG": "fr",
+    })
+    monkeypatch.setattr("routes.sync.sync_queue", fake_q)
+    monkeypatch.setattr("routes.sync.batch_queue_svc", bq)
+    monkeypatch.setattr(bg, "sync_queue", fake_q)
+
+    # File déjà remplie + en pause (ex. Pause puis nouvel envoi UI)
+    bq.enqueue_items([{"series_id": 10, "series_name": "One Piece"}])
+    bq.set_paused(True)
+    assert bq.is_paused() is True
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.register_blueprint(sync_bp)
+    client = app.test_client()
+
+    res = client.post(
+        "/batch-sync",
+        data={
+            "selected_series": ["11"],
+            "resume_enqueue": "true",
+        },
+    )
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["success"] is True
+    assert body["paused"] is False
+    assert body["resumed"] is True
+    assert body["hydrated"] == 2  # ancien + nouveau
+    assert bq.is_paused() is False
+    assert {p["series_id"] for p in puts} == {10, 11}

@@ -151,15 +151,24 @@ def batch_sync():
         }
         for s in series_to_process
     ]
+    was_paused = batch_queue_svc.is_paused()
     result = batch_queue_svc.enqueue_items(payload)
     added = int(result.get("added") or 0)
     skipped = int(result.get("skipped_dupes") or 0)
-    paused = bool(result.get("paused"))
+    hydrated = 0
+    resumed = False
 
     log_msg = t.get('log_batch_added', "🚀 {0} série(s) ajoutée(s) (Total : {1})")
     logging.info(log_msg.format(added, result.get("count") or 0))
 
-    if added and not paused:
+    # Lancer / Ajouter via UI : si la file était en pause, lever la pause et
+    # hydrater toute la file SQLite (anciens + nouveaux), comme « Reprendre ».
+    if was_paused:
+        batch_queue_svc.set_paused(False)
+        set_batch_enqueue_enabled(True)
+        hydrated = hydrate_batch_queue_to_ram(new_batch=not is_batch_active())
+        resumed = True
+    elif added:
         register_batch_enqueue(added, new_batch=new_batch)
         for item in result.get("items") or []:
             sync_queue.put(
@@ -172,6 +181,7 @@ def batch_sync():
                 )
             )
 
+    paused = batch_queue_svc.is_paused()
     msg = t.get('batch_queue_added', "{0} added to queue ({1} already queued skipped).").format(
         added, skipped
     )
@@ -181,6 +191,8 @@ def batch_sync():
         added=added,
         skipped_dupes=skipped,
         paused=paused,
+        resumed=resumed,
+        hydrated=hydrated,
         count=result.get("count") or 0,
     )
 
