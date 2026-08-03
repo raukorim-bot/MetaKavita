@@ -148,7 +148,50 @@ def _apply_setup_config(config: dict) -> bool:
     return bool(new_root) and new_root != before_root
 
 
-def _setup_context(t, config, error=None, legacy_required=False, form_values=None):
+def _form_values_from_config(config: dict) -> dict:
+    """Préremplit le wizard rerun depuis la config actuelle (hors secrets)."""
+    fv = {}
+    for key in (
+        'KAVITA_URL', 'ROOT_PATH', 'UI_LANG', 'TARGET_LANG',
+        'TRANSLATION_PROVIDER', 'AZURE_REGION', 'PUBLISHER_PREFERENCE',
+        'LOCALIZED_TITLE_MODE', 'LOCALIZED_TITLE_LANGS',
+        *_PROVIDER_KEYS,
+    ):
+        val = config.get(key)
+        fv[key] = '' if val is None else str(val)
+    for key, default in _SETUP_BOOL_DEFAULTS.items():
+        fv[key] = 'true' if bool(config.get(key, default)) else 'false'
+    try:
+        fv['AUTO_SYNC_INTERVAL'] = str(int(config.get('AUTO_SYNC_INTERVAL', _SETUP_AUTO_SYNC_DEFAULT)))
+    except (TypeError, ValueError):
+        fv['AUTO_SYNC_INTERVAL'] = str(_SETUP_AUTO_SYNC_DEFAULT)
+    return fv
+
+
+def _form_values_from_request() -> dict:
+    fv = {}
+    for key in (
+        'username', 'KAVITA_URL', 'ROOT_PATH', 'UI_LANG', 'TARGET_LANG',
+        'TRANSLATION_PROVIDER', 'AZURE_REGION', 'PUBLISHER_PREFERENCE',
+        'LOCALIZED_TITLE_MODE', 'LOCALIZED_TITLE_LANGS', 'AUTO_SYNC_INTERVAL',
+        *_PROVIDER_KEYS,
+    ):
+        if key in request.form:
+            fv[key] = request.form.get(key, '')
+    for key, default in _SETUP_BOOL_DEFAULTS.items():
+        fv[key] = 'true' if _form_bool(key, default) else 'false'
+    return fv
+
+
+def _setup_context(
+    t,
+    config,
+    error=None,
+    legacy_required=False,
+    form_values=None,
+    *,
+    setup_rerun=False,
+):
     from scrapers import ScraperRegistry
 
     scrapers_with_keys = [
@@ -190,114 +233,149 @@ def _setup_context(t, config, error=None, legacy_required=False, form_values=Non
         setup_auto_sync_default=_SETUP_AUTO_SYNC_DEFAULT,
         form_values=form_values or {},
         resume_step=0,
+        setup_rerun=setup_rerun,
+        has_kavita_api_key=bool((config.get('KAVITA_API_KEY') or '').strip()),
+        first_step=1 if setup_rerun else 0,
     )
+
+
+def _persist_setup_config(t):
+    """Applique le formulaire wizard et sauve. Retourne (ok, root_changed, error_msg)."""
+    try:
+        with CONFIG_LOCK:
+            cfg = load_config()
+            root_changed = _apply_setup_config(cfg)
+            save_config(cfg)
+        return True, root_changed, None
+    except Exception as exc:
+        logging.warning(
+            t.get(
+                "log_setup_config_fail",
+                "[Setup] Échec persistance config : %s",
+            ),
+            exc,
+        )
+        return False, False, t.get('setup_err_config_save')
 
 
 @auth_bp.route('/setup', methods=['GET', 'POST'])
 def setup():
-    """Création du compte + wizard first-run (Kavita, langues, options, cascades).
+    """Wizard first-run (compte + config) ou rejeu guidé (session requise, sans compte).
 
-    Accessible UNIQUEMENT tant qu'aucun compte n'existe. Sans ce garde-fou,
-    l'écran resterait un moyen non authentifié de créer un second compte — donc
-    un contournement complet de l'authentification.
-
-    Sur une instance qui tournait avec l'ancien `ADMIN_PASSWORD`, cet écran exige
-    en plus ce mot de passe comme preuve de propriété : voir
-    `auth_manager.legacy_proof_required`.
+    - Aucun compte → first-run public (création du compte + config).
+    - Compte existant + session → rerun (config seulement).
+    - Compte existant sans session → /login (jamais de 2ᵉ compte ni config anonyme).
     """
     lang_arg = request.args.get('lang') or request.form.get('UI_LANG')
     t, config = _t(lang_arg)
 
-    if not auth_manager.setup_required():
+    first_run = auth_manager.setup_required()
+    setup_rerun = (not first_run) and auth_manager.is_authenticated()
+    if not first_run and not setup_rerun:
         return redirect(url_for('auth.login'))
 
-    legacy_required = auth_manager.legacy_proof_required()
+    legacy_required = first_run and auth_manager.legacy_proof_required()
+    has_kavita_key = bool((config.get('KAVITA_API_KEY') or '').strip())
 
     error = None
     if request.method == 'POST':
-        username = request.form.get('username', '')
-        password = request.form.get('password', '')
-        confirm = request.form.get('password_confirm', '')
         kavita_url = request.form.get('KAVITA_URL', '').strip()
         kavita_key = request.form.get('KAVITA_API_KEY', '').strip()
+        kavita_ok = bool(kavita_url) and (bool(kavita_key) or (setup_rerun and has_kavita_key))
 
-        locked, remaining = auth_manager.is_locked_out()
-        if locked:
-            minutes = max(1, (remaining + 59) // 60)
-            auth_manager.log_lockout_reject(username=username, remaining_seconds=remaining)
-            error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
-        elif legacy_required and not auth_manager.verify_legacy_password(
-            request.form.get('legacy_password', '')
-        ):
-            auth_manager.register_failed_attempt(username=username)
-            error = t.get('setup_err_legacy_password')
-        elif password != confirm:
-            error = t.get('setup_err_password_mismatch')
-        elif not kavita_url or not kavita_key:
-            error = t.get('setup_err_kavita_required')
-        else:
-            # Config d'abord : si la persistance échoue, aucun compte orphelin
-            # (sinon /setup se ferme et Kavita reste vide).
-            root_changed = False
-            config_ok = False
-            try:
-                with CONFIG_LOCK:
-                    cfg = load_config()
-                    root_changed = _apply_setup_config(cfg)
-                    save_config(cfg)
-                config_ok = True
-            except Exception as exc:
-                logging.warning(
-                    t.get(
-                        "log_setup_config_fail",
-                        "[Setup] Échec persistance config avant création du compte : %s",
-                    ),
-                    exc,
+        if setup_rerun:
+            locked, remaining = auth_manager.is_locked_out()
+            if locked:
+                minutes = max(1, (remaining + 59) // 60)
+                auth_manager.log_lockout_reject(
+                    username=session.get('username'),
+                    remaining_seconds=remaining,
                 )
-                error = t.get('setup_err_config_save')
-
-            if config_ok:
-                ok, err_key = auth_manager.create_user(username, password)
-                if ok:
-                    auth_manager.purge_legacy_admin_password()
-                    user = auth_manager.verify_credentials(username, password)
-                    if user:
-                        auth_manager.clear_failed_attempts()
-                        auth_manager.login_session(user)
-                        auth_manager.record_login(user['id'])
-                        if root_changed:
-                            session['ui_banner'] = t.get(
-                                'setup_restart_root_path',
-                                'Redémarrez MetaKavita pour appliquer le sous-chemin (ROOT_PATH).',
-                            )
-                        return redirect(url_for('pages.index'))
-                    error = t.get('setup_err_generic')
+                error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
+            elif not kavita_ok:
+                error = t.get('setup_err_kavita_required')
+            else:
+                ok, root_changed, err = _persist_setup_config(t)
+                if not ok:
+                    error = err
                 else:
-                    error = t.get(err_key, t.get('setup_err_generic'))
+                    if root_changed:
+                        session['ui_banner'] = t.get(
+                            'setup_restart_root_path',
+                            'Redémarrez MetaKavita pour appliquer le sous-chemin (ROOT_PATH).',
+                        )
+                    session['ui_banner'] = session.get('ui_banner') or t.get(
+                        'setup_rerun_saved',
+                        'Configuration mise à jour.',
+                    )
+                    return redirect(url_for('pages.index'))
+        else:
+            username = request.form.get('username', '')
+            password = request.form.get('password', '')
+            confirm = request.form.get('password_confirm', '')
 
-    # Recharger t si la langue wizard a changé après erreur
+            locked, remaining = auth_manager.is_locked_out()
+            if locked:
+                minutes = max(1, (remaining + 59) // 60)
+                auth_manager.log_lockout_reject(username=username, remaining_seconds=remaining)
+                error = (t.get('login_err_locked') or '').replace('{}', str(minutes))
+            elif legacy_required and not auth_manager.verify_legacy_password(
+                request.form.get('legacy_password', '')
+            ):
+                auth_manager.register_failed_attempt(username=username)
+                error = t.get('setup_err_legacy_password')
+            elif password != confirm:
+                error = t.get('setup_err_password_mismatch')
+            elif not kavita_ok:
+                error = t.get('setup_err_kavita_required')
+            else:
+                # Config d'abord : si la persistance échoue, aucun compte orphelin.
+                ok, root_changed, err = _persist_setup_config(t)
+                if not ok:
+                    error = err
+                else:
+                    created, err_key = auth_manager.create_user(username, password)
+                    if created:
+                        auth_manager.purge_legacy_admin_password()
+                        user = auth_manager.verify_credentials(username, password)
+                        if user:
+                            auth_manager.clear_failed_attempts()
+                            auth_manager.login_session(user)
+                            auth_manager.record_login(user['id'])
+                            if root_changed:
+                                session['ui_banner'] = t.get(
+                                    'setup_restart_root_path',
+                                    'Redémarrez MetaKavita pour appliquer le sous-chemin (ROOT_PATH).',
+                                )
+                            return redirect(url_for('pages.index'))
+                        error = t.get('setup_err_generic')
+                    else:
+                        error = t.get(err_key, t.get('setup_err_generic'))
+
+    # Recharger t / config après erreur ou pour le GET
     t, config = _t(request.args.get('lang') or request.form.get('UI_LANG'))
     form_values = {}
     if error and request.method == 'POST':
-        # Re-préremplir (sauf secrets / mots de passe) après erreur serveur.
-        for key in (
-            'username', 'KAVITA_URL', 'ROOT_PATH', 'UI_LANG', 'TARGET_LANG',
-            'TRANSLATION_PROVIDER', 'AZURE_REGION', 'PUBLISHER_PREFERENCE',
-            'LOCALIZED_TITLE_MODE', 'LOCALIZED_TITLE_LANGS', 'AUTO_SYNC_INTERVAL',
-            *_PROVIDER_KEYS,
-        ):
-            if key in request.form:
-                form_values[key] = request.form.get(key, '')
-        for key, default in _SETUP_BOOL_DEFAULTS.items():
-            form_values[key] = 'true' if _form_bool(key, default) else 'false'
-    resume_step = 0
+        form_values = _form_values_from_request()
+    elif setup_rerun:
+        form_values = _form_values_from_config(config)
+
+    resume_step = 1 if setup_rerun else 0
     if error and form_values:
-        if error == t.get('setup_err_kavita_required'):
+        if error in (
+            t.get('setup_err_kavita_required'),
+            t.get('setup_err_config_save'),
+        ):
             resume_step = 1
-        elif error == t.get('setup_err_config_save'):
-            resume_step = 1
+        elif not setup_rerun:
+            resume_step = 0
     ctx = _setup_context(
-        t, config, error=error, legacy_required=legacy_required, form_values=form_values
+        t,
+        config,
+        error=error,
+        legacy_required=legacy_required,
+        form_values=form_values,
+        setup_rerun=setup_rerun,
     )
     ctx['resume_step'] = resume_step
     return render_template('setup.html', **ctx)
@@ -306,14 +384,17 @@ def setup():
 @auth_bp.route('/setup/test-kavita', methods=['POST'])
 def setup_test_kavita():
     """Ping auth Kavita pendant le wizard — n'écrit pas la config."""
-    if not auth_manager.setup_required():
-        return jsonify(ok=False, error='setup_closed'), 403
+    if not auth_manager.setup_required() and not auth_manager.is_authenticated():
+        return jsonify(ok=False, error='forbidden'), 403
 
     lang_arg = request.form.get('UI_LANG') or request.args.get('lang')
-    t, _config = _t(lang_arg)
+    t, config = _t(lang_arg)
 
     url = request.form.get('KAVITA_URL', '').strip().rstrip('/')
     key = request.form.get('KAVITA_API_KEY', '').strip()
+    # Rerun : champ vide = utiliser la clé déjà enregistrée.
+    if not key and auth_manager.is_authenticated():
+        key = (config.get('KAVITA_API_KEY') or '').strip()
     if not url or not key:
         return jsonify(
             ok=False,

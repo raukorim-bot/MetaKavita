@@ -293,7 +293,7 @@
                 <img src="{{ url_for('static', filename='logo.png') }}" alt="MetaKavita">
                 <div>
                     <h1>MetaKavita</h1>
-                    <p>{{ t.setup_wizard_subtitle }}</p>
+                    <p>{% if setup_rerun %}{{ t.setup_rerun_subtitle }}{% else %}{{ t.setup_wizard_subtitle }}{% endif %}</p>
                 </div>
             </div>
             <div class="setup-lang" role="group" aria-label="{{ t.ui_lang }}">
@@ -304,12 +304,20 @@
 
         <div class="setup-card">
             <div class="setup-steps" id="setupSteps">
+                {% if not setup_rerun %}
                 <div class="setup-step-pill is-active" data-step="0">1 · {{ t.setup_step_account }}</div>
                 <div class="setup-step-pill" data-step="1">2 · {{ t.setup_step_kavita }}</div>
                 <div class="setup-step-pill" data-step="2">3 · {{ t.setup_step_lang }}</div>
                 <div class="setup-step-pill" data-step="3">4 · {{ t.setup_step_options }}</div>
                 <div class="setup-step-pill" data-step="4">5 · {{ t.setup_step_api }}</div>
                 <div class="setup-step-pill" data-step="5">6 · {{ t.setup_step_cascades }}</div>
+                {% else %}
+                <div class="setup-step-pill is-active" data-step="1">1 · {{ t.setup_step_kavita }}</div>
+                <div class="setup-step-pill" data-step="2">2 · {{ t.setup_step_lang }}</div>
+                <div class="setup-step-pill" data-step="3">3 · {{ t.setup_step_options }}</div>
+                <div class="setup-step-pill" data-step="4">4 · {{ t.setup_step_api }}</div>
+                <div class="setup-step-pill" data-step="5">5 · {{ t.setup_step_cascades }}</div>
+                {% endif %}
             </div>
 
             {% if error %}
@@ -319,6 +327,9 @@
             {% set fv = form_values or {} %}
             <form method="POST" action="{{ url_for('auth.setup') }}" id="setupForm" autocomplete="off"
                   data-resume-step="{{ resume_step|default(0) }}"
+                  data-first-step="{{ first_step|default(0) }}"
+                  data-setup-rerun="{{ '1' if setup_rerun else '0' }}"
+                  data-has-kavita-key="{{ '1' if has_kavita_api_key else '0' }}"
                   data-default-sync="{{ setup_auto_sync_default }}"
                   data-default-target="{{ default_target_lang }}">
                 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
@@ -330,6 +341,7 @@
                 <input type="hidden" name="AUTO_READING_DIR" id="val_AUTO_READING_DIR" value="{{ fv.get('AUTO_READING_DIR', 'false') }}">
                 <input type="hidden" name="TITLE_FALLBACK_TRANSLATION" id="val_TITLE_FALLBACK_TRANSLATION" value="{{ fv.get('TITLE_FALLBACK_TRANSLATION', 'false') }}">
 
+                {% if not setup_rerun %}
                 <!-- 1 Compte -->
                 <div class="setup-panel is-active" data-panel="0">
                     <p class="setup-kicker">{{ t.setup_step_account }}</p>
@@ -365,23 +377,29 @@
                         <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
                     </div>
                 </div>
+                {% endif %}
 
-                <!-- 2 Kavita -->
-                <div class="setup-panel" data-panel="1">
+                <!-- Kavita -->
+                <div class="setup-panel{% if setup_rerun %} is-active{% endif %}" data-panel="1">
                     <p class="setup-kicker">{{ t.setup_step_kavita }}</p>
                     <h2>{{ t.setup_kavita_title }}</h2>
-                    <p class="setup-lead">{{ t.setup_kavita_intro }}</p>
+                    <p class="setup-lead">{% if setup_rerun %}{{ t.setup_rerun_intro }}{% else %}{{ t.setup_kavita_intro }}{% endif %}</p>
                     <div class="form-group">
                         <label for="KAVITA_URL">{{ t.kavita_url }}</label>
                         <input type="text" name="KAVITA_URL" id="KAVITA_URL"
                                value="{{ fv.get('KAVITA_URL', config.get('KAVITA_URL', '')) }}"
-                               placeholder="http://host.docker.internal:5001" autocomplete="off">
+                               placeholder="http://host.docker.internal:5001" autocomplete="off"
+                               {% if setup_rerun %}autofocus{% endif %}>
                         <span class="setup-hint">{{ t.kavita_url_hint }}</span>
                     </div>
                     <div class="form-group">
                         <label for="kavita_api_key">{{ t.kavita_api }}</label>
                         <input type="password" name="KAVITA_API_KEY" id="kavita_api_key"
-                               autocomplete="off" data-lpignore="true" data-1p-ignore="true">
+                               autocomplete="off" data-lpignore="true" data-1p-ignore="true"
+                               placeholder="{% if has_kavita_api_key %}{{ t.api_key_saved_placeholder }}{% endif %}">
+                        {% if has_kavita_api_key %}
+                        <span class="setup-hint">{{ t.api_key_keep_hint }}</span>
+                        {% endif %}
                     </div>
                     <div class="form-group">
                         <label for="ROOT_PATH">{{ t.setup_root_path_label }}</label>
@@ -392,7 +410,9 @@
                     </div>
                     <div id="kavitaStatus" class="setup-status" role="status"></div>
                     <div class="setup-actions">
+                        {% if not setup_rerun %}
                         <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
+                        {% endif %}
                         <button type="button" class="btn-secondary" id="btnTestKavita">{{ t.setup_kavita_test }}</button>
                         <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
                     </div>
@@ -640,28 +660,36 @@
                     <div class="setup-actions">
                         <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
                         <button type="button" class="btn-secondary" data-skip>{{ t.setup_skip }}</button>
-                        <button type="submit" class="btn-primary" id="btnFinish">{{ t.setup_finish }}</button>
+                        <button type="submit" class="btn-primary" id="btnFinish">{% if setup_rerun %}{{ t.setup_finish_rerun }}{% else %}{{ t.setup_finish }}{% endif %}</button>
                     </div>
                 </div>
             </form>
+            {% if setup_rerun %}
+            <p style="margin: 14px 0 0; text-align: center;">
+                <a href="{{ url_for('pages.index') }}" style="color: var(--su-muted); font-size: 0.85rem;">{{ t.setup_rerun_cancel }}</a>
+            </p>
+            {% endif %}
         </div>
     </div>
 
     <script>
     (function () {
         const TOTAL = {{ 6 }};
-        let step = 0;
         const form = document.getElementById('setupForm');
+        const firstStep = Number(form.dataset.firstStep || 0) || 0;
+        let step = firstStep;
         const panels = [...document.querySelectorAll('.setup-panel')];
         const pills = [...document.querySelectorAll('.setup-step-pill')];
         const statusEl = document.getElementById('kavitaStatus');
         const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
         const root = () => (window.ROOT_PATH || '{{ request.script_root }}' || '');
-        const resumeStep = Number(form.dataset.resumeStep || 0) || 0;
+        const resumeStep = Number(form.dataset.resumeStep || firstStep) || firstStep;
+        const setupRerun = form.dataset.setupRerun === '1';
+        const hasKavitaKey = form.dataset.hasKavitaKey === '1';
         const defaultSync = Number(form.dataset.defaultSync || 360) || 360;
         const defaultTarget = form.dataset.defaultTarget || 'FR';
 
-        const DRAFT_KEY = 'metakavita_setup_draft';
+        const DRAFT_KEY = setupRerun ? 'metakavita_setup_draft_rerun' : 'metakavita_setup_draft';
 
         function syncBools() {
             document.querySelectorAll('[data-bool]').forEach((cb) => {
@@ -672,7 +700,7 @@
         }
 
         function showStep(n) {
-            step = Math.max(0, Math.min(TOTAL - 1, n));
+            step = Math.max(firstStep, Math.min(TOTAL - 1, n));
             panels.forEach((p) => p.classList.toggle('is-active', Number(p.dataset.panel) === step));
             pills.forEach((p) => {
                 const i = Number(p.dataset.step);
@@ -682,9 +710,10 @@
         }
 
         function validateAccount() {
-            const u = form.username.value.trim();
-            const p = form.password.value;
-            const c = form.password_confirm.value;
+            if (setupRerun) return true;
+            const u = form.username?.value?.trim();
+            const p = form.password?.value;
+            const c = form.password_confirm?.value;
             if (!u || !p || !c) return false;
             if (p !== c) {
                 alert({{ t.setup_err_password_mismatch|tojson }});
@@ -698,7 +727,7 @@
         function validateKavita() {
             const url = form.KAVITA_URL.value.trim();
             const key = form.KAVITA_API_KEY.value.trim();
-            if (!url || !key) {
+            if (!url || (!key && !hasKavitaKey)) {
                 alert({{ t.setup_err_kavita_required|tojson }});
                 return false;
             }
@@ -710,7 +739,7 @@
             const key = form.KAVITA_API_KEY.value.trim();
             statusEl.className = 'setup-status';
             statusEl.textContent = '';
-            if (!url || !key) {
+            if (!url || (!key && !hasKavitaKey)) {
                 statusEl.className = 'setup-status is-warn';
                 statusEl.textContent = {{ t.setup_kavita_test_missing|tojson }};
                 return false;
@@ -848,7 +877,7 @@
             });
         });
         form.querySelectorAll('[data-prev]').forEach((btn) => {
-            btn.addEventListener('click', () => showStep(step - 1));
+            btn.addEventListener('click', () => showStep(Math.max(firstStep, step - 1)));
         });
         form.querySelectorAll('[data-skip]').forEach((btn) => {
             btn.addEventListener('click', () => {
@@ -883,7 +912,7 @@
         form.addEventListener('submit', (e) => {
             if (!validateAccount() || !validateKavita()) {
                 e.preventDefault();
-                showStep(!form.username.value.trim() || !form.password.value ? 0 : 1);
+                showStep(setupRerun || (form.username && form.username.value.trim()) ? 1 : firstStep);
                 return;
             }
             syncBools();
@@ -895,8 +924,7 @@
         toggleTranslation();
         toggleLocLangs();
         restoreDraft();
-        if (resumeStep) showStep(resumeStep);
-        else showStep(step);
+        showStep(resumeStep || firstStep);
         markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value) || defaultSync);
     })();
     </script>

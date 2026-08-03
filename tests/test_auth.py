@@ -264,8 +264,11 @@ def test_setup_refuses_mismatched_confirmation(client):
 
 
 def test_setup_is_closed_once_an_account_exists(client):
-    """Sinon l'écran resterait un moyen non authentifié de créer un compte."""
+    """Sans session : /setup → login (pas de 2ᵉ compte, pas de config anonyme)."""
+    import config_manager
+
     _complete_setup(client)
+    before_url = config_manager.load_config().get("KAVITA_URL")
     client.get("/logout")
 
     res = client.get("/setup")
@@ -276,9 +279,67 @@ def test_setup_is_closed_once_an_account_exists(client):
         "username": "intruder",
         "password": "correct horse",
         "password_confirm": "correct horse",
+        "KAVITA_URL": "http://attacker",
+        "KAVITA_API_KEY": "x",
     })
     assert res.status_code == 302
     assert auth_manager.user_count() == 1, "aucun second compte ne doit être créé"
+    assert config_manager.load_config().get("KAVITA_URL") == before_url
+
+
+def test_setup_rerun_available_when_authenticated(client):
+    """Connecté : /setup rejoue le wizard sans étape compte."""
+    _complete_setup(client)
+    res = client.get("/setup")
+    assert res.status_code == 200
+    html = res.data.decode("utf-8", errors="replace")
+    assert 'data-setup-rerun="1"' in html
+    assert 'name="username"' not in html
+    assert "KAVITA_URL" in html
+
+
+def test_setup_rerun_updates_config_without_new_account(client):
+    import config_manager
+
+    assert _complete_setup(client).status_code == 302
+    assert auth_manager.user_count() == 1
+
+    res = client.post("/setup", data={
+        "KAVITA_URL": "http://kavita.rerun",
+        "KAVITA_API_KEY": "",  # conserver
+        "UI_LANG": "en",
+        "TARGET_LANG": "EN",
+        "TRANSLATION_PROVIDER": "GOOGLE",
+        "SMART_SCORING": "true",
+        "SMART_COMPLETION": "false",
+        "MANUAL_REVIEW_MODE": "false",
+        "AUTO_COVER": "true",
+        "AUTO_READING_DIR": "false",
+        "TITLE_FALLBACK_TRANSLATION": "false",
+        "AUTO_SYNC_INTERVAL": "0",
+        "PUBLISHER_PREFERENCE": "LOCALIZED",
+        "LOCALIZED_TITLE_MODE": "all",
+        "PROVIDER_1": "MANGADEX",
+        "PROVIDER_2": "NONE",
+        "PROVIDER_3": "NONE",
+        "COMIC_PROVIDER_1": "COMICVINE",
+        "COMIC_PROVIDER_2": "NONE",
+        "COMIC_PROVIDER_3": "NONE",
+        "BOOK_PROVIDER_1": "GOOGLEBOOKS",
+        "BOOK_PROVIDER_2": "NONE",
+        "BOOK_PROVIDER_3": "NONE",
+    }, follow_redirects=False)
+    assert res.status_code == 302
+    assert auth_manager.user_count() == 1
+
+    cfg = config_manager.load_config()
+    assert cfg.get("KAVITA_URL") == "http://kavita.rerun"
+    assert cfg.get("KAVITA_API_KEY") == "test-kavita-key"
+    assert cfg.get("SMART_COMPLETION") is False
+    assert cfg.get("AUTO_COVER") is True
+    assert int(cfg["AUTO_SYNC_INTERVAL"]) == 0
+    assert cfg.get("PROVIDER_1") == "MANGADEX"
+    assert cfg.get("UI_LANG") == "en"
 
 
 def test_setup_refuses_without_kavita_credentials(client):

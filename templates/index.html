@@ -260,6 +260,7 @@
 					<div class="help-dropdown-sep"></div>
 					<a class="help-dropdown-item" href="{{ url_for('scrapers_manage.manage') }}" onclick="closeHelpMenu();">{{ t.help_manage_scrapers }}</a>
 					<a class="help-dropdown-item" href="{{ url_for('scrapers_manage.store') }}" onclick="closeHelpMenu();">{{ t.help_scraper_store }}</a>
+					<a class="help-dropdown-item" href="{{ url_for('auth.setup') }}" onclick="closeHelpMenu();">{{ t.setup_help_rerun }}</a>
 					<button type="button" class="help-dropdown-item" onclick="closeHelpMenu(); openChangelogModal(true);">{{ t.help_changelog }}</button>
 					<a class="help-dropdown-item help-dropdown-item--muted" href="{{ url_for('pages.diagnostics') }}" onclick="closeHelpMenu();">{{ t.help_diagnostics }}</a>
 				</div>
