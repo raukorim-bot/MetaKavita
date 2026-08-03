@@ -40,6 +40,7 @@
 - [x] **BF98. Queue bar labels + Expand-all warning + resume-on-run (v1.6.4):** Run selection / Open queue; mid-batch Add to waiting list; Run clears pause; Expand-all confirms on large filters.
 - [x] **BF99. Denser series rows + toolbar layout (v1.6.4):** shorter cards, larger titles, colored Search/Filters groups; Select all in toolbar head (stable vs selected badge).
 - [x] **BF100. Compact Options override panel (v1.6.4):** denser main row, chip-style targeted fields; tests `test_override_panel_ui.py`.
+- [x] **BF101. Batch progress + virtual list reinit (v1.6.4):** no hide on all-dupe append; resume bump totals; loadLibrary re-inits SeriesList; cumulative offsets for open Options.
 - [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.

@@ -167,6 +167,26 @@ def test_selection_and_virtual_list_source_contracts():
     assert "content-visibility: auto" in css
 
 
+def test_bf101_batch_progress_and_library_reinit_contracts():
+    """BF101 — progress bar / resume bump / loadLibrary re-init SeriesList."""
+    batch = _read("static/js/batch.js")
+    assert "function bumpBatchProgressTotal" in batch
+    assert "batchEnqueueInFlight" in batch
+    assert "wasRunning" in batch
+    # All-dupe mid-batch must not hide an active bar.
+    assert "totalAdded === 0 && !didResume && !wasRunning" in batch
+    assert "SeriesList.init()" in batch
+    assert "clearOverridePanelCache" in batch
+
+    virt = _read("static/js/series_list.js")
+    assert "function _cumulativeOffsets" in virt
+    assert "function destroy()" in virt
+    assert "init: init" in virt
+    assert "return false;" in virt  # filterAndRender inactive → DOM path
+    assert "clearOverridePanelCache" in _read("static/js/overrides.js")
+    assert "function clearOverridePanelCache" in _read("static/js/overrides.js")
+
+
 def test_css_is_filtered_out_hides_series_items():
     css = _read("static/css/style.css")
     assert ".series-item.is-filtered-out" in css

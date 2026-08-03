@@ -61,11 +61,14 @@ function uncheckSeriesIdForBatchResume(seriesId) {
 
 /** Total du batch courant (fixé au lancement UI ; barre via événement batch_progress). */
 var batchProgressTotal = 0;
+var batchProgressDone = 0;
 var batchProgressHideTimer = null;
 /** Évite un double overlay supporter à la fin du même batch. */
 var batchNagFired = false;
 /** Empêche syncMainBatchBtnLabel d’écraser « Envoi… / Lancé / Stop ». */
 var mainBatchBtnBusy = false;
+/** Empêche un 2ᵉ launchBatch d’abort le premier envoi (×50). */
+var batchEnqueueInFlight = false;
 
 function isBatchInProgress() {
     return batchProgressTotal > 0;
@@ -97,6 +100,7 @@ function syncMainBatchBtnLabel() {
 
 function showBatchProgress(total) {
     batchProgressTotal = Math.max(0, parseInt(total, 10) || 0);
+    batchProgressDone = 0;
     batchNagFired = false;
     if (batchProgressHideTimer) {
         clearTimeout(batchProgressHideTimer);
@@ -110,8 +114,27 @@ function showBatchProgress(total) {
     syncMainBatchBtnLabel();
 }
 
+/** Ajoute au total UI sans remettre la barre à 0 % (append / paquets suivants). */
+function bumpBatchProgressTotal(delta) {
+    const d = Math.max(0, parseInt(delta, 10) || 0);
+    if (d === 0) return;
+    if (batchProgressHideTimer) {
+        clearTimeout(batchProgressHideTimer);
+        batchProgressHideTimer = null;
+    }
+    batchProgressTotal += d;
+    const wrap = document.getElementById('batchProgressWrap');
+    if (wrap) {
+        wrap.style.display = '';
+        wrap.setAttribute('aria-hidden', 'false');
+    }
+    updateBatchProgressUI(batchProgressDone, batchProgressTotal);
+    syncMainBatchBtnLabel();
+}
+
 function hideBatchProgress() {
     batchProgressTotal = 0;
+    batchProgressDone = 0;
     if (batchProgressHideTimer) {
         clearTimeout(batchProgressHideTimer);
         batchProgressHideTimer = null;
@@ -132,6 +155,7 @@ function updateBatchProgressUI(done, total) {
     const track = document.querySelector('#batchProgressWrap .batch-progress-track');
     const safeTotal = Math.max(0, total || 0);
     const safeDone = Math.max(0, Math.min(safeTotal, done || 0));
+    batchProgressDone = safeDone;
     const tpl = (window.AppTranslations && window.AppTranslations.batch_progress) || '{0} / {1}';
     if (label) label.textContent = tpl.replace('{0}', String(safeDone)).replace('{1}', String(safeTotal));
     const pct = safeTotal > 0 ? Math.round((safeDone / safeTotal) * 100) : 0;
@@ -280,20 +304,22 @@ function filterSeries() {
 
     // Si une liste virtualisée est active, elle recalcule matched + rend la fenêtre.
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.filterAndRender === 'function') {
-        window.SeriesList.filterAndRender({
+        const usedVirtual = window.SeriesList.filterAndRender({
             filter: filter,
             hideIgnored: hideIgnored,
             searchQuery: searchQuery,
             searchInside: searchInside,
         });
-        const countElemV = document.getElementById('visibleCount');
-        if (countElemV) {
-            const n = matchedIds.length;
-            countElemV.textContent = n + (n > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
+        if (usedVirtual !== false) {
+            const countElemV = document.getElementById('visibleCount');
+            if (countElemV) {
+                const n = matchedIds.length;
+                countElemV.textContent = n + (n > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
+            }
+            syncSelectAllCheckbox();
+            updateSelectionCounters();
+            return;
         }
-        syncSelectAllCheckbox();
-        updateSelectionCounters();
-        return;
     }
 
     document.querySelectorAll('.series-item').forEach(item => {
@@ -476,7 +502,9 @@ async function launchBatch(event) {
     const btn = document.getElementById('mainBatchBtn');
     // Uniquement les séries affichées (filtre statut / recherche) — pas l'arrière-plan coché.
     const ids = getVisibleCheckedSeriesIds(form);
-    
+
+    if (batchEnqueueInFlight) return;
+
     if (ids.length === 0) {
         mainBatchBtnBusy = true;
         btn.innerText = window.AppTranslations.batch_empty;
@@ -487,21 +515,10 @@ async function launchBatch(event) {
         return;
     }
 
-    // Append mid-batch : ne pas reset la barre (le serveur accumule le total).
-    if (isBatchInProgress()) {
-        batchProgressTotal += ids.length;
-        if (batchProgressHideTimer) {
-            clearTimeout(batchProgressHideTimer);
-            batchProgressHideTimer = null;
-        }
-        const wrap = document.getElementById('batchProgressWrap');
-        if (wrap) {
-            wrap.style.display = '';
-            wrap.setAttribute('aria-hidden', 'false');
-        }
-        syncMainBatchBtnLabel();
-    } else {
-        showBatchProgress(ids.length);
+    const wasRunning = isBatchInProgress();
+    // Total UI = ajouts réels (body.added / hydrate), pas ids.length (ignore les doublons).
+    if (!wasRunning) {
+        showBatchProgress(Math.min(ids.length, 50));
     }
 
     if (typeof mrPrepareForBatch === "function") {
@@ -509,14 +526,12 @@ async function launchBatch(event) {
     }
 
     batchEnqueueAbort = false;
-    if (batchEnqueueController) {
-        try { batchEnqueueController.abort(); } catch (e) { /* ignore */ }
-    }
+    batchEnqueueInFlight = true;
     batchEnqueueController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     mainBatchBtnBusy = true;
     btn.innerText = window.AppTranslations.batch_sending;
-    
+
     const batchFieldsMask = getBatchTargetedFieldsMask();
     let stopped = false;
     let totalAdded = 0;
@@ -524,8 +539,9 @@ async function launchBatch(event) {
     let lastPaused = false;
     let lastCount = null;
     let didResume = false;
-    let lastHydrated = 0;
+    let resumeTotalLocked = false;
 
+    try {
     for (let i = 0; i < ids.length; i += 50) {
         if (batchEnqueueAbort) {
             stopped = true;
@@ -534,10 +550,10 @@ async function launchBatch(event) {
 
         const batch = ids.slice(i, i + 50);
         const formData = new FormData();
-        
+
         const libInput = form.querySelector('[name="library_id"]');
         if(libInput) formData.append('library_id', libInput.value);
-        
+
         const forceUpdateCb = document.getElementById('sidebar_force_update');
         if (forceUpdateCb && forceUpdateCb.checked) {
             formData.append('force_update', 'true');
@@ -572,15 +588,28 @@ async function launchBatch(event) {
                 stopped = true;
                 break;
             }
-            totalAdded += Number(body.added || 0);
+            const added = Number(body.added || 0);
+            totalAdded += added;
             totalDupes += Number(body.skipped_dupes || 0);
             lastPaused = !!body.paused;
             if (body.count != null) lastCount = body.count;
+
             if (body.resumed) {
                 didResume = true;
-                lastHydrated = Math.max(lastHydrated, Number(body.hydrated || 0));
-                // File reprise : barre = toute la file hydratée, pas seulement ce paquet.
-                if (lastHydrated > 0) showBatchProgress(lastHydrated);
+                const hydrated = Number(body.hydrated || 0);
+                // 1ʳᵉ réponse reprise : total absolu = file hydratée. Paquets suivants : +added.
+                if (!resumeTotalLocked && hydrated > 0) {
+                    showBatchProgress(hydrated);
+                    resumeTotalLocked = true;
+                } else if (added > 0) {
+                    bumpBatchProgressTotal(added);
+                }
+            } else if (added > 0) {
+                if (!wasRunning && i === 0 && !didResume) {
+                    showBatchProgress(added);
+                } else {
+                    bumpBatchProgressTotal(added);
+                }
             }
             // Ne pas décocher ici : reprise = cases jusqu'à COMPLETED / NEEDS_RELOCK.
         } catch (err) {
@@ -592,13 +621,21 @@ async function launchBatch(event) {
             throw err;
         }
     }
+    } finally {
+        batchEnqueueController = null;
+        batchEnqueueInFlight = false;
+    }
 
-    batchEnqueueController = null;
     if (lastCount != null) updateBatchQueueBadge(lastCount, lastPaused);
     else refreshBatchQueueBadge();
     showBatchQueueToast(totalAdded, totalDupes);
-    // Ne pas cacher la barre si on vient de reprendre une file pausée.
-    if (lastPaused || (totalAdded === 0 && !didResume)) hideBatchProgress();
+    // Cacher seulement si rien n'a démarré / file pausée — pas si un batch tournait déjà
+    // et que l'ajout n'était que des doublons.
+    if (lastPaused) {
+        hideBatchProgress();
+    } else if (totalAdded === 0 && !didResume && !wasRunning) {
+        hideBatchProgress();
+    }
     if (document.getElementById('batchQueueModal') && !document.getElementById('batchQueueModal').hidden) {
         loadBatchQueueModal();
     }
@@ -824,7 +861,15 @@ function loadLibrary(libraryId) {
             
             contentArea.style.opacity = '1';
             contentArea.style.pointerEvents = 'auto';
-            
+
+            // Nouveau DOM : vider les panneaux Options + ré-init liste virtualisée.
+            if (typeof clearOverridePanelCache === 'function') {
+                clearOverridePanelCache();
+            }
+            if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.init === 'function') {
+                window.SeriesList.init();
+            }
+
             filterSeries();
             restoreBatchSelection();
             filterSeries(); // recalcule selectAll / compteur après restauration

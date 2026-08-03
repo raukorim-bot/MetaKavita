@@ -14,6 +14,7 @@ EN
 * **BF96. Lazy Options panels + selection index (thanks angusmaul, [#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — Override panels are no longer emitted for every series (built on first Options click). Selection lives in a JS `Set` (BF94/C63-safe: filter does not clear; Add to queue uses filtered selected IDs, not the viewport). `content-visibility: auto` on rows.
 * **BF97. Virtual series list for large libraries ([#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — At ≥120 series, the dashboard boots from JSON and renders a scroll window (~60 rows). Select-all / queue / ignore still use the full filtered selection.
 * **BF98–BF100.** See *Dashboard UI polish* above (queue labels, denser rows/toolbar, compact Options). Override UI contracts: `tests/test_override_panel_ui.py`.
+* **BF101. Batch progress + virtual list after library switch** — Progress bar no longer hides when mid-batch append is all dupes; resume/multi-chunk totals bump instead of reset; concurrent enqueue ignored. `loadLibrary` re-inits `SeriesList` and clears Options cache. Virtual scroll uses cumulative row offsets when Options panels are open.
 
 FR
 ### ✨ Nouveautés
@@ -29,6 +30,7 @@ FR
 * **BF96. Panneaux Options lazy + index de sélection (merci angusmaul, [#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — Plus de panneau override par série dans le HTML (créé au premier clic Options). Sélection en `Set` JS (BF94/C63 : le filtre ne décoche pas ; Ajouter à la file = IDs filtrés cochés, pas le viewport). `content-visibility: auto` sur les lignes.
 * **BF97. Liste virtualisée pour grosses bibliothèques ([#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — Dès ≥120 séries, bootstrap JSON + fenêtre de scroll (~60 lignes). Tout sélectionner / file / ignore utilisent toujours la sélection filtrée complète.
 * **BF98–BF100.** Voir *Polish UI dashboard* ci-dessus (libellés file, cartouches/toolbar, Options compact). Contrats UI overrides : `tests/test_override_panel_ui.py`.
+* **BF101. Progression batch + liste virtualisée après changement de bibliothèque** — La barre ne disparaît plus si un ajout mid-batch n’est que des doublons ; totaux resume/multi-paquets en bump (pas de reset) ; 2ᵉ enqueue ignoré. `loadLibrary` ré-init `SeriesList` + vide le cache Options. Scroll virtual = offsets cumulés quand des panneaux Options sont ouverts.
 
 ## [1.6.3] - 2026-08-02 (Age / i18n / scraper store)
 

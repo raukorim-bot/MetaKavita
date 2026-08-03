@@ -12,6 +12,18 @@ let allPanelsExpanded = false;
 /** Survive virtual-list re-renders (innerHTML wipe). */
 var _overridePanelCache = {};
 
+/** Appelé par loadLibrary : évite panneaux orphelins / cache stale. */
+function clearOverridePanelCache() {
+    Object.keys(_overridePanelCache).forEach(function (sid) {
+        const panel = _overridePanelCache[sid];
+        if (panel && panel.parentNode) {
+            try { panel.parentNode.removeChild(panel); } catch (e) { /* ignore */ }
+        }
+        delete _overridePanelCache[sid];
+    });
+    allPanelsExpanded = false;
+}
+
 function setSeriesTargetedFields(seriesId, checked) {
     TARGETED_FIELD_KEYS.forEach(f => {
         const cb = document.getElementById(`field-${f}-${seriesId}`);

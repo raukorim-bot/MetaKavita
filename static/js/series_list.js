@@ -115,26 +115,61 @@
         }
     }
 
-    function _openPanelExtraHeight() {
-        var extra = 0;
-        pinnedPanelIds.forEach(function (sid) {
-            var panel = (typeof _overridePanelCache !== 'undefined' && _overridePanelCache[sid])
-                || document.getElementById('panel-' + sid);
-            if (!panel || panel.style.display !== 'block') return;
-            extra += Math.max(0, panel.offsetHeight || 420);
-        });
-        return extra;
+    function _panelHeight(sid) {
+        var panel = (typeof _overridePanelCache !== 'undefined' && _overridePanelCache[sid])
+            || document.getElementById('panel-' + sid);
+        if (!panel || panel.style.display !== 'block') return 0;
+        return Math.max(0, panel.offsetHeight || 420);
+    }
+
+    function _estimatedRowHeight(sid) {
+        if (!pinnedPanelIds.has(String(sid))) return ROW_HEIGHT;
+        return ROW_HEIGHT + _panelHeight(sid);
+    }
+
+    /** Cumulative Y offsets for matched rows (accounts for open Options panels). */
+    function _cumulativeOffsets(matched) {
+        var offs = new Array(matched.length + 1);
+        offs[0] = 0;
+        for (var i = 0; i < matched.length; i++) {
+            offs[i + 1] = offs[i] + _estimatedRowHeight(matched[i]);
+        }
+        return offs;
+    }
+
+    function _indexAtOffset(offs, y) {
+        var lo = 0;
+        var hi = offs.length - 1;
+        while (lo < hi) {
+            var mid = (lo + hi + 1) >> 1;
+            if (offs[mid] <= y) lo = mid;
+            else hi = mid - 1;
+        }
+        return Math.min(lo, Math.max(0, offs.length - 2));
     }
 
     function renderWindow() {
         if (!root || !windowEl || !spacer) return;
         var matched = matchedIds || [];
-        spacer.style.height = (matched.length * ROW_HEIGHT + _openPanelExtraHeight()) + 'px';
+        var useOffsets = pinnedPanelIds.size > 0;
+        var offs = useOffsets ? _cumulativeOffsets(matched) : null;
+        var totalH = useOffsets ? offs[matched.length] : matched.length * ROW_HEIGHT;
+        spacer.style.height = totalH + 'px';
 
         var scrollTop = root.scrollTop;
         var viewH = root.clientHeight || 400;
-        var start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
-        var end = Math.min(matched.length, Math.ceil((scrollTop + viewH) / ROW_HEIGHT) + OVERSCAN);
+        var start;
+        var end;
+        if (!useOffsets) {
+            start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
+            end = Math.min(matched.length, Math.ceil((scrollTop + viewH) / ROW_HEIGHT) + OVERSCAN);
+        } else {
+            start = Math.max(0, _indexAtOffset(offs, scrollTop) - OVERSCAN);
+            end = Math.min(
+                matched.length,
+                _indexAtOffset(offs, scrollTop + viewH) + 1 + OVERSCAN
+            );
+        }
 
         // Keep every pinned (open Options) row in the mounted window.
         pinnedPanelIds.forEach(function (sid) {
@@ -151,7 +186,8 @@
             var s = byId[id];
             if (s) html.push(buildRowHtml(s));
         }
-        windowEl.style.transform = 'translateY(' + (start * ROW_HEIGHT) + 'px)';
+        var topY = useOffsets ? offs[start] : start * ROW_HEIGHT;
+        windowEl.style.transform = 'translateY(' + topY + 'px)';
         windowEl.innerHTML = html.join('');
         var nodes = windowEl.children;
         for (var j = 0; j < nodes.length; j++) {
@@ -170,6 +206,9 @@
     }
 
     function filterAndRender(opts) {
+        if (!root || !windowEl || !spacer || root.getAttribute('data-virtual') !== '1') {
+            return false;
+        }
         opts = opts || {};
         var filter = opts.filter || 'ALL';
         var hideIgnored = !!opts.hideIgnored;
@@ -204,6 +243,7 @@
             }
         }
         renderWindow();
+        return true;
     }
 
     function refreshMountedChecks() {
@@ -250,18 +290,58 @@
     }
 
     function afterPanelOpened(/* seriesId */) {
-        if (spacer) {
-            spacer.style.height = ((matchedIds || []).length * ROW_HEIGHT + _openPanelExtraHeight()) + 'px';
-        }
+        // Recalcule spacer + translateY (hauteurs de panneaux variables).
+        renderWindow();
     }
 
     function getItem(seriesId) {
         return byId[String(seriesId)] || null;
     }
 
+    function destroy() {
+        if (root) {
+            try { root.removeEventListener('scroll', onScroll); } catch (e) { /* ignore */ }
+        }
+        try { window.removeEventListener('resize', onScroll); } catch (e2) { /* ignore */ }
+        if (scrollRaf) {
+            cancelAnimationFrame(scrollRaf);
+            scrollRaf = 0;
+        }
+        pinnedPanelIds.clear();
+        items = [];
+        byId = {};
+        root = null;
+        spacer = null;
+        windowEl = null;
+    }
+
+    function _publishApi() {
+        window.SeriesList = {
+            filterAndRender: filterAndRender,
+            refreshMountedChecks: refreshMountedChecks,
+            updateStatus: updateStatus,
+            patchOverride: patchOverride,
+            pinOpenPanel: pinOpenPanel,
+            pinOpenPanels: pinOpenPanels,
+            unpinPanel: unpinPanel,
+            unpinAllPanels: unpinAllPanels,
+            afterPanelOpened: afterPanelOpened,
+            getItem: getItem,
+            renderWindow: renderWindow,
+            isPinned: function (id) { return pinnedPanelIds.has(String(id)); },
+            init: init,
+            destroy: destroy,
+        };
+    }
+
     function init() {
+        destroy();
+        _publishApi();
+
         root = document.getElementById('seriesContainer');
-        if (!root || root.getAttribute('data-virtual') !== '1') return false;
+        if (!root || root.getAttribute('data-virtual') !== '1') {
+            return false;
+        }
 
         var dataEl = document.getElementById('seriesIndexData');
         var metaEl = document.getElementById('seriesListMeta');
@@ -306,21 +386,7 @@
 
         root.addEventListener('scroll', onScroll, { passive: true });
         window.addEventListener('resize', onScroll);
-
-        window.SeriesList = {
-            filterAndRender: filterAndRender,
-            refreshMountedChecks: refreshMountedChecks,
-            updateStatus: updateStatus,
-            patchOverride: patchOverride,
-            pinOpenPanel: pinOpenPanel,
-            pinOpenPanels: pinOpenPanels,
-            unpinPanel: unpinPanel,
-            unpinAllPanels: unpinAllPanels,
-            afterPanelOpened: afterPanelOpened,
-            getItem: getItem,
-            renderWindow: renderWindow,
-            isPinned: function (id) { return pinnedPanelIds.has(String(id)); },
-        };
+        _publishApi();
         return true;
     }
 
