@@ -31,7 +31,8 @@
 
 ---
 
-### ✨ Latest Releases (v1.5.6 to v1.6.4)
+### ✨ Latest Releases (v1.5.6 to v1.6.5)
+- [x] **BF103. Manual Review cover pick hardening (v1.6.5):** Reopen / queue jump restores cover phase when cover pick is on; explicit MR cover upload removes `cover` from `targeted_fields` (parity with `/update-cover` via `protect_manual_cover_field`).
 - [x] **C64. Guided first-run setup wizard (v1.6.4):** `/setup` 6-step onboarding (account, Kavita + `ROOT_PATH`, languages, options + Auto-Sync 6 h, API keys, cascades); non-blocking Kavita probe; Skip = ready defaults; logged-in replay without account step (Help menu).
 - [x] **C62. Core scrapers `is_core` + boot sync (v1.6.4):** catalog `is_core` from community GitHub → `data/scrapers/` (sha256); image package fallback if offline; `AUTO_UPDATE_CORE_SCRAPERS` (default on) or banner + `POST /api/scrapers/core-updates/apply`.
 - [x] **C63. Persistent batch queue (v1.6.4):** SQLite queue + boot hydrate; Add / Pause / Resume / remove / clear; Stop cancels durable queue.
@@ -215,7 +216,8 @@
 
 ---
 
-### ✨ Dernières Nouveautés (v1.5.6 à v1.6.4)
+### ✨ Dernières Nouveautés (v1.5.6 à v1.6.5)
+- [x] **BF103. Durcissement cover pick Manual Review (v1.6.5) :** reopen / jump de file restaure la phase cover si le toggle est on ; upload cover MR explicite retire `cover` de `targeted_fields` (parité `/update-cover` via `protect_manual_cover_field`).
 - [x] **C64. Wizard de setup guidé (v1.6.4) :** `/setup` en 6 étapes (compte, Kavita + `ROOT_PATH`, langues, options + Auto-Sync 6 h, clés API, cascades) ; test Kavita non bloquant ; Passer = defaults prêts ; rejeu connecté sans étape compte (menu Aide).
 - [x] **C62. Scrapers core `is_core` + sync au boot (v1.6.4) :** catalogue community GitHub `is_core` → `data/scrapers/` (sha256) ; fallback package image si hors-ligne ; `AUTO_UPDATE_CORE_SCRAPERS` (défaut on) ou bannière + `POST /api/scrapers/core-updates/apply`.
 - [x] **C63. File batch persistante (v1.6.4) :** file SQLite + hydrate au boot ; Ajouter / Pause / Reprise / retirer / vider ; Stop annule la file durable.

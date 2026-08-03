@@ -16,11 +16,49 @@ from db_manager import (
     get_lifetime_stats,
     update_status,
     record_enrichment_telemetry,
+    save_series_override,
 )
+from models import SeriesOverride
 from translator import translate_text
 from scrapers.utils import MATCH_SCORE_KEY
 from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kavita_format_enum
 from translations import get_ui_translations
+
+
+def protect_manual_cover_field(series_id, *, status=None, purge_pending=False):
+    """
+    Retire ``cover`` de ``targeted_fields`` après un choix de couverture manuel.
+
+    Parité dashboard ``/update-cover`` et Manual Review ``force_cover_upload`` :
+    sans ça, un futur sync avec AUTO_COVER peut retenter un upload provider.
+
+    ``status`` : statut cache à conserver (défaut = statut actuel, sinon PENDING).
+    ``purge_pending`` : True pour le modal dashboard (comportement historique) ;
+    False sur le chemin MR (la review est confirmée juste après).
+    """
+    # Import paresseux : enrichment_engine importe ce module au chargement.
+    from services.enrichment_engine import ALL_TARGETED_FIELDS
+
+    sid = int(series_id)
+    cache_data = get_all_cached_data().get(sid, {}) or {}
+    override = SeriesOverride.from_cache_dict(sid, cache_data)
+    keep_status = status if status is not None else (cache_data.get("status") or "PENDING")
+
+    current = override.targeted_fields or "ALL"
+    if current == "ALL":
+        fields = list(ALL_TARGETED_FIELDS)
+    elif current == "NONE":
+        fields = []
+    else:
+        fields = [f.strip() for f in str(current).split(",") if f.strip()]
+
+    if "cover" not in fields:
+        return False
+
+    remaining = [f for f in fields if f != "cover"]
+    override.targeted_fields = ",".join(remaining) if remaining else "NONE"
+    save_series_override(override, purge_pending=purge_pending, status=keep_status)
+    return True
 
 
 def _dedupe_titles(values):
@@ -588,6 +626,17 @@ def apply_kavita_payload(
                 logging.warning(t.get("log_cover_fail").format(series_name, cover_msg))
             else:
                 logging.info(t.get("log_cover_success").format(series_name))
+                # Choix explicite (MR cover pick / edit cover_url) : verrouiller
+                # aussi côté MetaKavita, comme /update-cover (pas seulement lockCover Kavita).
+                if built.get("force_cover_upload") and protect_manual_cover_field(
+                    series_id, status=final_status, purge_pending=False
+                ):
+                    logging.info(
+                        t.get(
+                            "log_cover_field_locked",
+                            "🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {0} (protégé contre les futurs scrapings automatiques).",
+                        ).format(series_id)
+                    )
         elif "cover" in active and not cover_still_targeted:
             logging.info(t.get("log_cover_manual_protected", "[{0}] ⏭️ Couverture ignorée : un choix manuel protégé a été détecté entre-temps.").format(series_name))
 

@@ -1267,7 +1267,7 @@
             showRecapIfEmpty();
             return;
         }
-        // Auto-confirm ou preview déjà prêt → phase edit directe
+        // Auto-confirm ou preview déjà prêt → reprise post-pick
         if (review.preview && (isAutoConfirmReview(review) || review.state === "awaiting_confirm")) {
             selectedProvider = review.base_provider
                 || (review.above && review.above[0] && review.above[0].provider)
@@ -1283,6 +1283,14 @@
             }
             if (posEl) posEl.textContent = (currentIndex + 1) + " / " + queue.length;
             updateKavitaLink(review);
+            baselinePreview = review.preview || {};
+            syncOptionsFromSidebar();
+            // MR + cover pick : ne pas sauter la phase cover au reopen / jump
+            // (auto_confirm / CBW n'active jamais le toggle cover — MR mode requis).
+            if (!isAutoConfirmReview(review) && isCoverPickOn()) {
+                enterCoverPhase(baselinePreview);
+                return;
+            }
             renderEdit(review.preview);
             setPhase("edit");
             return;

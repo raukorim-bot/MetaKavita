@@ -1,3 +1,15 @@
+## [1.6.5] - 2026-08-03 (Manual Review cover pick hardening)
+
+EN
+### 🐛 Bug Fixes
+* **BF103. Manual Review cover pick survives reopen / queue jump** — After provider choice (`awaiting_confirm`), reopening the modal or jumping via the series list skipped the cover phase and jumped straight to edit (worse when cover-only / edit off). `showCurrentReview` now restores the cover phase when `MANUAL_REVIEW_COVER_PICK` is on (auto-confirm / CBW unchanged).
+* **BF103. Explicit MR cover upload locks MetaKavita `targeted_fields`** — Dashboard `/update-cover` already removed `cover` from the series field mask; Manual Review `force_cover_upload` only set Kavita `lockCover`. Shared helper `protect_manual_cover_field` now runs after a successful explicit cover upload so a later sync with `AUTO_COVER` cannot overwrite the pick. `/update-cover` refactored onto the same helper. Tests: `tests/test_manual_review.py`, `tests/test_routes_series_cover.py`.
+
+FR
+### 🐛 Correctifs
+* **BF103. Phase couverture Manual Review survit au reopen / jump** — Après le pick (`awaiting_confirm`), rouvrir la modale ou jumper via la liste sautait la phase cover pour l’edit (pire en cover-only). `showCurrentReview` restaure la phase cover si `MANUAL_REVIEW_COVER_PICK` est actif (auto-confirm / CBW inchangé).
+* **BF103. Upload cover MR explicite verrouille `targeted_fields` MetaKavita** — `/update-cover` retirait déjà `cover` du masque ; le chemin MR `force_cover_upload` ne posait que `lockCover` Kavita. Helper partagé `protect_manual_cover_field` après upload explicite réussi — un sync ultérieur avec `AUTO_COVER` ne peut plus écraser le choix. `/update-cover` refactoré sur le même helper. Tests : `tests/test_manual_review.py`, `tests/test_routes_series_cover.py`.
+
 ## [1.6.4] - 2026-08-03 (Core sync / large libraries / dashboard UI polish)
 
 EN
