@@ -104,11 +104,14 @@ def test_toggle_select_all_check_and_clear_semantics():
     start = js.index("function toggleSelectAll()")
     next_fn = js.find("\nfunction ", start + 1)
     body = js[start:next_fn if next_fn != -1 else start + 1200]
-    assert "isSeriesItemVisible" in body
-    assert "cb.checked = isSeriesItemVisible(item)" in body
-    assert "cb.checked = false" in body
+    # BF96: select-all mutates selectedIds Set, then syncs mounted checkboxes.
+    assert "replaceSelectionWithMatched" in body
+    assert "clearSeriesSelection" in body
+    assert "syncMountedCheckboxes" in body
+    assert "function getFilteredSelectedIds()" in js
+    assert "var selectedIds" in js
     assert "function updateSelectionCounters()" in js
-    assert "getVisibleCheckedSeriesCbs().length" in js
+    assert "getFilteredSelectedIds().length" in js
     assert 'id="selectedCount"' in _read("templates/partials/_toolbar.html")
     # Resume-safe: launchBatch must not uncheck on enqueue.
     launch_start = js.index("async function launchBatch")
@@ -117,6 +120,30 @@ def test_toggle_select_all_check_and_clear_semantics():
         next_fn = js.find("\nasync function ", launch_start + 1)
     launch_body = js[launch_start:next_fn if next_fn != -1 else launch_start + 4000]
     assert "uncheckSeriesIds" not in launch_body
+    assert "clearSeriesSelection" not in launch_body
+
+
+def test_series_row_has_no_inline_override_panel():
+    """BF96 — panels are lazy; row partial must not embed a live .override-panel."""
+    html = _read("templates/partials/_series_row.html")
+    assert 'class="override-panel"' not in html
+    assert 'id="panel-' not in html
+    assert "toggleSeriesPanel" in html
+    assert 'data-forced-id="' in html
+    assert 'id="override-panel-template"' in _read("templates/partials/_override_panel_template.html")
+
+
+def test_selection_and_virtual_list_source_contracts():
+    batch = _read("static/js/batch.js")
+    assert "function getFilteredSelectedIds()" in batch
+    assert "getVisibleCheckedSeriesIds" in batch
+    assert "return getFilteredSelectedIds()" in batch
+    virt = _read("static/js/series_list.js")
+    assert "filterAndRender" in virt
+    assert "window.SeriesList" in virt
+    assert "matchedIds" in virt
+    css = _read("static/css/style.css")
+    assert "content-visibility: auto" in css
 
 
 def test_css_is_filtered_out_hides_series_items():
@@ -161,3 +188,39 @@ def test_dashboard_series_rows_include_data_search_title(pages_client, isolated_
     assert 'data-search-title="made in abyss"' in html
     assert 'data-search-title="one piece"' in html
     assert "scheduleFilterSeries()" in html
+    assert 'id="override-panel-template"' in html
+    assert "seriesIndexData" in html
+    # 2 series < virtual threshold → Jinja rows, not virtual container.
+    assert 'data-virtual="1"' not in html
+
+
+def test_dashboard_uses_virtual_list_above_threshold(pages_client, isolated_db, monkeypatch):
+    monkeypatch.setattr(
+        "routes.pages.load_config",
+        lambda: {
+            "UI_LANG": "en",
+            "KAVITA_URL": "http://kavita.test",
+            "KAVITA_API_KEY": "key",
+        },
+    )
+
+    class FakeKavita:
+        def __init__(self, *a, **k):
+            pass
+
+        def authenticate(self):
+            return True
+
+        def get_libraries(self):
+            return [{"id": 1, "name": "Manga"}]
+
+        def get_all_series(self, library_id=None):
+            return [{"id": i, "name": f"Series {i}", "libraryId": 1} for i in range(1, 121)]
+
+    monkeypatch.setattr("routes.pages.KavitaAPI", FakeKavita)
+    html = pages_client.get("/").get_data(as_text=True)
+    assert 'data-virtual="1"' in html
+    assert "series_list.js" in html
+    assert '"id": 120' in html or '"id":120' in html
+    # No per-row Jinja panels / heavy rows for the full set.
+    assert html.count('class="series-item"') == 0

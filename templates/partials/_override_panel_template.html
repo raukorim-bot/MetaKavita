@@ -1,0 +1,65 @@
+{# Single shared template for lazy per-series override panels (BF96 / issue #30).
+   Placeholders __SID__ are rewritten in overrides.js::ensureOverridePanel. #}
+<template id="override-panel-template">
+    <div id="panel-__SID__" class="override-panel">
+        <div class="override-grid" style="grid-template-columns: 1.5fr 1.5fr auto; gap: 10px; align-items: start;">
+            <div>
+                <span class="input-hint">{{ t.alt_title }}</span>
+                <input type="text" id="title-__SID__" value="" placeholder="{{ t.placeholder_title }}">
+            </div>
+            <div>
+                <span class="input-hint">{{ t.magic_input_hint }}</span>
+                <div style="display: flex; gap: 5px;">
+                    <select id="provider-__SID__" style="width: 35%; padding: 8px; font-size: 12px;">
+                        <option value="AUTO">{{ t.provider_auto }}</option>
+                        {% for scraper in magic_scrapers %}
+                        <option value="{{ scraper.id }}">{{ scraper.display_name }}</option>
+                        {% endfor %}
+                    </select>
+                    <input type="text" id="id-__SID__" value="" placeholder="{{ t.placeholder_magic }}" style="flex: 1;">
+                </div>
+            </div>
+            <div>
+                <span class="input-hint" style="margin-bottom: 5px;">{{ t.publisher_pref_label }}</span>
+                <div class="segmented-control">
+                    <input type="radio" name="pubpref-__SID__" id="pub-global-__SID__" value="GLOBAL">
+                    <label for="pub-global-__SID__" title="{{ t.publisher_pref_global_title }}">Auto</label>
+                    <input type="radio" name="pubpref-__SID__" id="pub-loc-__SID__" value="LOCALIZED">
+                    <label for="pub-loc-__SID__" title="{{ t.publisher_pref_localized_title }}">VF/VA</label>
+                    <input type="radio" name="pubpref-__SID__" id="pub-orig-__SID__" value="ORIGINAL">
+                    <label for="pub-orig-__SID__" title="{{ t.publisher_pref_original_title }}">VO</label>
+                </div>
+            </div>
+            <div style="padding-top: 20px;">
+                <button type="button" class="btn-success" data-save-override="1">{{ t.save }}</button>
+            </div>
+        </div>
+        <details class="targeted-scraping-details" style="margin-top: 10px;">
+            <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">⚙️ {{ t.targeted_fields }}</summary>
+            <div style="display: flex; gap: 6px; margin: 8px 0 0;">
+                <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" data-tf-all="1">{{ t.fields_check_all }}</button>
+                <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" data-tf-none="1">{{ t.fields_uncheck_all }}</button>
+            </div>
+            <div class="override-fields-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; padding: 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border-color);">
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-summary-__SID__" data-field="summary"> {{ t.field_summary }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-cover-__SID__" data-field="cover"> {{ t.field_cover }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-staff-__SID__" data-field="staff"> {{ t.field_staff }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-genres-__SID__" data-field="genres"> {{ t.field_genres }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-tags-__SID__" data-field="tags"> {{ t.field_tags }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-year-__SID__" data-field="year"> {{ t.field_year }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-status-__SID__" data-field="status"> {{ t.field_status }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-publisher-__SID__" data-field="publisher"> {{ t.field_publisher }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-age-__SID__" data-field="age"> {{ t.field_age }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-format-__SID__" data-field="format"> {{ t.field_format }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-__SID__" data-field="weblinks"> {{ t.field_weblinks }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-__SID__" data-field="alt_titles"> {{ t.field_alt_titles }}</label>
+                <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-language-__SID__" data-field="language"> {{ t.field_language }}</label>
+            </div>
+            <div style="margin-top: 8px;">
+                <span class="input-hint">{{ t.alt_title_langs_label }}</span>
+                <input type="text" id="alt-langs-__SID__" value="" placeholder="{{ t.alt_title_langs_placeholder }}" style="width: 100%; font-size: 12px; padding: 6px 8px;">
+                <small class="text-muted" style="display:block;margin-top:4px;">{{ t.alt_title_langs_hint }}</small>
+            </div>
+        </details>
+    </div>
+</template>

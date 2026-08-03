@@ -7,6 +7,58 @@ const BATCH_SELECTION_PREFIX = 'mk_batch_selection:';
 var batchEnqueueAbort = false;
 var batchEnqueueController = null;
 
+// --- Sélection index-first (BF94 / #30 / C63) ---
+// Source de vérité = Sets JS. Le DOM (checkbox) n'est qu'un reflet des rows montées.
+// « Visible » = matched (filtre), jamais le viewport virtualisé.
+var selectedIds = new Set();
+var matchedIds = [];
+var matchedSet = new Set();
+
+function getFilteredSelectedIds() {
+    var out = [];
+    for (var i = 0; i < matchedIds.length; i++) {
+        var id = matchedIds[i];
+        if (selectedIds.has(id)) out.push(id);
+    }
+    return out;
+}
+
+function syncSelectAllCheckbox() {
+    var selectAll = document.getElementById('selectAll');
+    if (!selectAll) return;
+    selectAll.checked = matchedIds.length > 0 && getFilteredSelectedIds().length === matchedIds.length;
+}
+
+function syncMountedCheckboxes() {
+    document.querySelectorAll('.series-cb').forEach(function (cb) {
+        cb.checked = selectedIds.has(String(cb.value));
+    });
+}
+
+function setSeriesSelected(seriesId, checked) {
+    var id = String(seriesId);
+    if (checked) selectedIds.add(id);
+    else selectedIds.delete(id);
+}
+
+function clearSeriesSelection() {
+    selectedIds.clear();
+}
+
+function replaceSelectionWithMatched() {
+    selectedIds = new Set(matchedIds);
+}
+
+function uncheckSeriesIdForBatchResume(seriesId) {
+    var id = String(seriesId);
+    selectedIds.delete(id);
+    document.querySelectorAll('.series-cb').forEach(function (cb) {
+        if (String(cb.value) === id) cb.checked = false;
+    });
+    syncSelectAllCheckbox();
+    saveBatchSelection();
+}
+
 /** Total du batch courant (fixé au lancement UI ; barre via événement batch_progress). */
 var batchProgressTotal = 0;
 var batchProgressHideTimer = null;
@@ -105,8 +157,7 @@ function getBatchSelectionKey() {
 
 /** Persiste tous les IDs cochés (y compris hors filtre) — reprise après refresh. */
 function saveBatchSelection() {
-    const ids = Array.from(document.querySelectorAll('.series-cb:checked')).map(cb => String(cb.value));
-    localStorage.setItem(getBatchSelectionKey(), JSON.stringify(ids));
+    localStorage.setItem(getBatchSelectionKey(), JSON.stringify(Array.from(selectedIds)));
     updateSelectionCounters();
 }
 
@@ -117,16 +168,13 @@ function restoreBatchSelection() {
     } catch (e) {
         saved = [];
     }
-    if (!Array.isArray(saved) || saved.length === 0) return;
-
-    const want = new Set(saved.map(String));
-    document.querySelectorAll('.series-cb').forEach(cb => {
-        cb.checked = want.has(String(cb.value));
-    });
-
-    // Sync compteur / case « tout sélectionner » ; ne touche pas aux coches hors écran.
+    selectedIds = new Set(Array.isArray(saved) ? saved.map(String) : []);
+    syncMountedCheckboxes();
     if (typeof filterSeries === 'function') filterSeries();
-    saveBatchSelection();
+    else {
+        syncSelectAllCheckbox();
+        saveBatchSelection();
+    }
 }
 
 function isSeriesItemVisible(item) {
@@ -135,22 +183,24 @@ function isSeriesItemVisible(item) {
 
 /** Cases cochées parmi les séries actuellement affichées (filtre + recherche). */
 function getVisibleCheckedSeriesCbs(root) {
+    const want = new Set(getFilteredSelectedIds());
     const scope = root || document;
-    return Array.from(scope.querySelectorAll('.series-cb:checked')).filter(cb => {
-        return isSeriesItemVisible(cb.closest('.series-item'));
+    return Array.from(scope.querySelectorAll('.series-cb')).filter(cb => {
+        return want.has(String(cb.value)) && isSeriesItemVisible(cb.closest('.series-item'));
     });
 }
 
 function getVisibleCheckedSeriesIds(root) {
-    return getVisibleCheckedSeriesCbs(root).map(cb => String(cb.value));
+    // root ignoré volontairement : source = Set ∩ matched (C63 / virtual-safe).
+    return getFilteredSelectedIds();
 }
 
-/** Badge : cochées *visibles* = ce que le prochain batch emportera. */
+/** Badge : cochées *visibles* = ce que le prochain batch / Ajouter à la file emportera. */
 function updateSelectionCounters() {
     const el = document.getElementById('selectedCount');
     if (!el) return;
     const T = window.AppTranslations || {};
-    const batchCount = getVisibleCheckedSeriesCbs().length;
+    const batchCount = getFilteredSelectedIds().length;
     if (batchCount === 0) {
         el.hidden = true;
         el.textContent = '';
@@ -195,19 +245,36 @@ function filterSeries() {
     if (searchInsideCb) localStorage.setItem('filter_search_inside', searchInside ? 'true' : 'false');
     if (searchInput) localStorage.setItem('filter_search', searchQuery);
     
-    let count = 0;
-    let visibleChecked = 0;
-    let visibleTotal = 0;
-    
+    matchedIds = [];
+    matchedSet = new Set();
+
+    // Si une liste virtualisée est active, elle recalcule matched + rend la fenêtre.
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.filterAndRender === 'function') {
+        window.SeriesList.filterAndRender({
+            filter: filter,
+            hideIgnored: hideIgnored,
+            searchQuery: searchQuery,
+            searchInside: searchInside,
+        });
+        const countElemV = document.getElementById('visibleCount');
+        if (countElemV) {
+            const n = matchedIds.length;
+            countElemV.textContent = n + (n > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
+        }
+        syncSelectAllCheckbox();
+        updateSelectionCounters();
+        return;
+    }
+
     document.querySelectorAll('.series-item').forEach(item => {
         const status = item.dataset.status;
         // Prefer precomputed data-search-title (no layout). Fallback: textContent (still no reflow).
         const title = (item.dataset.searchTitle
             || (item.querySelector('.series-name') || {}).textContent
             || '').toLowerCase();
-        
+
         let show = false;
-        
+
         if (filter === 'ALL') {
             show = true;
             if (hideIgnored && status === 'IGNORED') {
@@ -216,32 +283,31 @@ function filterSeries() {
         } else if (status === filter) {
             show = true;
         }
-        
+
         if (show && searchQuery !== '') {
             if (!titleMatchesSearch(title, searchQuery, searchInside)) {
                 show = false;
             }
         }
-        
+
         // Class toggle batches style work; avoid per-item inline display writes (#30).
         // Ne pas décocher : une faute de frappe / un filtre ne doit pas détruire la sélection.
-        // Le batch / ignore de masse ne prennent que les cochées *visibles*.
         item.classList.toggle('is-filtered-out', !show);
         if (show) {
-            count++;
-            visibleTotal++;
             const cb = item.querySelector('.series-cb');
-            if (cb && cb.checked) visibleChecked++;
+            const sid = cb ? String(cb.value) : '';
+            if (sid) {
+                matchedIds.push(sid);
+                matchedSet.add(sid);
+            }
         }
     });
-    
-    const selectAll = document.getElementById('selectAll');
-    if (selectAll) {
-        selectAll.checked = visibleTotal > 0 && visibleChecked === visibleTotal;
-    }
-    
+
+    syncSelectAllCheckbox();
+
     const countElem = document.getElementById('visibleCount');
-    if(countElem) {
+    if (countElem) {
+        const count = matchedIds.length;
         countElem.textContent = count + (count > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
     }
     updateSelectionCounters();
@@ -250,24 +316,23 @@ function filterSeries() {
 function toggleSelectAll() {
     const selectAll = document.getElementById('selectAll');
     if (!selectAll) return;
-    const isChecked = selectAll.checked;
-    document.querySelectorAll('.series-item').forEach(item => {
-        const cb = item.querySelector('.series-cb');
-        if (!cb) return;
-        if (isChecked) {
-            // Cocher = sélection devient exactement le visible.
-            cb.checked = isSeriesItemVisible(item);
-        } else {
-            // Décocher = vider toute la sélection (évite une file « fantôme » hors filtre).
-            cb.checked = false;
-        }
-    });
+    if (selectAll.checked) {
+        replaceSelectionWithMatched();
+    } else {
+        clearSeriesSelection();
+    }
+    syncMountedCheckboxes();
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.refreshMountedChecks === 'function') {
+        window.SeriesList.refreshMountedChecks();
+    }
     saveBatchSelection();
 }
 
-// Délégation : toute case série → persistance
+// Délégation : toute case série → Set puis persistance
 document.addEventListener('change', function(e) {
     if (e.target && e.target.classList && e.target.classList.contains('series-cb')) {
+        setSeriesSelected(e.target.value, !!e.target.checked);
+        syncSelectAllCheckbox();
         saveBatchSelection();
     }
 });
@@ -762,18 +827,28 @@ function toggleIgnore(seriesId, btn) {
 
 // --- IGNORER TOUTE LA SÉLECTION (AJAX) ---
 async function ignoreSelection() {
-    const checkboxes = getVisibleCheckedSeriesCbs();
-    if (checkboxes.length === 0) return;
+    // IDs filtrés cochés (Set) — pas le viewport (virtual / C63).
+    const ids = getFilteredSelectedIds();
+    if (ids.length === 0) return;
 
     const btn = document.getElementById('batchIgnoreBtn');
     const originalText = btn.innerText;
     btn.innerText = "⏳...";
     btn.disabled = true;
 
-    for (let cb of checkboxes) {
-        const seriesItem = cb.closest('.series-item');
-        const seriesId = cb.value;
-        const currentStatus = seriesItem.dataset.status;
+    for (let seriesId of ids) {
+        let currentStatus = 'PENDING';
+        if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.getItem === 'function') {
+            const idx = window.SeriesList.getItem(seriesId);
+            if (idx && idx.status) currentStatus = idx.status;
+        } else {
+            const seriesItem = document.querySelector('.series-item[data-series-id="' + seriesId + '"]')
+                || Array.from(document.querySelectorAll('.series-item')).find(function (it) {
+                    const cb = it.querySelector('.series-cb');
+                    return cb && String(cb.value) === String(seriesId);
+                });
+            if (seriesItem) currentStatus = seriesItem.dataset.status || 'PENDING';
+        }
 
         if (currentStatus !== 'IGNORED') {
             try {
@@ -783,29 +858,35 @@ async function ignoreSelection() {
                     body: `series_id=${seriesId}&current_status=${currentStatus}`
                 });
                 const data = await res.json();
-                
+
                 if (data.success) {
-                    seriesItem.dataset.status = 'IGNORED';
-                    const badge = seriesItem.querySelector('.badge');
-                    if (badge) {
-                        badge.className = 'badge badge-ignored';
-                        badge.innerText = window.AppTranslations.filter_ignored;
+                    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.updateStatus === 'function') {
+                        window.SeriesList.updateStatus(seriesId, 'IGNORED');
                     }
-                    const ignoreBtn = seriesItem.querySelector('.series-actions [data-action="ignore"]');
-                    if (ignoreBtn) {
-                        ignoreBtn.innerText = '🔄';
-                        ignoreBtn.title = window.AppTranslations.unignore_btn;
+                    const seriesItem = document.querySelector('.series-item[data-series-id="' + seriesId + '"]');
+                    if (seriesItem) {
+                        seriesItem.dataset.status = 'IGNORED';
+                        const badge = seriesItem.querySelector('.badge');
+                        if (badge) {
+                            badge.className = 'badge badge-ignored';
+                            badge.innerText = window.AppTranslations.filter_ignored;
+                        }
+                        const ignoreBtn = seriesItem.querySelector('.series-actions [data-action="ignore"]');
+                        if (ignoreBtn) {
+                            ignoreBtn.innerText = '🔄';
+                            ignoreBtn.title = window.AppTranslations.unignore_btn;
+                        }
                     }
                 }
-            } catch(e) {
+            } catch (e) {
                 console.error("[MetaKavita] Erreur lors de l'ignorance en masse:", e);
             }
         }
     }
-    
+
     btn.innerText = "✅ OK";
-    setTimeout(() => { 
-        btn.innerText = originalText; 
+    setTimeout(() => {
+        btn.innerText = originalText;
         btn.disabled = false;
         filterSeries();
     }, 1000);

@@ -1,4 +1,15 @@
-                            <div class="series-item" data-status="{{ series.status }}" data-search-title="{{ (series.name or '')|lower|e }}">
+                            <div class="series-item"
+                                 data-status="{{ series.status }}"
+                                 data-search-title="{{ (series.name or '')|lower|e }}"
+                                 data-series-id="{{ series.id }}"
+                                 data-library-id="{{ series.libraryId }}"
+                                 data-series-name="{{ series.name|e }}"
+                                 data-forced-id="{{ (series.forced_id or '')|e }}"
+                                 data-alt-title="{{ (series.alternative_title or series.name or '')|e }}"
+                                 data-forced-provider="{{ (series.forced_provider or 'AUTO')|e }}"
+                                 data-targeted-fields="{{ (series.targeted_fields or 'ALL')|e }}"
+                                 data-publisher-pref="{{ (series.publisher_pref or 'GLOBAL')|e }}"
+                                 data-alt-langs="{{ (series.alt_title_langs or '')|e }}">
                                 <div class="series-row">
                                     <div class="series-title-line">
                                         <input type="checkbox" name="selected_series" value="{{ series.id }}" class="series-cb">
@@ -27,89 +38,10 @@
                                             {% if series.status == 'IGNORED' %}🔄{% else %}🚫{% endif %}
                                         </button>
                                         <button type="button" class="btn-icon" data-action="covers" onclick="openCoverModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.manage_covers }}">🖼️</button>
-                                        <button type="button" class="btn-opt" data-action="options" onclick="togglePanel('panel-{{ series.id }}')">{{ t.options }}</button>
+                                        <button type="button" class="btn-opt" data-action="options" onclick="toggleSeriesPanel('{{ series.id }}')">{{ t.options }}</button>
                                         <button type="button" class="btn-sync" data-action="sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>
                                         <span class="loading" data-action="loading" style="display: none;">{{ t.processing }}</span>
                                     </div>
                                 </div>
-                                
-                                <div id="panel-{{ series.id }}" class="override-panel">
-                                    <div class="override-grid" style="grid-template-columns: 1.5fr 1.5fr auto; gap: 10px; align-items: start;">
-                                        
-                                        <!-- CHAMP 1 : TITRE ALTERNATIF PRÉ-REMPLI -->
-                                        <div>
-                                            <span class="input-hint">{{ t.alt_title }}</span>
-                                            <input type="text" id="title-{{ series.id }}" value="{{ series.alternative_title or series.name }}" placeholder="{{ t.placeholder_title }}">
-                                        </div>
-
-                                        <!-- CHAMP 2 : LE "CHAMP MAGIQUE" (PROVIDER + ID/URL) -->
-                                        <div>
-                                            <span class="input-hint">{{ t.magic_input_hint }}</span>
-                                            <div style="display: flex; gap: 5px;">
-                                                <select id="provider-{{ series.id }}" style="width: 35%; padding: 8px; font-size: 12px;">
-													<option value="AUTO">{{ t.provider_auto }}</option>
-													{% for scraper in magic_scrapers %}
-														<option value="{{ scraper.id }}" {% if series.forced_provider == scraper.id %}selected{% endif %}>{{ scraper.display_name }}</option>
-													{% endfor %}
-												</select>
-                                                <input type="text" id="id-{{ series.id }}" value="{{ series.forced_id }}" placeholder="{{ t.placeholder_magic }}" style="flex: 1;">
-                                            </div>
-                                        </div>
-                                        <!-- CHAMP 3 : L'INTERRUPTEUR ÉDITEUR -->
-                                        <div>
-                                            <span class="input-hint" style="margin-bottom: 5px;">{{ t.publisher_pref_label }}</span>
-                                            <div class="segmented-control">
-                                                <input type="radio" name="pubpref-{{ series.id }}" id="pub-global-{{ series.id }}" value="GLOBAL" {% if series.publisher_pref == 'GLOBAL' or not series.publisher_pref %}checked{% endif %}>
-                                                <label for="pub-global-{{ series.id }}" title="{{ t.publisher_pref_global_title }}">Auto</label>
-                                                
-                                                <input type="radio" name="pubpref-{{ series.id }}" id="pub-loc-{{ series.id }}" value="LOCALIZED" {% if series.publisher_pref == 'LOCALIZED' %}checked{% endif %}>
-                                                <label for="pub-loc-{{ series.id }}" title="{{ t.publisher_pref_localized_title }}">VF/VA</label>
-                                                
-                                                <input type="radio" name="pubpref-{{ series.id }}" id="pub-orig-{{ series.id }}" value="ORIGINAL" {% if series.publisher_pref == 'ORIGINAL' %}checked{% endif %}>
-                                                <label for="pub-orig-{{ series.id }}" title="{{ t.publisher_pref_original_title }}">VO</label>
-                                            </div>
-                                        </div>
-                                        <!-- BOUTON SAUVEGARDER -->
-                                        <div style="padding-top: 20px;">
-                                            <button type="button" class="btn-success" onclick="saveOverride('{{ series.id }}', this)">{{ t.save }}</button>
-                                        </div>
-                                    </div>
-
-                                    <!-- SOUS-MENU CACHÉ POUR LE SCRAPING CIBLÉ (TOUS LES CHAMPS) -->
-                                    <details class="targeted-scraping-details" style="margin-top: 10px;">
-                                        <summary style="cursor: pointer; font-size: 12px; color: var(--primary); font-weight: 600;">⚙️ {{ t.targeted_fields }}</summary>
-                                        <div style="display: flex; gap: 6px; margin: 8px 0 0;">
-                                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setSeriesTargetedFields('{{ series.id }}', true)">{{ t.fields_check_all }}</button>
-                                            <button type="button" class="btn-secondary" style="font-size: 11px; padding: 4px 8px;" onclick="setSeriesTargetedFields('{{ series.id }}', false)">{{ t.fields_uncheck_all }}</button>
-                                        </div>
-                                        <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 8px; margin-top: 8px; padding: 10px; background: var(--bg-card); border-radius: 6px; border: 1px solid var(--border-color);">
-                                            {# tf_raw peut valoir 'ALL', 'NONE' ou une liste 'summary,staff,...' séparée par
-                                               des virgules. On la découpe explicitement en liste (tf_list) avant de tester
-                                               l'appartenance : `'age' in tf_raw` ferait un test de SOUS-CHAÎNE sur la chaîne
-                                               brute (ex: matcherait par accident un futur champ nommé "average" ou "package"),
-                                               ce qui n'est sans danger aujourd'hui que par coïncidence (aucun des noms de
-                                               champ actuels n'est une sous-chaîne d'un autre). #}
-                                            {% set tf_raw = series.targeted_fields|default('ALL') %}
-                                            {% set tf_list = tf_raw.split(',') if tf_raw not in ('ALL', 'NONE') else [] %}
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-summary-{{ series.id }}" {% if tf_raw == 'ALL' or 'summary' in tf_list %}checked{% endif %}> {{ t.field_summary }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-cover-{{ series.id }}" {% if tf_raw == 'ALL' or 'cover' in tf_list %}checked{% endif %}> {{ t.field_cover }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-staff-{{ series.id }}" {% if tf_raw == 'ALL' or 'staff' in tf_list %}checked{% endif %}> {{ t.field_staff }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-genres-{{ series.id }}" {% if tf_raw == 'ALL' or 'genres' in tf_list %}checked{% endif %}> {{ t.field_genres }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-tags-{{ series.id }}" {% if tf_raw == 'ALL' or 'tags' in tf_list %}checked{% endif %}> {{ t.field_tags }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-year-{{ series.id }}" {% if tf_raw == 'ALL' or 'year' in tf_list %}checked{% endif %}> {{ t.field_year }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-status-{{ series.id }}" {% if tf_raw == 'ALL' or 'status' in tf_list %}checked{% endif %}> {{ t.field_status }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-publisher-{{ series.id }}" {% if tf_raw == 'ALL' or 'publisher' in tf_list %}checked{% endif %}> {{ t.field_publisher }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-age-{{ series.id }}" {% if tf_raw == 'ALL' or 'age' in tf_list %}checked{% endif %}> {{ t.field_age }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-format-{{ series.id }}" {% if tf_raw == 'ALL' or 'format' in tf_list %}checked{% endif %}> {{ t.field_format }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-weblinks-{{ series.id }}" {% if tf_raw == 'ALL' or 'weblinks' in tf_list %}checked{% endif %}> {{ t.field_weblinks }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-alt_titles-{{ series.id }}" {% if tf_raw == 'ALL' or 'alt_titles' in tf_list %}checked{% endif %}> {{ t.field_alt_titles }}</label>
-                                            <label class="checkbox-label" style="font-size: 11px;"><input type="checkbox" id="field-language-{{ series.id }}" {% if tf_raw == 'ALL' or 'language' in tf_list %}checked{% endif %}> {{ t.field_language }}</label>
-                                        </div>
-                                        <div style="margin-top: 8px;">
-                                            <span class="input-hint">{{ t.alt_title_langs_label }}</span>
-                                            <input type="text" id="alt-langs-{{ series.id }}" value="{{ series.alt_title_langs or '' }}" placeholder="{{ t.alt_title_langs_placeholder }}" style="width: 100%; font-size: 12px; padding: 6px 8px;">
-                                            <small class="text-muted" style="display:block;margin-top:4px;">{{ t.alt_title_langs_hint }}</small>
-                                        </div>
-                                    </details>
-                                </div>
+                                {# Override panel built on demand (BF96 / #30) — see #override-panel-template #}
                             </div>

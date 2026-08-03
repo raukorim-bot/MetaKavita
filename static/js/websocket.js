@@ -68,22 +68,39 @@ socket.on('series_status', function(payload) {
     if (!payload || payload.series_id == null) return;
     var sid = String(payload.series_id);
     var status = payload.status || '';
+    var found = false;
     document.querySelectorAll('.series-item').forEach(function(item) {
         var cb = item.querySelector('.series-cb');
         if (!cb || String(cb.value) !== sid) return;
+        found = true;
         if (typeof applySeriesStatusBadge === 'function') {
             applySeriesStatusBadge(item, status);
         }
-        // QoS batch (voir uncheckSeriesForBatchResume) : une série arrivée à un
-        // état "traité" se décoche pour pouvoir relancer le lot sans la refaire.
+        // QoS batch : état "traité" → décocher (Set + DOM) pour relancer sans la refaire.
         if (status === 'COMPLETED' || status === 'NEEDS_RELOCK') {
-            uncheckSeriesForBatchResume(item);
+            uncheckSeriesForBatchResume(item, sid);
         }
     });
+    // Row absente du DOM (virtual window) : quand même retirer du Set de sélection.
+    if (!found && (status === 'COMPLETED' || status === 'NEEDS_RELOCK')) {
+        uncheckSeriesForBatchResume(null, sid);
+    }
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.updateStatus === 'function') {
+        window.SeriesList.updateStatus(sid, status);
+    }
 });
 
 /** QoS batch : une série OK se décoche pour pouvoir relancer le lot sans re-scraper les déjà faits. */
-function uncheckSeriesForBatchResume(item) {
+function uncheckSeriesForBatchResume(item, seriesId) {
+    var sid = seriesId;
+    if (sid == null && item) {
+        var cb0 = item.querySelector('.series-cb');
+        sid = cb0 ? cb0.value : null;
+    }
+    if (sid != null && typeof uncheckSeriesIdForBatchResume === 'function') {
+        uncheckSeriesIdForBatchResume(sid);
+        return;
+    }
     if (!item) return;
     const cb = item.querySelector('.series-cb');
     if (cb) cb.checked = false;

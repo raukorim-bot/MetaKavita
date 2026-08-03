@@ -35,6 +35,8 @@
 - [x] **BF94. Visible-only batch + prefix search (v1.6.4):** filter keeps checks; batch/ignore use visible checked only; “select all visible” replaces selection; search prefix by default, optional inside-title.
 - [x] **C63. Persistent batch queue (v1.6.4):** SQLite queue + boot hydrate; Add / Pause / Resume / remove / clear; Stop cancels durable queue.
 - [x] **BF95. `ADMIN_PASSWORD` env warning once per boot (v1.6.4, issue #31, thanks SqueezedByte):** actionable deprecation message; no per-request spam.
+- [x] **BF96. Lazy Options panels + selection Set (v1.6.4, issue #30, thanks angusmaul):** no per-row override DOM; BF94/C63 selection index; `content-visibility`.
+- [x] **BF97. Virtual series list (v1.6.4, issue #30):** ≥120 series → JSON bootstrap + scroll window; filtered selection for batch/queue.
 - [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
@@ -200,6 +202,8 @@
 - [x] **BF94. Batch = affichées + recherche préfixe (v1.6.4) :** le filtre garde les coches ; batch/ignore = cochées visibles ; « tout sélectionner (affichés) » remplace la sélection ; recherche préfixe par défaut, case « Dans le titre ».
 - [x] **C63. File batch persistante (v1.6.4) :** file SQLite + hydrate au boot ; Ajouter / Pause / Reprise / retirer / vider ; Stop annule la file durable.
 - [x] **BF95. Warning `ADMIN_PASSWORD` env une fois par boot (v1.6.4, issue #31, merci SqueezedByte) :** message d’obsolescence actionnable ; plus de spam à chaque requête.
+- [x] **BF96. Panneaux Options lazy + Set de sélection (v1.6.4, issue #30, merci angusmaul) :** plus de DOM override par ligne ; index BF94/C63 ; `content-visibility`.
+- [x] **BF97. Liste virtualisée (v1.6.4, issue #30) :** ≥120 séries → JSON + fenêtre de scroll ; sélection filtrée pour batch/file.
 - [x] **C30 / C60. Sept scrapers communautaires dans le core (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron ; défauts BOOK_3=Babelio, COMIC_3=LoCG pour installs neuves.
 - [x] **BF83. INFO CSRF rejeté + refus sous lockout actif (v1.6.3, merci angusmaul) :** distinguer mauvais MDP / CSRF / lockout dans les Live Logs.
 - [x] **BF82. INFO à chaque échec de login (v1.6.3, merci angusmaul) :** username + IP + compteur à chaque tentative ; WARNING lockout inchangé.

@@ -292,12 +292,21 @@
 
                     {% if series_list %}
                     <div class="series-container card">
+                        {% if use_virtual_series_list %}
+                        <div class="series-list series-list--virtual" id="seriesContainer" data-virtual="1">
+                            <div id="seriesVirtualSpacer" class="series-virtual-spacer"></div>
+                            <div id="seriesVirtualWindow" class="series-virtual-window"></div>
+                        </div>
+                        {% else %}
                         <div class="series-list" id="seriesContainer">
                             {% for series in series_list %}
                             {% include "partials/_series_row.html" %}
                             {% endfor %}
                         </div>
+                        {% endif %}
                     </div>
+                    <script type="application/json" id="seriesIndexData">{{ series_index_payload|tojson }}</script>
+                    <script type="application/json" id="seriesListMeta">{{ {"kavita_ui_url": kavita_ui_url}|tojson }}</script>
                     {% endif %}
 
                     <!-- ACCORDION D'ACTIONS DE MASSE -->
@@ -372,6 +381,10 @@
 
     {% include "partials/_license_nag_modal.html" %}
 
+    {% if libraries %}
+    {% include "partials/_override_panel_template.html" %}
+    {% endif %}
+
     <!-- Chargement par balises <script> classiques (pas de bundler, pas de type="module")
          afin de préserver les fonctions en portée globale utilisées par les attributs
          onclick="..." inline de ce template. L'ORDRE est important : chaque fichier peut
@@ -383,6 +396,7 @@
     <script src="{{ url_for('static', filename='js/covers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <script src="{{ url_for('static', filename='js/batch.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/series_list.js') }}"></script>
     <script src="{{ url_for('static', filename='js/license_nag.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>

@@ -132,6 +132,26 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     from services.scraper_manager import get_pending_core_updates
     pending_core_updates = get_pending_core_updates()
 
+    # BF97 / #30 — virtual list above this size (light Jinja rows below).
+    _VIRTUAL_SERIES_THRESHOLD = 120
+    series_index_payload = [
+        {
+            "id": s["id"],
+            "name": s.get("name") or "",
+            "searchTitle": (s.get("name") or "").lower(),
+            "libraryId": s.get("libraryId"),
+            "status": s.get("status") or "PENDING",
+            "forced_id": s.get("forced_id") or "",
+            "alternative_title": s.get("alternative_title") or s.get("name") or "",
+            "forced_provider": s.get("forced_provider") or "AUTO",
+            "targeted_fields": s.get("targeted_fields") or "ALL",
+            "publisher_pref": s.get("publisher_pref") or "GLOBAL",
+            "alt_title_langs": s.get("alt_title_langs") or "",
+        }
+        for s in series_list
+    ]
+    use_virtual_series_list = len(series_list) >= _VIRTUAL_SERIES_THRESHOLD
+
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
                            all_libraries=all_libraries, disabled_library_ids=disabled_ids,
@@ -149,7 +169,9 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            has_azure_api_key=has_azure_api_key,
                            scraper_has_api_key=scraper_has_api_key,
                            match_accept_threshold=get_match_accept_threshold(config),
-                           pending_core_updates=pending_core_updates)
+                           pending_core_updates=pending_core_updates,
+                           series_index_payload=series_index_payload,
+                           use_virtual_series_list=use_virtual_series_list)
 
 
 @pages_bp.route('/', methods=['GET'])
