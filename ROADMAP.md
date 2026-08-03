@@ -14,8 +14,7 @@
 ## 🇺🇸 English Roadmap
 
 ### 🔮 Backlog & Future Features (To-Do)
-- [x] **C29. Interactive Manual Batch Mode (QoS) / Manual Review (v1.6.1):** Park-queue Manual Review shipped — silent scrape → `PENDING_REVIEW` → pick / edit / cover modal; no auto-write until confirm. See Latest Releases.
-- [ ] **C29 follow-up. Event-pause worker variant:** Backend emits candidates over WebSockets and pauses the worker with `eventlet.event.Event` until the user picks/skips (alternative QoS mode still open).
+- [x] **C29. Interactive Manual Batch Mode (QoS) / Manual Review (v1.6.1):** Park-queue Manual Review shipped — silent scrape → `PENDING_REVIEW` → pick / edit / cover modal; no auto-write until confirm. See Latest Releases. (Event-pause worker variant abandoned — see Parked.)
 - [x] **C30. Francophone Book Scrapers (v1.6.3):** Babelio, Decitre, and SensCritique ship in core (no API keys). See Latest Releases.
 - [x] **C60. Core comics / manga promotions (v1.6.3):** ANN, LoCG, Planète BD, and Metron (`METRON_API_KEY`) promoted from the community repo into the Docker image.
 - [x] **C61. Scraper Manage + Community Store (v1.6.3):** `/manage-scrapers` + `/scraper-store` (Help); registry from `data/scrapers/`; catalog sha256; `DISABLED_SCRAPERS`; hub tabs + community beta notice. See Latest Releases.
@@ -27,6 +26,7 @@
 - [ ] **B4. Narrow `seal_series_locks` scope:** After soft-fail re-lock (`NEEDS_RELOCK`), seal currently sets every `*Locked` + forces `localizedNameLocked` (and often `formatLocked`), including fields MetaKavita never wrote. Rare path — feature exists for very slow hosts; prefer raising `KAVITA_HTTP_TIMEOUT` (up to ~600s) over seal surgery. Ideal later: seal only locks from the last write / active mask.
 
 ### 🧊 Parked (no active work)
+- [ ] **C29 follow-up. Event-pause worker — parked / superseded:** Original QoS idea (emit candidates over WebSockets, block the worker on `eventlet.event.Event` until pick/skip). **C29 Manual Review** already parks series as `PENDING_REVIEW` and lets the batch continue; the user reviews asynchronously. **C63** durable batch queue covers pause / resume / restart. A synchronous Event-pause path would freeze large batches on every ambiguous match and duplicate that UX — not worth a second mode.
 - [ ] **C8. Resiliency & exponential 429 backoff — parked:** Per-provider `throttle_provider` / **C34** already spaces calls by each scraper’s `rate_limit` (idle = no wait). No field reports of systemic 429s on large batches when staying under those delays; Open Library already has a simple 429 pause. Full exponential-backoff machinery deferred unless real bans appear. Optional later: light `Retry-After` / single retry — not a product priority.
 
 ---
@@ -198,8 +198,7 @@
 ## 🇫🇷 Feuille de Route Française
 
 ### 🔮 Backlog & Fonctionnalités Futures (À Faire)
-- [x] **C29. Mode Batch Manuel Interactif (QoS) / Review Manuelle (v1.6.1) :** Review Manuelle en file livrée — scrape silencieux → `PENDING_REVIEW` → modale pick / édition / couverture ; pas d'écriture auto tant que l'utilisateur n'a pas confirmé. Voir Dernières Nouveautés.
-- [ ] **C29 suite. Variante Event-pause :** le backend émet les candidats via WebSockets et met le worker en pause avec `eventlet.event.Event` jusqu’au choix utilisateur (mode QoS alternatif encore ouvert).
+- [x] **C29. Mode Batch Manuel Interactif (QoS) / Review Manuelle (v1.6.1) :** Review Manuelle en file livrée — scrape silencieux → `PENDING_REVIEW` → modale pick / édition / couverture ; pas d'écriture auto tant que l'utilisateur n'a pas confirmé. Voir Dernières Nouveautés. (Variante Event-pause abandonnée — voir En veille.)
 - [x] **C30. Scrapers Littéraires Francophones (v1.6.3) :** Babelio, Decitre et SensCritique livrés dans le core (sans clé API). Voir Dernières Nouveautés.
 - [x] **C60. Promotions comics / manga core (v1.6.3) :** ANN, LoCG, Planète BD et Metron (`METRON_API_KEY`) promus du dépôt communautaire dans l’image Docker.
 - [x] **C61. Manage scrapers + Magasin (v1.6.3) :** `/manage-scrapers` + `/scraper-store` (Aide) ; registre `data/scrapers/` ; catalogue sha256 ; `DISABLED_SCRAPERS` ; onglets hub + avis beta community. Voir Dernières Nouveautés.
@@ -211,6 +210,7 @@
 - [ ] **B4. Restreindre le scope de `seal_series_locks` :** après soft-fail re-lock (`NEEDS_RELOCK`), le seal pose tous les `*Locked` + force `localizedNameLocked` (souvent `formatLocked`), y compris des champs que MetaKavita n'a jamais écrits. Chemin rare — la feature sert aux hôtes très lents ; préférer monter `KAVITA_HTTP_TIMEOUT` (jusqu'à ~600 s) plutôt que de complexifier le seal. Idéal plus tard : ne sceller que les locks du dernier write / masque actif.
 
 ### 🧊 En veille (pas de travail actif)
+- [ ] **C29 suite. Worker Event-pause — en veille / remplacé :** idée QoS d’origine (candidats en WebSocket, worker bloqué sur `eventlet.event.Event` jusqu’au choix). La **Review Manuelle C29** gare déjà en `PENDING_REVIEW` et laisse le batch continuer ; revue asynchrone. La file **C63** couvre pause / reprise / redémarrage. Un Event-pause synchrone figerait les gros lots à chaque match ambigu et dupliquerait l’UX — pas un second mode utile.
 - [ ] **C8. Résilience / backoff exponentiel 429 — en veille :** le throttle par provider (`throttle_provider` / **C34**) espace déjà les appels selon chaque `rate_limit` (idle = pas d’attente). Pas de retours terrain de 429 systémiques sur gros batchs tant qu’on reste sous ces délais ; Open Library a déjà une pause 429 simple. Usine à gaz exponentielle reportée sauf bans réels. Optionnel plus tard : un retry léger / `Retry-After` — pas une priorité produit.
 
 ---
