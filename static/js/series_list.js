@@ -231,6 +231,14 @@
         renderWindow();
     }
 
+    /** Pin many at once (Expand all) — single re-render. */
+    function pinOpenPanels(seriesIds) {
+        (seriesIds || []).forEach(function (id) {
+            pinnedPanelIds.add(String(id));
+        });
+        renderWindow();
+    }
+
     function unpinPanel(seriesId) {
         pinnedPanelIds.delete(String(seriesId));
         renderWindow();
@@ -305,6 +313,7 @@
             updateStatus: updateStatus,
             patchOverride: patchOverride,
             pinOpenPanel: pinOpenPanel,
+            pinOpenPanels: pinOpenPanels,
             unpinPanel: unpinPanel,
             unpinAllPanels: unpinAllPanels,
             afterPanelOpened: afterPanelOpened,

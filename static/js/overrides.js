@@ -184,23 +184,33 @@ function togglePanel(id) {
     toggleSeriesPanel(id);
 }
 
-function _visibleSeriesItemsForPanels() {
-    // Rows currently in the DOM and not filtered out. Virtual list ⇒ viewport only
-    // (safe). Non-virtual ⇒ all non-filtered rows (≤119 below virtual threshold).
-    return Array.from(document.querySelectorAll('.series-item')).filter(function (item) {
-        return !item.classList.contains('is-filtered-out');
-    });
+/**
+ * IDs to expand = set filtré courant (matchedIds), pas le viewport.
+ * Workflow cleanup : filtrer NOT_FOUND / erreurs → Déplier tout → éditer → Tout sauvegarder.
+ */
+function _matchedSeriesIdsForPanels() {
+    if (typeof matchedIds !== 'undefined' && Array.isArray(matchedIds) && matchedIds.length) {
+        return matchedIds.slice();
+    }
+    // Fallback : rows DOM non filtrées (liste non virtualisée / avant premier filterSeries).
+    return Array.from(document.querySelectorAll('.series-item'))
+        .filter(function (item) { return !item.classList.contains('is-filtered-out'); })
+        .map(function (item) {
+            return item.dataset.seriesId
+                || (item.querySelector('.series-cb') && item.querySelector('.series-cb').value);
+        })
+        .filter(Boolean)
+        .map(String);
 }
 
 /**
- * Expand/collapse Options for *currently visible* rows only.
- * Expanding every series on a 2000-library is intentionally unsupported (BF96).
+ * Expand/collapse Options for every series in the current filter (matched),
+ * including those outside the virtual viewport. CPU cost accepted for cleanup workflows.
  */
 function toggleAllOverridePanels() {
     allPanelsExpanded = !allPanelsExpanded;
 
     if (!allPanelsExpanded) {
-        // Collapse every open panel (cache + DOM), including off-viewport pinned ones.
         Object.keys(_overridePanelCache).forEach(function (sid) {
             const panel = _overridePanelCache[sid];
             if (panel) panel.style.display = 'none';
@@ -214,12 +224,18 @@ function toggleAllOverridePanels() {
         return;
     }
 
-    const items = _visibleSeriesItemsForPanels();
-    items.forEach(function (item) {
-        const sid = item.dataset.seriesId
-            || (item.querySelector('.series-cb') && item.querySelector('.series-cb').value);
-        if (sid) openSeriesPanel(sid);
+    const ids = _matchedSeriesIdsForPanels();
+    // Pin all first (one virtual re-render), then attach/open each panel.
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.pinOpenPanels === 'function') {
+        window.SeriesList.pinOpenPanels(ids);
+    }
+    ids.forEach(function (sid) {
+        const panel = ensureOverridePanel(sid);
+        if (panel) panel.style.display = 'block';
     });
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.afterPanelOpened === 'function') {
+        window.SeriesList.afterPanelOpened();
+    }
 }
 
 function lookupAniListId(seriesName) {
