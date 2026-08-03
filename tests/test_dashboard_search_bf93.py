@@ -62,6 +62,7 @@ def test_toolbar_search_uses_debounced_schedule():
     html = _read("templates/partials/_toolbar.html")
     assert 'id="searchInput"' in html
     assert 'oninput="scheduleFilterSeries()"' in html
+    assert 'id="searchInsideCb"' in html
 
 
 def test_batch_js_filter_avoids_innertext_and_inline_display():
@@ -73,6 +74,9 @@ def test_batch_js_filter_avoids_innertext_and_inline_display():
     assert "dataset.searchTitle" in js
     assert "textContent" in js
     assert "classList.toggle('is-filtered-out'" in js
+    assert "titleMatchesSearch" in js
+    assert "startsWith" in js
+    assert "getVisibleCheckedSeriesIds" in js
 
     filter_start = js.index("function filterSeries()")
     # Stay inside filterSeries; stop before the next top-level function.
@@ -80,6 +84,39 @@ def test_batch_js_filter_avoids_innertext_and_inline_display():
     filter_body = js[filter_start:next_fn if next_fn != -1 else filter_start + 3000]
     assert "innerText" not in filter_body
     assert "style.display" not in filter_body
+    # Mistype-safe: filter must not clear checkboxes (batch scopes to visible instead).
+    assert "cb.checked = false" not in filter_body
+
+
+def test_launch_batch_uses_visible_checked_only():
+    js = _read("static/js/batch.js")
+    launch_start = js.index("async function launchBatch")
+    next_fn = js.find("\nfunction ", launch_start + 1)
+    if next_fn == -1:
+        next_fn = js.find("\nasync function ", launch_start + 1)
+    body = js[launch_start:next_fn if next_fn != -1 else launch_start + 2000]
+    assert "getVisibleCheckedSeriesIds" in body
+    assert "querySelectorAll('.series-cb:checked')" not in body
+
+
+def test_toggle_select_all_check_and_clear_semantics():
+    js = _read("static/js/batch.js")
+    start = js.index("function toggleSelectAll()")
+    next_fn = js.find("\nfunction ", start + 1)
+    body = js[start:next_fn if next_fn != -1 else start + 1200]
+    assert "isSeriesItemVisible" in body
+    assert "cb.checked = isSeriesItemVisible(item)" in body
+    assert "cb.checked = false" in body
+    assert "function updateSelectionCounters()" in js
+    assert "getVisibleCheckedSeriesCbs().length" in js
+    assert 'id="selectedCount"' in _read("templates/partials/_toolbar.html")
+    # Resume-safe: launchBatch must not uncheck on enqueue.
+    launch_start = js.index("async function launchBatch")
+    next_fn = js.find("\nfunction ", launch_start + 1)
+    if next_fn == -1:
+        next_fn = js.find("\nasync function ", launch_start + 1)
+    launch_body = js[launch_start:next_fn if next_fn != -1 else launch_start + 4000]
+    assert "uncheckSeriesIds" not in launch_body
 
 
 def test_css_is_filtered_out_hides_series_items():

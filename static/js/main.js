@@ -44,6 +44,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const savedStatus = localStorage.getItem('filter_status');
     const savedHideIgnored = localStorage.getItem('filter_hide_ignored');
     const savedSearch = localStorage.getItem('filter_search');
+    const savedSearchInside = localStorage.getItem('filter_search_inside');
     const savedLibrary = localStorage.getItem('filter_library');
     toggleTranslationFields();
     restoreScrapingOptionsOpenState();
@@ -55,6 +56,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if (savedHideIgnored && savedHideIgnored === 'false') {
         const hideIgnoredCb = document.getElementById('hideIgnoredCb');
         if (hideIgnoredCb) hideIgnoredCb.checked = false;
+    }
+    if (savedSearchInside === 'true') {
+        const searchInsideCb = document.getElementById('searchInsideCb');
+        if (searchInsideCb) searchInsideCb.checked = true;
     }
     if (savedSearch) {
         const searchInput = document.getElementById('searchInput');

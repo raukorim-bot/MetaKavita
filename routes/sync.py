@@ -24,10 +24,13 @@ from services.background_tasks import (
     set_batch_enqueue_enabled,
     is_batch_enqueue_enabled,
     drain_sync_queue,
+    detach_batch_from_ram,
+    hydrate_batch_queue_to_ram,
     make_sync_item,
     register_batch_enqueue,
     is_batch_active,
 )
+from services import batch_queue as batch_queue_svc
 from services.enrichment_engine import enrich_series
 
 sync_bp = Blueprint('sync', __name__)
@@ -83,27 +86,22 @@ def force_sync():
 
 @sync_bp.route('/batch-sync', methods=['POST'])
 def batch_sync():
+    """Ajouter des séries à la file batch persistante (+ RAM si non pausée)."""
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
-    # Premier paquet d'un nouveau batch : réarme l'acceptation après un Stop ET
-    # force un inventaire Kavita frais (voir _get_batch_inventory).
-    is_new_batch = request.form.get('resume_enqueue') == 'true'
-    if is_new_batch:
-        # Un batch tourne déjà (autre onglet, double-clic...) : refuser plutôt que
-        # d'écraser ses compteurs de progression (voir background_tasks.is_batch_active).
-        if is_batch_active():
+    # Premier paquet d'un ajout UI : inventaire frais. Append autorisé si un batch
+    # tourne déjà (file persistante) — new_batch=False pour ne pas reset les compteurs.
+    is_first_chunk = request.form.get('resume_enqueue') == 'true'
+    if is_first_chunk:
+        set_batch_enqueue_enabled(True)
+        new_batch = not is_batch_active()
+    else:
+        if not is_batch_enqueue_enabled():
             return jsonify(
                 success=False,
                 rejected=True,
-                already_running=True,
-                msg=t.get('batch_already_running', "Un autre batch est déjà en cours."),
+                msg=t.get('batch_stopped', "Batch arrêté."),
             ), 409
-        set_batch_enqueue_enabled(True)
-    elif not is_batch_enqueue_enabled():
-        return jsonify(
-            success=False,
-            rejected=True,
-            msg=t.get('batch_stopped', "Batch arrêté."),
-        ), 409
+        new_batch = False
 
     library_id = request.form.get('library_id')
     force_update = request.form.get('force_update') == 'true'
@@ -123,25 +121,20 @@ def batch_sync():
     if not kavita.authenticate():
         return jsonify(success=False, msg=t.get('err_kavita', "Connexion échouée."))
 
-    all_series = _get_batch_inventory(kavita, lib_id, force_refresh=is_new_batch)
+    all_series = _get_batch_inventory(kavita, lib_id, force_refresh=is_first_chunk)
     cached = get_all_cached_data()
 
     if not selected_ids:
-        # Si aucune case n'est cochée (batch global), on exclut les ignorés
-        # et les séries déjà garées en review manuelle (évite les doublons).
         series_to_process = [
             s for s in all_series
             if cached.get(s['id'], {}).get('status') not in ('IGNORED', 'PENDING_REVIEW')
         ]
     else:
-        # Si l'utilisateur a COCHÉ des séries spécifiques, ON LES TRAITE TOUTES,
-        # même si elles étaient marquées comme IGNORED !
         series_to_process = [s for s in all_series if str(s['id']) in selected_ids]
 
     if not series_to_process:
         return jsonify(success=False, msg=t.get('err_no_sel_or_empty', "Aucune série à traiter."))
 
-    # Re-check après le travail I/O : un Stop a pu arriver pendant get_all_series.
     if not is_batch_enqueue_enabled():
         return jsonify(
             success=False,
@@ -149,33 +142,111 @@ def batch_sync():
             msg=t.get('batch_stopped', "Batch arrêté."),
         ), 409
 
-    current_size = sync_queue.qsize()
-    total_after_add = current_size + len(series_to_process)
+    payload = [
+        {
+            "series_id": s["id"],
+            "series_name": s.get("name") or "",
+            "force_update": force_update,
+            "fields_override": fields_override,
+        }
+        for s in series_to_process
+    ]
+    result = batch_queue_svc.enqueue_items(payload)
+    added = int(result.get("added") or 0)
+    skipped = int(result.get("skipped_dupes") or 0)
+    paused = bool(result.get("paused"))
+
     log_msg = t.get('log_batch_added', "🚀 {0} série(s) ajoutée(s) (Total : {1})")
-    logging.info(log_msg.format(len(series_to_process), total_after_add))
+    logging.info(log_msg.format(added, result.get("count") or 0))
 
-    # Enregistré AVANT le put() : le worker peut dépiler le tout premier item
-    # dès la ligne suivante et lirait sinon un total pas encore à jour.
-    register_batch_enqueue(len(series_to_process), new_batch=is_new_batch)
-    for s in series_to_process:
-        sync_queue.put(make_sync_item(s['id'], s['name'], force_update, fields_override, is_batch=True))
+    if added and not paused:
+        register_batch_enqueue(added, new_batch=new_batch)
+        for item in result.get("items") or []:
+            sync_queue.put(
+                make_sync_item(
+                    item["series_id"],
+                    item["series_name"],
+                    item["force_update"],
+                    item.get("fields_override"),
+                    is_batch=True,
+                )
+            )
 
-    msg_added = t.get('batch_added').replace('{}', str(len(series_to_process)))
-    return jsonify(success=True, msg=msg_added)
+    msg = t.get('batch_queue_added', "{0} added to queue ({1} already queued skipped).").format(
+        added, skipped
+    )
+    return jsonify(
+        success=True,
+        msg=msg,
+        added=added,
+        skipped_dupes=skipped,
+        paused=paused,
+        count=result.get("count") or 0,
+    )
+
+
+@sync_bp.route('/api/batch-queue', methods=['GET'])
+def api_batch_queue_list():
+    return jsonify(success=True, **batch_queue_svc.snapshot_status())
+
+
+@sync_bp.route('/api/batch-queue/<item_id>', methods=['DELETE'])
+def api_batch_queue_remove(item_id):
+    status = batch_queue_svc.cancel_item(item_id)
+    if status == "running":
+        return jsonify(success=False, error="running"), 409
+    if status == "missing":
+        return jsonify(success=False, error="missing"), 404
+    # Item éventuellement encore en RAM : le worker le skippera (should_skip).
+    return jsonify(success=True, **batch_queue_svc.snapshot_status())
+
+
+@sync_bp.route('/api/batch-queue/clear', methods=['POST'])
+def api_batch_queue_clear():
+    n = batch_queue_svc.cancel_all_queued()
+    detach_batch_from_ram()
+    if not batch_queue_svc.is_paused():
+        # running éventuel est toujours en cours dans le worker ; queued hydratés = 0
+        pass
+    return jsonify(success=True, cleared=n, **batch_queue_svc.snapshot_status())
+
+
+@sync_bp.route('/api/batch-queue/pause', methods=['POST'])
+def api_batch_queue_pause():
+    batch_queue_svc.set_paused(True)
+    drained = detach_batch_from_ram()
+    return jsonify(success=True, drained=drained, **batch_queue_svc.snapshot_status())
+
+
+@sync_bp.route('/api/batch-queue/resume', methods=['POST'])
+def api_batch_queue_resume():
+    batch_queue_svc.set_paused(False)
+    set_batch_enqueue_enabled(True)
+    n = hydrate_batch_queue_to_ram(new_batch=not is_batch_active())
+    return jsonify(success=True, hydrated=n, **batch_queue_svc.snapshot_status())
 
 
 @sync_bp.route('/stop-batch', methods=['POST'])
 def stop_batch():
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
     set_batch_enqueue_enabled(False)
+    cancelled = batch_queue_svc.cancel_all_pending()
     drained = drain_sync_queue()
-    # drain_sync_queue émet déjà stopped si items retirés ; sinon forcer le reset UI
-    # (job en cours seul, file déjà vide).
     if drained == 0:
         from services.background_tasks import broadcast_batch_progress
         broadcast_batch_progress(0, stopped=True)
-    logging.info(t.get('log_batch_stopped') + t.get("log_batch_drained_suffix", " ({0} en attente retirée(s))").format(drained))
-    return jsonify(success=True, msg=t.get('batch_stopped'), drained=drained)
+    logging.info(
+        t.get('log_batch_stopped')
+        + t.get("log_batch_drained_suffix", " ({0} en attente retirée(s))").format(drained)
+        + f" [sqlite cancelled={cancelled}]"
+    )
+    return jsonify(
+        success=True,
+        msg=t.get('batch_stopped'),
+        drained=drained,
+        cancelled=cancelled,
+        **batch_queue_svc.snapshot_status(),
+    )
 
 
 @sync_bp.route('/export-errors', methods=['GET'])

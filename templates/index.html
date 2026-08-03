@@ -25,6 +25,19 @@
             batch_ok: "{{ t.batch_ok }}",
             batch_stopped: "{{ t.batch_stopped }}",
             batch_already_running: "{{ t.batch_already_running }}",
+            batch_queue_btn: "{{ t.batch_queue_btn }}",
+            batch_queue_title: "{{ t.batch_queue_title }}",
+            batch_queue_empty: "{{ t.batch_queue_empty }}",
+            batch_queue_remove: "{{ t.batch_queue_remove }}",
+            batch_queue_clear: "{{ t.batch_queue_clear }}",
+            batch_queue_clear_confirm: "{{ t.batch_queue_clear_confirm }}",
+            batch_queue_pause: "{{ t.batch_queue_pause }}",
+            batch_queue_resume: "{{ t.batch_queue_resume }}",
+            batch_queue_paused_badge: "{{ t.batch_queue_paused_badge }}",
+            batch_queue_state_queued: "{{ t.batch_queue_state_queued }}",
+            batch_queue_state_running: "{{ t.batch_queue_state_running }}",
+            batch_queue_toast: "{{ t.batch_queue_toast }}",
+            batch_queue_toast_dupes: "{{ t.batch_queue_toast_dupes }}",
             filter_pending: "{{ t.filter_pending }}",
             filter_pending_review: "{{ t.filter_pending_review }}",
             filter_needs_relock: "{{ t.filter_needs_relock }}",
@@ -41,6 +54,7 @@
             unignore_btn: "{{ t.unignore_btn }}",
             element: "{{ t.element }}",
             elements: "{{ t.elements }}",
+            selected_count: "{{ t.selected_count }}",
             batch_empty: "{{ t.batch_empty }}",
             batch_sending: "{{ t.batch_sending }}",
             batch_ok: "{{ t.batch_ok }}",
@@ -298,10 +312,31 @@
                     <div class="batch-actions">
                         <button type="button" class="btn-warning" id="batchResetBtn" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
                         <button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>
+                        <button type="button" class="btn-secondary" id="batchQueueBtn" onclick="openBatchQueueModal()">
+                            {{ t.batch_queue_btn }}
+                            <span id="batchQueueBadge" class="batch-queue-badge" hidden>0</span>
+                        </button>
                         <button type="submit" class="btn-batch" id="mainBatchBtn">{{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
                 </form>
+
+                <div id="batchQueueModal" class="bq-modal" hidden>
+                    <div class="bq-modal-backdrop" onclick="closeBatchQueueModal()"></div>
+                    <div class="bq-modal-panel card" role="dialog" aria-labelledby="batchQueueTitle">
+                        <div class="bq-modal-head">
+                            <h3 id="batchQueueTitle" class="m-0">{{ t.batch_queue_title }}</h3>
+                            <button type="button" class="btn-secondary" onclick="closeBatchQueueModal()">×</button>
+                        </div>
+                        <div class="bq-modal-toolbar">
+                            <button type="button" class="btn-secondary" id="bqPauseBtn" onclick="pauseBatchQueue()">{{ t.batch_queue_pause }}</button>
+                            <button type="button" class="btn-batch" id="bqResumeBtn" onclick="resumeBatchQueue()">{{ t.batch_queue_resume }}</button>
+                            <button type="button" class="btn-warning" id="bqClearBtn" onclick="clearBatchQueue()">{{ t.batch_queue_clear }}</button>
+                        </div>
+                        <div id="batchQueueList" class="bq-list"></div>
+                    </div>
+                </div>
+                <div id="batchQueueToast" class="bq-toast" hidden></div>
                 {% else %}
                 <div class="card welcome-card">
                     <div class="welcome-icon">{% if error_msg %}🔌{% else %}👋{% endif %}</div>

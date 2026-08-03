@@ -2,9 +2,14 @@
                         <div class="toolbar-left" style="flex-wrap: wrap; gap: 10px;">
                             <h2 class="toolbar-title m-0">{{ t.series_avail }}</h2>
                             <span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
+                            <span id="selectedCount" class="badge badge-completed" style="font-size: 13px;" hidden></span>
                             
-                            <!-- BARRE DE RECHERCHE -->
+                            <!-- BARRE DE RECHERCHE (préfixe par défaut ; option sous-chaîne) -->
                             <input type="text" id="searchInput" class="search-input" placeholder="{{ t.search_placeholder }}" oninput="scheduleFilterSeries()">
+                            <label class="checkbox-label" title="{{ t.search_inside_desc }}">
+                                <input type="checkbox" id="searchInsideCb" onclick="filterSeries()">
+                                {{ t.search_inside }}
+                            </label>
                             
                             <!-- SÉLECTEUR DE BIBLIOTHÈQUE -->
                             <select id="lib_selector" onchange="loadLibrary(this.value)" style="width: auto;">

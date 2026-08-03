@@ -103,10 +103,11 @@ function getBatchSelectionKey() {
     return BATCH_SELECTION_PREFIX + (lib || 'all');
 }
 
-/** Persiste les IDs cochés (reprise batch après refresh / coupure). */
+/** Persiste tous les IDs cochés (y compris hors filtre) — reprise après refresh. */
 function saveBatchSelection() {
     const ids = Array.from(document.querySelectorAll('.series-cb:checked')).map(cb => String(cb.value));
     localStorage.setItem(getBatchSelectionKey(), JSON.stringify(ids));
+    updateSelectionCounters();
 }
 
 function restoreBatchSelection() {
@@ -123,8 +124,46 @@ function restoreBatchSelection() {
         cb.checked = want.has(String(cb.value));
     });
 
-    // Nettoie les IDs disparus de la bibliothèque
+    // Sync compteur / case « tout sélectionner » ; ne touche pas aux coches hors écran.
+    if (typeof filterSeries === 'function') filterSeries();
     saveBatchSelection();
+}
+
+function isSeriesItemVisible(item) {
+    return !!(item && !item.classList.contains('is-filtered-out'));
+}
+
+/** Cases cochées parmi les séries actuellement affichées (filtre + recherche). */
+function getVisibleCheckedSeriesCbs(root) {
+    const scope = root || document;
+    return Array.from(scope.querySelectorAll('.series-cb:checked')).filter(cb => {
+        return isSeriesItemVisible(cb.closest('.series-item'));
+    });
+}
+
+function getVisibleCheckedSeriesIds(root) {
+    return getVisibleCheckedSeriesCbs(root).map(cb => String(cb.value));
+}
+
+/** Badge : cochées *visibles* = ce que le prochain batch emportera. */
+function updateSelectionCounters() {
+    const el = document.getElementById('selectedCount');
+    if (!el) return;
+    const T = window.AppTranslations || {};
+    const batchCount = getVisibleCheckedSeriesCbs().length;
+    if (batchCount === 0) {
+        el.hidden = true;
+        el.textContent = '';
+        return;
+    }
+    el.hidden = false;
+    el.textContent = (T.selected_count || '{0} selected').replace('{0}', String(batchCount));
+}
+
+function titleMatchesSearch(title, query, searchInside) {
+    if (!query) return true;
+    if (searchInside) return title.includes(query);
+    return title.startsWith(query);
 }
 
 // Issue #30: debounce search keystrokes; filter itself avoids innerText reflows.
@@ -145,12 +184,15 @@ function filterSeries() {
     const filter = statusFilter.value;
     const hideIgnoredCb = document.getElementById('hideIgnoredCb');
     const hideIgnored = hideIgnoredCb ? hideIgnoredCb.checked : false;
+    const searchInsideCb = document.getElementById('searchInsideCb');
+    const searchInside = searchInsideCb ? !!searchInsideCb.checked : false;
     
     const searchInput = document.getElementById('searchInput');
     const searchQuery = searchInput ? searchInput.value.toLowerCase().trim() : '';
     
     localStorage.setItem('filter_status', filter);
     if (hideIgnoredCb) localStorage.setItem('filter_hide_ignored', hideIgnored ? 'true' : 'false');
+    if (searchInsideCb) localStorage.setItem('filter_search_inside', searchInside ? 'true' : 'false');
     if (searchInput) localStorage.setItem('filter_search', searchQuery);
     
     let count = 0;
@@ -176,12 +218,14 @@ function filterSeries() {
         }
         
         if (show && searchQuery !== '') {
-            if (!title.includes(searchQuery)) {
+            if (!titleMatchesSearch(title, searchQuery, searchInside)) {
                 show = false;
             }
         }
         
         // Class toggle batches style work; avoid per-item inline display writes (#30).
+        // Ne pas décocher : une faute de frappe / un filtre ne doit pas détruire la sélection.
+        // Le batch / ignore de masse ne prennent que les cochées *visibles*.
         item.classList.toggle('is-filtered-out', !show);
         if (show) {
             count++;
@@ -189,7 +233,6 @@ function filterSeries() {
             const cb = item.querySelector('.series-cb');
             if (cb && cb.checked) visibleChecked++;
         }
-        // Ne pas décocher : la sélection batch doit survivre aux filtres / rechargements.
     });
     
     const selectAll = document.getElementById('selectAll');
@@ -201,6 +244,7 @@ function filterSeries() {
     if(countElem) {
         countElem.textContent = count + (count > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
     }
+    updateSelectionCounters();
 }
 
 function toggleSelectAll() {
@@ -208,9 +252,14 @@ function toggleSelectAll() {
     if (!selectAll) return;
     const isChecked = selectAll.checked;
     document.querySelectorAll('.series-item').forEach(item => {
-        if (!item.classList.contains('is-filtered-out')) {
-            const cb = item.querySelector('.series-cb');
-            if(cb) cb.checked = isChecked;
+        const cb = item.querySelector('.series-cb');
+        if (!cb) return;
+        if (isChecked) {
+            // Cocher = sélection devient exactement le visible.
+            cb.checked = isSeriesItemVisible(item);
+        } else {
+            // Décocher = vider toute la sélection (évite une file « fantôme » hors filtre).
+            cb.checked = false;
         }
     });
     saveBatchSelection();
@@ -330,8 +379,8 @@ async function launchBatch(event) {
     event.preventDefault();
     const form = event.target;
     const btn = document.getElementById('mainBatchBtn');
-    const checkboxes = form.querySelectorAll('.series-cb:checked');
-    const ids = Array.from(checkboxes).map(cb => cb.value);
+    // Uniquement les séries affichées (filtre statut / recherche) — pas l'arrière-plan coché.
+    const ids = getVisibleCheckedSeriesIds(form);
     
     if (ids.length === 0) {
         btn.innerText = window.AppTranslations.batch_empty;
@@ -355,7 +404,10 @@ async function launchBatch(event) {
     
     const batchFieldsMask = getBatchTargetedFieldsMask();
     let stopped = false;
-    let alreadyRunningRejection = false;
+    let totalAdded = 0;
+    let totalDupes = 0;
+    let lastPaused = false;
+    let lastCount = null;
 
     for (let i = 0; i < ids.length; i += 50) {
         if (batchEnqueueAbort) {
@@ -395,40 +447,171 @@ async function launchBatch(event) {
             }
             if (res.status === 409) {
                 stopped = true;
-                // Un batch tourne déjà ailleurs (autre onglet...) : cette instance n'a
-                // jamais réellement démarré, donc pas de vraie barre à laisser affichée.
-                if (i === 0) {
-                    try {
-                        const body = await res.clone().json();
-                        if (body && body.already_running) {
-                            hideBatchProgress();
-                            alreadyRunningRejection = true;
-                        }
-                    } catch (e) { /* corps non-JSON : ignorer, comportement Stop standard */ }
-                }
+                hideBatchProgress();
                 break;
             }
+            const body = await res.json().catch(function () { return {}; });
+            if (body && body.success === false) {
+                stopped = true;
+                break;
+            }
+            totalAdded += Number(body.added || 0);
+            totalDupes += Number(body.skipped_dupes || 0);
+            lastPaused = !!body.paused;
+            if (body.count != null) lastCount = body.count;
+            // Ne pas décocher ici : reprise = cases jusqu'à COMPLETED / NEEDS_RELOCK.
         } catch (err) {
             if (batchEnqueueAbort || (err && err.name === 'AbortError')) {
                 stopped = true;
                 break;
             }
-            // Échec réseau avant/pendant enqueue : ne pas laisser le wait MR tourner à vide
             if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
             throw err;
         }
     }
 
     batchEnqueueController = null;
-    if (alreadyRunningRejection) {
-        btn.innerText = window.AppTranslations.batch_already_running || '⚠️ Batch already running!';
-    } else if (stopped || batchEnqueueAbort) {
+    if (lastCount != null) updateBatchQueueBadge(lastCount, lastPaused);
+    else refreshBatchQueueBadge();
+    showBatchQueueToast(totalAdded, totalDupes);
+    if (lastPaused || totalAdded === 0) hideBatchProgress();
+    if (document.getElementById('batchQueueModal') && !document.getElementById('batchQueueModal').hidden) {
+        loadBatchQueueModal();
+    }
+
+    if (stopped || batchEnqueueAbort) {
         btn.innerText = window.AppTranslations.batch_stopped || '🛑 Batch stopped!';
     } else {
         btn.innerText = window.AppTranslations.batch_ok;
     }
     setTimeout(() => { btn.innerText = window.AppTranslations.launchBatch; }, 4000);
 }
+
+function showBatchQueueToast(added, dupes) {
+    const el = document.getElementById('batchQueueToast');
+    if (!el) return;
+    const T = window.AppTranslations || {};
+    let msg;
+    if (dupes > 0) {
+        msg = (T.batch_queue_toast_dupes || '{0} added, {1} already queued')
+            .replace('{0}', String(added)).replace('{1}', String(dupes));
+    } else {
+        msg = (T.batch_queue_toast || '{0} added to queue').replace('{0}', String(added));
+    }
+    el.textContent = msg;
+    el.hidden = false;
+    clearTimeout(showBatchQueueToast._t);
+    showBatchQueueToast._t = setTimeout(function () { el.hidden = true; }, 3200);
+}
+
+function updateBatchQueueBadge(count, paused) {
+    const badge = document.getElementById('batchQueueBadge');
+    if (!badge) return;
+    const n = Number(count) || 0;
+    if (n <= 0 && !paused) {
+        badge.hidden = true;
+        badge.textContent = '';
+        return;
+    }
+    const T = window.AppTranslations || {};
+    badge.hidden = false;
+    badge.textContent = paused
+        ? (n + ' · ' + (T.batch_queue_paused_badge || 'pause'))
+        : String(n);
+}
+
+async function refreshBatchQueueBadge() {
+    try {
+        const res = await fetch(getRootPath() + '/api/batch-queue');
+        const data = await res.json();
+        if (data && data.success !== false) {
+            updateBatchQueueBadge(data.count, data.paused);
+        }
+    } catch (e) { /* ignore */ }
+}
+
+function openBatchQueueModal() {
+    const modal = document.getElementById('batchQueueModal');
+    if (!modal) return;
+    modal.hidden = false;
+    loadBatchQueueModal();
+}
+
+function closeBatchQueueModal() {
+    const modal = document.getElementById('batchQueueModal');
+    if (modal) modal.hidden = true;
+}
+
+async function loadBatchQueueModal() {
+    const list = document.getElementById('batchQueueList');
+    if (!list) return;
+    const T = window.AppTranslations || {};
+    try {
+        const res = await fetch(getRootPath() + '/api/batch-queue');
+        const data = await res.json();
+        updateBatchQueueBadge(data.count, data.paused);
+        const items = data.items || [];
+        if (!items.length) {
+            list.innerHTML = '<p class="bq-empty">' + (T.batch_queue_empty || 'Empty') + '</p>';
+            return;
+        }
+        list.innerHTML = items.map(function (it) {
+            const stateLabel = it.state === 'running'
+                ? (T.batch_queue_state_running || 'Running')
+                : (T.batch_queue_state_queued || 'Queued');
+            const removeBtn = it.state === 'queued'
+                ? '<button type="button" class="btn-secondary bq-remove" data-id="' + it.id + '">'
+                    + (T.batch_queue_remove || 'Remove') + '</button>'
+                : '';
+            return '<div class="bq-row" data-state="' + it.state + '">'
+                + '<span class="bq-name"></span>'
+                + '<span class="bq-state">' + stateLabel + '</span>'
+                + removeBtn + '</div>';
+        }).join('');
+        const rows = list.querySelectorAll('.bq-row');
+        items.forEach(function (it, idx) {
+            const nameEl = rows[idx] && rows[idx].querySelector('.bq-name');
+            if (nameEl) nameEl.textContent = it.series_name || ('#' + it.series_id);
+        });
+        list.querySelectorAll('.bq-remove').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                removeBatchQueueItem(btn.getAttribute('data-id'));
+            });
+        });
+    } catch (e) {
+        list.innerHTML = '<p class="bq-empty">Error</p>';
+    }
+}
+
+async function removeBatchQueueItem(id) {
+    if (!id) return;
+    await fetch(getRootPath() + '/api/batch-queue/' + encodeURIComponent(id), { method: 'DELETE' });
+    loadBatchQueueModal();
+}
+
+async function clearBatchQueue() {
+    const T = window.AppTranslations || {};
+    if (!window.confirm(T.batch_queue_clear_confirm || 'Clear queue?')) return;
+    await fetch(getRootPath() + '/api/batch-queue/clear', { method: 'POST' });
+    loadBatchQueueModal();
+}
+
+async function pauseBatchQueue() {
+    await fetch(getRootPath() + '/api/batch-queue/pause', { method: 'POST' });
+    loadBatchQueueModal();
+    hideBatchProgress();
+}
+
+async function resumeBatchQueue() {
+    const res = await fetch(getRootPath() + '/api/batch-queue/resume', { method: 'POST' });
+    const data = await res.json().catch(function () { return {}; });
+    if (data.hydrated > 0) showBatchProgress(data.hydrated);
+    loadBatchQueueModal();
+}
+
+document.addEventListener('DOMContentLoaded', function () {
+    refreshBatchQueueBadge();
+});
 
 /** Coupe l'envoi des paquets UI (×50) ET vide la file serveur. */
 function stopBatch() {
@@ -579,7 +762,7 @@ function toggleIgnore(seriesId, btn) {
 
 // --- IGNORER TOUTE LA SÉLECTION (AJAX) ---
 async function ignoreSelection() {
-    const checkboxes = document.querySelectorAll('.series-cb:checked');
+    const checkboxes = getVisibleCheckedSeriesCbs();
     if (checkboxes.length === 0) return;
 
     const btn = document.getElementById('batchIgnoreBtn');

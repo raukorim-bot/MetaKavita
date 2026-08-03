@@ -63,6 +63,7 @@ def init_db():
                   value INTEGER NOT NULL DEFAULT 0)''')
     _ensure_schema(c)
     _ensure_pending_reviews_table(c)
+    _ensure_batch_queue_tables(c)
     conn.commit()
     conn.close()
 
@@ -77,6 +78,37 @@ def _ensure_provider_stats_table(c):
     c.execute('''CREATE TABLE IF NOT EXISTS provider_stats
                  (provider_id TEXT PRIMARY KEY,
                   wins INTEGER NOT NULL DEFAULT 0)''')
+
+
+def _ensure_batch_queue_tables(c):
+    """File batch persistante (C63) — survie au redémarrage du conteneur."""
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS batch_queue (
+             id TEXT PRIMARY KEY,
+             series_id INTEGER NOT NULL,
+             series_name TEXT,
+             force_update INTEGER NOT NULL DEFAULT 0,
+             fields_override TEXT,
+             state TEXT NOT NULL,
+             created_at TEXT NOT NULL,
+             position INTEGER NOT NULL
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_batch_queue_state ON batch_queue(state)"
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_batch_queue_series ON batch_queue(series_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS batch_queue_meta (
+             key TEXT PRIMARY KEY,
+             value TEXT NOT NULL
+           )'''
+    )
+    c.execute(
+        "INSERT OR IGNORE INTO batch_queue_meta(key, value) VALUES ('paused', '0')"
+    )
 
 
 def _ensure_pending_reviews_table(c):

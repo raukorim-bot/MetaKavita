@@ -140,20 +140,8 @@ def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=N
         logging.debug("batch_progress emit skipped: %s", exc)
 
 
-def drain_sync_queue() -> int:
-    """« Stop batch » : retire uniquement les items `is_batch=True` de la file.
-
-    `sync_queue` est partagée avec le webhook et le polling auto-sync (voir
-    `make_sync_item`) : un Stop qui viderait la file en entier jetterait
-    silencieusement un événement webhook ou un tick auto-sync arrivé pendant le
-    batch, sans que rien ne le resignale (pas d'erreur, pas de retry — cette
-    série ne sera resynchronisée qu'au prochain événement Kavita ou au prochain
-    passage auto-sync). Les items non-batch rencontrés sont donc réinsérés dans
-    la file au lieu d'être jetés.
-
-    Retourne le nombre d'items de BATCH retirés (ce que `stop_batch` annonce à
-    l'UI), pas le total d'items parcourus.
-    """
+def _detach_batch_from_ram_unlocked() -> int:
+    """Retire les items is_batch de sync_queue ; réinsère le reste. Sans touch SQLite."""
     drained = 0
     kept = []
     while not sync_queue.empty():
@@ -168,16 +156,52 @@ def drain_sync_queue() -> int:
             kept.append(item)
 
     for item in kept:
-        # put() + task_done() : réinsère physiquement l'item sans faire gonfler
-        # `unfinished_tasks` (déjà comptabilisé lors de son put() d'origine par
-        # le producteur) — ces items ne sont ni terminés, ni nouveaux.
         sync_queue.put(item)
         sync_queue.task_done()
+    return drained
 
+
+def drain_sync_queue() -> int:
+    """« Stop batch » : retire les items `is_batch=True` de la file RAM.
+
+    `sync_queue` est partagée avec le webhook et le polling auto-sync : les items
+    non-batch sont réinsérés. Appelé avec cancel SQLite côté stop_batch.
+    """
+    drained = _detach_batch_from_ram_unlocked()
     reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=True)
     return drained
+
+
+def detach_batch_from_ram() -> int:
+    """Pause : retire le batch de la RAM sans annuler la file SQLite."""
+    drained = _detach_batch_from_ram_unlocked()
+    reset_batch_progress()
+    if drained:
+        broadcast_batch_progress(0, stopped=False)
+    return drained
+
+
+def hydrate_batch_queue_to_ram(*, new_batch: bool = True) -> int:
+    """Pousse les lignes SQLite `queued` vers sync_queue (reprise / boot)."""
+    from services import batch_queue as bq
+
+    items = bq.list_queued_for_hydrate()
+    if not items:
+        return 0
+    register_batch_enqueue(len(items), new_batch=new_batch)
+    for s in items:
+        sync_queue.put(
+            make_sync_item(
+                s["series_id"],
+                s["series_name"],
+                s["force_update"],
+                s.get("fields_override"),
+                is_batch=True,
+            )
+        )
+    return len(items)
 
 
 def _worker():
@@ -197,16 +221,23 @@ def _worker():
             t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
 
             if is_batch:
+                from services import batch_queue as bq
+                if bq.should_skip_batch_item(series_id):
+                    with _batch_progress_lock:
+                        _batch_done = min(_batch_total, _batch_done + 1)
+                        batch_finished = _batch_total > 0 and _batch_done >= _batch_total
+                        real_sends = _batch_real_sends
+                    if batch_finished:
+                        broadcast_batch_progress(0, real_sends=real_sends)
+                    continue
+                bq.mark_running(series_id)
                 with _batch_progress_lock:
                     remaining = max(0, _batch_total - _batch_done - 1)
                 logging.info(t.get('log_worker_start').format(series_name, remaining))
                 broadcast_batch_progress(remaining, active=series_name)
             else:
-                # Item hors batch (webhook / auto-sync) : ne touche jamais à la
-                # barre de progression batch, même si un batch tourne en parallèle.
                 logging.info(t.get('log_worker_start').format(series_name, sync_queue.qsize()))
 
-            # Le Rate-Limiter intelligent dans metadata_fetcher.py gère désormais 100% des délais au millième de seconde près !
             _ok, _msg, _used = enrich_series(
                 series_id,
                 series_name,
@@ -215,6 +246,8 @@ def _worker():
             )
 
             if is_batch:
+                from services import batch_queue as bq
+                bq.mark_done(series_id)
                 with _batch_progress_lock:
                     _batch_done = min(_batch_total, _batch_done + 1)
                     if _msg in _REAL_SEND_MESSAGES:
@@ -225,8 +258,6 @@ def _worker():
                     logging.info(t.get('log_batch_finished'))
                     broadcast_batch_progress(0, real_sends=real_sends)
         finally:
-            # Toujours appeler task_done() pour chaque get() réussi (sauf sentinel
-            # de shutdown). Sinon unfinished_tasks croît et tout futur join() bloque.
             if item is not None:
                 sync_queue.task_done()
 
@@ -289,5 +320,20 @@ def start_background_workers():
     """Démarre les deux threads démons de traitement de fond. Appelé une seule
     fois par app.py au chargement du module (comportement identique à l'ancien
     `threading.Thread(...).start()` exécuté au niveau module)."""
+    try:
+        from services import batch_queue as bq
+        bq.ensure_tables()
+        reset_n = bq.reset_running_to_queued()
+        if reset_n:
+            logging.info("[BatchQueue] %s item(s) running → queued (reprise après crash)", reset_n)
+        if not bq.is_paused():
+            n = hydrate_batch_queue_to_ram(new_batch=True)
+            if n:
+                logging.info("[BatchQueue] Hydrate boot : %s série(s) en file", n)
+        else:
+            logging.info("[BatchQueue] File en pause — pas d'hydrate au boot")
+    except Exception as exc:
+        logging.warning("[BatchQueue] Init/hydrate boot ignoré : %s", exc)
+
     threading.Thread(target=_worker, daemon=True).start()
     threading.Thread(target=_auto_sync_worker, daemon=True).start()

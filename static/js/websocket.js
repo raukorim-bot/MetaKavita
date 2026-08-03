@@ -91,6 +91,8 @@ function uncheckSeriesForBatchResume(item) {
     if (selectAll) selectAll.checked = false;
     if (typeof saveBatchSelection === 'function') {
         saveBatchSelection();
+    } else if (typeof updateSelectionCounters === 'function') {
+        updateSelectionCounters();
     }
 }
 
@@ -145,5 +147,16 @@ socket.on('batch_progress', function(payload) {
     }
     if (typeof mrOnBatchProgress === 'function') {
         mrOnBatchProgress(payload);
+    }
+});
+
+socket.on('batch_queue_updated', function(payload) {
+    if (!payload) return;
+    if (typeof updateBatchQueueBadge === 'function') {
+        updateBatchQueueBadge(payload.count, payload.paused);
+    }
+    var modal = document.getElementById('batchQueueModal');
+    if (modal && !modal.hidden && typeof loadBatchQueueModal === 'function') {
+        loadBatchQueueModal();
     }
 });
