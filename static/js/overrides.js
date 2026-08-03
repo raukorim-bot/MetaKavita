@@ -9,6 +9,9 @@ const TARGETED_FIELD_KEYS = [
 
 let allPanelsExpanded = false;
 
+/** Survive virtual-list re-renders (innerHTML wipe). */
+var _overridePanelCache = {};
+
 function setSeriesTargetedFields(seriesId, checked) {
     TARGETED_FIELD_KEYS.forEach(f => {
         const cb = document.getElementById(`field-${f}-${seriesId}`);
@@ -45,73 +48,119 @@ function findSeriesItemById(seriesId) {
     return found;
 }
 
-function ensureOverridePanel(seriesId) {
-    const sid = String(seriesId);
-    let panel = document.getElementById('panel-' + sid);
-    if (panel) return panel;
-
+function _buildOverridePanelFromTemplate(sid) {
     const tpl = document.getElementById('override-panel-template');
-    const item = findSeriesItemById(sid);
-    if (!tpl || !item) return null;
+    if (!tpl) {
+        console.error('[MetaKavita] #override-panel-template missing');
+        return null;
+    }
+    // <template>.content is a DocumentFragment; clone then rewrite __SID__.
+    const frag = tpl.content.cloneNode(true);
+    const root = frag.querySelector('.override-panel') || frag.firstElementChild;
+    if (!root) return null;
 
-    const html = tpl.innerHTML.split('__SID__').join(sid);
+    const html = root.outerHTML.split('__SID__').join(sid);
     const wrap = document.createElement('div');
-    wrap.innerHTML = html.trim();
-    panel = wrap.firstElementChild;
-    if (!panel) return null;
+    wrap.innerHTML = html;
+    return wrap.firstElementChild;
+}
 
-    item.appendChild(panel);
-
+function _fillOverridePanelFields(panel, sid, item) {
     const ds = item.dataset;
-    const titleEl = document.getElementById('title-' + sid);
+    const titleEl = panel.querySelector('#title-' + sid) || document.getElementById('title-' + sid);
     if (titleEl) titleEl.value = ds.altTitle || ds.seriesName || '';
-    const idEl = document.getElementById('id-' + sid);
+    const idEl = panel.querySelector('#id-' + sid) || document.getElementById('id-' + sid);
     if (idEl) idEl.value = ds.forcedId || '';
-    const prov = document.getElementById('provider-' + sid);
+    const prov = panel.querySelector('#provider-' + sid) || document.getElementById('provider-' + sid);
     if (prov) prov.value = ds.forcedProvider || 'AUTO';
-    const altLangs = document.getElementById('alt-langs-' + sid);
+    const altLangs = panel.querySelector('#alt-langs-' + sid) || document.getElementById('alt-langs-' + sid);
     if (altLangs) altLangs.value = ds.altLangs || '';
 
     const pub = ds.publisherPref || 'GLOBAL';
-    const pubRadio = document.getElementById(
-        pub === 'LOCALIZED' ? 'pub-loc-' + sid : pub === 'ORIGINAL' ? 'pub-orig-' + sid : 'pub-global-' + sid
-    );
+    const pubId = pub === 'LOCALIZED' ? 'pub-loc-' + sid : pub === 'ORIGINAL' ? 'pub-orig-' + sid : 'pub-global-' + sid;
+    const pubRadio = panel.querySelector('#' + pubId) || document.getElementById(pubId);
     if (pubRadio) pubRadio.checked = true;
 
     const tfRaw = ds.targetedFields || 'ALL';
     const tfList = (tfRaw !== 'ALL' && tfRaw !== 'NONE') ? tfRaw.split(',') : [];
     TARGETED_FIELD_KEYS.forEach(function (f) {
-        const cb = document.getElementById('field-' + f + '-' + sid);
+        const cb = panel.querySelector('#field-' + f + '-' + sid) || document.getElementById('field-' + f + '-' + sid);
         if (!cb) return;
         cb.checked = tfRaw === 'ALL' || tfList.indexOf(f) !== -1;
     });
 
-    const saveBtn = panel.querySelector('[data-save-override]');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', function () {
-            saveOverride(sid, saveBtn);
-        });
+    if (!panel.dataset.bound) {
+        panel.dataset.bound = '1';
+        const saveBtn = panel.querySelector('[data-save-override]');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', function () {
+                saveOverride(sid, saveBtn);
+            });
+        }
+        const tfAll = panel.querySelector('[data-tf-all]');
+        if (tfAll) tfAll.addEventListener('click', function () { setSeriesTargetedFields(sid, true); });
+        const tfNone = panel.querySelector('[data-tf-none]');
+        if (tfNone) tfNone.addEventListener('click', function () { setSeriesTargetedFields(sid, false); });
     }
-    const tfAll = panel.querySelector('[data-tf-all]');
-    if (tfAll) tfAll.addEventListener('click', function () { setSeriesTargetedFields(sid, true); });
-    const tfNone = panel.querySelector('[data-tf-none]');
-    if (tfNone) tfNone.addEventListener('click', function () { setSeriesTargetedFields(sid, false); });
+}
 
-    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.pinOpenPanel === 'function') {
-        window.SeriesList.pinOpenPanel(sid);
+function ensureOverridePanel(seriesId) {
+    const sid = String(seriesId);
+    const item = findSeriesItemById(sid);
+    if (!item) {
+        console.error('[MetaKavita] series row not found for panel', sid);
+        return null;
     }
+
+    let panel = document.getElementById('panel-' + sid) || _overridePanelCache[sid];
+    if (panel) {
+        if (panel.parentNode !== item) item.appendChild(panel);
+        _overridePanelCache[sid] = panel;
+        return panel;
+    }
+
+    panel = _buildOverridePanelFromTemplate(sid);
+    if (!panel) return null;
+
+    item.appendChild(panel);
+    _overridePanelCache[sid] = panel;
+    _fillOverridePanelFields(panel, sid, item);
+    return panel;
+}
+
+/** Re-attach a cached open panel after a virtual-list re-render. */
+function reattachOverridePanelIfAny(seriesId, hostItem) {
+    const sid = String(seriesId);
+    const panel = _overridePanelCache[sid];
+    if (!panel || !hostItem) return null;
+    if (panel.parentNode !== hostItem) hostItem.appendChild(panel);
     return panel;
 }
 
 function toggleSeriesPanel(seriesId) {
-    const panel = ensureOverridePanel(seriesId);
+    const sid = String(seriesId);
+    let panel = document.getElementById('panel-' + sid) || _overridePanelCache[sid];
+    const currentlyOpen = !!(panel && panel.style.display === 'block' && panel.isConnected);
+
+    if (currentlyOpen) {
+        panel.style.display = 'none';
+        if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.unpinPanel === 'function') {
+            window.SeriesList.unpinPanel(sid);
+        }
+        return;
+    }
+
+    // Pin first so the virtual list keeps/rebuilds this row, then attach panel.
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.pinOpenPanel === 'function') {
+        window.SeriesList.pinOpenPanel(sid);
+    }
+
+    panel = ensureOverridePanel(sid);
     if (!panel) return;
-    const open = panel.style.display === 'block';
-    panel.style.display = open ? 'none' : 'block';
-    if (open && typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.unpinPanel === 'function') {
-        window.SeriesList.unpinPanel(seriesId);
-    } else if (!open && typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.pinOpenPanel === 'function') {
-        window.SeriesList.pinOpenPanel(seriesId);
+    panel.style.display = 'block';
+
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.afterPanelOpened === 'function') {
+        window.SeriesList.afterPanelOpened(sid);
     }
 }
 
@@ -139,8 +188,12 @@ function lookupAniListId(seriesName) {
 }
 
 function saveOverride(seriesId, btn) {
-    const forcedId = document.getElementById('id-' + seriesId).value;
-    const altTitle = document.getElementById('title-' + seriesId).value;
+    const forcedIdEl = document.getElementById('id-' + seriesId);
+    const altTitleEl = document.getElementById('title-' + seriesId);
+    if (!forcedIdEl || !altTitleEl) return;
+
+    const forcedId = forcedIdEl.value;
+    const altTitle = altTitleEl.value;
 
     const providerSelect = document.getElementById('provider-' + seriesId);
     const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
@@ -156,7 +209,6 @@ function saveOverride(seriesId, btn) {
         return cb && cb.checked;
     }).join(',');
 
-    // Keep data-* in sync for remount / virtual recycle.
     const item = findSeriesItemById(seriesId);
     if (item) {
         item.dataset.forcedId = forcedId;

@@ -1423,6 +1423,14 @@ a.about-link-kavita {
 }
 .series-list--virtual .series-item.is-pinned-panel {
     z-index: 5;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 72px;
+    background: var(--bg-card);
+}
+.series-list--virtual .series-item.is-pinned-panel .override-panel {
+    position: relative;
+    z-index: 6;
 }
 .series-item:hover {
     background-color: color-mix(in srgb, var(--primary) 6%, var(--bg-input));

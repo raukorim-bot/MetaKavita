@@ -60,6 +60,10 @@
         var ignTitle = s.status === 'IGNORED' ? (tr.unignore_btn || 'Unignore') : (tr.ignore_btn || 'Ignore');
         var ignIcon = s.status === 'IGNORED' ? '🔄' : '🚫';
         var checked = (typeof selectedIds !== 'undefined' && selectedIds.has(sid)) ? ' checked' : '';
+        // Pinned + open Options: auto height so the panel is not clipped to 72px.
+        var heightStyle = (pinnedPanelId === sid)
+            ? 'min-height:' + ROW_HEIGHT + 'px;height:auto;overflow:visible;'
+            : 'height:' + ROW_HEIGHT + 'px;overflow:hidden;';
         return (
             '<div class="series-item' + (pinnedPanelId === sid ? ' is-pinned-panel' : '') + '"' +
             ' data-status="' + escAttr(s.status || 'PENDING') + '"' +
@@ -73,7 +77,7 @@
             ' data-targeted-fields="' + escAttr(s.targeted_fields || 'ALL') + '"' +
             ' data-publisher-pref="' + escAttr(s.publisher_pref || 'GLOBAL') + '"' +
             ' data-alt-langs="' + escAttr(s.alt_title_langs || '') + '"' +
-            ' style="height:' + ROW_HEIGHT + 'px;box-sizing:border-box;">' +
+            ' style="' + heightStyle + 'box-sizing:border-box;">' +
             '<div class="series-row">' +
             '<div class="series-title-line">' +
             '<input type="checkbox" name="selected_series" value="' + escAttr(sid) + '" class="series-cb"' + checked + '>' +
@@ -102,20 +106,24 @@
         if (syncBtn) syncBtn.addEventListener('click', function () { syncSingle(sid, s.name || '', syncBtn); });
         var sealBtn = el.querySelector('[data-seal]');
         if (sealBtn) sealBtn.addEventListener('click', function () { sealSeriesLocks(sid, sealBtn); });
-        // Re-attach open panel if pinned
-        if (pinnedPanelId === sid) {
-            var existing = document.getElementById('panel-' + sid);
-            if (existing && existing.parentNode !== el) {
-                el.appendChild(existing);
-                existing.style.display = 'block';
-            }
+        // Re-attach cached open panel after virtual recycle (innerHTML wipe).
+        if (pinnedPanelId === sid && typeof reattachOverridePanelIfAny === 'function') {
+            var existing = reattachOverridePanelIfAny(sid, el);
+            if (existing) existing.style.display = 'block';
         }
+    }
+
+    function _openPanelExtraHeight() {
+        if (!pinnedPanelId) return 0;
+        var panel = document.getElementById('panel-' + pinnedPanelId);
+        if (!panel || panel.style.display !== 'block') return 0;
+        return Math.max(0, panel.offsetHeight || 420);
     }
 
     function renderWindow() {
         if (!root || !windowEl || !spacer) return;
         var matched = matchedIds || [];
-        spacer.style.height = (matched.length * ROW_HEIGHT) + 'px';
+        spacer.style.height = (matched.length * ROW_HEIGHT + _openPanelExtraHeight()) + 'px';
 
         var scrollTop = root.scrollTop;
         var viewH = root.clientHeight || 400;
@@ -222,6 +230,13 @@
         renderWindow();
     }
 
+    function afterPanelOpened(seriesId) {
+        // Recalc spacer now that the panel has a real height.
+        if (pinnedPanelId === String(seriesId) && spacer) {
+            spacer.style.height = ((matchedIds || []).length * ROW_HEIGHT + _openPanelExtraHeight()) + 'px';
+        }
+    }
+
     function getItem(seriesId) {
         return byId[String(seriesId)] || null;
     }
@@ -281,6 +296,7 @@
             patchOverride: patchOverride,
             pinOpenPanel: pinOpenPanel,
             unpinPanel: unpinPanel,
+            afterPanelOpened: afterPanelOpened,
             getItem: getItem,
             renderWindow: renderWindow,
         };
