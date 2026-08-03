@@ -18,23 +18,27 @@
 - [ ] **C29 follow-up. Event-pause worker variant:** Backend emits candidates over WebSockets and pauses the worker with `eventlet.event.Event` until the user picks/skips (alternative QoS mode still open).
 - [x] **C30. Francophone Book Scrapers (v1.6.3):** Babelio, Decitre, and SensCritique ship in core (no API keys). See Latest Releases.
 - [x] **C60. Core comics / manga promotions (v1.6.3):** ANN, LoCG, Planète BD, and Metron (`METRON_API_KEY`) promoted from the community repo into the Docker image.
+- [x] **C61. Scraper Manage + Community Store (v1.6.3):** `/manage-scrapers` + `/scraper-store` (Help); registry from `data/scrapers/`; catalog sha256; `DISABLED_SCRAPERS`; hub tabs + community beta notice. See Latest Releases.
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
 - [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
-- [ ] **C8. Resiliency & Rate-Limiting Control:** Add an automatic exponential backoff retry mechanism to prevent API blocks (429 errors) during very large batches.
-- [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) when API rate limits or offline labs matter.
+- [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) when API rate limits or offline labs matter. (Wikidata itself is Magasin-only since v1.6.3.)
+- [ ] **Volume / issue metadata (community ask #27):** Per-volume / comic-issue enrichment — `BaseScraper.scopes` already reserves `volume`; pipeline + UI still open.
 - [x] **C40. Support the Developer (Donations) (v1.6.1):** Buy Me a Coffee link in the sidebar / topbar / About, rare playful supporter overlays, and café CTA in Manual Review recap (no paywall / license keys).
 - [ ] **B4. Narrow `seal_series_locks` scope:** After soft-fail re-lock (`NEEDS_RELOCK`), seal currently sets every `*Locked` + forces `localizedNameLocked` (and often `formatLocked`), including fields MetaKavita never wrote. Rare path — feature exists for very slow hosts; prefer raising `KAVITA_HTTP_TIMEOUT` (up to ~600s) over seal surgery. Ideal later: seal only locks from the last write / active mask.
+
+### 🧊 Parked (no active work)
+- [ ] **C8. Resiliency & exponential 429 backoff — parked:** Per-provider `throttle_provider` / **C34** already spaces calls by each scraper’s `rate_limit` (idle = no wait). No field reports of systemic 429s on large batches when staying under those delays; Open Library already has a simple 429 pause. Full exponential-backoff machinery deferred unless real bans appear. Optional later: light `Retry-After` / single retry — not a product priority.
 
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.4)
 - [x] **C64. Guided first-run setup wizard (v1.6.4):** `/setup` 6-step onboarding (account, Kavita + `ROOT_PATH`, languages, options + Auto-Sync 6 h, API keys, cascades); non-blocking Kavita probe; Skip = ready defaults; logged-in replay without account step (Help menu).
 - [x] **C62. Core scrapers `is_core` + boot sync (v1.6.4):** catalog `is_core` from community GitHub → `data/scrapers/` (sha256); image package fallback if offline; `AUTO_UPDATE_CORE_SCRAPERS` (default on) or banner + `POST /api/scrapers/core-updates/apply`.
+- [x] **C63. Persistent batch queue (v1.6.4):** SQLite queue + boot hydrate; Add / Pause / Resume / remove / clear; Stop cancels durable queue.
 - [x] **BF91. MangaBaka cover CDN allowlist (v1.6.4, issue #31, thanks SqueezedByte):** `proxy_domains` includes `images`/`cdn` `.mangabaka.dev` and `.org`.
 - [x] **BF92. MangaBaka cover pick stays on allowlist (v1.6.4):** `_pick_cover_url` / `fetch_covers` fall back to MangaBaka imgproxy when `cover.raw` is third-party.
 - [x] **BF93. Dashboard series search no freeze (v1.6.4, issue #30, thanks angusmaul):** `data-search-title` + `is-filtered-out` + 150 ms debounce (no `innerText` / per-item `style.display`).
 - [x] **BF94. Visible-only batch + prefix search (v1.6.4):** filter keeps checks; batch/ignore use visible checked only; “select all visible” replaces selection; search prefix by default, optional inside-title.
-- [x] **C63. Persistent batch queue (v1.6.4):** SQLite queue + boot hydrate; Add / Pause / Resume / remove / clear; Stop cancels durable queue.
 - [x] **BF95. `ADMIN_PASSWORD` env warning once per boot (v1.6.4, issue #31, thanks SqueezedByte):** actionable deprecation message; no per-request spam.
 - [x] **BF96. Lazy Options panels + selection Set (v1.6.4, issue #30, thanks angusmaul):** no per-row override DOM; BF94/C63 selection index; `content-visibility`.
 - [x] **BF97. Virtual series list (v1.6.4, issue #30):** ≥120 series → JSON bootstrap + scroll window; filtered selection for batch/queue.
@@ -44,10 +48,17 @@
 - [x] **BF101. Batch progress + virtual list reinit (v1.6.4):** no hide on all-dupe append; resume bump totals; loadLibrary re-inits SeriesList; cumulative offsets for open Options.
 - [x] **BF102. SMART_COMPLETION non-adult age fill (v1.6.4):** Auto hole-fills `safe`/`suggestive`/`mature` only; NSFW secondary ages blocked; skip Pending age when Age field active; `log_age_write_diag`.
 - [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
+- [x] **C61. Manage scrapers + Magasin (v1.6.3):** Install / update / delete community scrapers; core disable-only; sha256 catalog; retired / off-store flags; hub tabs Manage · Store · Diagnostics + community beta notice.
+- [x] **Diagnostics cascade probe (v1.6.3):** `/diagnostics` auto-probes active Config cascade providers after preflight; “Test cascade” / “Test all”; `POST /api/scrapers/probe-all?scope=active|all`.
+- [x] **MR Sources may fill `age_rating` (v1.6.3):** Checked Manual Review Sources hole-fill empty age (`fill_age_rating=True`); Auto SMART_COMPLETION kept BF69 (no age backfill) until BF102.
+- [x] **BF90 / BF88 / BF87 Magasin + MR Sources hardening (v1.6.3):** install rollback, orphans, atomic registry reload; MR Sources survive reopen/confirm; confirm `include_providers` semantics.
+- [x] **BF86 / BF85 / BF84 (v1.6.3):** Registry binds loaded modules; Planète BD bare numeric ID probe; cover display hosts follow `requires_proxy`.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
 - [x] **BF81. Neutral age crans + hentai/futanari → x18 (v1.6.3, #25/#29):** `r18`/`x18` (+ aliases); central escalate-to-x18 on hentai/futanari tags even if provider age set; NSFW demote still Auto-tie only.
 - [x] **BF80. Kitsu R → mature / Mature 17+ (v1.6.3, issue #29, thanks angusmaul):** Stop collapsing Kitsu `R`+`R18` into `pornographic`; add `mature→10`; `R→mature`, `R18→pornographic`.
+- [x] **BF79. Proxy / lockout boot logs follow `UI_LANG` (v1.6.3, #26, thanks angusmaul):** TRUSTED_PROXY / SECRET_KEY ephemeral / lockout warnings via `get_ui_translations`.
+- [x] **BF78. Confirm/MR preview dedupes tags & genres (v1.6.3, #24, thanks angusmaul):** same order-preserving dedupe as Kavita payload before join.
 - [x] **BF77. Auto tie-break genre/tag adult signals (v1.6.3, issue #25, thanks angusmaul):** `_is_explicit_adult` also treats `hentai` / `futanari` genres & tags (MangaBaka empty-age mirror); prefer-safe log only if winner is non-adult.
 - [x] **C59. Community scrapers repository (v1.6.2):** Official plug-and-play scrapers live in [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Linked from Help menu, README EN/FR, and `CUSTOM_SCRAPERS.md` (still trust/read before install).
 - [x] **Scraper diagnostics UI (v1.6.2):** `/diagnostics` + probe APIs for Internet/Kavita preflight and per-scraper metadata/covers health.
@@ -191,32 +202,47 @@
 - [ ] **C29 suite. Variante Event-pause :** le backend émet les candidats via WebSockets et met le worker en pause avec `eventlet.event.Event` jusqu’au choix utilisateur (mode QoS alternatif encore ouvert).
 - [x] **C30. Scrapers Littéraires Francophones (v1.6.3) :** Babelio, Decitre et SensCritique livrés dans le core (sans clé API). Voir Dernières Nouveautés.
 - [x] **C60. Promotions comics / manga core (v1.6.3) :** ANN, LoCG, Planète BD et Metron (`METRON_API_KEY`) promus du dépôt communautaire dans l’image Docker.
+- [x] **C61. Manage scrapers + Magasin (v1.6.3) :** `/manage-scrapers` + `/scraper-store` (Aide) ; registre `data/scrapers/` ; catalogue sha256 ; `DISABLED_SCRAPERS` ; onglets hub + avis beta community. Voir Dernières Nouveautés.
 - [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
 - [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
-- [ ] **C8. Gestion de la Résilience d'API :** Système de retry automatique avec attente exponentielle pour contourner le rate limiting lors des très gros batchs.
-- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel quand les quotas API ou un labo hors-ligne importent.
+- [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel quand les quotas API ou un labo hors-ligne importent. (Wikidata = Magasin seul depuis v1.6.3.)
+- [ ] **Métadonnées volume / issue (demande #27) :** enrichissement par tome / album — `scopes` volume déjà réservé sur `BaseScraper` ; pipeline + UI encore ouverts.
 - [x] **C40. Soutien au développeur (Dons) (v1.6.1) :** lien Buy Me a Coffee dans la sidebar / topbar / À propos, overlays supporter ludiques rares, et CTA café dans le récap Review Manuelle (pas de paywall / clé licence).
 - [ ] **B4. Restreindre le scope de `seal_series_locks` :** après soft-fail re-lock (`NEEDS_RELOCK`), le seal pose tous les `*Locked` + force `localizedNameLocked` (souvent `formatLocked`), y compris des champs que MetaKavita n'a jamais écrits. Chemin rare — la feature sert aux hôtes très lents ; préférer monter `KAVITA_HTTP_TIMEOUT` (jusqu'à ~600 s) plutôt que de complexifier le seal. Idéal plus tard : ne sceller que les locks du dernier write / masque actif.
+
+### 🧊 En veille (pas de travail actif)
+- [ ] **C8. Résilience / backoff exponentiel 429 — en veille :** le throttle par provider (`throttle_provider` / **C34**) espace déjà les appels selon chaque `rate_limit` (idle = pas d’attente). Pas de retours terrain de 429 systémiques sur gros batchs tant qu’on reste sous ces délais ; Open Library a déjà une pause 429 simple. Usine à gaz exponentielle reportée sauf bans réels. Optionnel plus tard : un retry léger / `Retry-After` — pas une priorité produit.
 
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.4)
 - [x] **C64. Wizard de setup guidé (v1.6.4) :** `/setup` en 6 étapes (compte, Kavita + `ROOT_PATH`, langues, options + Auto-Sync 6 h, clés API, cascades) ; test Kavita non bloquant ; Passer = defaults prêts ; rejeu connecté sans étape compte (menu Aide).
 - [x] **C62. Scrapers core `is_core` + sync au boot (v1.6.4) :** catalogue community GitHub `is_core` → `data/scrapers/` (sha256) ; fallback package image si hors-ligne ; `AUTO_UPDATE_CORE_SCRAPERS` (défaut on) ou bannière + `POST /api/scrapers/core-updates/apply`.
+- [x] **C63. File batch persistante (v1.6.4) :** file SQLite + hydrate au boot ; Ajouter / Pause / Reprise / retirer / vider ; Stop annule la file durable.
 - [x] **BF91. Allowlist CDN covers MangaBaka (v1.6.4, issue #31, merci SqueezedByte) :** `proxy_domains` inclut `images`/`cdn` `.mangabaka.dev` et `.org`.
 - [x] **BF92. Sélection cover MangaBaka sur allowlist (v1.6.4) :** `_pick_cover_url` / `fetch_covers` basculent sur l’imgproxy MangaBaka si `cover.raw` est tiers.
 - [x] **BF93. Recherche dashboard sans freeze (v1.6.4, issue #30, merci angusmaul) :** `data-search-title` + `is-filtered-out` + debounce 150 ms (plus d’`innerText` / `style.display` par item).
 - [x] **BF94. Batch = affichées + recherche préfixe (v1.6.4) :** le filtre garde les coches ; batch/ignore = cochées visibles ; « tout sélectionner (affichés) » remplace la sélection ; recherche préfixe par défaut, case « Dans le titre ».
-- [x] **C63. File batch persistante (v1.6.4) :** file SQLite + hydrate au boot ; Ajouter / Pause / Reprise / retirer / vider ; Stop annule la file durable.
 - [x] **BF95. Warning `ADMIN_PASSWORD` env une fois par boot (v1.6.4, issue #31, merci SqueezedByte) :** message d’obsolescence actionnable ; plus de spam à chaque requête.
 - [x] **BF96. Panneaux Options lazy + Set de sélection (v1.6.4, issue #30, merci angusmaul) :** plus de DOM override par ligne ; index BF94/C63 ; `content-visibility`.
 - [x] **BF97. Liste virtualisée (v1.6.4, issue #30) :** ≥120 séries → JSON + fenêtre de scroll ; sélection filtrée pour batch/file.
+- [x] **BF98. Libellés file + Expand-all + reprise au lancement (v1.6.4) :** Lancer la sélection / Voir la file ; mid-batch Ajouter à la file d’attente ; Lancer lève la pause ; Expand-all confirme sur gros filtres.
+- [x] **BF99. Cartouches / toolbar plus denses (v1.6.4) :** cartes plus courtes, titres un peu plus grands, groupes Recherche / Filtres colorés ; Tout sélectionner dans la tête de toolbar.
+- [x] **BF100. Panneau Options compact (v1.6.4) :** ligne principale densifiée, champs ciblés en chips ; tests `test_override_panel_ui.py`.
+- [x] **BF101. Progression batch + reinit liste virtualisée (v1.6.4) :** barre ne disparaît plus si ajout mid-batch = doublons ; bump totaux resume ; `loadLibrary` ré-init SeriesList ; offsets cumulés si Options ouverts.
 - [x] **BF102. SMART_COMPLETION comble âge non-adulte (v1.6.4) :** Auto remplit `safe`/`suggestive`/`mature` seulement ; ages NSFW secondaires bloqués ; pas de skip si Pending + champ Âge ; `log_age_write_diag`.
 - [x] **C30 / C60. Sept scrapers communautaires dans le core (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron ; défauts BOOK_3=Babelio, COMIC_3=LoCG pour installs neuves.
+- [x] **C61. Manage scrapers + Magasin (v1.6.3) :** install / update / delete community ; core = désactivation seule ; catalogue sha256 ; flags retired / hors magasin ; onglets Installés · Magasin · Diagnostic + avis beta.
+- [x] **Probe cascade Diagnostics (v1.6.3) :** `/diagnostics` sonde la cascade Config active après préflight ; « Tester la cascade » / « Tester tous » ; `POST /api/scrapers/probe-all?scope=active|all`.
+- [x] **Sources MR peuvent combler `age_rating` (v1.6.3) :** Sources cochées comblent un âge vide ; Auto SMART_COMPLETION restait BF69 jusqu’à BF102.
+- [x] **BF90 / BF88 / BF87 Magasin + Sources MR (v1.6.3) :** rollback install, orphelins, reload atomique ; Sources survivent réouverture/confirm ; sémantique `include_providers`.
+- [x] **BF86 / BF85 / BF84 (v1.6.3) :** bind modules registre ; probe ID Planète BD ; hôtes covers = `requires_proxy`.
 - [x] **BF83. INFO CSRF rejeté + refus sous lockout actif (v1.6.3, merci angusmaul) :** distinguer mauvais MDP / CSRF / lockout dans les Live Logs.
 - [x] **BF82. INFO à chaque échec de login (v1.6.3, merci angusmaul) :** username + IP + compteur à chaque tentative ; WARNING lockout inchangé.
 - [x] **BF81. Crans d’âge neutres + hentai/futanari → x18 (v1.6.3, #25/#29) :** `r18`/`x18` (+ aliases) ; escalade centrale vers x18 si tags hentai/futanari même avec âge provider ; démotion NSFW = égalité Auto seulement.
 - [x] **BF80. Kitsu R → mature / Mature 17+ (v1.6.3, issue #29, merci angusmaul) :** plus de fusion `R`+`R18` → `pornographic` ; tier `mature→10` ; `R→mature`, `R18→pornographic`.
+- [x] **BF79. Logs proxy / lockout selon `UI_LANG` (v1.6.3, #26, merci angusmaul) :** TRUSTED_PROXY / SECRET_KEY éphémère / lockout via `get_ui_translations`.
+- [x] **BF78. Preview confirm/MR déduplique tags & genres (v1.6.3, #24, merci angusmaul) :** même dédup que le payload Kavita avant join.
 - [x] **BF77. Tie-break Auto : signaux adult genres/tags (v1.6.3, issue #25, merci angusmaul) :** `_is_explicit_adult` traite aussi `hentai` / `futanari` ; log prefer-safe seulement si le vainqueur est non-adulte.
 - [x] **C59. Dépôt scrapers communautaires (v1.6.2) :** scrapers plug-and-play officiels dans [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita). Liens menu Aide, README EN/FR et `CUSTOM_SCRAPERS.md` (toujours lire / faire confiance avant install).
 - [x] **UI Diagnostic scrapers (v1.6.2) :** page `/diagnostics` + API de probes (préflight Internet/Kavita, santé metadata/covers par scraper).
