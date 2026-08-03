@@ -312,6 +312,106 @@ def test_setup_persists_wizard_defaults(client):
     assert cfg.get("TARGET_LANG") == "FR"
 
 
+def test_setup_persists_full_custom_options_matrix(client):
+    """Toutes les options wizard (bool off/on, langues, cascades, clés) survivent au reload."""
+    import json
+    import config_manager
+
+    extra = {
+        "UI_LANG": "en",
+        "TARGET_LANG": "DE",
+        "TRANSLATION_PROVIDER": "NONE",
+        "PUBLISHER_PREFERENCE": "ORIGINAL",
+        "LOCALIZED_TITLE_MODE": "prefer",
+        "LOCALIZED_TITLE_LANGS": "en, ja-ro",
+        "TITLE_FALLBACK_TRANSLATION": "true",
+        "SMART_SCORING": "false",
+        "SMART_COMPLETION": "false",
+        "MANUAL_REVIEW_MODE": "true",
+        "AUTO_COVER": "true",
+        "AUTO_READING_DIR": "true",
+        "AUTO_SYNC_INTERVAL": "1440",
+        "ROOT_PATH": "/mk",
+        "AZURE_REGION": "",
+        "PROVIDER_1": "ANILIST",
+        "PROVIDER_2": "NONE",
+        "PROVIDER_3": "NONE",
+        "COMIC_PROVIDER_1": "METRON",
+        "COMIC_PROVIDER_2": "NONE",
+        "COMIC_PROVIDER_3": "NONE",
+        "BOOK_PROVIDER_1": "OPENLIBRARY",
+        "BOOK_PROVIDER_2": "NONE",
+        "BOOK_PROVIDER_3": "NONE",
+        "COMICVINE_API_KEY": "cv-secret-from-setup",
+        "HARDCOVER_API_KEY": "hc-secret-from-setup",
+    }
+    assert _complete_setup(client, extra=extra).status_code == 302
+
+    cfg = config_manager.load_config()
+    assert cfg["UI_LANG"] == "en"
+    assert cfg["TARGET_LANG"] == "DE"
+    assert cfg["TRANSLATION_PROVIDER"] == "NONE"
+    assert cfg["PUBLISHER_PREFERENCE"] == "ORIGINAL"
+    assert cfg["LOCALIZED_TITLE_MODE"] == "prefer"
+    assert cfg["LOCALIZED_TITLE_LANGS"] == "en, ja-ro"
+    assert cfg["TITLE_FALLBACK_TRANSLATION"] is True
+    assert cfg["SMART_SCORING"] is False
+    assert cfg["SMART_COMPLETION"] is False  # défaut code=False, wizard peut forcer False
+    assert cfg["MANUAL_REVIEW_MODE"] is True
+    assert cfg["AUTO_COVER"] is True
+    assert cfg["AUTO_READING_DIR"] is True
+    assert int(cfg["AUTO_SYNC_INTERVAL"]) == 1440
+    assert cfg["ROOT_PATH"] == "/mk"
+    assert cfg["PROVIDER_1"] == "ANILIST"
+    assert cfg["PROVIDER_2"] == "NONE"
+    assert cfg["PROVIDER_3"] == "NONE"
+    assert cfg["COMIC_PROVIDER_1"] == "METRON"
+    assert cfg["BOOK_PROVIDER_1"] == "OPENLIBRARY"
+    assert cfg["COMICVINE_API_KEY"] == "cv-secret-from-setup"
+    assert cfg["HARDCOVER_API_KEY"] == "hc-secret-from-setup"
+
+    # Round-trip disque : JSON natif bool/int, pas de perte au 2ᵉ load_config
+    with open(config_manager.CONFIG_FILE, encoding="utf-8") as f:
+        raw = json.load(f)
+    assert raw["SMART_SCORING"] is False
+    assert raw["SMART_COMPLETION"] is False
+    assert raw["AUTO_COVER"] is True
+    assert raw["AUTO_SYNC_INTERVAL"] == 1440
+    assert raw["COMICVINE_API_KEY"] == "cv-secret-from-setup"
+
+    cfg2 = config_manager.load_config()
+    assert cfg2["SMART_SCORING"] is False
+    assert cfg2["MANUAL_REVIEW_MODE"] is True
+    assert cfg2["PROVIDER_1"] == "ANILIST"
+
+
+def test_setup_empty_api_keys_do_not_wipe_existing(client):
+    """POST vide sur *_API_KEY conserve une clé déjà en config (contrat secrets)."""
+    import config_manager
+
+    config_manager.save_config({
+        **config_manager.load_config(),
+        "COMICVINE_API_KEY": "keep-me",
+        "SECRET_KEY": "k",
+        "WEBHOOK_TOKEN": "w",
+    })
+    assert _complete_setup(client, extra={"COMICVINE_API_KEY": ""}).status_code == 302
+    cfg = config_manager.load_config()
+    assert cfg.get("COMICVINE_API_KEY") == "keep-me"
+
+
+def test_setup_omitted_providers_keep_cascade_defaults(client):
+    """Sans PROVIDER_* dans le POST (client minimal), les cascades défaut restent."""
+    import config_manager
+
+    before = config_manager.load_config()
+    assert _complete_setup(client).status_code == 302
+    after = config_manager.load_config()
+    assert after.get("PROVIDER_1") == before.get("PROVIDER_1")
+    assert after.get("COMIC_PROVIDER_1") == before.get("COMIC_PROVIDER_1")
+    assert after.get("BOOK_PROVIDER_1") == before.get("BOOK_PROVIDER_1")
+
+
 def test_setup_test_kavita_is_non_blocking_endpoint(client, monkeypatch):
     """Le probe échoue → JSON warn, pas d'écriture config ; Finish reste possible."""
     from kavita_api import KavitaAPI
