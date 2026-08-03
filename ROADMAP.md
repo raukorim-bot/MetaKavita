@@ -37,6 +37,9 @@
 - [x] **BF95. `ADMIN_PASSWORD` env warning once per boot (v1.6.4, issue #31, thanks SqueezedByte):** actionable deprecation message; no per-request spam.
 - [x] **BF96. Lazy Options panels + selection Set (v1.6.4, issue #30, thanks angusmaul):** no per-row override DOM; BF94/C63 selection index; `content-visibility`.
 - [x] **BF97. Virtual series list (v1.6.4, issue #30):** ≥120 series → JSON bootstrap + scroll window; filtered selection for batch/queue.
+- [x] **BF98. Queue bar labels + Expand-all warning + resume-on-run (v1.6.4):** Run selection / Open queue; mid-batch Add to waiting list; Run clears pause; Expand-all confirms on large filters.
+- [x] **BF99. Denser series rows + toolbar layout (v1.6.4):** shorter cards, larger titles, colored Search/Filters groups; Select all in toolbar head (stable vs selected badge).
+- [x] **BF100. Compact Options override panel (v1.6.4):** denser main row, chip-style targeted fields; tests `test_override_panel_ui.py`.
 - [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
