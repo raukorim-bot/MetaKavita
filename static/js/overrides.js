@@ -137,31 +137,42 @@ function reattachOverridePanelIfAny(seriesId, hostItem) {
     return panel;
 }
 
-function toggleSeriesPanel(seriesId) {
+function isOverridePanelOpen(seriesId) {
     const sid = String(seriesId);
-    let panel = document.getElementById('panel-' + sid) || _overridePanelCache[sid];
-    const currentlyOpen = !!(panel && panel.style.display === 'block' && panel.isConnected);
+    const panel = document.getElementById('panel-' + sid) || _overridePanelCache[sid];
+    return !!(panel && panel.style.display === 'block');
+}
 
-    if (currentlyOpen) {
-        panel.style.display = 'none';
-        if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.unpinPanel === 'function') {
-            window.SeriesList.unpinPanel(sid);
-        }
-        return;
-    }
-
-    // Pin first so the virtual list keeps/rebuilds this row, then attach panel.
+function openSeriesPanel(seriesId) {
+    const sid = String(seriesId);
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.pinOpenPanel === 'function') {
         window.SeriesList.pinOpenPanel(sid);
     }
-
-    panel = ensureOverridePanel(sid);
-    if (!panel) return;
+    const panel = ensureOverridePanel(sid);
+    if (!panel) return null;
     panel.style.display = 'block';
-
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.afterPanelOpened === 'function') {
         window.SeriesList.afterPanelOpened(sid);
     }
+    return panel;
+}
+
+function closeSeriesPanel(seriesId) {
+    const sid = String(seriesId);
+    const panel = document.getElementById('panel-' + sid) || _overridePanelCache[sid];
+    if (panel) panel.style.display = 'none';
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.unpinPanel === 'function') {
+        window.SeriesList.unpinPanel(sid);
+    }
+}
+
+function toggleSeriesPanel(seriesId) {
+    const sid = String(seriesId);
+    if (isOverridePanelOpen(sid)) {
+        closeSeriesPanel(sid);
+        return;
+    }
+    openSeriesPanel(sid);
 }
 
 /** @deprecated use toggleSeriesPanel — kept for any leftover callers */
@@ -173,12 +184,41 @@ function togglePanel(id) {
     toggleSeriesPanel(id);
 }
 
-// Expand/collapse only panels already mounted (never materialize N×2000).
+function _visibleSeriesItemsForPanels() {
+    // Rows currently in the DOM and not filtered out. Virtual list ⇒ viewport only
+    // (safe). Non-virtual ⇒ all non-filtered rows (≤119 below virtual threshold).
+    return Array.from(document.querySelectorAll('.series-item')).filter(function (item) {
+        return !item.classList.contains('is-filtered-out');
+    });
+}
+
+/**
+ * Expand/collapse Options for *currently visible* rows only.
+ * Expanding every series on a 2000-library is intentionally unsupported (BF96).
+ */
 function toggleAllOverridePanels() {
     allPanelsExpanded = !allPanelsExpanded;
-    const targetDisplay = allPanelsExpanded ? 'block' : 'none';
-    document.querySelectorAll('.override-panel').forEach(panel => {
-        panel.style.display = targetDisplay;
+
+    if (!allPanelsExpanded) {
+        // Collapse every open panel (cache + DOM), including off-viewport pinned ones.
+        Object.keys(_overridePanelCache).forEach(function (sid) {
+            const panel = _overridePanelCache[sid];
+            if (panel) panel.style.display = 'none';
+        });
+        document.querySelectorAll('.override-panel').forEach(function (panel) {
+            panel.style.display = 'none';
+        });
+        if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.unpinAllPanels === 'function') {
+            window.SeriesList.unpinAllPanels();
+        }
+        return;
+    }
+
+    const items = _visibleSeriesItemsForPanels();
+    items.forEach(function (item) {
+        const sid = item.dataset.seriesId
+            || (item.querySelector('.series-cb') && item.querySelector('.series-cb').value);
+        if (sid) openSeriesPanel(sid);
     });
 }
 
@@ -187,29 +227,37 @@ function lookupAniListId(seriesName) {
     window.open(url, '_blank');
 }
 
+function _panelField(panel, sid, idSuffix) {
+    const id = idSuffix + sid;
+    return (panel && panel.querySelector('#' + id)) || document.getElementById(id);
+}
+
 function saveOverride(seriesId, btn) {
-    const forcedIdEl = document.getElementById('id-' + seriesId);
-    const altTitleEl = document.getElementById('title-' + seriesId);
+    const sid = String(seriesId);
+    const panel = document.getElementById('panel-' + sid) || _overridePanelCache[sid];
+    const forcedIdEl = _panelField(panel, sid, 'id-');
+    const altTitleEl = _panelField(panel, sid, 'title-');
     if (!forcedIdEl || !altTitleEl) return;
 
     const forcedId = forcedIdEl.value;
     const altTitle = altTitleEl.value;
 
-    const providerSelect = document.getElementById('provider-' + seriesId);
+    const providerSelect = _panelField(panel, sid, 'provider-');
     const forcedProvider = providerSelect ? providerSelect.value : 'AUTO';
 
-    const pubPrefInput = document.querySelector(`input[name="pubpref-${seriesId}"]:checked`);
+    const pubPrefInput = panel
+        ? panel.querySelector(`input[name="pubpref-${sid}"]:checked`)
+        : document.querySelector(`input[name="pubpref-${sid}"]:checked`);
     const publisherPref = pubPrefInput ? pubPrefInput.value : 'GLOBAL';
-    const altLangsInput = document.getElementById('alt-langs-' + seriesId);
+    const altLangsInput = _panelField(panel, sid, 'alt-langs-');
     const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
 
-    const fields = TARGETED_FIELD_KEYS;
-    const activeFields = fields.filter(f => {
-        const cb = document.getElementById(`field-${f}-${seriesId}`);
+    const activeFields = TARGETED_FIELD_KEYS.filter(f => {
+        const cb = _panelField(panel, sid, 'field-' + f + '-');
         return cb && cb.checked;
     }).join(',');
 
-    const item = findSeriesItemById(seriesId);
+    const item = findSeriesItemById(sid);
     if (item) {
         item.dataset.forcedId = forcedId;
         item.dataset.altTitle = altTitle;
@@ -219,7 +267,7 @@ function saveOverride(seriesId, btn) {
         item.dataset.targetedFields = activeFields || 'NONE';
     }
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
-        window.SeriesList.patchOverride(seriesId, {
+        window.SeriesList.patchOverride(sid, {
             forced_id: forcedId,
             alternative_title: altTitle,
             forced_provider: forcedProvider,
@@ -229,36 +277,58 @@ function saveOverride(seriesId, btn) {
         });
     }
 
-    btn.innerText = "⏳...";
+    if (btn) btn.innerText = "⏳...";
 
-    fetch(getRootPath() + '/save-override', {
+    return fetch(getRootPath() + '/save-override', {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: `series_id=${seriesId}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}&alt_title_langs=${encodeURIComponent(altTitleLangs)}`
+        body: `series_id=${sid}&forced_id=${encodeURIComponent(forcedId)}&alternative_title=${encodeURIComponent(altTitle)}&forced_provider=${encodeURIComponent(forcedProvider)}&targeted_fields=${encodeURIComponent(activeFields)}&publisher_pref=${encodeURIComponent(publisherPref)}&alt_title_langs=${encodeURIComponent(altTitleLangs)}`
     }).then(r => {
-        if (r.ok) {
+        if (r.ok && btn) {
             btn.innerText = "✅";
             setTimeout(() => { btn.innerText = window.AppTranslations.save; }, 1500);
         }
+        return r;
     });
 }
 
+function _openOverridePanels() {
+    const bySid = {};
+    Object.keys(_overridePanelCache).forEach(function (sid) {
+        const panel = _overridePanelCache[sid];
+        if (panel && (panel.style.display === 'block' || panel.style.display === 'flex')) {
+            bySid[sid] = panel;
+        }
+    });
+    document.querySelectorAll('.override-panel').forEach(function (panel) {
+        if (panel.style.display !== 'block' && panel.style.display !== 'flex') return;
+        const m = (panel.id || '').match(/^panel-(.+)$/);
+        if (m) bySid[m[1]] = panel;
+    });
+    return bySid;
+}
+
 async function saveAllOverrides(btn) {
-    const panels = document.querySelectorAll('.override-panel');
+    const open = _openOverridePanels();
+    const sids = Object.keys(open);
     const originalText = btn.innerHTML;
+
+    if (sids.length === 0) {
+        btn.innerHTML = window.AppTranslations.batch_empty || '—';
+        setTimeout(function () { btn.innerHTML = originalText; }, 1500);
+        return;
+    }
 
     btn.classList.add('btn-saving');
     btn.innerHTML = "⏳ " + window.AppTranslations.saving_progress;
     btn.disabled = true;
 
-    for (let panel of panels) {
-        if (panel.style.display === 'block' || panel.style.display === 'flex') {
-            const saveBtn = panel.querySelector('button.btn-success');
-            if (saveBtn) {
-                saveBtn.click();
-                await new Promise(r => setTimeout(r, 250));
-            }
-        }
+    for (let i = 0; i < sids.length; i++) {
+        const sid = sids[i];
+        const panel = open[sid];
+        const saveBtn = panel ? panel.querySelector('button.btn-success, [data-save-override]') : null;
+        await saveOverride(sid, saveBtn);
+        await new Promise(r => setTimeout(r, 250));
     }
 
     btn.classList.remove('btn-saving');

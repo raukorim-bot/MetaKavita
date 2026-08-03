@@ -5,7 +5,8 @@
 (function () {
     var ROW_HEIGHT = 72;
     var OVERSCAN = 8;
-    var pinnedPanelId = null;
+    /** Several Options panels can stay open; all are pinned against recycle. */
+    var pinnedPanelIds = new Set();
 
     var items = []; // full index
     var byId = {};
@@ -61,11 +62,12 @@
         var ignIcon = s.status === 'IGNORED' ? '🔄' : '🚫';
         var checked = (typeof selectedIds !== 'undefined' && selectedIds.has(sid)) ? ' checked' : '';
         // Pinned + open Options: auto height so the panel is not clipped to 72px.
-        var heightStyle = (pinnedPanelId === sid)
+        var pinned = pinnedPanelIds.has(sid);
+        var heightStyle = pinned
             ? 'min-height:' + ROW_HEIGHT + 'px;height:auto;overflow:visible;'
             : 'height:' + ROW_HEIGHT + 'px;overflow:hidden;';
         return (
-            '<div class="series-item' + (pinnedPanelId === sid ? ' is-pinned-panel' : '') + '"' +
+            '<div class="series-item' + (pinned ? ' is-pinned-panel' : '') + '"' +
             ' data-status="' + escAttr(s.status || 'PENDING') + '"' +
             ' data-search-title="' + escAttr(s.searchTitle || name.toLowerCase()) + '"' +
             ' data-series-id="' + escAttr(sid) + '"' +
@@ -107,17 +109,21 @@
         var sealBtn = el.querySelector('[data-seal]');
         if (sealBtn) sealBtn.addEventListener('click', function () { sealSeriesLocks(sid, sealBtn); });
         // Re-attach cached open panel after virtual recycle (innerHTML wipe).
-        if (pinnedPanelId === sid && typeof reattachOverridePanelIfAny === 'function') {
+        if (pinnedPanelIds.has(sid) && typeof reattachOverridePanelIfAny === 'function') {
             var existing = reattachOverridePanelIfAny(sid, el);
             if (existing) existing.style.display = 'block';
         }
     }
 
     function _openPanelExtraHeight() {
-        if (!pinnedPanelId) return 0;
-        var panel = document.getElementById('panel-' + pinnedPanelId);
-        if (!panel || panel.style.display !== 'block') return 0;
-        return Math.max(0, panel.offsetHeight || 420);
+        var extra = 0;
+        pinnedPanelIds.forEach(function (sid) {
+            var panel = (typeof _overridePanelCache !== 'undefined' && _overridePanelCache[sid])
+                || document.getElementById('panel-' + sid);
+            if (!panel || panel.style.display !== 'block') return;
+            extra += Math.max(0, panel.offsetHeight || 420);
+        });
+        return extra;
     }
 
     function renderWindow() {
@@ -130,14 +136,14 @@
         var start = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN);
         var end = Math.min(matched.length, Math.ceil((scrollTop + viewH) / ROW_HEIGHT) + OVERSCAN);
 
-        // Keep pinned row in range
-        if (pinnedPanelId) {
-            var pinIdx = matched.indexOf(String(pinnedPanelId));
+        // Keep every pinned (open Options) row in the mounted window.
+        pinnedPanelIds.forEach(function (sid) {
+            var pinIdx = matched.indexOf(String(sid));
             if (pinIdx >= 0) {
                 start = Math.min(start, pinIdx);
                 end = Math.max(end, pinIdx + 1);
             }
-        }
+        });
 
         var html = [];
         for (var i = start; i < end; i++) {
@@ -221,18 +227,22 @@
     }
 
     function pinOpenPanel(seriesId) {
-        pinnedPanelId = String(seriesId);
+        pinnedPanelIds.add(String(seriesId));
         renderWindow();
     }
 
     function unpinPanel(seriesId) {
-        if (pinnedPanelId === String(seriesId)) pinnedPanelId = null;
+        pinnedPanelIds.delete(String(seriesId));
         renderWindow();
     }
 
-    function afterPanelOpened(seriesId) {
-        // Recalc spacer now that the panel has a real height.
-        if (pinnedPanelId === String(seriesId) && spacer) {
+    function unpinAllPanels() {
+        pinnedPanelIds.clear();
+        renderWindow();
+    }
+
+    function afterPanelOpened(/* seriesId */) {
+        if (spacer) {
             spacer.style.height = ((matchedIds || []).length * ROW_HEIGHT + _openPanelExtraHeight()) + 'px';
         }
     }
@@ -296,9 +306,11 @@
             patchOverride: patchOverride,
             pinOpenPanel: pinOpenPanel,
             unpinPanel: unpinPanel,
+            unpinAllPanels: unpinAllPanels,
             afterPanelOpened: afterPanelOpened,
             getItem: getItem,
             renderWindow: renderWindow,
+            isPinned: function (id) { return pinnedPanelIds.has(String(id)); },
         };
         return true;
     }
