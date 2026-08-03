@@ -209,6 +209,7 @@ def _extract_numeric_id(value: str) -> Optional[int]:
 
 class SensCritiqueScraper(BaseScraper):
     id = "SENSCRITIQUE"
+    is_core = True
     display_name = "SensCritique (FR)"
     supported_types = {"Book", "Comic"}
     rate_limit = 2.5  # GraphQL front — anti-ban IP

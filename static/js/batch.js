@@ -127,6 +127,16 @@ function restoreBatchSelection() {
     saveBatchSelection();
 }
 
+// Issue #30: debounce search keystrokes; filter itself avoids innerText reflows.
+var _filterSeriesTimer = null;
+function scheduleFilterSeries() {
+    if (_filterSeriesTimer) clearTimeout(_filterSeriesTimer);
+    _filterSeriesTimer = setTimeout(function () {
+        _filterSeriesTimer = null;
+        filterSeries();
+    }, 150);
+}
+
 function filterSeries() {
     const statusFilter = document.getElementById('statusFilter');
     // Pas de toolbar si Kavita n'est pas connecté (carte welcome) — no-op.
@@ -149,8 +159,10 @@ function filterSeries() {
     
     document.querySelectorAll('.series-item').forEach(item => {
         const status = item.dataset.status;
-        const titleElem = item.querySelector('.series-name');
-        const title = titleElem ? titleElem.innerText.toLowerCase() : '';
+        // Prefer precomputed data-search-title (no layout). Fallback: textContent (still no reflow).
+        const title = (item.dataset.searchTitle
+            || (item.querySelector('.series-name') || {}).textContent
+            || '').toLowerCase();
         
         let show = false;
         
@@ -169,16 +181,15 @@ function filterSeries() {
             }
         }
         
+        // Class toggle batches style work; avoid per-item inline display writes (#30).
+        item.classList.toggle('is-filtered-out', !show);
         if (show) {
-            item.style.display = 'flex';
             count++;
             visibleTotal++;
             const cb = item.querySelector('.series-cb');
             if (cb && cb.checked) visibleChecked++;
-        } else {
-            // Ne pas décocher : la sélection batch doit survivre aux filtres / rechargements.
-            item.style.display = 'none';
         }
+        // Ne pas décocher : la sélection batch doit survivre aux filtres / rechargements.
     });
     
     const selectAll = document.getElementById('selectAll');
@@ -188,7 +199,7 @@ function filterSeries() {
     
     const countElem = document.getElementById('visibleCount');
     if(countElem) {
-        countElem.innerText = count + (count > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
+        countElem.textContent = count + (count > 1 ? window.AppTranslations.elements : window.AppTranslations.element);
     }
 }
 
@@ -197,7 +208,7 @@ function toggleSelectAll() {
     if (!selectAll) return;
     const isChecked = selectAll.checked;
     document.querySelectorAll('.series-item').forEach(item => {
-        if (item.style.display !== 'none') {
+        if (!item.classList.contains('is-filtered-out')) {
             const cb = item.querySelector('.series-cb');
             if(cb) cb.checked = isChecked;
         }

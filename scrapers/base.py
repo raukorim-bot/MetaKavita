@@ -14,6 +14,9 @@ class BaseScraper(ABC):
     requires_proxy: bool = False
     proxy_referer: str = ""
     needs_api_key: bool = False
+    # Official image scrapers set True — single source of truth for core discovery
+    # (seed/sync image → data/scrapers). Community/custom leave the default False.
+    is_core: bool = False
     translations: Dict[str, Dict[str, str]] = {}
 
     # Déclaratif, PUREMENT informatif : indique si ce scraper attache un score réel

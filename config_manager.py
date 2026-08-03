@@ -125,6 +125,8 @@ def load_config():
             # Dénylist d'IDs de scrapers désactivés (virgules). Présents sur disque mais
             # exclus du registre « enabled » (Providers, enrichment). Manage peut les réactiver.
             "DISABLED_SCRAPERS": "",
+            # Sync scrapers/ (image) → data/scrapers/ for is_core files on boot
+            "AUTO_UPDATE_CORE_SCRAPERS": True,
             "AUTO_COVER": False,
             "AUTO_READING_DIR": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
@@ -297,7 +299,7 @@ def load_config():
         for bool_key in [
             "AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
             "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE", "ENABLE_PLAYFUL_STATS",
-            "MATCH_THRESHOLD_CUSTOM",
+            "MATCH_THRESHOLD_CUSTOM", "AUTO_UPDATE_CORE_SCRAPERS",
             "MANUAL_REVIEW_MODE", "MANUAL_REVIEW_EDIT", "MANUAL_REVIEW_SOUNDS",
             "MANUAL_REVIEW_SUPER", "CONFIRM_BEFORE_WRITE", "MANUAL_REVIEW_COVER_PICK",
         ]:

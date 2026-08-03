@@ -35,6 +35,7 @@ def _norm_isbn(raw: Optional[str]) -> Optional[str]:
 
 class DecitreScraper(BaseScraper):
     id = "DECITRE"
+    is_core = True
     display_name = "Decitre"
     supported_types = {"Book"}
     rate_limit = 2.5  # HTML e-commerce — anti-ban IP

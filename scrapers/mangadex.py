@@ -8,6 +8,7 @@ from config_manager import load_config, get_max_tags
 
 class MangaDexScraper(BaseScraper):
     id = "MANGADEX"
+    is_core = True
     display_name = "MangaDex (API)"
     supported_types = {"Manga"}
     rate_limit = 0.5

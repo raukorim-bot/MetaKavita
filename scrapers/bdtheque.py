@@ -103,6 +103,7 @@ def extract_cover_from_img(tag) -> Optional[str]:
 
 class BdthequeScraper(BaseScraper):
     id = "BDTHEQUE"
+    is_core = True
     display_name = "BDTheque.com (Franco-Belge)"
     supported_types = {"Comic"}
     uses_unified_scoring = True

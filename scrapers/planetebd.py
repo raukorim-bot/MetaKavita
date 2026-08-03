@@ -64,6 +64,7 @@ def _series_title_from_album_label(label: str) -> str:
 
 class PlanetebdScraper(BaseScraper):
     id = "PLANETEBD"
+    is_core = True
     display_name = "Planète BD"
     supported_types = {"Comic"}
     rate_limit = 2.5  # HTML — anti-ban IP

@@ -129,6 +129,9 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         if getattr(s, 'has_direct_id_support', False)
     ]
 
+    from services.scraper_manager import get_pending_core_updates
+    pending_core_updates = get_pending_core_updates()
+
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
                            all_libraries=all_libraries, disabled_library_ids=disabled_ids,
@@ -145,7 +148,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            has_deepl_api_key=has_deepl_api_key,
                            has_azure_api_key=has_azure_api_key,
                            scraper_has_api_key=scraper_has_api_key,
-                           match_accept_threshold=get_match_accept_threshold(config))
+                           match_accept_threshold=get_match_accept_threshold(config),
+                           pending_core_updates=pending_core_updates)
 
 
 @pages_bp.route('/', methods=['GET'])

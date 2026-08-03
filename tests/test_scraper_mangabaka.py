@@ -19,6 +19,79 @@ def test_mangabaka_supports_manga_and_book():
     assert MangaBakaScraper.supported_types == {"Manga", "Book"}
 
 
+def test_mangabaka_proxy_domains_allow_cover_cdn_hosts():
+    """Issue #31: cover upload refused images.mangabaka.dev (API still emits .dev CDN)."""
+    domains = set(MangaBakaScraper.proxy_domains)
+    assert "images.mangabaka.dev" in domains
+    assert "cdn.mangabaka.dev" in domains
+    assert "images.mangabaka.org" in domains
+    assert "api.mangabaka.org" in domains
+
+
+@pytest.mark.parametrize("url,expected", [
+    ("https://mangabaka.org/353334", "353334"),
+    ("https://www.mangabaka.org/353334/", "353334"),
+    ("https://mangabaka.dev/353334", "353334"),
+    ("https://api.mangabaka.org/v2/series/353334", "353334"),
+    ("https://anilist.co/manga/1", None),
+])
+def test_mangabaka_extract_id_from_url(url, expected):
+    assert MangaBakaScraper().extract_id_from_url(url) == expected
+
+
+def test_mangabaka_cover_url_from_dev_cdn_passes_allowlist():
+    from url_allowlist import validate_proxied_image_url
+
+    ok, reason, domain = validate_proxied_image_url(
+        "https://images.mangabaka.dev/e/a/a/8/e/9/e/f/d8bb/47e3/a6ad/4e45a525f383",
+        MangaBakaScraper.proxy_domains,
+    )
+    assert ok is True, reason
+    assert domain == "images.mangabaka.dev"
+
+
+def test_mangabaka_pick_cover_prefers_native_raw():
+    scraper = MangaBakaScraper()
+    url = scraper._pick_cover_url({
+        "raw": "https://images.mangabaka.dev/e/a/a/8/path",
+        "x350": "https://cdn.mangabaka.dev/imgproxy/plain/x350@1/abc",
+    })
+    assert url == "https://images.mangabaka.dev/e/a/a/8/path"
+
+
+def test_mangabaka_pick_cover_falls_back_to_imgproxy_when_raw_is_third_party():
+    """API sometimes puts AniList CDN in raw — stay on MangaBaka imgproxy instead."""
+    scraper = MangaBakaScraper()
+    url = scraper._pick_cover_url({
+        "raw": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/medium/b1.jpg",
+        "original": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/large/b1.jpg",
+        "x350": "https://cdn.mangabaka.dev/imgproxy/plain/x350@1/abc",
+        "x250": "https://cdn.mangabaka.dev/imgproxy/plain/x250@1/abc",
+    })
+    assert url == "https://cdn.mangabaka.dev/imgproxy/plain/x350@1/abc"
+
+
+def test_mangabaka_pick_cover_rejects_third_party_only():
+    scraper = MangaBakaScraper()
+    assert scraper._pick_cover_url({
+        "raw": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/medium/b1.jpg",
+    }) is None
+    assert scraper._pick_cover_url("https://s4.anilist.co/x.jpg") is None
+
+
+def test_mangabaka_build_candidate_uses_imgproxy_fallback_for_cover():
+    scraper = MangaBakaScraper()
+    candidate = scraper._build_candidate({
+        "id": 1,
+        "name": "Test",
+        "cover": {
+            "raw": "https://s4.anilist.co/file/anilistcdn/media/manga/cover/medium/b1.jpg",
+            "x250": "https://cdn.mangabaka.dev/imgproxy/plain/x250@1/abc",
+        },
+    }, pub_pref="LOCALIZED")
+    assert candidate["cover_url"] == "https://cdn.mangabaka.dev/imgproxy/plain/x250@1/abc"
+
+
 @pytest.mark.parametrize("raw_status,expected", [
     ("completed", "FINISHED"),
     ("Completed", "FINISHED"),

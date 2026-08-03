@@ -104,6 +104,45 @@ body {
     row-gap: 8px;
 }
 
+.core-scrapers-banner {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px 16px;
+    padding: 12px 18px;
+    background: color-mix(in srgb, var(--accent, #5b7cfa) 14%, var(--bg-card));
+    border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
+}
+
+.core-scrapers-banner[hidden] {
+    display: none !important;
+}
+
+.core-scrapers-banner-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1 1 240px;
+    font-size: 0.92rem;
+    line-height: 1.35;
+}
+
+.core-scrapers-banner-files {
+    color: var(--text-muted, #888);
+    font-size: 0.85rem;
+    word-break: break-word;
+}
+
+.core-scrapers-banner-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
 .logo {
     display: flex;
     align-items: center;
@@ -1356,6 +1395,9 @@ a.about-link-kavita {
     border: 1px solid transparent;
     border-radius: var(--radius-sm);
     transition: background-color 0.18s ease, border-color 0.18s ease;
+}
+.series-item.is-filtered-out {
+    display: none !important;
 }
 .series-item:hover {
     background-color: color-mix(in srgb, var(--primary) 6%, var(--bg-input));

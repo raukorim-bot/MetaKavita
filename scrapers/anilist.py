@@ -7,6 +7,7 @@ from config_manager import get_max_genres, get_max_tags
 
 class AnilistScraper(BaseScraper):
     id = "ANILIST"
+    is_core = True
     display_name = "AniList (International)"
     # Comic stays: AniList has no COMIC Media type; manhwa/manhua/comics live under MANGA.
     # Book: search still uses type MANGA but candidates are filtered to format NOVEL.

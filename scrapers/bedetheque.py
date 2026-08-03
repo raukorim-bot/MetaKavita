@@ -36,6 +36,7 @@ def generate_search_queries(title: str) -> list:
 
 class BedethequeScraper(BaseScraper):
     id = "BEDETHEQUE"
+    is_core = True
     display_name = "Bédéthèque (Franco-Belge)"
     supported_types = {"Comic"}
     uses_unified_scoring = True

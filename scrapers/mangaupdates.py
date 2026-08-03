@@ -24,6 +24,7 @@ def clean_mangaupdates_text(text: str) -> str:
 
 class MangaUpdatesScraper(BaseScraper):
     id = "MANGAUPDATES"
+    is_core = True
     display_name = "MangaUpdates (Baka-Updates)"
     supported_types = {"Manga"}
     rate_limit = 1.0

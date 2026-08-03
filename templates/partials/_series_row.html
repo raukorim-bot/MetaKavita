@@ -1,4 +1,4 @@
-                            <div class="series-item" data-status="{{ series.status }}">
+                            <div class="series-item" data-status="{{ series.status }}" data-search-title="{{ (series.name or '')|lower|e }}">
                                 <div class="series-row">
                                     <div class="series-title-line">
                                         <input type="checkbox" name="selected_series" value="{{ series.id }}" class="series-cb">

@@ -31,6 +31,7 @@ _MANGA_MEDIA = {
 
 class MalScraper(BaseScraper):
     id = "MAL"
+    is_core = True
     display_name = "MyAnimeList (Official API)"
     supported_types = {"Manga", "Book"}
     rate_limit = 1.2

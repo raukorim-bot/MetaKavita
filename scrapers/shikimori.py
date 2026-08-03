@@ -28,6 +28,7 @@ def format_author_name(name: str) -> str:
 
 class ShikimoriScraper(BaseScraper):
     id = "SHIKIMORI"
+    is_core = True
     display_name = "Shikimori (API JSON)"
     supported_types = {"Manga"}
     rate_limit = 0.5

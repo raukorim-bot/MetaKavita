@@ -36,6 +36,7 @@ def _isbn_query_variants(isbn: str) -> List[str]:
 
 class GoogleBooksScraper(BaseScraper):
     id = "GOOGLEBOOKS"
+    is_core = True
     display_name = "Google Books"
     supported_types = {"Book", "Comic"}
     rate_limit = 1.0

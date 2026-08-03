@@ -108,6 +108,7 @@ def save_config_ajax():
 
         config['TITLE_FALLBACK_TRANSLATION'] = request.form.get('TITLE_FALLBACK_TRANSLATION') == 'true'
         config['ENABLE_PLAYFUL_STATS'] = request.form.get('ENABLE_PLAYFUL_STATS') == 'true'
+        config['AUTO_UPDATE_CORE_SCRAPERS'] = request.form.get('AUTO_UPDATE_CORE_SCRAPERS') == 'true'
 
         try:
             config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))

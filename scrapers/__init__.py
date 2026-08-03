@@ -69,7 +69,7 @@ class _ScraperRegistry:
             purge_demoted_core_scrapers,
             data_scrapers_dir,
             list_data_scraper_files,
-            is_core_filename,
+            is_core_data_file,
         )
 
         with self._lock:
@@ -80,10 +80,9 @@ class _ScraperRegistry:
             for filename in list_data_scraper_files():
                 file_path = os.path.join(custom_dir, filename)
                 stem = filename[:-3]
-                # Core files use relative imports (`from .base` / `.utils`).
-                # Load them as scrapers.<stem> from the data path so hotfixes apply
-                # while package-relative imports still resolve.
-                if is_core_filename(filename):
+                # Core files use relative imports (`from .base` / `.utils`) or absolute
+                # ``from scrapers.base``. Load as scrapers.<stem> from the data path.
+                if is_core_data_file(filename):
                     module_name = f"scrapers.{stem}"
                 else:
                     module_name = f"custom_scrapers.{stem}"
@@ -116,7 +115,7 @@ class _ScraperRegistry:
 
     def _rebind_modules_from_sources(self, sources_map: dict) -> None:
         """Re-exec source files into sys.modules after a failed reload restore."""
-        from services.scraper_manager import data_scrapers_dir, is_core_filename
+        from services.scraper_manager import data_scrapers_dir, is_core_data_file
 
         custom_dir = data_scrapers_dir()
         for src in sorted({s for s in sources_map.values() if s}):
@@ -127,7 +126,7 @@ class _ScraperRegistry:
                 continue
             stem = src[:-3]
             module_name = (
-                f"scrapers.{stem}" if is_core_filename(src) else f"custom_scrapers.{stem}"
+                f"scrapers.{stem}" if is_core_data_file(src) else f"custom_scrapers.{stem}"
             )
             try:
                 self._unbind_module_name(module_name)

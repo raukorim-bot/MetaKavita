@@ -57,6 +57,7 @@ def _auth_header(api_key: str) -> Dict[str, str]:
 
 class MetronScraper(BaseScraper):
     id = "METRON"
+    is_core = True
     display_name = "Metron (Comics API)"
     supported_types = {"Comic"}
     rate_limit = 3.0  # Burst API : 20 req/min

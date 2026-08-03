@@ -70,6 +70,7 @@ def _soup(html: bytes) -> BeautifulSoup:
 
 class BabelioScraper(BaseScraper):
     id = "BABELIO"
+    is_core = True
     display_name = "Babelio (Littérature FR)"
     supported_types = {"Book"}
     rate_limit = 3.0  # HTML — anti-ban IP

@@ -160,11 +160,17 @@ Before this fix, `websocket.js` guessed `NOT_FOUND`/`PENDING_REVIEW`/skip-`COMPL
 
 ### 5. Sideloading Scrapers & Auto-Discovery Registry
 
-MetaKavita uses a **data-only Auto-Discovery Registry** (`ScraperRegistry`, C61).
-On startup, `seed_core_scrapers()` copies missing core modules from `/app/scrapers/` into
-`/app/data/scrapers/`, then `load_all()` loads **only** that data directory via
-`importlib.util` (classes inheriting from `BaseScraper`). Core files load as
-`scrapers.<stem>` (relative imports keep working); community files load as
+MetaKavita uses a **data-only Auto-Discovery Registry** (`ScraperRegistry`, C61 + C62 in v1.6.4).
+On startup, `sync_core_scrapers()` aligns `/app/data/scrapers/` for official scrapers:
+1. **GitHub first** — `store/catalog.json` entries with `is_core` (sha256) from
+   `community-scraper-metakavita`, so hotfixes ship without a new Docker image;
+2. **Image fallback** — AST discovery of `is_core = True` in `/app/scrapers/` when the
+   catalog is unreachable, and to seed any core still missing after a partial GitHub sync.
+With `AUTO_UPDATE_CORE_SCRAPERS` (default on), stale copies are overwritten at boot; when off,
+missing files are still seeded and stale ones surface as a dashboard banner +
+`POST /api/scrapers/core-updates/apply`. Then `load_all()` loads **only** that data
+directory via `importlib.util` (classes inheriting from `BaseScraper`). Core files load as
+`scrapers.<stem>` (relative or absolute `scrapers.*` imports); community files load as
 `custom_scrapers.<stem>`.
 
 * **Manage UI** (`/manage-scrapers`): enable/disable (`DISABLED_SCRAPERS`), delete community files.
@@ -526,11 +532,9 @@ Avant ce correctif, `websocket.js` devinait les badges `NOT_FOUND`/`PENDING_REVI
 
 ### 5. Sideloading de Scrapers & Auto-Découverte
 
-MetaKavita utilise un Registre à **Double Source**. Au démarrage, `importlib.util` est utilisé pour charger dynamiquement des classes héritant de `BaseScraper` situées dans :
-1.  **Dossier Core :** `/app/scrapers/` (Code officiel).
-2.  **Dossier Utilisateur :** `/app/data/scrapers/` (Sideloading communautaire).
+MetaKavita utilise un Registre **data-only** (C61 + C62 en v1.6.4). Au démarrage, `sync_core_scrapers()` aligne `/app/data/scrapers/` : (1) catalogue GitHub `is_core` en priorité (hotfixes sans nouvelle image), (2) fallback package image (`is_core = True`, AST) si le réseau échoue ou pour combler les absents. Selon `AUTO_UPDATE_CORE_SCRAPERS` (si off → bannière + `POST /api/scrapers/core-updates/apply`), puis `load_all()` charge **uniquement** ce dossier data. Fichiers core → `scrapers.<stem>` ; community → `custom_scrapers.<stem>`.
 
-Si le fichier déposé par un utilisateur déclare `needs_api_key = True`, MetaKavita va automatiquement générer le champ d'enregistrement dans l'Interface Graphique (UI) et gérer sa sauvegarde !
+Si le fichier déposé par un utilisateur déclare `needs_api_key = True`, MetaKavita génère automatiquement le champ dans l’UI et gère sa sauvegarde.
 
 ---
 

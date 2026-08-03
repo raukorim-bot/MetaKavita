@@ -4,7 +4,7 @@
                             <span id="visibleCount" class="badge badge-pending" style="font-size: 13px;">0 {{ t.element }}</span>
                             
                             <!-- BARRE DE RECHERCHE -->
-                            <input type="text" id="searchInput" class="search-input" placeholder="{{ t.search_placeholder }}" onkeyup="filterSeries()">
+                            <input type="text" id="searchInput" class="search-input" placeholder="{{ t.search_placeholder }}" oninput="scheduleFilterSeries()">
                             
                             <!-- SÉLECTEUR DE BIBLIOTHÈQUE -->
                             <select id="lib_selector" onchange="loadLibrary(this.value)" style="width: auto;">

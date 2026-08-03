@@ -67,6 +67,7 @@ def _map_age(raw: Optional[str]) -> Optional[str]:
 
 class AnnScraper(BaseScraper):
     id = "ANN"
+    is_core = True
     display_name = "Anime News Network"
     supported_types = {"Manga"}
     rate_limit = 1.2

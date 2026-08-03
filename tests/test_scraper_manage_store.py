@@ -83,6 +83,10 @@ def isolated_scrapers(tmp_path, monkeypatch):
     monkeypatch.setattr(config_manager, "DATA_DIR", str(data_dir))
     monkeypatch.setattr(config_manager, "CONFIG_FILE", str(data_dir / "config.json"))
     monkeypatch.setattr(sm, "DATA_DIR", str(data_dir))
+    # Tests image-path déterministes : pas d'appel réseau Magasin par défaut.
+    monkeypatch.setattr(sm, "_try_sync_core_from_github", lambda **kwargs: None)
+    sm.clear_pending_core_updates()
+    sm._core_filenames_cache = None
 
     # Empty config
     (data_dir / "config.json").write_text("{}", encoding="utf-8")
@@ -97,22 +101,171 @@ def isolated_scrapers(tmp_path, monkeypatch):
     }
 
 
-def test_seed_copies_missing_core_only(isolated_scrapers, monkeypatch):
+def test_list_core_filenames_requires_is_core_flag(isolated_scrapers):
     sm = isolated_scrapers["sm"]
-    scrapers_dir = isolated_scrapers["scrapers_dir"]
-    pkg = sm.package_scrapers_dir()
     core_files = sm.list_core_filenames()
     assert "mangabaka.py" in core_files
+    assert "anilist.py" in core_files
+    assert "base.py" not in core_files
+    assert "utils.py" not in core_files
+    assert "wikidata_map.py" not in core_files
 
-    # Pre-create one core file with marker content — must not be overwritten
+
+def test_seed_updates_stale_core_when_auto_on(isolated_scrapers, monkeypatch):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    config_manager = isolated_scrapers["config_manager"]
+
+    monkeypatch.setattr(
+        config_manager,
+        "load_config",
+        lambda: {"AUTO_UPDATE_CORE_SCRAPERS": True},
+    )
+
     marker = scrapers_dir / "mangabaka.py"
-    marker.write_text("# local hotfix\n", encoding="utf-8")
+    marker.write_text("# stale local copy\n", encoding="utf-8")
 
-    copied = sm.seed_core_scrapers()
-    assert "mangabaka.py" not in copied
-    assert marker.read_text(encoding="utf-8") == "# local hotfix\n"
-    assert (scrapers_dir / "anilist.py").is_file()
-    assert "anilist.py" in copied
+    result = sm.sync_core_scrapers(force=False, auto_update=True)
+    assert "mangabaka.py" in result["updated"]
+    assert marker.read_text(encoding="utf-8") != "# stale local copy\n"
+    assert "is_core = True" in marker.read_text(encoding="utf-8")
+    assert sm.get_pending_core_updates() == []
+
+
+def _wire_github_catalog(monkeypatch, sm, *, body: bytes, auto_via_try: bool = True):
+    """Branche un catalogue Magasin mocké sur le chemin sync core GitHub."""
+    import hashlib
+    import services.scraper_store as store
+
+    sha = hashlib.sha256(body).hexdigest()
+    catalog = {
+        "schema_version": 1,
+        "raw_base": store.DEFAULT_RAW_BASE,
+        "scrapers": [
+            {
+                "id": "MANGABAKA",
+                "file": "mangabaka.py",
+                "is_core": True,
+                "install": {
+                    "path": "scrapers/mangabaka.py",
+                    "url": f"{store.DEFAULT_RAW_BASE}/scrapers/mangabaka.py",
+                    "sha256": sha,
+                },
+            }
+        ],
+    }
+    monkeypatch.setattr(store, "fetch_catalog", lambda **kwargs: catalog)
+    monkeypatch.setattr(store, "_download_catalog_python", lambda **kwargs: body)
+    if auto_via_try:
+        monkeypatch.setattr(
+            sm,
+            "_try_sync_core_from_github",
+            lambda **kwargs: store.sync_core_from_catalog(
+                auto_update=kwargs.get("auto_update", True), timeout=8.0
+            ),
+        )
+    return store
+
+
+def test_github_core_sync_updates_before_image(isolated_scrapers, monkeypatch):
+    """Catalogue GitHub prioritaire : contenu community écrit même si l'image diffère."""
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    body = b"# github core hotfix\nis_core = True\n"
+    _wire_github_catalog(monkeypatch, sm, body=body)
+
+    marker = scrapers_dir / "mangabaka.py"
+    marker.write_text("# stale local copy\n", encoding="utf-8")
+
+    result = sm.sync_core_scrapers(force=False, auto_update=True)
+    assert "mangabaka.py" in result["updated"]
+    assert marker.read_bytes() == body
+    assert sm.resolve_origin("mangabaka.py") == "core"
+
+
+def test_github_unreachable_falls_back_to_image(isolated_scrapers):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+
+    # Fixture mocks github → None ; fall-through image
+    marker = scrapers_dir / "mangabaka.py"
+    marker.write_text("# stale\n", encoding="utf-8")
+    result = sm.sync_core_scrapers(force=False, auto_update=True)
+    assert "mangabaka.py" in result["updated"]
+    assert "is_core = True" in marker.read_text(encoding="utf-8")
+
+
+def test_github_pending_when_auto_off(isolated_scrapers, monkeypatch):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    body = b"# newer from github\n"
+    _wire_github_catalog(monkeypatch, sm, body=body)
+
+    marker = scrapers_dir / "mangabaka.py"
+    marker.write_text("# local kept\n", encoding="utf-8")
+
+    result = sm.sync_core_scrapers(force=False, auto_update=False)
+    assert "mangabaka.py" not in result["updated"]
+    assert "mangabaka.py" in result["pending"]
+    assert marker.read_text(encoding="utf-8") == "# local kept\n"
+
+
+def test_github_seed_missing_on_fresh_install(isolated_scrapers, monkeypatch):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    body = b"# fresh github seed\nis_core = True\n"
+    _wire_github_catalog(monkeypatch, sm, body=body)
+
+    marker = scrapers_dir / "mangabaka.py"
+    assert not marker.is_file()
+
+    result = sm.sync_core_scrapers(force=False, auto_update=True)
+    assert "mangabaka.py" in result["seeded"]
+    assert marker.read_bytes() == body
+
+
+def test_seed_keeps_stale_when_auto_off(isolated_scrapers):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+
+    marker = scrapers_dir / "mangabaka.py"
+    marker.write_text("# stale local copy\n", encoding="utf-8")
+
+    result = sm.sync_core_scrapers(force=False, auto_update=False)
+    assert "mangabaka.py" not in result["updated"]
+    assert "mangabaka.py" in result["pending"]
+    assert marker.read_text(encoding="utf-8") == "# stale local copy\n"
+    pending = sm.get_pending_core_updates()
+    assert any(p["file"] == "mangabaka.py" for p in pending)
+
+
+def test_seed_skips_identical_core(isolated_scrapers):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    sm.seed_core_scrapers()
+    target = scrapers_dir / "mangabaka.py"
+    before = target.read_bytes()
+    mtime = target.stat().st_mtime
+
+    result = sm.sync_core_scrapers(force=True)
+    assert "mangabaka.py" not in result["seeded"]
+    assert "mangabaka.py" not in result["updated"]
+    assert target.read_bytes() == before
+    assert target.stat().st_mtime == mtime
+
+
+def test_apply_core_scraper_updates_force(isolated_scrapers):
+    sm = isolated_scrapers["sm"]
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    marker = scrapers_dir / "mangabaka.py"
+    marker.write_text("# stale\n", encoding="utf-8")
+    sm.sync_core_scrapers(force=False, auto_update=False)
+    assert sm.get_pending_core_updates()
+
+    result = sm.apply_core_scraper_updates()
+    assert "mangabaka.py" in result["updated"]
+    assert sm.get_pending_core_updates() == []
+    assert "is_core = True" in marker.read_text(encoding="utf-8")
 
 
 def test_seed_reseeds_deleted_core(isolated_scrapers):

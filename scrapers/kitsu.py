@@ -8,6 +8,7 @@ from config_manager import get_max_tags
 
 class KitsuScraper(BaseScraper):
     id = "KITSU"
+    is_core = True
     display_name = "Kitsu (JSON:API)"
     supported_types = {"Manga"}
     rate_limit = 1.5

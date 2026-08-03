@@ -58,6 +58,7 @@ def _prefer_large_cover(url: Optional[str]) -> Optional[str]:
 
 class LocgScraper(BaseScraper):
     id = "LOCG"
+    is_core = True
     display_name = "League of Comic Geeks"
     supported_types = {"Comic"}
     rate_limit = 4.0  # prudent : HTML/XHR site, risque de ban inconnu

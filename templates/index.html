@@ -251,6 +251,21 @@
             </div>
         </header>
 
+        {% if pending_core_updates %}
+        <div id="coreScrapersUpdateBanner" class="core-scrapers-banner" role="status"
+             data-files="{{ pending_core_updates|map(attribute='file')|list|join(', ') }}">
+            <div class="core-scrapers-banner-text">
+                <strong>{{ t.core_scrapers_update_title }}</strong>
+                <span>{{ t.core_scrapers_update_body }}</span>
+                <span class="core-scrapers-banner-files">{{ pending_core_updates|map(attribute='file')|list|join(', ') }}</span>
+            </div>
+            <div class="core-scrapers-banner-actions">
+                <button type="button" class="btn-primary" id="coreScrapersUpdateBtn" onclick="applyCoreScraperUpdates(this)">{{ t.core_scrapers_update_btn }}</button>
+                <button type="button" class="btn-secondary" onclick="dismissCoreScraperBanner()">{{ t.core_scrapers_update_dismiss }}</button>
+            </div>
+        </div>
+        {% endif %}
+
         <div class="dashboard-body">
             {% include "partials/_sidebar.html" %}
 

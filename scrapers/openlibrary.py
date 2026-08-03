@@ -59,6 +59,7 @@ def fetch_real_cover_from_google(title: str, headers: dict, error_message: str =
 
 class OpenLibraryScraper(BaseScraper):
     id = "OPENLIBRARY"
+    is_core = True
     display_name = "Open Library (Livres/Romans)"
     supported_types = {"Book", "Comic"}
     rate_limit = 2.0

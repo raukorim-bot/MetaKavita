@@ -84,6 +84,7 @@ def compose_summary_parts(*parts: str) -> str:
 
 class ComicVineScraper(BaseScraper):
     id = "COMICVINE"
+    is_core = True
     display_name = "ComicVine (Ultime BD/Comics)"
     supported_types = {"Comic"}
     rate_limit = 1.2

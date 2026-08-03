@@ -323,6 +323,9 @@ function saveConfig(options) {
     const playfulStats = document.getElementById('config_playful_stats');
     if (playfulStats) formData.append('ENABLE_PLAYFUL_STATS', playfulStats.checked ? 'true' : 'false');
 
+    const autoUpdateCore = document.getElementById('config_auto_update_core_scrapers');
+    if (autoUpdateCore) formData.append('AUTO_UPDATE_CORE_SCRAPERS', autoUpdateCore.checked ? 'true' : 'false');
+
     const btn = shouldReload ? form.querySelector('.btn-primary') : null;
     const originalText = btn ? btn.innerText : "";
     if (btn) btn.innerText = "⏳...";
@@ -509,3 +512,50 @@ function changeAccountPassword(btn) {
         showFeedback((window.AppTranslations && window.AppTranslations.err_network_dot) || 'Erreur réseau.', false);
     });
 }
+
+function dismissCoreScraperBanner() {
+    const banner = document.getElementById('coreScrapersUpdateBanner');
+    if (banner) banner.hidden = true;
+    try { sessionStorage.setItem('mk_dismiss_core_scraper_banner', '1'); } catch (e) { /* ignore */ }
+}
+
+function applyCoreScraperUpdates(btn) {
+    const t = window.AppTranslations || {};
+    const el = btn || document.getElementById('coreScrapersUpdateBtn');
+    const original = el ? el.innerText : '';
+    if (el) {
+        el.disabled = true;
+        el.innerText = '⏳...';
+    }
+    fetch(getRootPath() + '/api/scrapers/core-updates/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+    })
+        .then(function (res) { return res.json().then(function (data) { return { ok: res.ok, data: data }; }); })
+        .then(function (result) {
+            if (!result.ok || !result.data.success) {
+                throw new Error((result.data && result.data.msg) || t.core_scrapers_updated_fail || 'Update failed');
+            }
+            showFeedback(result.data.msg || t.core_scrapers_updated_ok || 'OK', true);
+            const banner = document.getElementById('coreScrapersUpdateBanner');
+            if (banner) banner.hidden = true;
+            try { sessionStorage.removeItem('mk_dismiss_core_scraper_banner'); } catch (e) { /* ignore */ }
+        })
+        .catch(function (err) {
+            showFeedback(err.message || t.core_scrapers_updated_fail || 'Update failed', false);
+            if (el) {
+                el.disabled = false;
+                el.innerText = original;
+            }
+        });
+}
+
+(function hideDismissedCoreBanner() {
+    try {
+        if (sessionStorage.getItem('mk_dismiss_core_scraper_banner') === '1') {
+            const banner = document.getElementById('coreScrapersUpdateBanner');
+            if (banner) banner.hidden = true;
+        }
+    } catch (e) { /* ignore */ }
+})();

@@ -16,6 +16,7 @@ def extract_meaningful_words(title: str) -> set:
 
 class HardcoverScraper(BaseScraper):
     id = "HARDCOVER"
+    is_core = True
     display_name = "Hardcover (Expérimental / GraphQL)"
     supported_types = {"Book", "Comic"}
     rate_limit = 1.2 

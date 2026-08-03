@@ -23,6 +23,7 @@ from services.scraper_manager import (
     resolve_origin,
     safe_scraper_path,
     sha256_matches,
+    write_core_scraper_bytes,
     write_scraper_bytes,
 )
 
@@ -113,6 +114,110 @@ def clear_catalog_cache() -> None:
         _CACHE["error"] = None
 
 
+def _download_catalog_python(*, url: str, expected_sha: str, timeout: float = 45.0) -> bytes:
+    """Télécharge un .py catalogue, refuse HTML, vérifie sha256 (EOL-tolerant)."""
+    try:
+        res = requests.get(url, timeout=timeout)
+        res.raise_for_status()
+        content = res.content
+        ctype = (res.headers.get("Content-Type") or "").lower()
+    except Exception as e:
+        raise StoreError(f"download failed: {e}", status_code=502) from e
+
+    if "text/html" in ctype or content.lstrip().startswith((b"<!DOCTYPE", b"<!doctype", b"<html")):
+        raise StoreError("download did not return a Python file", status_code=502)
+
+    if not sha256_matches(content, expected_sha):
+        logging.warning(
+            "[Store] sha256 mismatch (got %s bytes, catalog expects %s…)",
+            len(content),
+            expected_sha[:12],
+        )
+        raise StoreError("sha256 mismatch", status_code=400)
+    return content
+
+
+def sync_core_from_catalog(*, auto_update: bool, timeout: float = 8.0) -> Dict[str, list]:
+    """
+    Aligne les entrées catalogue ``is_core`` vers ``data/scrapers/``.
+
+    Lève ``StoreError`` si le catalogue est injoignable (le caller bascule sur l'image).
+    N'appelle pas ``ScraperRegistry.reload`` — prévu pour le boot / seed.
+    """
+    catalog = fetch_catalog(force=True, timeout=timeout)
+    raw_base = catalog.get("raw_base") or DEFAULT_RAW_BASE
+    seeded: list = []
+    updated: list = []
+    pending: list = []
+
+    for entry in catalog.get("scrapers") or []:
+        if not isinstance(entry, dict) or not catalog_entry_is_core(entry):
+            continue
+        if is_entry_retired(entry):
+            continue
+
+        install = entry.get("install") or {}
+        file_name = os.path.basename(str(entry.get("file") or install.get("path") or ""))
+        if not file_name.endswith(".py") or file_name.startswith("."):
+            continue
+
+        expected_sha = (install.get("sha256") or "").strip().lower()
+        if not expected_sha or len(expected_sha) != 64:
+            logging.warning("[Store] Core %s sans sha256 catalogue — ignoré", file_name)
+            continue
+
+        try:
+            url = _validate_install_url(install.get("url") or "", raw_base, file_name)
+        except StoreError as e:
+            logging.warning("[Store] Core %s URL invalide : %s", file_name, e.message)
+            continue
+
+        dest = safe_scraper_path(file_name)
+        if dest is None:
+            continue
+
+        local = read_file_bytes(dest) if os.path.isfile(dest) else None
+        if local is not None and sha256_matches(local, expected_sha):
+            # Déjà à jour — assure l'origine core
+            if resolve_origin(file_name) != "core":
+                try:
+                    from services.scraper_manager import set_origin
+                    set_origin(file_name, "core")
+                except Exception:
+                    pass
+            continue
+
+        missing = local is None
+        if not missing and not auto_update:
+            pending.append(file_name)
+            continue
+
+        try:
+            content = _download_catalog_python(url=url, expected_sha=expected_sha, timeout=max(timeout, 20.0))
+            write_core_scraper_bytes(file_name, content)
+        except StoreError as e:
+            logging.warning("[Store] Sync core %s échoué : %s", file_name, e.message)
+            if missing:
+                # Laisser le fallback image combler
+                continue
+            pending.append(file_name)
+            continue
+        except (OSError, ValueError, PermissionError) as e:
+            logging.error("[Store] Écriture core %s : %s", file_name, e)
+            if not missing:
+                pending.append(file_name)
+            continue
+
+        if missing:
+            seeded.append(file_name)
+            logging.info("[Scrapers] Core seedé (GitHub) : %s", file_name)
+        else:
+            updated.append(file_name)
+            logging.info("[Scrapers] Core mis à jour (GitHub) : %s", file_name)
+
+    return {"seeded": seeded, "updated": updated, "pending": pending}
+
+
 def _validate_install_url(url: str, raw_base: str, expected_file: str) -> str:
     if not url or not isinstance(url, str):
         raise StoreError("missing install.url")
@@ -134,7 +239,19 @@ def _validate_install_url(url: str, raw_base: str, expected_file: str) -> str:
     return url.strip()
 
 
-def fetch_catalog(*, force: bool = False) -> Dict[str, Any]:
+def catalog_entry_is_core(entry: Dict[str, Any]) -> bool:
+    """True si l'entrée catalogue est un scraper officiel (``is_core`` / tag ``core``)."""
+    if not isinstance(entry, dict):
+        return False
+    if entry.get("is_core") is True:
+        return True
+    for tag in entry.get("tags") or []:
+        if str(tag).strip().lower() == "core":
+            return True
+    return False
+
+
+def fetch_catalog(*, force: bool = False, timeout: float = 20.0) -> Dict[str, Any]:
     now = time.time()
     with _CACHE_LOCK:
         if (
@@ -145,7 +262,7 @@ def fetch_catalog(*, force: bool = False) -> Dict[str, Any]:
             return _CACHE["catalog"]
 
     try:
-        res = requests.get(CATALOG_URL, timeout=20)
+        res = requests.get(CATALOG_URL, timeout=timeout)
         res.raise_for_status()
         data = res.json()
     except Exception as e:
@@ -410,28 +527,7 @@ def install_from_catalog(scraper_id: str, *, force: bool = False) -> Dict[str, A
         and not sha256_matches(local_content, expected_sha)
     )
 
-    try:
-        res = requests.get(url, timeout=45)
-        res.raise_for_status()
-        content = res.content
-        ctype = (res.headers.get("Content-Type") or "").lower()
-    except StoreError:
-        raise
-    except Exception as e:
-        raise StoreError(f"download failed: {e}", status_code=502)
-
-    # Refuse HTML / pages d'erreur GitHub déguisées
-    if "text/html" in ctype or content.lstrip().startswith((b"<!DOCTYPE", b"<!doctype", b"<html")):
-        raise StoreError("download did not return a Python file", status_code=502)
-
-    if not sha256_matches(content, expected_sha):
-        logging.warning(
-            "[Store] sha256 mismatch for %s (got %s bytes, catalog expects %s)",
-            sid,
-            len(content),
-            expected_sha[:12] + "…",
-        )
-        raise StoreError("sha256 mismatch", status_code=400)
+    content = _download_catalog_python(url=url, expected_sha=expected_sha, timeout=45.0)
 
     # Snapshot bytes for rollback (same path, or prior registry file on rename).
     pre_dest_bytes = read_file_bytes(dest) if dest_exists else None

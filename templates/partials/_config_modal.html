@@ -169,6 +169,13 @@
 
                         <div class="config-section config-section--planning">
                             <h4 class="config-section-title">{{ t.planning }}</h4>
+                            <div class="config-option-card config-option-card--primary">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="config_auto_update_core_scrapers" value="true" {% if config.get('AUTO_UPDATE_CORE_SCRAPERS', True) %}checked{% endif %}>
+                                    <strong>{{ t.auto_update_core_scrapers_opt }}</strong>
+                                </label>
+                                <p class="field-hint m-0">{{ t.auto_update_core_scrapers_desc }}</p>
+                            </div>
                             <div class="form-group">
                                 <label>{{ t.auto_sync_interval }}</label>
                                 <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">

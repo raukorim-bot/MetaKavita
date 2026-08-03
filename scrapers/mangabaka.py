@@ -6,13 +6,26 @@ from .utils import clean_title, score_candidate, get_match_accept_threshold, att
 from config_manager import load_config, get_max_tags, get_max_genres
 from kavita_constants import normalize_provider_status
 from secure_logging import safe_exc_str
+from url_allowlist import validate_proxied_image_url
 
 class MangaBakaScraper(BaseScraper):
     id = "MANGABAKA"
+    is_core = True
     display_name = "MangaBaka (API / Rapide)"
     supported_types = {"Manga", "Book"}
     rate_limit = 2.5
-    proxy_domains = ["mangabaka.org", "api.mangabaka.org"]
+    # API is on *.mangabaka.org; cover/CDN URLs still come back as *.mangabaka.dev
+    # (images.mangabaka.org has no DNS yet). Whitelist both so uploads/proxy work.
+    proxy_domains = [
+        "mangabaka.org",
+        "api.mangabaka.org",
+        "images.mangabaka.org",
+        "cdn.mangabaka.org",
+        "mangabaka.dev",
+        "api.mangabaka.dev",
+        "images.mangabaka.dev",
+        "cdn.mangabaka.dev",
+    ]
     has_direct_id_support = True
     uses_unified_scoring = True
 
@@ -34,8 +47,32 @@ class MangaBakaScraper(BaseScraper):
     }
 
     def extract_id_from_url(self, url: str) -> Optional[str]:
-        if "mangabaka.org" in url:
+        if "mangabaka.org" in url or "mangabaka.dev" in url:
             return url.split('?')[0].rstrip('/').split('/')[-1]
+        return None
+
+    def _cover_url_allowed(self, url: Optional[str]) -> bool:
+        if not url or not isinstance(url, str):
+            return False
+        ok, _, _ = validate_proxied_image_url(url.strip(), self.proxy_domains)
+        return ok
+
+    def _pick_cover_url(self, cover_data) -> Optional[str]:
+        """Pick a cover URL that MetaKavita can download under MangaBaka proxy_domains.
+
+        The API often puts a third-party host in ``raw`` (e.g. s4.anilist.co) while
+        still exposing MangaBaka CDN imgproxy variants (x350/x250/x150). Prefer
+        native/allowed hosts; fall back to imgproxy; never return an off-allowlist URL.
+        """
+        if isinstance(cover_data, str):
+            url = cover_data.strip()
+            return url if self._cover_url_allowed(url) else None
+        if not isinstance(cover_data, dict):
+            return None
+        for key in ("raw", "original", "large", "x350", "x250", "x150"):
+            url = cover_data.get(key)
+            if isinstance(url, str) and url.strip() and self._cover_url_allowed(url):
+                return url.strip()
         return None
 
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
@@ -107,12 +144,7 @@ class MangaBakaScraper(BaseScraper):
         if not data or not isinstance(data, dict):
             return None
 
-        cover_url = None
-        cover_data = data.get('cover')
-        if isinstance(cover_data, dict):
-            cover_url = cover_data.get('raw') or cover_data.get('original') or cover_data.get('large')
-        elif isinstance(cover_data, str):
-            cover_url = cover_data
+        cover_url = self._pick_cover_url(data.get('cover'))
 
         staff = []
         for author in (data.get('authors') or []):
@@ -272,11 +304,7 @@ class MangaBakaScraper(BaseScraper):
                 results = json_res.get('data') if 'data' in json_res else json_res
                 if isinstance(results, list):
                     for m in results[:4]:
-                        cover_url = None
-                        cover_data = m.get('cover', {})
-                        if isinstance(cover_data, dict): cover_url = cover_data.get('raw') or cover_data.get('original')
-                        elif isinstance(cover_data, str): cover_url = cover_data
-                            
+                        cover_url = self._pick_cover_url(m.get('cover'))
                         if cover_url:
                             title = "Inconnu"
                             titles_list = m.get('titles', [])

@@ -27,6 +27,7 @@ def clean_text_formatting(text: str) -> str:
 
 class MangaNewsScraper(BaseScraper):
     id = "MANGANEWS"
+    is_core = True
     display_name = "Manga-News (Catalogue VF)"
     supported_types = {"Manga"}
     rate_limit = 1.5

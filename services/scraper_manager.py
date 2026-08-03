@@ -1,26 +1,31 @@
 """
 Gestion disque des scrapers sideloadés (`data/scrapers/`).
 
-- Seed des scrapers core (package image → data/) si absents
-- Origines (core / community / custom)
-- Chemins sûrs (anti path-traversal)
+- Discovery core via ``is_core = True`` dans le package image (`scrapers/`)
+- Sync au boot : catalogue GitHub community (``is_core``) → data/, fallback image
+  selon ``AUTO_UPDATE_CORE_SCRAPERS``
+- Origines (core / community / custom) + chemins sûrs (anti path-traversal)
 """
 
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import logging
 import os
-import shutil
 import threading
-from typing import Dict, Iterable, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 from config_manager import DATA_DIR
 
 # Serialise read-modify-write on .origins.json (install/delete/seed races).
 _ORIGINS_LOCK = threading.RLock()
+_PENDING_LOCK = threading.Lock()
+_pending_core_updates: List[Dict[str, str]] = []
+_core_filenames_cache: Optional[Tuple[str, Tuple[str, ...]]] = None
 
+# Helpers / non-scraper modules in the package — never treated as installable core.
 CORE_SKIP_FILES = frozenset({
     "__init__.py",
     "base.py",
@@ -49,18 +54,60 @@ def data_scrapers_dir() -> str:
     return path
 
 
+def _file_declares_is_core(path: str) -> bool:
+    """True if a class body in ``path`` assigns ``is_core = True`` (AST, no exec)."""
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            source = f.read()
+        tree = ast.parse(source, filename=path)
+    except (OSError, SyntaxError, ValueError):
+        return False
+
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            target_name = None
+            value_node = None
+            if isinstance(item, ast.Assign) and len(item.targets) == 1:
+                t0 = item.targets[0]
+                if isinstance(t0, ast.Name):
+                    target_name = t0.id
+                    value_node = item.value
+            elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                target_name = item.target.id
+                value_node = item.value
+            if target_name != "is_core" or value_node is None:
+                continue
+            if isinstance(value_node, ast.Constant) and value_node.value is True:
+                return True
+    return False
+
+
 def list_core_filenames() -> List[str]:
+    """Basenames des scrapers officiels : ``is_core = True`` dans le package image."""
+    global _core_filenames_cache
     src = package_scrapers_dir()
-    if not os.path.isdir(src):
-        return []
-    names = []
-    for filename in sorted(os.listdir(src)):
-        if not filename.endswith(".py"):
-            continue
-        if filename in CORE_SKIP_FILES or filename.startswith("__"):
-            continue
-        names.append(filename)
-    return names
+    try:
+        mtime = os.path.getmtime(src) if os.path.isdir(src) else -1.0
+    except OSError:
+        mtime = -1.0
+    cache_key = f"{src}:{mtime}"
+    if _core_filenames_cache and _core_filenames_cache[0] == cache_key:
+        return list(_core_filenames_cache[1])
+
+    names: List[str] = []
+    if os.path.isdir(src):
+        for filename in sorted(os.listdir(src)):
+            if not filename.endswith(".py"):
+                continue
+            if filename in CORE_SKIP_FILES or filename.startswith("__"):
+                continue
+            path = os.path.join(src, filename)
+            if _file_declares_is_core(path):
+                names.append(filename)
+    _core_filenames_cache = (cache_key, tuple(names))
+    return list(names)
 
 
 def is_core_filename(filename: str) -> bool:
@@ -119,20 +166,113 @@ def resolve_origin(filename: str) -> str:
     if is_core_filename(base):
         return "core"
     marked = load_origins().get(base)
-    if marked in ("community", "custom"):
+    if marked in VALID_ORIGINS:
         return marked
     return "custom"
 
 
-def seed_core_scrapers() -> List[str]:
-    """
-    Copie les scrapers core vers data/scrapers/ s'ils sont absents.
-    Ne jamais écraser un fichier déjà présent (hotfix utilisateur).
-    Retourne la liste des fichiers nouvellement copiés.
-    """
-    dest_dir = data_scrapers_dir()
+def is_core_data_file(filename: str) -> bool:
+    """True si le fichier data doit charger comme ``scrapers.<stem>`` (image ou origin=core)."""
+    base = os.path.basename(filename or "")
+    if not base:
+        return False
+    if is_core_filename(base):
+        return True
+    return load_origins().get(base) == "core"
+
+
+def _contents_equivalent(a: bytes, b: bytes) -> bool:
+    """True if raw bytes match or only differ by EOL (LF ↔ CRLF)."""
+    if a == b:
+        return True
+    return normalize_newlines_lf(a) == normalize_newlines_lf(b)
+
+
+def _write_bytes_atomic(path: str, content: bytes) -> None:
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(content)
+    os.replace(tmp, path)
+
+
+def get_pending_core_updates() -> List[Dict[str, str]]:
+    with _PENDING_LOCK:
+        return [dict(x) for x in _pending_core_updates]
+
+
+def set_pending_core_updates(items: List[Dict[str, str]]) -> None:
+    with _PENDING_LOCK:
+        _pending_core_updates.clear()
+        _pending_core_updates.extend(dict(x) for x in items)
+
+
+def clear_pending_core_updates() -> None:
+    set_pending_core_updates([])
+
+
+def diff_core_scrapers() -> List[Dict[str, str]]:
+    """Compare package core files to data/scrapers/. Each item: file + status."""
     src_dir = package_scrapers_dir()
-    copied: List[str] = []
+    dest_dir = data_scrapers_dir()
+    out: List[Dict[str, str]] = []
+    for filename in list_core_filenames():
+        src = os.path.join(src_dir, filename)
+        dest = os.path.join(dest_dir, filename)
+        if not os.path.isfile(src):
+            continue
+        if not os.path.isfile(dest):
+            out.append({"file": filename, "status": "missing"})
+            continue
+        src_bytes = read_file_bytes(src)
+        dest_bytes = read_file_bytes(dest)
+        if src_bytes is None or dest_bytes is None:
+            out.append({"file": filename, "status": "stale"})
+            continue
+        if not _contents_equivalent(src_bytes, dest_bytes):
+            out.append({"file": filename, "status": "stale"})
+    return out
+
+
+def write_core_scraper_bytes(filename: str, content: bytes) -> str:
+    """Écrit un scraper core sous data/scrapers/ (bypass Magasin). Retourne le chemin."""
+    path = safe_scraper_path(filename)
+    if path is None:
+        raise ValueError("invalid scraper filename")
+    base = os.path.basename(path)
+    if base in CORE_SKIP_FILES or not base.endswith(".py") or base.startswith("."):
+        raise ValueError("invalid scraper filename")
+    _write_bytes_atomic(path, content)
+    set_origin(base, "core")
+    return path
+
+
+def _resolve_auto_update(*, force: bool, auto_update: Optional[bool]) -> bool:
+    if force:
+        return True
+    if auto_update is not None:
+        return bool(auto_update)
+    try:
+        from config_manager import load_config
+        return bool(load_config().get("AUTO_UPDATE_CORE_SCRAPERS", True))
+    except Exception:
+        return True
+
+
+def _sync_core_from_image(
+    *,
+    auto_update: bool,
+    missing_only: bool = False,
+) -> Dict[str, List[str]]:
+    """
+    Aligne data/scrapers/ sur le package image pour les fichiers ``is_core``.
+
+    ``missing_only=True`` : ne remplit que les absents (après sync GitHub réussi).
+    """
+    src_dir = package_scrapers_dir()
+    dest_dir = data_scrapers_dir()
+    seeded: List[str] = []
+    updated: List[str] = []
+    pending: List[Dict[str, str]] = []
 
     with _ORIGINS_LOCK:
         origins = load_origins()
@@ -143,21 +283,111 @@ def seed_core_scrapers() -> List[str]:
             dest = os.path.join(dest_dir, filename)
             if not os.path.isfile(src):
                 continue
+            src_bytes = read_file_bytes(src)
+            if src_bytes is None:
+                continue
+
             if not os.path.isfile(dest):
                 try:
-                    shutil.copy2(src, dest)
-                    copied.append(filename)
-                    logging.info("[Scrapers] Core seedé : %s", filename)
+                    _write_bytes_atomic(dest, src_bytes)
+                    seeded.append(filename)
+                    logging.info("[Scrapers] Core seedé (image) : %s", filename)
                 except OSError as e:
                     logging.error("[Scrapers] Échec seed core %s : %s", filename, e)
                     continue
+            elif not missing_only:
+                dest_bytes = read_file_bytes(dest) or b""
+                if not _contents_equivalent(src_bytes, dest_bytes):
+                    if auto_update:
+                        try:
+                            _write_bytes_atomic(dest, src_bytes)
+                            updated.append(filename)
+                            logging.info("[Scrapers] Core mis à jour (image) : %s", filename)
+                        except OSError as e:
+                            logging.error("[Scrapers] Échec update core %s : %s", filename, e)
+                            pending.append({"file": filename, "status": "stale"})
+                            continue
+                    else:
+                        pending.append({"file": filename, "status": "stale"})
+
             if origins.get(filename) != "core":
                 origins[filename] = "core"
                 dirty = True
 
         if dirty:
             save_origins(origins)
-    return copied
+
+    return {"seeded": seeded, "updated": updated, "pending": [p["file"] for p in pending]}
+
+
+def _try_sync_core_from_github(*, auto_update: bool) -> Optional[Dict[str, List[str]]]:
+    """
+    Sync core depuis le catalogue community. Retourne None si catalogue injoignable.
+    N'appelle pas ``ScraperRegistry.reload`` (le boot charge ensuite).
+    """
+    try:
+        from services.scraper_store import sync_core_from_catalog
+    except Exception as e:
+        logging.warning("[Scrapers] Import Magasin pour sync core : %s", e)
+        return None
+    try:
+        return sync_core_from_catalog(auto_update=auto_update, timeout=8.0)
+    except Exception as e:
+        logging.warning("[Scrapers] Sync core GitHub abandonné : %s", e)
+        return None
+
+
+def sync_core_scrapers(*, force: bool = False, auto_update: Optional[bool] = None) -> Dict[str, List[str]]:
+    """
+    Aligne data/scrapers/ pour les scrapers ``is_core``.
+
+    1. Catalogue GitHub community (source à jour entre releases image)
+    2. Fallback / complétion depuis le package image si réseau KO ou fichier manquant
+
+    - ``force=True`` : écrit toujours (endpoint manuel).
+    - sinon lit ``AUTO_UPDATE_CORE_SCRAPERS`` (défaut True) ; si False, ne fait que
+      le seed des fichiers *absents* et remplit ``pending`` pour les stale.
+    """
+    auto = _resolve_auto_update(force=force, auto_update=auto_update)
+
+    gh = _try_sync_core_from_github(auto_update=auto)
+    if gh is not None:
+        # Ne pas écraser un core GitHub plus récent avec l'image ; combler seulement les absents.
+        img = _sync_core_from_image(auto_update=False, missing_only=True)
+        seeded = list(gh.get("seeded") or []) + [f for f in (img.get("seeded") or []) if f not in gh.get("seeded", [])]
+        updated = list(gh.get("updated") or [])
+        pending_files = list(gh.get("pending") or [])
+        # Origins for image-only cores still missing from github catalog
+        set_pending_core_updates([{"file": f, "status": "stale"} for f in pending_files])
+        logging.info(
+            "[Scrapers] Sync core GitHub OK (seeded=%s updated=%s pending=%s ; image gaps=%s)",
+            len(gh.get("seeded") or []),
+            len(gh.get("updated") or []),
+            len(pending_files),
+            len(img.get("seeded") or []),
+        )
+        return {"seeded": seeded, "updated": updated, "pending": pending_files}
+
+    logging.info("[Scrapers] Sync core via image (catalogue GitHub indisponible)")
+    result = _sync_core_from_image(auto_update=auto, missing_only=False)
+    set_pending_core_updates([{"file": f, "status": "stale"} for f in result.get("pending") or []])
+    return result
+
+
+def seed_core_scrapers() -> List[str]:
+    """
+    Sync core au boot (respecte AUTO_UPDATE_CORE_SCRAPERS).
+    Retourne les basenames nouvellement écrits (seed + update).
+    """
+    result = sync_core_scrapers(force=False)
+    return list(result.get("seeded") or []) + list(result.get("updated") or [])
+
+
+def apply_core_scraper_updates() -> Dict[str, List[str]]:
+    """Force sync of all core files (manual CTA) then clear pending."""
+    result = sync_core_scrapers(force=True)
+    clear_pending_core_updates()
+    return result
 
 
 def _has_package_relative_imports(path: str) -> bool:

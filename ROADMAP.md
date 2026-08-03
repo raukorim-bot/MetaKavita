@@ -27,7 +27,11 @@
 
 ---
 
-### ✨ Latest Releases (v1.5.6 to v1.6.3)
+### ✨ Latest Releases (v1.5.6 to v1.6.4)
+- [x] **C62. Core scrapers `is_core` + boot sync (v1.6.4):** catalog `is_core` from community GitHub → `data/scrapers/` (sha256); image package fallback if offline; `AUTO_UPDATE_CORE_SCRAPERS` (default on) or banner + `POST /api/scrapers/core-updates/apply`.
+- [x] **BF91. MangaBaka cover CDN allowlist (v1.6.4, issue #31, thanks SqueezedByte):** `proxy_domains` includes `images`/`cdn` `.mangabaka.dev` and `.org`.
+- [x] **BF92. MangaBaka cover pick stays on allowlist (v1.6.4):** `_pick_cover_url` / `fetch_covers` fall back to MangaBaka imgproxy when `cover.raw` is third-party.
+- [x] **BF93. Dashboard series search no freeze (v1.6.4, issue #30, thanks angusmaul):** `data-search-title` + `is-filtered-out` + 150 ms debounce (no `innerText` / per-item `style.display`).
 - [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
@@ -185,7 +189,11 @@
 
 ---
 
-### ✨ Dernières Nouveautés (v1.5.6 à v1.6.3)
+### ✨ Dernières Nouveautés (v1.5.6 à v1.6.4)
+- [x] **C62. Scrapers core `is_core` + sync au boot (v1.6.4) :** catalogue community GitHub `is_core` → `data/scrapers/` (sha256) ; fallback package image si hors-ligne ; `AUTO_UPDATE_CORE_SCRAPERS` (défaut on) ou bannière + `POST /api/scrapers/core-updates/apply`.
+- [x] **BF91. Allowlist CDN covers MangaBaka (v1.6.4, issue #31, merci SqueezedByte) :** `proxy_domains` inclut `images`/`cdn` `.mangabaka.dev` et `.org`.
+- [x] **BF92. Sélection cover MangaBaka sur allowlist (v1.6.4) :** `_pick_cover_url` / `fetch_covers` basculent sur l’imgproxy MangaBaka si `cover.raw` est tiers.
+- [x] **BF93. Recherche dashboard sans freeze (v1.6.4, issue #30, merci angusmaul) :** `data-search-title` + `is-filtered-out` + debounce 150 ms (plus d’`innerText` / `style.display` par item).
 - [x] **C30 / C60. Sept scrapers communautaires dans le core (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron ; défauts BOOK_3=Babelio, COMIC_3=LoCG pour installs neuves.
 - [x] **BF83. INFO CSRF rejeté + refus sous lockout actif (v1.6.3, merci angusmaul) :** distinguer mauvais MDP / CSRF / lockout dans les Live Logs.
 - [x] **BF82. INFO à chaque échec de login (v1.6.3, merci angusmaul) :** username + IP + compteur à chaque tentative ; WARNING lockout inchangé.

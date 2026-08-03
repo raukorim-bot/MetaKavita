@@ -1,3 +1,21 @@
+## [1.6.4] - 2026-08-03 (Core sync / MangaBaka covers / search perf)
+
+EN
+### ✨ What's new
+* **C62. Core scrapers: `is_core` flag + boot sync from GitHub** — Official scrapers declare `is_core = True`. On boot, `sync_core_scrapers()` pulls catalog entries marked `is_core` from [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita) (sha256) into `data/scrapers/`, so a fresh install is current without waiting for the next image release; falls back to the Docker image package if GitHub is unreachable. Config `AUTO_UPDATE_CORE_SCRAPERS` (default on); when off, a dashboard banner + `POST /api/scrapers/core-updates/apply` apply manually.
+### 🐛 Bug Fixes
+* **BF91. MangaBaka cover CDN allowlist (thanks SqueezedByte, [#31](https://github.com/raukorim-bot/MetaKavita/issues/31))** — API already uses `api.mangabaka.org`; cover URLs still come from `images.mangabaka.dev` / `cdn.mangabaka.dev`. `proxy_domains` now includes both `.org` and `.dev` image hosts so cover upload/proxy is not refused.
+* **BF92. MangaBaka cover pick stays on allowlisted hosts** — When API `cover.raw` points at a third-party CDN (e.g. `s4.anilist.co`), `_pick_cover_url` / `fetch_covers` fall back to MangaBaka imgproxy (`x350`→`x250`→`x150`) instead of returning an off-allowlist URL. Tests: `tests/test_scraper_mangabaka.py`.
+* **BF93. Dashboard series search no longer freezes large libraries (thanks angusmaul, [#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — `filterSeries()` used `innerText` + per-item `style.display` (forced reflow × N on every keystroke). Now uses `data-search-title`, `textContent` fallback, `is-filtered-out` class toggle, and 150 ms search debounce. Tests: `tests/test_dashboard_search_bf93.py`.
+
+FR
+### ✨ Nouveautés
+* **C62. Scrapers core : flag `is_core` + sync GitHub au boot** — Les scrapers officiels déclarent `is_core = True`. Au boot, `sync_core_scrapers()` tire les entrées catalogue `is_core` depuis [`community-scraper-metakavita`](https://github.com/raukorim-bot/community-scraper-metakavita) (sha256) vers `data/scrapers/` — une install fraîche est à jour sans attendre la prochaine image ; fallback package Docker si GitHub est injoignable. Config `AUTO_UPDATE_CORE_SCRAPERS` (défaut on) ; si off, cartouche dashboard + `POST /api/scrapers/core-updates/apply`.
+### 🐛 Correctifs
+* **BF91. Allowlist CDN covers MangaBaka (merci SqueezedByte, [#31](https://github.com/raukorim-bot/MetaKavita/issues/31))** — L’API est déjà sur `api.mangabaka.org` ; les covers sortent encore de `images.mangabaka.dev` / `cdn.mangabaka.dev`. `proxy_domains` inclut les hôtes image `.org` et `.dev` pour que l’upload/proxy de cover ne soit plus refusé.
+* **BF92. Sélection cover MangaBaka limitée à l’allowlist** — Si `cover.raw` pointe vers un CDN tiers (ex. `s4.anilist.co`), `_pick_cover_url` / `fetch_covers` basculent sur l’imgproxy MangaBaka (`x350`→`x250`→`x150`) au lieu de renvoyer une URL hors allowlist. Tests : `tests/test_scraper_mangabaka.py`.
+* **BF93. Recherche dashboard ne fige plus les grosses bibliothèques (merci angusmaul, [#30](https://github.com/raukorim-bot/MetaKavita/issues/30))** — `filterSeries()` utilisait `innerText` + `style.display` par série (reflow forcé × N à chaque frappe). Passe par `data-search-title`, fallback `textContent`, classe `is-filtered-out`, et debounce recherche 150 ms. Tests : `tests/test_dashboard_search_bf93.py`.
+
 ## [1.6.3] - 2026-08-02 (Age / i18n / scraper store)
 
 EN

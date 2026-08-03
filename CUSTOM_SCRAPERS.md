@@ -275,7 +275,12 @@ scraper parent en profite automatiquement.
   le vôtre (ordre de chargement dans `data/scrapers/`). Utile pour corriger un scraper officiel
   sans attendre une mise à jour. Ce remplacement est loggé (`[Registry] … remplacé …`) —
   vérifiez ce message si un scraper ne se comporte pas comme attendu. Les fichiers core
-  (`anilist.py`, …) ne peuvent pas être écrasés/supprimés via le Magasin.
+  (ceux du package / catalogue avec `is_core = True`, ex. `anilist.py`) sont resynchronisés
+  au boot depuis le dépôt community (C62 / v1.6.4), avec fallback image si le réseau échoue,
+  lorsque `AUTO_UPDATE_CORE_SCRAPERS` est activé — n’éditez pas ces fichiers pour un hotfix ;
+  utilisez un sidecar non-core. Si l’auto-update est off, une bannière dashboard +
+  `POST /api/scrapers/core-updates/apply` appliquent le refresh manuellement. Ils ne peuvent
+  pas être écrasés/supprimés via le Magasin.
 
 ⚠️ N'oubliez pas d'importer la classe parente avec son chemin complet
 (`from scrapers.mangabaka import MangaBakaScraper`) : seules les classes **définies** dans

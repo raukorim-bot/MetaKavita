@@ -30,7 +30,9 @@ from config_manager import (
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
 from services.scraper_manager import (
+    apply_core_scraper_updates,
     delete_scraper_file,
+    get_pending_core_updates,
     is_core_filename,
     resolve_origin,
 )
@@ -251,3 +253,36 @@ def api_store_install():
     except Exception as e:
         logging.error("[Store] install failed: %s", e)
         return jsonify({"success": False, "msg": "install failed"}), 500
+
+
+@scrapers_manage_bp.route("/api/scrapers/core-updates")
+def api_core_updates_status():
+    pending = get_pending_core_updates()
+    return jsonify({
+        "success": True,
+        "pending": pending,
+        "count": len(pending),
+    })
+
+
+@scrapers_manage_bp.route("/api/scrapers/core-updates/apply", methods=["POST"])
+def api_core_updates_apply():
+    _, _, t = _ui()
+    try:
+        result = apply_core_scraper_updates()
+        ScraperRegistry.reload()
+        return jsonify({
+            "success": True,
+            "seeded": result.get("seeded") or [],
+            "updated": result.get("updated") or [],
+            "msg": t.get(
+                "core_scrapers_updated_ok",
+                "Scrapers core mis à jour.",
+            ),
+        })
+    except Exception as e:
+        logging.error("[Scrapers] core update apply failed: %s", e)
+        return jsonify({
+            "success": False,
+            "msg": t.get("core_scrapers_updated_fail", "Échec de la mise à jour des scrapers core."),
+        }), 500
