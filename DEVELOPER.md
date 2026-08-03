@@ -267,7 +267,16 @@ Two independent improvements were made on top of the unified scoring matrix (§6
    order —
 
    the most trustworthy candidate's fields win a "which value fills this gap" contest, not the one
-   that merely happened to run first. A candidate with no `_match_score` (e.g. a community scraper
+   that merely happened to run first. **Age + SMART_COMPLETION (BF102):** fill holes when a
+   secondary has a real age signal. Auto may hole-fill empty `age_rating` from a secondary only
+   when the value is `safe` / `suggestive` / `mature` (Everyone / Teen / Mature 17+). NSFW ages
+   (`r18` / `x18` / aliases) are **never** Auto-filled from a secondary — correctness guard so an
+   empty BF56 winner cannot inherit a false adult lock and undo BF68 prefer-safe (not a content
+   filter). Match scores do not use age; prefer-safe tie-break still runs before fusion. Writing
+   to Kavita still requires the series **Age** targeted field (or `ALL`). Manual Review Sources
+   keep `fill_age_rating=True` (any age). Guards: `tests/test_fusion_age_no_backfill.py`,
+   `tests/test_smart_completion_manual_review.py`.
+   A candidate with no `_match_score` (e.g. a community scraper
    not yet migrated to `score_candidate()`) is treated as "just barely accepted"
    (`MATCH_ACCEPT_THRESHOLD`) rather than crashing the sort or being unfairly favored.
 2. **Two-wave execution.** Provider #1 still runs alone and sequentially first; whatever ISBN/
@@ -391,7 +400,8 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 
 *   **`kavita_constants.py`**: single source of truth for Kavita enum mappings (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) and raw-provider-status normalization (`normalize_provider_status()`, used by `scrapers/mangabaka.py`). Add new enum mappings here, never inline in a route or scraper.
     *   **`AGE_RATING_MAP` (BF53 / BF80 / BF81)** — scrapers emit `safe` / `suggestive` / `mature` / `r18` / `x18` (aliases deprecated: `erotica`→`r18`, `pornographic`→`x18`). Map: `safe→3`, `suggestive→8`, `mature→10`, `r18→12` (R18+), `x18→14` (X18+). `r18` = adult restricted (not necessarily porn); `x18` = explicit sexual. Kitsu: `G→safe`, `PG→suggestive`, `R→mature`, `R18→pornographic` (alias of `x18`). **BF81:** `apply_explicit_label_age` forces `x18` when genres/tags contain `hentai`/`futanari` (fill or escalate; never downgrade), before Auto sort / classic apply — does not change match scores. Guards: `tests/test_age_rating_map.py`, `tests/test_kitsu_age_bf80.py`, `tests/test_age_fill_labels_bf81.py`.
-    *   **Age safeguarding (BF56 / v1.6.2)** — never invent `safe` when the provider has no age signal (omit the field so SMART_COMPLETION cannot hole-fill Everyone onto a primary match and lock it). Prefer omit over under-rate. Authoritative mappings only: MAL `nsfw`, MangaDex `contentRating`, Kitsu `ageRating` (known tokens only), Manga-News `#agenumber`, Google Books `maturityRating=MATURE` → `erotica` (alias `r18`), AniList only when `isAdult`, BDTheque `_parse_age` (Adulte/Érotique → `erotica`; « Ados - Adultes » → `suggestive`). Guard: `tests/test_age_safeguarding_bf56.py`.
+    *   **Age safeguarding (BF56 / v1.6.2)** — never invent `safe` when the provider has no age signal (omit the field). Prefer omit over under-rate. Authoritative mappings only: MAL `nsfw`, MangaDex `contentRating`, Kitsu `ageRating` (known tokens only), Manga-News `#agenumber`, Google Books `maturityRating=MATURE` → `erotica` (alias `r18`), AniList only when `isAdult`, BDTheque `_parse_age` (Adulte/Érotique → `erotica`; « Ados - Adultes » → `suggestive`). Guard: `tests/test_age_safeguarding_bf56.py`.
+    *   **SMART_COMPLETION age fill (BF102)** — Fill holes when a secondary has a real age signal: Auto may copy `safe`/`suggestive`/`mature` onto an empty winner age; NSFW secondary ages stay blocked as a **correctness** guard (false X18+ / prefer-safe), not a content filter. Winner age is never overwritten by a secondary. Kavita write still gated by targeted field `age`. Batch skip « already up to date » is skipped when `age` is active and Kavita `ageRating` is missing / `0` / `1` (Pending). Live log: `log_age_write_diag`. See Smart Scoring §D.
 *   **`models.py`**: `SeriesOverride` dataclass, the typed contract for per-series overrides (forced ID/provider, alternative title, targeted fields, publisher preference, `alt_title_langs`). Persist via `db_manager.save_series_override(SeriesOverride(...))` (named fields) — the legacy positional `save_forced_overrides(...)` wrapper was removed. This is a direct, structural mitigation for the class of bug described in §11.C.
 *   **`extensions.py`**: the shared `socketio = SocketIO()` instance (created without an app, `init_app(app)`'d once in `app.py`). Import from here — never from `app.py` — in any module that needs to emit events or declare `@socketio.on(...)` handlers, to avoid circular imports.
 *   **`auth_manager.py`**: account CRUD, Werkzeug hashing (`pbkdf2:sha256`), per-IP + global lockout, legacy `/setup` ownership proof, `ADMIN_PASSWORD_HASH` / `ADMIN_USERNAME` seeding, `TRUSTED_PROXY_COUNT`, session helpers, `setup_gate` / `login_gate`. Fail-closed; never import plaintext `ADMIN_PASSWORD` as the new password.
@@ -620,7 +630,14 @@ Deux améliorations indépendantes ont été ajoutées par-dessus la matrice de 
    depuis ces tags avant le tri (scores inchangés). `mature` n'est pas rétrogradé. Auto journalise
    `log_tiebreak_prefer_safe` seulement si le vainqueur trié est non-adulte. Manual Review :
    tri neutre. Confirm-before-write + égalité → `awaiting_pick`. SMART_COMPLETION suit le même
-   ordre trié. Candidat sans `_match_score` → traité comme juste accepté (`MATCH_ACCEPT_THRESHOLD`).
+   ordre trié. **Âge + SMART_COMPLETION (BF102) :** combler les trous dès qu’une source a un vrai
+   signal d’âge. En Auto, comble un `age_rating` vide depuis un secondaire seulement si
+   `safe` / `suggestive` / `mature` ; ages NSFW (`r18` / `x18` / aliases) jamais comblés depuis
+   un secondaire — garde-fou de **justesse** (éviter un faux verrou X18+ / annulation BF68),
+   pas un filtre moral. Les scores de match n’utilisent pas l’âge. L’écriture Kavita exige
+   toujours le champ ciblé **Âge** (ou `ALL`). MR Sources : `fill_age_rating=True` (tout âge).
+   Gardes : `tests/test_fusion_age_no_backfill.py`, `tests/test_smart_completion_manual_review.py`.
+   Candidat sans `_match_score` → traité comme juste accepté (`MATCH_ACCEPT_THRESHOLD`).
 
 2. **Exécution en deux vagues.** Le provider #1 tourne toujours seul et en premier, séquentiel ;
    l'ISBN/les auteurs qu'il trouve sont fusionnés dans `existing_metadata` et transmis aux
@@ -743,7 +760,8 @@ Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage 
 
 *   **`kavita_constants.py`** : source unique de vérité pour les mappings d'énumération Kavita (`PUBLICATION_STATUS_MAP`, `AGE_RATING_MAP`, `resolve_kavita_format_enum()`) et la normalisation des statuts bruts fournisseurs (`normalize_provider_status()`, utilisé par `scrapers/mangabaka.py`). Ajoutez tout nouveau mapping ici, jamais en ligne dans une route ou un scraper.
     *   **`AGE_RATING_MAP` (BF53 / BF80 / BF81)** — scrapers émettent `safe` / `suggestive` / `mature` / `r18` / `x18` (aliases dépréciés : `erotica`→`r18`, `pornographic`→`x18`). Map : `safe→3`, `suggestive→8`, `mature→10`, `r18→12`, `x18→14`. `r18` = 18+ restreint (pas forcément porno) ; `x18` = sexuel explicite. Kitsu : `G→safe`, `PG→suggestive`, `R→mature`, `R18→pornographic`. **BF81 :** `apply_explicit_label_age` force `x18` si genres/tags `hentai`/`futanari` (remplit ou escalade ; jamais downgrade), avant tri Auto / apply classique — sans changer les scores. Gardes : `tests/test_age_rating_map.py`, `tests/test_kitsu_age_bf80.py`, `tests/test_age_fill_labels_bf81.py`.
-    *   **Safeguarding âge (BF56 / v1.6.2)** — ne jamais inventer `safe` sans signal d'âge provider (omettre le champ pour que SMART_COMPLETION ne comble pas Everyone sur un match primaire puis le verrouille). Préférer omettre plutôt qu'under-rater. Mappings autoritatifs uniquement : MAL `nsfw`, MangaDex `contentRating`, Kitsu `ageRating` (tokens connus seulement), Manga-News `#agenumber`, Google Books `maturityRating=MATURE` → `erotica` (alias `r18`), AniList seulement si `isAdult`, BDTheque `_parse_age` (Adulte/Érotique → `erotica` ; « Ados - Adultes » → `suggestive`). Garde-fou : `tests/test_age_safeguarding_bf56.py`.
+    *   **Safeguarding âge (BF56 / v1.6.2)** — ne jamais inventer `safe` sans signal d'âge provider (omettre le champ). Préférer omettre plutôt qu'under-rater. Mappings autoritatifs uniquement : MAL `nsfw`, MangaDex `contentRating`, Kitsu `ageRating` (tokens connus seulement), Manga-News `#agenumber`, Google Books `maturityRating=MATURE` → `erotica` (alias `r18`), AniList seulement si `isAdult`, BDTheque `_parse_age` (Adulte/Érotique → `erotica` ; « Ados - Adultes » → `suggestive`). Garde-fou : `tests/test_age_safeguarding_bf56.py`.
+    *   **Comblement âge SMART_COMPLETION (BF102)** — combler les trous dès qu’une source a un vrai signal : fusion Auto `safe`/`suggestive`/`mature` → âge vainqueur vide ; ages NSFW secondaires bloqués pour la **justesse** (faux X18+ / prefer-safe), pas un filtre moral. L’âge du vainqueur n’est pas écrasé. Écriture Kavita toujours filtrée par le champ ciblé `age`. Skip « déjà à jour » annulé si `age` actif et `ageRating` Kavita absent / `0` / `1` (Pending). Log : `log_age_write_diag`. Voir Smart Scoring §D.
 *   **`models.py`** : la dataclass `SeriesOverride`, contrat typé des surcharges par série (ID/provider forcé, titre alternatif, champs ciblés, préférence d'éditeur, `alt_title_langs`). Persistez via `db_manager.save_series_override(SeriesOverride(...))` (champs nommés) — l'ancien wrapper positionnel `save_forced_overrides(...)` a été retiré. C'est une mitigation structurelle directe de la classe de bug décrite au §11.C.
 *   **`extensions.py`** : l'instance partagée `socketio = SocketIO()` (créée sans app, `init_app(app)` appelé une seule fois dans `app.py`). Importez-la depuis ce module — jamais depuis `app.py` — dans tout module ayant besoin d'émettre des événements ou de déclarer des handlers `@socketio.on(...)`, pour éviter les imports circulaires.
 *   **`auth_manager.py`** : CRUD comptes, hachage Werkzeug (`pbkdf2:sha256`), verrouillage par IP + plafond global, preuve de propriété legacy sur `/setup`, amorçage `ADMIN_PASSWORD_HASH` / `ADMIN_USERNAME`, `TRUSTED_PROXY_COUNT`, helpers de session, `setup_gate` / `login_gate`. Fail-closed ; ne jamais importer un `ADMIN_PASSWORD` en clair comme nouveau mot de passe.

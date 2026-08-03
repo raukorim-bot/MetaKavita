@@ -85,7 +85,12 @@ def test_already_up_to_date_emits_a_typed_completed_status(mocker, isolated_db):
     mocker.patch.object(enrichment_engine, "load_config", return_value=_base_config())
     _patch_kavita_basics(mocker, isolated_db)
     mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={
-        "summary": "Already has a summary", "genres": [], "tags": [], "webLinks": "", "language": "",
+        "summary": "Already has a summary",
+        "ageRating": 8,
+        "genres": [],
+        "tags": [],
+        "webLinks": "",
+        "language": "",
     })
     emit = mocker.patch.object(enrichment_engine, "_emit_series_status")
 
@@ -94,3 +99,30 @@ def test_already_up_to_date_emits_a_typed_completed_status(mocker, isolated_db):
     assert ok is True
     assert msg == "Déjà à jour."
     emit.assert_called_once_with(52, "COMPLETED", "Already Done")
+
+
+def test_pending_age_does_not_early_skip(mocker, isolated_db):
+    """BF102: résumé présent + ageRating Pending + champ age actif → pas de skip."""
+    mocker.patch.object(enrichment_engine, "load_config", return_value=_base_config())
+    _patch_kavita_basics(mocker, isolated_db)
+    mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={
+        "summary": "Already has a summary",
+        "ageRating": 1,
+        "genres": [],
+        "tags": [],
+        "webLinks": "",
+        "language": "",
+    })
+    mocker.patch.object(KavitaAPI, "get_library_type_for_series", return_value="Manga")
+    fetch = mocker.patch(
+        "metadata_fetcher.fetch_metadata",
+        return_value=(None, []),
+    )
+    emit = mocker.patch.object(enrichment_engine, "_emit_series_status")
+
+    ok, msg, used = enrichment_engine.enrich_series(53, "Needs Age", force_update=False)
+
+    assert fetch.called
+    assert ok is False
+    assert msg == "Introuvable."
+    emit.assert_called_once_with(53, "NOT_FOUND", "Needs Age")

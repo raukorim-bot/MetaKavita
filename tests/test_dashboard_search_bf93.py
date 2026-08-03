@@ -28,8 +28,8 @@ def pages_client(isolated_db):
     from routes.misc import misc_bp
     from routes.pages import pages_bp
     from routes.scrapers_manage import scrapers_manage_bp
-    from routes.series import series_bp
     from routes.sync import sync_bp
+    from flask_test_app import get_series_bp
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     app = Flask(
@@ -42,7 +42,7 @@ def pages_client(isolated_db):
         auth_bp,
         pages_bp,
         config_bp,
-        series_bp,
+        get_series_bp(),
         sync_bp,
         misc_bp,
         manual_review_bp,

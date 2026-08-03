@@ -1102,7 +1102,9 @@ def test_enrich_series_early_skip_purges_orphan_review(isolated_db, mocker):
     from kavita_api import KavitaAPI
     mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
     mocker.patch.object(
-        KavitaAPI, "get_series_metadata", return_value={"seriesId": 778, "summary": "already"}
+        KavitaAPI,
+        "get_series_metadata",
+        return_value={"seriesId": 778, "summary": "already", "ageRating": 8},
     )
 
     ok, msg, used = enrichment_engine.enrich_series(778, "Orphan", force_update=False)

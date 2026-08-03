@@ -570,8 +570,12 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             logging.error(t.get('log_meta_fail').format(series_name))
             return False, t.get("msg_meta_error", "Erreur de métadonnées."), []
 
-        # Cache tôt : besoin du statut / forced_id avant le court-circuit « déjà à jour ».
+        # Cache tôt : besoin du statut / forced_id / champs ciblés avant le skip.
         cache_data = get_all_cached_data().get(int(series_id), {})
+        active_fields = resolve_active_fields(
+            cache_data.get('targeted_fields', 'ALL'),
+            override=targeted_fields_override,
+        )
         if metadata.get('summary') and not force_update:
             # Ne pas clobber une série garée en review manuelle (sinon COMPLETED +
             # ligne pending_reviews orpheline).
@@ -589,20 +593,27 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 logging.warning(t.get("log_still_needs_relock", "[{0}] ⚠️ Toujours À sceller ({1})").format(series_name, seal_msg))
                 _emit_series_status(series_id, "NEEDS_RELOCK", series_name)
                 return True, "NEEDS_RELOCK", []
-            logging.info(t.get('log_skip').format(series_name))
-            update_status(series_id, 'COMPLETED')
-            _emit_series_status(series_id, 'COMPLETED', series_name)
-            # Nettoie toute review orpheline éventuelle
-            try:
-                from db_manager import delete_pending_by_series
-                delete_pending_by_series(int(series_id))
-            except Exception as e:
-                logging.debug(
-                    "[%s] orphan pending_review purge failed: %s",
-                    series_name,
-                    safe_exc_str(e),
-                )
-            return True, t.get("msg_already_up_to_date", "Déjà à jour."), []
+            # BF102: summary présent mais âge Pending/vide + champ age actif → enrichir.
+            age_rating_kavita = metadata.get("ageRating")
+            age_needs_fill = (
+                "age" in active_fields
+                and age_rating_kavita in (None, "", 0, 1)
+            )
+            if not age_needs_fill:
+                logging.info(t.get('log_skip').format(series_name))
+                update_status(series_id, 'COMPLETED')
+                _emit_series_status(series_id, 'COMPLETED', series_name)
+                # Nettoie toute review orpheline éventuelle
+                try:
+                    from db_manager import delete_pending_by_series
+                    delete_pending_by_series(int(series_id))
+                except Exception as e:
+                    logging.debug(
+                        "[%s] orphan pending_review purge failed: %s",
+                        series_name,
+                        safe_exc_str(e),
+                    )
+                return True, t.get("msg_already_up_to_date", "Déjà à jour."), []
 
         # --- Détermination du type de bibliothèque ---
         library_type = kavita.get_library_type_for_series(series_id)
@@ -612,12 +623,6 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         search_query = forced_id or cache_data.get('alternative_title') or series_name
         fallback_query = cache_data.get('alternative_title') or series_name
         is_forced_id = bool(forced_id)
-
-        # --- Récupération des champs ciblés (Scraping Granulaire) ---
-        active_fields = resolve_active_fields(
-            cache_data.get('targeted_fields', 'ALL'),
-            override=targeted_fields_override,
-        )
 
         # --- LECTURE DE LA CONFIGURATION UTILISATEUR ---
         # ComicFlexible : vague Comic d'abord ; la vague Manga est construite plus bas si besoin.
@@ -851,6 +856,23 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
             if safe_fusion:
                 msg_found += f" + 🧩 Fusion ({', '.join(safe_fusion)})"
         logging.info(msg_found)
+
+        # BF102: diagnostic âge / champs ciblés (évite le piège « age décoché »).
+        prov_age = str((provider_data or {}).get("age_rating") or "").strip() or "—"
+        will_write_age = "age" in active_fields and bool(
+            str((provider_data or {}).get("age_rating") or "").strip()
+        )
+        logging.info(
+            t.get(
+                "log_age_write_diag",
+                "[{0}] Âge: provider={1} | champ age actif={2} | écriture prévue={3}",
+            ).format(
+                series_name,
+                prov_age,
+                "age" in active_fields,
+                will_write_age,
+            )
+        )
 
         built = build_kavita_payload(
             provider_data, metadata, active_fields, config, cache_data, force_update, series_id

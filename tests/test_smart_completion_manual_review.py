@@ -3,8 +3,8 @@ Contrat SMART_COMPLETION × Manual Review.
 
 SMART_COMPLETION (sidebar) = fusion Auto cascade uniquement.
 MR park = cartes brutes ; MR accept = cases Source ; bulk-accept = TOP1 seul.
-Auto SMART_COMPLETION : age_rating jamais comblé (BF69).
-MR Sources cochées : age_rating peut se combler (max info).
+Auto SMART_COMPLETION : age_rating non-adult comblé (BF102) ; NSFW bloqué.
+MR Sources cochées : age_rating peut se combler (max info, tout âge).
 """
 from __future__ import annotations
 
@@ -127,20 +127,27 @@ def test_choice_and_merge_sources_fill_holes_including_age(isolated_db):
     assert "ALT" in (master.get("_fusion_providers") or [])
 
 
-def test_merge_candidates_auto_still_skips_age_without_flag():
-    """BF69 : fusion Auto (fill_age_rating défaut) ne rebouche pas l'âge."""
-    ordered = [
+def test_merge_candidates_auto_still_skips_adult_age_without_flag():
+    """BF102 : Auto comble suggestive, refuse pornographic ; MR fill_age_rating=True tout âge."""
+    adult_ordered = [
         ("SAFE", {"title": "Safe", "summary": "S", "age_rating": ""}),
         ("ADULT", {"title": "Adult", "age_rating": "pornographic", "genres": ["Adult"]}),
     ]
-    merged = metadata_fetcher.merge_candidates(ordered, smart_fusion=True)
+    merged = metadata_fetcher.merge_candidates(adult_ordered, smart_fusion=True)
     assert merged.get("age_rating") == ""
     assert merged["genres"] == ["Adult"]
 
     filled = metadata_fetcher.merge_candidates(
-        ordered, smart_fusion=True, fill_age_rating=True
+        adult_ordered, smart_fusion=True, fill_age_rating=True
     )
     assert filled.get("age_rating") == "pornographic"
+
+    teen_ordered = [
+        ("BASE", {"title": "Base", "summary": "S", "age_rating": ""}),
+        ("MD", {"title": "MD", "age_rating": "suggestive"}),
+    ]
+    teen = metadata_fetcher.merge_candidates(teen_ordered, smart_fusion=True)
+    assert teen.get("age_rating") == "suggestive"
 
 
 def test_choice_and_merge_no_sources_even_if_caller_passes_smart_true(isolated_db):

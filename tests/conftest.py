@@ -11,9 +11,14 @@ pytest à la fin de chaque test.
 import sys
 import os
 
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+_TESTS_DIR = os.path.dirname(__file__)
+_ROOT_DIR = os.path.abspath(os.path.join(_TESTS_DIR, ".."))
+sys.path.insert(0, _ROOT_DIR)
+sys.path.insert(0, _TESTS_DIR)
 
 import pytest
+
+from flask_test_app import get_series_bp  # noqa: E402
 
 
 @pytest.fixture(autouse=True)
@@ -88,11 +93,10 @@ def flask_app(isolated_db):
     en restant rapide et isolé.
     """
     from flask import Flask
-    from routes.series import series_bp
 
     test_app = Flask(__name__)
     test_app.config.update(TESTING=True, SECRET_KEY="test-secret")
-    test_app.register_blueprint(series_bp)
+    test_app.register_blueprint(get_series_bp())
     return test_app
 
 

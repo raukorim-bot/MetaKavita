@@ -41,6 +41,7 @@
 - [x] **BF99. Denser series rows + toolbar layout (v1.6.4):** shorter cards, larger titles, colored Search/Filters groups; Select all in toolbar head (stable vs selected badge).
 - [x] **BF100. Compact Options override panel (v1.6.4):** denser main row, chip-style targeted fields; tests `test_override_panel_ui.py`.
 - [x] **BF101. Batch progress + virtual list reinit (v1.6.4):** no hide on all-dupe append; resume bump totals; loadLibrary re-inits SeriesList; cumulative offsets for open Options.
+- [x] **BF102. SMART_COMPLETION non-adult age fill (v1.6.4):** Auto hole-fills `safe`/`suggestive`/`mature` only; NSFW secondary ages blocked; skip Pending age when Age field active; `log_age_write_diag`.
 - [x] **C30 / C60. Seven community scrapers in core (v1.6.3):** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron; defaults BOOK_3=Babelio, COMIC_3=LoCG for new installs.
 - [x] **BF83. INFO for CSRF reject + lockout-active reject (v1.6.3, thanks angusmaul):** distinguish wrong password / CSRF / lockout in Live Logs.
 - [x] **BF82. INFO on every failed login attempt (v1.6.3, thanks angusmaul):** username + IP + counter each try; lockout WARNING unchanged.
@@ -208,6 +209,7 @@
 - [x] **BF95. Warning `ADMIN_PASSWORD` env une fois par boot (v1.6.4, issue #31, merci SqueezedByte) :** message d’obsolescence actionnable ; plus de spam à chaque requête.
 - [x] **BF96. Panneaux Options lazy + Set de sélection (v1.6.4, issue #30, merci angusmaul) :** plus de DOM override par ligne ; index BF94/C63 ; `content-visibility`.
 - [x] **BF97. Liste virtualisée (v1.6.4, issue #30) :** ≥120 séries → JSON + fenêtre de scroll ; sélection filtrée pour batch/file.
+- [x] **BF102. SMART_COMPLETION comble âge non-adulte (v1.6.4) :** Auto remplit `safe`/`suggestive`/`mature` seulement ; ages NSFW secondaires bloqués ; pas de skip si Pending + champ Âge ; `log_age_write_diag`.
 - [x] **C30 / C60. Sept scrapers communautaires dans le core (v1.6.3) :** Babelio, Decitre, SensCritique, ANN, LoCG, Planète BD, Metron ; défauts BOOK_3=Babelio, COMIC_3=LoCG pour installs neuves.
 - [x] **BF83. INFO CSRF rejeté + refus sous lockout actif (v1.6.3, merci angusmaul) :** distinguer mauvais MDP / CSRF / lockout dans les Live Logs.
 - [x] **BF82. INFO à chaque échec de login (v1.6.3, merci angusmaul) :** username + IP + compteur à chaque tentative ; WARNING lockout inchangé.

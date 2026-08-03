@@ -148,12 +148,12 @@ _FUSION_SKIP_KEYS = (
     'links', 'external_links', 'url', MATCH_SCORE_KEY,
 )
 
-# Auto SMART_COMPLETION must not hole-fill age_rating (BF69): an empty BF56
-# winner + secondary adult rating would undo BF68 prefer-safe.
-# Manual Review Source checkboxes may fill age (explicit user choice → max info).
-_FUSION_NEVER_FILL_KEYS = frozenset({"age_rating"})
+# BF102: Auto SMART_COMPLETION may hole-fill non-adult age only.
+# Adult ages stay blocked so an empty BF56 winner + secondary NSFW cannot
+# undo BF68 prefer-safe. MR Sources (`fill_age_rating=True`) may fill any age.
+_FUSION_AUTO_SAFE_AGES = frozenset({"safe", "suggestive", "mature"})
 # Auto: do not pull Hentai/Futanari labels from demoted adult secondaries onto
-# a non-adult prefer-safe winner (BF69 covers age only).
+# a non-adult prefer-safe winner.
 _FUSION_ADULT_LABEL_KEYS = frozenset({"genres", "tags"})
 
 
@@ -169,8 +169,15 @@ def _fusion_can_fill(
     """True when smart fusion may copy ``value`` onto ``master_data[key]``."""
     if key in _FUSION_SKIP_KEYS:
         return False
-    if key in _FUSION_NEVER_FILL_KEYS and not fill_age_rating:
-        return False
+    if key == "age_rating":
+        if master_data.get("age_rating") or not value:
+            return False
+        age = str(value).strip().lower()
+        if not age:
+            return False
+        if fill_age_rating:
+            return True
+        return age in _FUSION_AUTO_SAFE_AGES
     if (
         skip_adult_label_fill
         and key in _FUSION_ADULT_LABEL_KEYS
@@ -195,8 +202,8 @@ def merge_candidates(
     Le premier entrée utile devient la base (`_provider_used`). Si `smart_fusion`,
     les suivantes comblent les trous (même logique que `apply_accepted` en cascade auto).
 
-    ``fill_age_rating=True`` : autorise le comblement de ``age_rating`` (MR Sources).
-    Défaut False = comportement Auto / BF69.
+    ``fill_age_rating=True`` : autorise tout ``age_rating`` (MR Sources).
+    Défaut False = Auto BF102 : seulement ``safe`` / ``suggestive`` / ``mature``.
     ``skip_adult_label_fill=True`` : Auto — refuse genres/tags depuis un secondaire
     explicit-adult vers un master non-adult.
     """

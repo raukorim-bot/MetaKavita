@@ -15,18 +15,18 @@ def pages_client(isolated_db):
     from routes.auth import auth_bp
     from routes.pages import pages_bp
     from routes.config import config_bp
-    from routes.series import series_bp
     from routes.sync import sync_bp
     from routes.misc import misc_bp
     from routes.manual_review import manual_review_bp
     from routes.scrapers_manage import scrapers_manage_bp
+    from flask_test_app import get_series_bp
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     app = Flask(__name__, template_folder=os.path.join(root, "templates"),
                 static_folder=os.path.join(root, "static"))
     app.config.update(TESTING=True, SECRET_KEY="test-secret")
     for bp in (
-        auth_bp, pages_bp, config_bp, series_bp, sync_bp, misc_bp,
+        auth_bp, pages_bp, config_bp, get_series_bp(), sync_bp, misc_bp,
         manual_review_bp, scrapers_manage_bp,
     ):
         app.register_blueprint(bp)

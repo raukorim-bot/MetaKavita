@@ -1,6 +1,8 @@
-"""Hotfixes on local custom scrapers (data/scrapers — gitignored but loaded at runtime)."""
+"""Hotfixes on scrapers loaded by path (package or data/scrapers sideload)."""
 import importlib.util
 import json
+import sys
+import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
@@ -10,21 +12,35 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def _load_custom(module_stem: str):
-    """Load from core `scrapers/` first (C60+), else sideload `data/scrapers/`."""
+    """Plug-and-play load-by-path for tests.
+
+    Resolve ``scrapers/<stem>.py`` then ``data/scrapers/<stem>.py``. Execute under an
+    ephemeral module name so the harness never collides with Registry
+    ``scrapers.*`` / ``custom_scrapers.*`` entries in ``sys.modules``.
+    """
     core = ROOT / "scrapers" / f"{module_stem}.py"
     path = core if core.is_file() else ROOT / "data" / "scrapers" / f"{module_stem}.py"
     if not path.is_file():
         pytest.skip(f"scraper not present: {path}")
-    mod_name = (
-        f"scrapers.{module_stem}"
-        if path.parent.name == "scrapers"
-        else f"custom_scrapers.{module_stem}"
-    )
+    mod_name = f"hotfix_under_test.{module_stem}"
     spec = importlib.util.spec_from_file_location(mod_name, path)
     mod = importlib.util.module_from_spec(spec)
     assert spec.loader is not None
     spec.loader.exec_module(mod)
     return mod
+
+
+def test_load_custom_ignores_polluted_scrapers_namespace():
+    """Even if sys.modules has a stub scrapers.<stem>, load-by-path still works."""
+    stub = types.ModuleType("scrapers.webtoon")
+    sys.modules["scrapers.webtoon"] = stub
+    try:
+        mod = _load_custom("webtoon")
+        assert hasattr(mod, "WebtoonScraper")
+        assert mod is not stub
+        assert not hasattr(stub, "WebtoonScraper")
+    finally:
+        sys.modules.pop("scrapers.webtoon", None)
 
 
 def test_decitre_isbn_from_offers_list():

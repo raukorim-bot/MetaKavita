@@ -260,7 +260,7 @@ docker compose up -d --build
 | `MATCH_THRESHOLD_CUSTOM` | Unlock custom match accept threshold (Reliability barometer). Off = always `0.60`. | `false` |
 | `MATCH_ACCEPT_THRESHOLD` | Accept threshold when custom is on (`0.30`–`1.00`). Ignored when custom is off. | `0.60` |
 | `ENABLE_PLAYFUL_STATS` | Show playful `/stats` dashboard (Chart.js + fun cards). | `true` |
-| `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). | `false` |
+| `SMART_COMPLETION`| Enable Data Fusion / Smart Patching (`true` or `false`). Auto may backfill age `safe`/`suggestive`/`mature` from secondaries; never NSFW ages. Targeted field **Age** must be on to write Kavita. | `false` |
 | `MANUAL_REVIEW_MODE` | Park scrape candidates as `PENDING_REVIEW` for pick/edit/confirm instead of auto-writing Kavita. Sidebar toggle. Turning off purges the queue. | `false` |
 | `MANUAL_REVIEW_EDIT` | After pick, show an edit form before Kavita write. | `true` |
 | `MANUAL_REVIEW_SUPER` | Super Review: expand all usable scrapers (not only the three cascade slots). Requires Manual Review Mode. | `false` |
@@ -598,7 +598,7 @@ docker compose up -d --build
 | `MATCH_THRESHOLD_CUSTOM` | Déverrouiller le seuil de match personnalisé (Baromètre de fiabilité). Off = toujours `0.60`. | `false` |
 | `MATCH_ACCEPT_THRESHOLD` | Seuil d'acceptation si custom ON (`0.30`–`1.00`). Ignoré si custom OFF. | `0.60` |
 | `ENABLE_PLAYFUL_STATS` | Afficher le tableau `/stats` ludique (Chart.js + cartes fun). | `true` |
-| `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). | `false` |
+| `SMART_COMPLETION`| Activer la fusion des données (`true` ou `false`). Auto peut combler l’âge `safe`/`suggestive`/`mature` depuis un secondaire ; jamais un âge NSFW. Champ ciblé **Âge** requis pour écrire Kavita. | `false` |
 | `MANUAL_REVIEW_MODE` | Gare les candidats en `PENDING_REVIEW` pour pick/édition/confirm au lieu d’écrire automatiquement dans Kavita. Interrupteur sidebar. Désactiver purge la file. | `false` |
 | `MANUAL_REVIEW_EDIT` | Après le pick, affiche un formulaire d’édition avant l’écriture Kavita. | `true` |
 | `MANUAL_REVIEW_SUPER` | Super Review : interroge tous les scrapers utilisables (pas seulement les 3 slots). Nécessite le mode manuel. | `false` |

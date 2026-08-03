@@ -339,7 +339,8 @@ def choice_and_merge(
         ordered.append((provider, card.get("data") or {}))
         seen.add(provider)
 
-    # MR Sources = max info ; Auto SMART_COMPLETION garde fill_age_rating=False (BF69).
+    # MR Sources = max info (tout âge). Auto SMART_COMPLETION : fill_age_rating=False
+    # → BF102 non-adult only (voir metadata_fetcher._fusion_can_fill).
     master = merge_candidates(
         ordered, smart_fusion=smart_fusion, fill_age_rating=bool(smart_fusion)
     )

@@ -99,6 +99,7 @@ def test_enrichment_orphan_purge_logs_debug(mocker, isolated_db, caplog):
         "get_series_metadata",
         return_value={
             "summary": "Already has a summary",
+            "ageRating": 8,
             "genres": [],
             "tags": [],
             "webLinks": "",
