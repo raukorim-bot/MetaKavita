@@ -722,9 +722,9 @@ And if you have not already: a ⭐ on GitHub is the cheapest way to say thanks a
 
 | Contributor | Contributions |
 | :--- | :--- |
-| [**angusmaul**](https://github.com/angusmaul) | Security hardening PRs #16–#19 (issue #15): gunicorn/requests CVE bumps (BF46), `/api/proxy-image` 5 MB stream cap (BF47), webhook `X-Webhook-Token` (BF48), `config.json` 0600 (BF49), non-root Docker PUID/PGID + HEALTHCHECK (C54), `.dockerignore` (C55), custom scraper RCE docs (C56) — plus matching unit tests. |
+| [**angusmaul**](https://github.com/angusmaul) | Security hardening PRs #16–#19 (issue #15): gunicorn/requests CVE bumps (BF46), `/api/proxy-image` 5 MB stream cap (BF47), webhook `X-Webhook-Token` (BF48), `config.json` 0600 (BF49), non-root Docker PUID/PGID + HEALTHCHECK (C54), `.dockerignore` (C55), custom scraper RCE docs (C56) — plus matching unit tests. Deep re-tests & reports through 1.6.2–1.6.4: age-rating enum / Kitsu `R→mature` (#29), Auto prefer-safe + hentai/futanari tags (#25), duplicate-tag write & preview (#24), auth/CSRF Live Log INFO (BF82/BF83), dashboard series-search freeze (#30 / BF93). |
 | [**LazyGeniusMan**](https://github.com/LazyGeniusMan) | MangaBaka API hardening (`schema=full`, `type=novel` filter, tag/genre & MAL parsing), official Book/LN provider feedback, `KAVITA_EXTERNAL_URL` (Docker internal API vs public UI URL), Traefik / Socket.IO CORS origin reports, configurable `MAX_TAGS` feedback. |
-| [**SqueezedByte**](https://github.com/SqueezedByte) | KOReader / Kamare crash report (`localizedName` nulling), Kavita force-update read-timeout reports → `KAVITA_HTTP_TIMEOUT` + 2-pass soft-success. |
+| [**SqueezedByte**](https://github.com/SqueezedByte) | KOReader / Kamare crash report (`localizedName` nulling), Kavita force-update read-timeout reports → `KAVITA_HTTP_TIMEOUT` + 2-pass soft-success, MangaBaka cover CDN allowlist (`images`/`cdn` `.mangabaka.dev` / `.org`, #31 / BF91–BF92). |
 | [**ThoughtzThruKeyz**](https://github.com/ThoughtzThruKeyz) | Publisher metadata feature request, ComicVine scraping feedback, disable-translation option (`NONE`), series / localized title configuration ideas. |
 | [**randrini**](https://github.com/randrini) | Free Google Translate (`googletrans`) integration request. |
 
