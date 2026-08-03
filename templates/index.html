@@ -270,6 +270,17 @@
             </div>
         </header>
 
+        {% if msg %}
+        <div id="uiBanner" class="core-scrapers-banner" role="status">
+            <div class="core-scrapers-banner-text">
+                <strong>{{ msg }}</strong>
+            </div>
+            <div class="core-scrapers-banner-actions">
+                <button type="button" class="btn-secondary" onclick="document.getElementById('uiBanner').hidden = true;">{{ t.get('setup_banner_dismiss', 'OK') }}</button>
+            </div>
+        </div>
+        {% endif %}
+
         {% if pending_core_updates %}
         <div id="coreScrapersUpdateBanner" class="core-scrapers-banner" role="status"
              data-files="{{ pending_core_updates|map(attribute='file')|list|join(', ') }}">

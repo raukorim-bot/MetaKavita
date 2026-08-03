@@ -74,6 +74,8 @@ def load_config():
             # KAVITA_EXTERNAL_URL=https://kavita.domain.tld (reverse proxy).
             "KAVITA_EXTERNAL_URL": "",
             "KAVITA_API_KEY": "",
+            # Sous-chemin reverse-proxy (ex. /metakavita). Env ROOT_PATH prime au boot.
+            "ROOT_PATH": "",
             # Timeout HTTP (secondes) pour les écritures Kavita (POST metadata / update / cover).
             # Env Docker : KAVITA_HTTP_TIMEOUT=90 pour HDD / gros force-update. Défaut 60.
             "KAVITA_HTTP_TIMEOUT": 60,
@@ -239,7 +241,8 @@ def load_config():
             "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY",
         })
         for key in [
-            "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
+            "TRANSLATION_PROVIDER", "KAVITA_URL", "KAVITA_EXTERNAL_URL", "KAVITA_API_KEY", "ROOT_PATH",
+            "DEEPL_API_KEY", "AZURE_API_KEY", "AZURE_REGION",
             "TARGET_LANG", "UI_LANG", "PUBLISHER_PREFERENCE",
             "LOCALIZED_TITLE_MODE", "LOCALIZED_TITLE_LANGS",
             "DISABLED_LIBRARIES",

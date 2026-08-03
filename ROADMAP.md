@@ -28,6 +28,7 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.6.4)
+- [x] **C64. Guided first-run setup wizard (v1.6.4):** `/setup` 6-step onboarding (account, Kavita + `ROOT_PATH`, languages, options + Auto-Sync 6 h, API keys, cascades); non-blocking Kavita probe; Skip = ready defaults.
 - [x] **C62. Core scrapers `is_core` + boot sync (v1.6.4):** catalog `is_core` from community GitHub → `data/scrapers/` (sha256); image package fallback if offline; `AUTO_UPDATE_CORE_SCRAPERS` (default on) or banner + `POST /api/scrapers/core-updates/apply`.
 - [x] **BF91. MangaBaka cover CDN allowlist (v1.6.4, issue #31, thanks SqueezedByte):** `proxy_domains` includes `images`/`cdn` `.mangabaka.dev` and `.org`.
 - [x] **BF92. MangaBaka cover pick stays on allowlist (v1.6.4):** `_pick_cover_url` / `fetch_covers` fall back to MangaBaka imgproxy when `cover.raw` is third-party.
@@ -200,6 +201,7 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.6.4)
+- [x] **C64. Wizard de setup guidé (v1.6.4) :** `/setup` en 6 étapes (compte, Kavita + `ROOT_PATH`, langues, options + Auto-Sync 6 h, clés API, cascades) ; test Kavita non bloquant ; Passer = defaults prêts.
 - [x] **C62. Scrapers core `is_core` + sync au boot (v1.6.4) :** catalogue community GitHub `is_core` → `data/scrapers/` (sha256) ; fallback package image si hors-ligne ; `AUTO_UPDATE_CORE_SCRAPERS` (défaut on) ou bannière + `POST /api/scrapers/core-updates/apply`.
 - [x] **BF91. Allowlist CDN covers MangaBaka (v1.6.4, issue #31, merci SqueezedByte) :** `proxy_domains` inclut `images`/`cdn` `.mangabaka.dev` et `.org`.
 - [x] **BF92. Sélection cover MangaBaka sur allowlist (v1.6.4) :** `_pick_cover_url` / `fetch_covers` basculent sur l’imgproxy MangaBaka si `cover.raw` est tiers.

@@ -1,55 +1,904 @@
 <!DOCTYPE html>
-<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark">
+<html lang="{{ wizard_lang }}" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="csrf-token" content="{{ csrf_token }}">
-    <title>MetaKavita - {{ t.setup_title }}</title>
+    <title>MetaKavita - {{ t.setup_wizard_title }}</title>
     <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <script>document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');</script>
+    <style>
+        :root {
+            --su-teal: #2dd4bf;
+            --su-sky: #38bdf8;
+            --su-amber: #fbbf24;
+            --su-ink: #e8eef7;
+            --su-muted: #94a3b8;
+            --su-card: rgba(15, 23, 42, 0.72);
+            --su-line: rgba(255,255,255,0.08);
+        }
+        html, body { min-height: 100%; }
+        body.setup-body {
+            margin: 0;
+            font-family: "Bricolage Grotesque", system-ui, sans-serif;
+            background: #07090f;
+            color: var(--su-ink);
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            padding: 28px 14px 48px;
+            box-sizing: border-box;
+        }
+        body.setup-body::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(900px 420px at 12% -10%, rgba(45,212,191,0.16), transparent 55%),
+                radial-gradient(700px 360px at 90% 0%, rgba(56,189,248,0.12), transparent 50%);
+            z-index: 0;
+        }
+        .setup-shell {
+            position: relative;
+            z-index: 1;
+            width: min(640px, 100%);
+        }
+        .setup-brand {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            margin-bottom: 18px;
+        }
+        .setup-brand-left {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .setup-brand img {
+            width: 40px; height: 40px; border-radius: 10px;
+        }
+        .setup-brand h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 700;
+            letter-spacing: -0.03em;
+        }
+        .setup-brand p {
+            margin: 2px 0 0;
+            font-size: 0.78rem;
+            color: var(--su-muted);
+        }
+        .setup-lang {
+            display: flex;
+            gap: 6px;
+        }
+        .setup-lang button {
+            border: 1px solid var(--su-line);
+            background: transparent;
+            color: var(--su-muted);
+            border-radius: 8px;
+            padding: 6px 10px;
+            font: inherit;
+            font-size: 0.78rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .setup-lang button.is-active {
+            color: #041016;
+            background: var(--su-teal);
+            border-color: transparent;
+        }
+        .setup-card {
+            background: var(--su-card);
+            border: 1px solid var(--su-line);
+            border-radius: 18px;
+            padding: 22px 22px 18px;
+            backdrop-filter: blur(12px);
+            box-shadow: 0 24px 60px rgba(0,0,0,0.35);
+        }
+        .setup-steps {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        .setup-step-pill {
+            flex: 1 1 0;
+            min-width: 72px;
+            text-align: center;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+            color: var(--su-muted);
+            padding: 8px 4px;
+            border-radius: 10px;
+            border: 1px solid transparent;
+            background: rgba(255,255,255,0.03);
+        }
+        .setup-step-pill.is-active {
+            color: var(--su-teal);
+            border-color: rgba(45,212,191,0.35);
+            background: rgba(45,212,191,0.08);
+        }
+        .setup-step-pill.is-done {
+            color: var(--su-sky);
+        }
+        .setup-panel { display: none; }
+        .setup-panel.is-active { display: block; }
+        .setup-kicker {
+            font-size: 0.72rem;
+            font-weight: 700;
+            letter-spacing: 0.14em;
+            text-transform: uppercase;
+            color: var(--su-sky);
+            margin: 0 0 8px;
+        }
+        .setup-panel h2 {
+            margin: 0 0 8px;
+            font-size: 1.45rem;
+            letter-spacing: -0.03em;
+        }
+        .setup-lead {
+            margin: 0 0 18px;
+            color: var(--su-muted);
+            font-size: 0.92rem;
+            line-height: 1.45;
+        }
+        .setup-card .form-group {
+            text-align: left;
+            margin-bottom: 14px;
+        }
+        .setup-card label {
+            display: block;
+            font-size: 0.82rem;
+            font-weight: 600;
+            margin-bottom: 6px;
+            color: var(--su-ink);
+        }
+        .setup-card input[type="text"],
+        .setup-card input[type="password"],
+        .setup-card input[type="number"],
+        .setup-card select {
+            width: 100%;
+            box-sizing: border-box;
+            padding: 11px 12px;
+            font-size: 15px;
+            border-radius: 10px;
+            border: 1px solid var(--su-line);
+            background: rgba(2,6,23,0.55);
+            color: var(--su-ink);
+            font-family: inherit;
+        }
+        .setup-hint {
+            display: block;
+            margin-top: 6px;
+            font-size: 0.78rem;
+            color: var(--su-muted);
+            line-height: 1.4;
+        }
+        .setup-opt {
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+            padding: 12px 12px;
+            border: 1px solid var(--su-line);
+            border-radius: 12px;
+            margin-bottom: 10px;
+            background: rgba(255,255,255,0.02);
+        }
+        .setup-opt input[type="checkbox"] {
+            margin-top: 3px;
+            width: 18px;
+            height: 18px;
+            accent-color: var(--su-teal);
+        }
+        .setup-opt strong {
+            display: block;
+            font-size: 0.92rem;
+            margin-bottom: 3px;
+        }
+        .setup-opt .setup-hint { margin-top: 0; }
+        .setup-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin: 8px 0 4px;
+        }
+        .setup-chip {
+            border: 1px solid var(--su-line);
+            background: transparent;
+            color: var(--su-muted);
+            border-radius: 999px;
+            padding: 6px 12px;
+            font: inherit;
+            font-size: 0.8rem;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .setup-chip.is-active {
+            color: #041016;
+            background: var(--su-teal);
+            border-color: transparent;
+        }
+        .setup-status {
+            display: none;
+            margin: 10px 0 14px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+        .setup-status.is-ok {
+            display: block;
+            background: rgba(45,212,191,0.12);
+            border: 1px solid rgba(45,212,191,0.35);
+            color: var(--su-teal);
+        }
+        .setup-status.is-warn {
+            display: block;
+            background: rgba(251,191,36,0.12);
+            border: 1px solid rgba(251,191,36,0.35);
+            color: var(--su-amber);
+        }
+        .setup-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 18px;
+        }
+        .setup-actions .btn-primary,
+        .setup-actions .btn-secondary {
+            flex: 1 1 140px;
+            padding: 12px 14px;
+            font-size: 15px;
+            border-radius: 11px;
+            font-family: inherit;
+            font-weight: 600;
+            cursor: pointer;
+        }
+        .setup-actions .btn-secondary {
+            background: transparent;
+            border: 1px solid var(--su-line);
+            color: var(--su-muted);
+        }
+        .setup-cascade-block {
+            margin-bottom: 16px;
+            padding: 12px;
+            border: 1px solid var(--su-line);
+            border-radius: 12px;
+        }
+        .setup-cascade-block h3 {
+            margin: 0 0 10px;
+            font-size: 0.95rem;
+        }
+        .alert.error {
+            text-align: left;
+            margin-bottom: 14px;
+        }
+        .nested-fields { margin-bottom: 12px; }
+        @media (max-width: 560px) {
+            .setup-step-pill { font-size: 0.62rem; min-width: 48px; }
+            .setup-card { padding: 16px 14px; }
+        }
+    </style>
 </head>
-<body style="display: flex; justify-content: center; align-items: center; background-color: var(--bg-app);">
-    <div class="card" style="width: 100%; max-width: 400px; text-align: center; padding: 30px;">
-        <img src="{{ url_for('static', filename='logo.png') }}" alt="Logo" style="height: 60px; margin-bottom: 20px;">
-        <h2 style="margin-top: 0; margin-bottom: 8px;">{{ t.setup_title }}</h2>
-        <p style="margin-top: 0; margin-bottom: 20px; color: var(--text-muted); font-size: 13px;">{{ t.setup_intro }}</p>
-
-        {% if error %}
-        <div class="alert error" style="padding: 8px; margin-bottom: 15px;">{{ error }}</div>
-        {% endif %}
-
-        <form method="POST" action="{{ url_for('auth.setup') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-            {% if legacy_required %}
-            <div class="form-group" style="text-align: left;">
-                <input type="password" name="legacy_password" placeholder="{{ t.setup_legacy_label }}" required autofocus
-                       autocomplete="current-password" style="padding: 12px; font-size: 16px;">
+<body class="setup-body">
+    <div class="setup-shell">
+        <div class="setup-brand">
+            <div class="setup-brand-left">
+                <img src="{{ url_for('static', filename='logo.png') }}" alt="MetaKavita">
+                <div>
+                    <h1>MetaKavita</h1>
+                    <p>{{ t.setup_wizard_subtitle }}</p>
+                </div>
             </div>
-            <p style="margin: 0 0 15px 0; color: var(--text-muted); font-size: 12px; text-align: left;">
-                {{ t.setup_legacy_hint }}
-            </p>
+            <div class="setup-lang" role="group" aria-label="{{ t.ui_lang }}">
+                <button type="button" data-lang="fr" class="{% if wizard_lang == 'fr' %}is-active{% endif %}">FR</button>
+                <button type="button" data-lang="en" class="{% if wizard_lang == 'en' %}is-active{% endif %}">EN</button>
+            </div>
+        </div>
+
+        <div class="setup-card">
+            <div class="setup-steps" id="setupSteps">
+                <div class="setup-step-pill is-active" data-step="0">1 · {{ t.setup_step_account }}</div>
+                <div class="setup-step-pill" data-step="1">2 · {{ t.setup_step_kavita }}</div>
+                <div class="setup-step-pill" data-step="2">3 · {{ t.setup_step_lang }}</div>
+                <div class="setup-step-pill" data-step="3">4 · {{ t.setup_step_options }}</div>
+                <div class="setup-step-pill" data-step="4">5 · {{ t.setup_step_api }}</div>
+                <div class="setup-step-pill" data-step="5">6 · {{ t.setup_step_cascades }}</div>
+            </div>
+
+            {% if error %}
+            <div class="alert error" style="padding: 8px;">{{ error }}</div>
             {% endif %}
-            <div class="form-group" style="text-align: left;">
-                <input type="text" name="username" placeholder="{{ t.setup_username }}" required
-                       {% if not legacy_required %}autofocus{% endif %}
-                       autocomplete="username" style="padding: 12px; font-size: 16px;">
-            </div>
-            <div class="form-group" style="text-align: left;">
-                <input type="password" name="password" placeholder="{{ t.setup_password }}" required
-                       minlength="{{ min_password_length }}" autocomplete="new-password"
-                       style="padding: 12px; font-size: 16px;">
-            </div>
-            <div class="form-group" style="text-align: left;">
-                <input type="password" name="password_confirm" placeholder="{{ t.setup_password_confirm }}" required
-                       minlength="{{ min_password_length }}" autocomplete="new-password"
-                       style="padding: 12px; font-size: 16px;">
-            </div>
-            <p style="margin: 0 0 15px 0; color: var(--text-muted); font-size: 12px; text-align: left;">
-                {{ t.setup_password_hint.replace('{}', min_password_length|string) }}
-            </p>
-            <button type="submit" class="btn-primary w-100" style="padding: 12px; font-size: 16px;">{{ t.setup_create_btn }}</button>
-        </form>
+
+            {% set fv = form_values or {} %}
+            <form method="POST" action="{{ url_for('auth.setup') }}" id="setupForm" autocomplete="off"
+                  data-resume-step="{{ resume_step|default(0) }}"
+                  data-default-sync="{{ setup_auto_sync_default }}"
+                  data-default-target="{{ default_target_lang }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <input type="hidden" name="UI_LANG" id="uiLangField" value="{{ wizard_lang }}">
+                <input type="hidden" name="SMART_SCORING" id="val_SMART_SCORING" value="{{ fv.get('SMART_SCORING', 'true') }}">
+                <input type="hidden" name="SMART_COMPLETION" id="val_SMART_COMPLETION" value="{{ fv.get('SMART_COMPLETION', 'true') }}">
+                <input type="hidden" name="MANUAL_REVIEW_MODE" id="val_MANUAL_REVIEW_MODE" value="{{ fv.get('MANUAL_REVIEW_MODE', 'false') }}">
+                <input type="hidden" name="AUTO_COVER" id="val_AUTO_COVER" value="{{ fv.get('AUTO_COVER', 'false') }}">
+                <input type="hidden" name="AUTO_READING_DIR" id="val_AUTO_READING_DIR" value="{{ fv.get('AUTO_READING_DIR', 'false') }}">
+                <input type="hidden" name="TITLE_FALLBACK_TRANSLATION" id="val_TITLE_FALLBACK_TRANSLATION" value="{{ fv.get('TITLE_FALLBACK_TRANSLATION', 'false') }}">
+
+                <!-- 1 Compte -->
+                <div class="setup-panel is-active" data-panel="0">
+                    <p class="setup-kicker">{{ t.setup_step_account }}</p>
+                    <h2>{{ t.setup_title }}</h2>
+                    <p class="setup-lead">{{ t.setup_intro }}</p>
+                    {% if legacy_required %}
+                    <div class="form-group">
+                        <label for="legacy_password">{{ t.setup_legacy_label }}</label>
+                        <input type="password" name="legacy_password" id="legacy_password" required
+                               autocomplete="current-password">
+                        <span class="setup-hint">{{ t.setup_legacy_hint }}</span>
+                    </div>
+                    {% endif %}
+                    <div class="form-group">
+                        <label for="username">{{ t.setup_username }}</label>
+                        <input type="text" name="username" id="username" required
+                               value="{{ fv.get('username', '') }}"
+                               {% if not legacy_required %}autofocus{% endif %}
+                               autocomplete="username">
+                    </div>
+                    <div class="form-group">
+                        <label for="password">{{ t.setup_password }}</label>
+                        <input type="password" name="password" id="password" required
+                               minlength="{{ min_password_length }}" autocomplete="new-password">
+                    </div>
+                    <div class="form-group">
+                        <label for="password_confirm">{{ t.setup_password_confirm }}</label>
+                        <input type="password" name="password_confirm" id="password_confirm" required
+                               minlength="{{ min_password_length }}" autocomplete="new-password">
+                        <span class="setup-hint">{{ t.setup_password_hint.replace('{}', min_password_length|string) }}</span>
+                    </div>
+                    <div class="setup-actions">
+                        <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
+                    </div>
+                </div>
+
+                <!-- 2 Kavita -->
+                <div class="setup-panel" data-panel="1">
+                    <p class="setup-kicker">{{ t.setup_step_kavita }}</p>
+                    <h2>{{ t.setup_kavita_title }}</h2>
+                    <p class="setup-lead">{{ t.setup_kavita_intro }}</p>
+                    <div class="form-group">
+                        <label for="KAVITA_URL">{{ t.kavita_url }}</label>
+                        <input type="text" name="KAVITA_URL" id="KAVITA_URL"
+                               value="{{ fv.get('KAVITA_URL', config.get('KAVITA_URL', '')) }}"
+                               placeholder="http://host.docker.internal:5001" autocomplete="off">
+                        <span class="setup-hint">{{ t.kavita_url_hint }}</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="kavita_api_key">{{ t.kavita_api }}</label>
+                        <input type="password" name="KAVITA_API_KEY" id="kavita_api_key"
+                               autocomplete="off" data-lpignore="true" data-1p-ignore="true">
+                    </div>
+                    <div class="form-group">
+                        <label for="ROOT_PATH">{{ t.setup_root_path_label }}</label>
+                        <input type="text" name="ROOT_PATH" id="ROOT_PATH"
+                               value="{{ fv.get('ROOT_PATH', config.get('ROOT_PATH', '')) }}"
+                               placeholder="/metakavita" autocomplete="off">
+                        <span class="setup-hint">{{ t.setup_root_path_hint }}</span>
+                    </div>
+                    <div id="kavitaStatus" class="setup-status" role="status"></div>
+                    <div class="setup-actions">
+                        <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
+                        <button type="button" class="btn-secondary" id="btnTestKavita">{{ t.setup_kavita_test }}</button>
+                        <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
+                    </div>
+                </div>
+
+                <!-- 3 Langues -->
+                <div class="setup-panel" data-panel="2">
+                    <p class="setup-kicker">{{ t.setup_step_lang }}</p>
+                    <h2>{{ t.setup_lang_title }}</h2>
+                    <p class="setup-lead">{{ t.setup_lang_intro }}</p>
+                    <div class="form-group">
+                        <label for="TARGET_LANG">{{ t.target_lang }}</label>
+                        {% set tl = fv.get('TARGET_LANG') or default_target_lang %}
+                        <select name="TARGET_LANG" id="TARGET_LANG" data-default="{{ default_target_lang }}">
+                            <option value="FR" {% if tl == 'FR' %}selected{% endif %}>Français</option>
+                            <option value="EN" {% if tl == 'EN' %}selected{% endif %}>English</option>
+                            <option value="ES" {% if tl == 'ES' %}selected{% endif %}>Español</option>
+                            <option value="DE" {% if tl == 'DE' %}selected{% endif %}>Deutsch</option>
+                            <option value="IT" {% if tl == 'IT' %}selected{% endif %}>Italiano</option>
+                            <option value="JA" {% if tl == 'JA' %}selected{% endif %}>日本語 (Japanese)</option>
+                            <option value="PT-BR" {% if tl == 'PT-BR' %}selected{% endif %}>Português (BR)</option>
+                            <option value="NL" {% if tl == 'NL' %}selected{% endif %}>Nederlands</option>
+                            <option value="PL" {% if tl == 'PL' %}selected{% endif %}>Polski</option>
+                            <option value="RU" {% if tl == 'RU' %}selected{% endif %}>Русский</option>
+                            <option value="ZH" {% if tl == 'ZH' %}selected{% endif %}>中文 (Chinese)</option>
+                        </select>
+                        <span class="setup-hint">{{ t.setup_target_lang_hint }}</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="TRANSLATION_PROVIDER">{{ t.trans_provider }}</label>
+                        {% set tp = fv.get('TRANSLATION_PROVIDER', 'GOOGLE') %}
+                        <select name="TRANSLATION_PROVIDER" id="TRANSLATION_PROVIDER" data-default="GOOGLE">
+                            <option value="NONE" {% if tp == 'NONE' %}selected{% endif %}>{{ t.trans_none }}</option>
+                            <option value="GOOGLE" {% if tp == 'GOOGLE' %}selected{% endif %}>{{ t.trans_google }}</option>
+                            <option value="DEEPL" {% if tp == 'DEEPL' %}selected{% endif %}>{{ t.trans_deepl }}</option>
+                            <option value="AZURE" {% if tp == 'AZURE' %}selected{% endif %}>{{ t.trans_azure }}</option>
+                        </select>
+                        <span class="setup-hint">{{ t.setup_trans_provider_hint }}</span>
+                    </div>
+                    <div id="deepl_fields" class="nested-fields" style="display:none;">
+                        <div class="form-group">
+                            <label for="deepl_api_key">{{ t.deepl_api }}</label>
+                            <input type="password" name="DEEPL_API_KEY" id="deepl_api_key" autocomplete="off">
+                        </div>
+                    </div>
+                    <div id="azure_fields" class="nested-fields" style="display:none;">
+                        <div class="form-group">
+                            <label for="azure_api_key">{{ t.azure_api }}</label>
+                            <input type="password" name="AZURE_API_KEY" id="azure_api_key" autocomplete="off">
+                        </div>
+                        <div class="form-group">
+                            <label for="AZURE_REGION">{{ t.azure_region }}</label>
+                            <input type="text" name="AZURE_REGION" id="AZURE_REGION"
+                                   value="{{ fv.get('AZURE_REGION', '') }}"
+                                   placeholder="francecentral" autocomplete="off">
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label for="PUBLISHER_PREFERENCE">{{ t.pub_pref }}</label>
+                        {% set pp = fv.get('PUBLISHER_PREFERENCE', 'LOCALIZED') %}
+                        <select name="PUBLISHER_PREFERENCE" id="PUBLISHER_PREFERENCE" data-default="LOCALIZED">
+                            <option value="LOCALIZED" {% if pp == 'LOCALIZED' %}selected{% endif %}>{{ t.pub_localized }}</option>
+                            <option value="ORIGINAL" {% if pp == 'ORIGINAL' %}selected{% endif %}>{{ t.pub_original }}</option>
+                        </select>
+                        <span class="setup-hint">{{ t.setup_pub_pref_hint }}</span>
+                    </div>
+                    <div class="form-group">
+                        <label for="LOCALIZED_TITLE_MODE">{{ t.localized_title_mode }}</label>
+                        {% set ltm = fv.get('LOCALIZED_TITLE_MODE', 'all') %}
+                        <select name="LOCALIZED_TITLE_MODE" id="LOCALIZED_TITLE_MODE" data-default="all">
+                            <option value="all" {% if ltm == 'all' %}selected{% endif %}>{{ t.localized_title_mode_all }}</option>
+                            <option value="prefer" {% if ltm == 'prefer' %}selected{% endif %}>{{ t.localized_title_mode_prefer }}</option>
+                            <option value="none" {% if ltm == 'none' %}selected{% endif %}>{{ t.localized_title_mode_none }}</option>
+                        </select>
+                        <span class="setup-hint">{{ t.localized_title_mode_hint }}</span>
+                    </div>
+                    <div class="form-group" id="localizedTitleLangsGroup" {% if ltm != 'prefer' %}style="display:none;"{% endif %}>
+                        <label for="LOCALIZED_TITLE_LANGS">{{ t.localized_title_langs }}</label>
+                        <input type="text" name="LOCALIZED_TITLE_LANGS" id="LOCALIZED_TITLE_LANGS"
+                               value="{{ fv.get('LOCALIZED_TITLE_LANGS', '') }}"
+                               placeholder="en, ja-ro, ja" autocomplete="off" data-default="">
+                        <span class="setup-hint">{{ t.localized_title_langs_hint }}</span>
+                    </div>
+                    <label class="setup-opt">
+                        <input type="checkbox" id="cb_TITLE_FALLBACK_TRANSLATION" data-bool="TITLE_FALLBACK_TRANSLATION"
+                               data-default="false"
+                               {% if fv.get('TITLE_FALLBACK_TRANSLATION') == 'true' %}checked{% endif %}>
+                        <span>
+                            <strong>{{ t.title_fallback_opt }}</strong>
+                            <span class="setup-hint">{{ t.title_fallback_desc }}</span>
+                        </span>
+                    </label>
+                    <div class="setup-actions">
+                        <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
+                        <button type="button" class="btn-secondary" data-skip>{{ t.setup_skip }}</button>
+                        <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
+                    </div>
+                </div>
+
+                <!-- 4 Options -->
+                <div class="setup-panel" data-panel="3">
+                    <p class="setup-kicker">{{ t.setup_step_options }}</p>
+                    <h2>{{ t.setup_options_title }}</h2>
+                    <p class="setup-lead">{{ t.setup_options_intro }}</p>
+                    <label class="setup-opt">
+                        <input type="checkbox" id="cb_SMART_SCORING" data-bool="SMART_SCORING" data-default="true"
+                               {% if fv.get('SMART_SCORING', 'true') == 'true' %}checked{% endif %}>
+                        <span>
+                            <strong>{{ t.smart_scoring }}</strong>
+                            <span class="setup-hint">{{ t.scraping_help_smart_scoring }}</span>
+                        </span>
+                    </label>
+                    <label class="setup-opt">
+                        <input type="checkbox" id="cb_SMART_COMPLETION" data-bool="SMART_COMPLETION" data-default="true"
+                               {% if fv.get('SMART_COMPLETION', 'true') == 'true' %}checked{% endif %}>
+                        <span>
+                            <strong>{{ t.smart_completion }}</strong>
+                            <span class="setup-hint">{{ t.scraping_help_smart_completion }}</span>
+                        </span>
+                    </label>
+                    <label class="setup-opt">
+                        <input type="checkbox" id="cb_MANUAL_REVIEW_MODE" data-bool="MANUAL_REVIEW_MODE" data-default="false"
+                               {% if fv.get('MANUAL_REVIEW_MODE') == 'true' %}checked{% endif %}>
+                        <span>
+                            <strong>{{ t.manual_review_mode }}</strong>
+                            <span class="setup-hint">{{ t.manual_review_mode_desc }}</span>
+                        </span>
+                    </label>
+                    <label class="setup-opt">
+                        <input type="checkbox" id="cb_AUTO_COVER" data-bool="AUTO_COVER" data-default="false"
+                               {% if fv.get('AUTO_COVER') == 'true' %}checked{% endif %}>
+                        <span>
+                            <strong>{{ t.auto_cover }}</strong>
+                            <span class="setup-hint">{{ t.scraping_help_auto_cover }}</span>
+                        </span>
+                    </label>
+                    <label class="setup-opt">
+                        <input type="checkbox" id="cb_AUTO_READING_DIR" data-bool="AUTO_READING_DIR" data-default="false"
+                               {% if fv.get('AUTO_READING_DIR') == 'true' %}checked{% endif %}>
+                        <span>
+                            <strong>{{ t.auto_reading_dir }}</strong>
+                            <span class="setup-hint">{{ t.scraping_help_auto_reading_dir }}</span>
+                        </span>
+                    </label>
+                    <div class="form-group" style="margin-top:14px;">
+                        <label for="AUTO_SYNC_INTERVAL">{{ t.auto_sync_interval }}</label>
+                        {% set sync_val = fv.get('AUTO_SYNC_INTERVAL', setup_auto_sync_default|string) %}
+                        <div class="setup-chips" id="syncChips">
+                            <button type="button" class="setup-chip {% if sync_val == '0' %}is-active{% endif %}" data-mins="0">{{ t.setup_autosync_off }}</button>
+                            <button type="button" class="setup-chip {% if sync_val == '360' or sync_val == setup_auto_sync_default|string %}is-active{% endif %}" data-mins="360">{{ t.setup_autosync_6h }}</button>
+                            <button type="button" class="setup-chip {% if sync_val == '1440' %}is-active{% endif %}" data-mins="1440">{{ t.setup_autosync_24h }}</button>
+                        </div>
+                        <input type="number" name="AUTO_SYNC_INTERVAL" id="AUTO_SYNC_INTERVAL"
+                               value="{{ sync_val }}" min="0" step="1" data-default="{{ setup_auto_sync_default }}">
+                        <span class="setup-hint">{{ t.setup_autosync_hint }}</span>
+                    </div>
+                    <div class="setup-actions">
+                        <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
+                        <button type="button" class="btn-secondary" data-skip>{{ t.setup_skip }}</button>
+                        <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
+                    </div>
+                </div>
+
+                <!-- 5 API keys -->
+                <div class="setup-panel" data-panel="4">
+                    <p class="setup-kicker">{{ t.setup_step_api }}</p>
+                    <h2>{{ t.setup_api_title }}</h2>
+                    <p class="setup-lead">{{ t.setup_api_intro }}</p>
+                    {% for scraper in scrapers_with_keys %}
+                    <div class="form-group">
+                        <label for="{{ scraper.id|lower }}_api_key">API Key — {{ scraper.localized_display_name }}</label>
+                        <input type="password" name="{{ scraper.id }}_API_KEY" id="{{ scraper.id|lower }}_api_key"
+                               autocomplete="off" data-lpignore="true">
+                    </div>
+                    {% else %}
+                    <p class="setup-hint">{{ t.no_api_keys_needed }}</p>
+                    {% endfor %}
+                    <div class="setup-actions">
+                        <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
+                        <button type="button" class="btn-secondary" data-skip>{{ t.setup_skip }}</button>
+                        <button type="button" class="btn-primary" data-next>{{ t.setup_next }}</button>
+                    </div>
+                </div>
+
+                <!-- 6 Cascades -->
+                <div class="setup-panel" data-panel="5">
+                    <p class="setup-kicker">{{ t.setup_step_cascades }}</p>
+                    <h2>{{ t.setup_cascades_title }}</h2>
+                    <p class="setup-lead">{{ t.setup_cascades_intro }}</p>
+
+                    <div class="setup-cascade-block">
+                        <h3>{{ t.manga_cascade_title }}</h3>
+                        {% for key, label in [('PROVIDER_1', t.provider_1), ('PROVIDER_2', t.provider_2), ('PROVIDER_3', t.provider_3)] %}
+                        <div class="form-group">
+                            <label for="{{ key }}">{{ label }}</label>
+                            {% set cur = fv.get(key, config.get(key)) %}
+                            <select name="{{ key }}" id="{{ key }}" data-default="{{ config.get(key, 'NONE') }}">
+                                {% if key != 'PROVIDER_1' %}
+                                <option value="NONE" {% if cur == 'NONE' %}selected{% endif %}>{{ t.provider_none }}</option>
+                                {% endif %}
+                                {% for p in manga_providers %}
+                                <option value="{{ p.id }}" {% if cur == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="setup-cascade-block">
+                        <h3>{{ t.comic_cascade_title }}</h3>
+                        {% for key, label in [('COMIC_PROVIDER_1', t.provider_1), ('COMIC_PROVIDER_2', t.provider_2), ('COMIC_PROVIDER_3', t.provider_3)] %}
+                        <div class="form-group">
+                            <label for="{{ key }}">{{ label }}</label>
+                            {% set cur = fv.get(key, config.get(key)) %}
+                            <select name="{{ key }}" id="{{ key }}" data-default="{{ config.get(key, 'NONE') }}">
+                                {% if not key.endswith('_1') %}
+                                <option value="NONE" {% if cur == 'NONE' %}selected{% endif %}>{{ t.provider_none }}</option>
+                                {% endif %}
+                                {% for p in comic_providers %}
+                                <option value="{{ p.id }}" {% if cur == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="setup-cascade-block">
+                        <h3>{{ t.book_cascade_title }}</h3>
+                        {% for key, label in [('BOOK_PROVIDER_1', t.provider_1), ('BOOK_PROVIDER_2', t.provider_2), ('BOOK_PROVIDER_3', t.provider_3)] %}
+                        <div class="form-group">
+                            <label for="{{ key }}">{{ label }}</label>
+                            {% set cur = fv.get(key, config.get(key)) %}
+                            <select name="{{ key }}" id="{{ key }}" data-default="{{ config.get(key, 'NONE') }}">
+                                {% if not key.endswith('_1') %}
+                                <option value="NONE" {% if cur == 'NONE' %}selected{% endif %}>{{ t.provider_none }}</option>
+                                {% endif %}
+                                {% for p in book_providers %}
+                                <option value="{{ p.id }}" {% if cur == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        {% endfor %}
+                    </div>
+
+                    <div class="setup-actions">
+                        <button type="button" class="btn-secondary" data-prev>{{ t.setup_back }}</button>
+                        <button type="button" class="btn-secondary" data-skip>{{ t.setup_skip }}</button>
+                        <button type="submit" class="btn-primary" id="btnFinish">{{ t.setup_finish }}</button>
+                    </div>
+                </div>
+            </form>
+        </div>
     </div>
+
+    <script>
+    (function () {
+        const TOTAL = {{ 6 }};
+        let step = 0;
+        const form = document.getElementById('setupForm');
+        const panels = [...document.querySelectorAll('.setup-panel')];
+        const pills = [...document.querySelectorAll('.setup-step-pill')];
+        const statusEl = document.getElementById('kavitaStatus');
+        const csrf = document.querySelector('meta[name="csrf-token"]')?.content || '';
+        const root = () => (window.ROOT_PATH || '{{ request.script_root }}' || '');
+        const resumeStep = Number(form.dataset.resumeStep || 0) || 0;
+        const defaultSync = Number(form.dataset.defaultSync || 360) || 360;
+        const defaultTarget = form.dataset.defaultTarget || 'FR';
+
+        const DRAFT_KEY = 'metakavita_setup_draft';
+
+        function syncBools() {
+            document.querySelectorAll('[data-bool]').forEach((cb) => {
+                const key = cb.getAttribute('data-bool');
+                const hidden = document.getElementById('val_' + key);
+                if (hidden) hidden.value = cb.checked ? 'true' : 'false';
+            });
+        }
+
+        function showStep(n) {
+            step = Math.max(0, Math.min(TOTAL - 1, n));
+            panels.forEach((p) => p.classList.toggle('is-active', Number(p.dataset.panel) === step));
+            pills.forEach((p) => {
+                const i = Number(p.dataset.step);
+                p.classList.toggle('is-active', i === step);
+                p.classList.toggle('is-done', i < step);
+            });
+        }
+
+        function validateAccount() {
+            const u = form.username.value.trim();
+            const p = form.password.value;
+            const c = form.password_confirm.value;
+            if (!u || !p || !c) return false;
+            if (p !== c) {
+                alert({{ t.setup_err_password_mismatch|tojson }});
+                return false;
+            }
+            const legacy = form.legacy_password;
+            if (legacy && !legacy.value) return false;
+            return true;
+        }
+
+        function validateKavita() {
+            const url = form.KAVITA_URL.value.trim();
+            const key = form.KAVITA_API_KEY.value.trim();
+            if (!url || !key) {
+                alert({{ t.setup_err_kavita_required|tojson }});
+                return false;
+            }
+            return true;
+        }
+
+        async function testKavita() {
+            const url = form.KAVITA_URL.value.trim();
+            const key = form.KAVITA_API_KEY.value.trim();
+            statusEl.className = 'setup-status';
+            statusEl.textContent = '';
+            if (!url || !key) {
+                statusEl.className = 'setup-status is-warn';
+                statusEl.textContent = {{ t.setup_kavita_test_missing|tojson }};
+                return false;
+            }
+            const body = new FormData();
+            body.set('csrf_token', csrf);
+            body.set('KAVITA_URL', url);
+            body.set('KAVITA_API_KEY', key);
+            body.set('UI_LANG', form.UI_LANG.value);
+            try {
+                const res = await fetch(root() + '/setup/test-kavita', {
+                    method: 'POST',
+                    headers: { 'X-CSRF-Token': csrf },
+                    body,
+                });
+                const data = await res.json();
+                if (data.ok) {
+                    statusEl.className = 'setup-status is-ok';
+                    statusEl.textContent = data.message || {{ t.setup_kavita_test_ok|tojson }};
+                    return true;
+                }
+                statusEl.className = 'setup-status is-warn';
+                statusEl.textContent = data.message || {{ t.setup_kavita_warn_libs|tojson }};
+                return false;
+            } catch (e) {
+                statusEl.className = 'setup-status is-warn';
+                statusEl.textContent = {{ t.setup_kavita_warn_libs|tojson }};
+                return false;
+            }
+        }
+
+        function saveDraft() {
+            const data = {};
+            new FormData(form).forEach((v, k) => { data[k] = v; });
+            document.querySelectorAll('[data-bool]').forEach((cb) => {
+                data['cb_' + cb.getAttribute('data-bool')] = cb.checked ? '1' : '0';
+            });
+            data.__step = String(step);
+            try { sessionStorage.setItem(DRAFT_KEY, JSON.stringify(data)); } catch (e) {}
+        }
+
+        function restoreDraft() {
+            let data;
+            try { data = JSON.parse(sessionStorage.getItem(DRAFT_KEY) || 'null'); } catch (e) { return; }
+            if (!data) return;
+            Object.keys(data).forEach((k) => {
+                if (k === '__step' || k.startsWith('cb_') || k === 'csrf_token' || k === 'UI_LANG') return;
+                if (k === 'password' || k === 'password_confirm' || k === 'legacy_password') return;
+                if (k.endsWith('_API_KEY') || k === 'KAVITA_API_KEY' || k === 'DEEPL_API_KEY' || k === 'AZURE_API_KEY') return;
+                const el = form.elements.namedItem(k);
+                if (el && 'value' in el) el.value = data[k];
+            });
+            document.querySelectorAll('[data-bool]').forEach((cb) => {
+                const key = 'cb_' + cb.getAttribute('data-bool');
+                if (key in data) cb.checked = data[key] === '1';
+            });
+            syncBools();
+            toggleTranslation();
+            toggleLocLangs();
+            markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value) || 0);
+            if (data.__step && !resumeStep) showStep(Number(data.__step) || 0);
+        }
+
+        function resetStepDefaults(n) {
+            if (n === 2) {
+                form.TARGET_LANG.value = form.TARGET_LANG.getAttribute('data-default') || defaultTarget;
+                form.TRANSLATION_PROVIDER.value = 'GOOGLE';
+                form.PUBLISHER_PREFERENCE.value = 'LOCALIZED';
+                form.LOCALIZED_TITLE_MODE.value = 'all';
+                form.LOCALIZED_TITLE_LANGS.value = '';
+                form.DEEPL_API_KEY.value = '';
+                form.AZURE_API_KEY.value = '';
+                form.AZURE_REGION.value = '';
+                const tf = document.getElementById('cb_TITLE_FALLBACK_TRANSLATION');
+                if (tf) tf.checked = false;
+            } else if (n === 3) {
+                document.querySelectorAll('#setupForm [data-panel="3"] [data-bool]').forEach((cb) => {
+                    cb.checked = cb.getAttribute('data-default') === 'true';
+                });
+                form.AUTO_SYNC_INTERVAL.value = String(defaultSync);
+                markSyncChip(defaultSync);
+            } else if (n === 4) {
+                document.querySelectorAll('#setupForm [data-panel="4"] input[type="password"]').forEach((el) => {
+                    el.value = '';
+                });
+            } else if (n === 5) {
+                document.querySelectorAll('#setupForm [data-panel="5"] select[data-default]').forEach((sel) => {
+                    const def = sel.getAttribute('data-default');
+                    if (def != null) sel.value = def;
+                });
+            }
+            syncBools();
+            toggleTranslation();
+            toggleLocLangs();
+        }
+
+        function toggleTranslation() {
+            const v = form.TRANSLATION_PROVIDER.value;
+            document.getElementById('deepl_fields').style.display = v === 'DEEPL' ? 'block' : 'none';
+            document.getElementById('azure_fields').style.display = v === 'AZURE' ? 'block' : 'none';
+        }
+
+        function toggleLocLangs() {
+            const v = form.LOCALIZED_TITLE_MODE.value;
+            document.getElementById('localizedTitleLangsGroup').style.display =
+                v === 'prefer' ? 'block' : 'none';
+        }
+
+        function markSyncChip(mins) {
+            document.querySelectorAll('#syncChips .setup-chip').forEach((c) => {
+                c.classList.toggle('is-active', Number(c.dataset.mins) === mins);
+            });
+        }
+
+        document.querySelectorAll('.setup-lang button').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                saveDraft();
+                const lang = btn.getAttribute('data-lang');
+                const url = new URL(window.location.href);
+                url.searchParams.set('lang', lang);
+                window.location.href = url.toString();
+            });
+        });
+
+        form.querySelectorAll('[data-next]').forEach((btn) => {
+            btn.addEventListener('click', async () => {
+                if (step === 0 && !validateAccount()) return;
+                if (step === 1) {
+                    if (!validateKavita()) return;
+                    await testKavita();
+                }
+                syncBools();
+                saveDraft();
+                showStep(step + 1);
+            });
+        });
+        form.querySelectorAll('[data-prev]').forEach((btn) => {
+            btn.addEventListener('click', () => showStep(step - 1));
+        });
+        form.querySelectorAll('[data-skip]').forEach((btn) => {
+            btn.addEventListener('click', () => {
+                resetStepDefaults(step);
+                syncBools();
+                saveDraft();
+                if (step === TOTAL - 1) {
+                    form.requestSubmit();
+                    return;
+                }
+                showStep(step + 1);
+            });
+        });
+
+        document.getElementById('btnTestKavita').addEventListener('click', () => testKavita());
+        form.TRANSLATION_PROVIDER.addEventListener('change', toggleTranslation);
+        form.LOCALIZED_TITLE_MODE.addEventListener('change', toggleLocLangs);
+        document.querySelectorAll('[data-bool]').forEach((cb) => {
+            cb.addEventListener('change', syncBools);
+        });
+        document.querySelectorAll('#syncChips .setup-chip').forEach((c) => {
+            c.addEventListener('click', () => {
+                const mins = Number(c.dataset.mins);
+                form.AUTO_SYNC_INTERVAL.value = mins;
+                markSyncChip(mins);
+            });
+        });
+        form.AUTO_SYNC_INTERVAL.addEventListener('input', () => {
+            markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value));
+        });
+
+        form.addEventListener('submit', (e) => {
+            if (!validateAccount() || !validateKavita()) {
+                e.preventDefault();
+                showStep(!form.username.value.trim() || !form.password.value ? 0 : 1);
+                return;
+            }
+            syncBools();
+            // Ne pas effacer le draft ici : si le serveur renvoie une erreur,
+            // restoreDraft pourra récupérer les champs. Succès = redirect hors /setup.
+        });
+
+        syncBools();
+        toggleTranslation();
+        toggleLocLangs();
+        restoreDraft();
+        if (resumeStep) showStep(resumeStep);
+        else showStep(step);
+        markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value) || defaultSync);
+    })();
+    </script>
 </body>
 </html>

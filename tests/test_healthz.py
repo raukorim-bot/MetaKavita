@@ -27,6 +27,7 @@ from routes.misc import misc_bp
 _LOGIN_ALLOWED_ENDPOINTS = frozenset({
     "auth.login",
     "auth.setup",
+    "auth.setup_test_kavita",
     "static",
     "misc.healthz",
     "sync.webhook",

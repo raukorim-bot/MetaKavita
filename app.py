@@ -171,7 +171,8 @@ else:
         )
     )
 
-root_path = os.environ.get('ROOT_PATH', '')
+# Env Docker prime ; sinon valeur persistée via setup/Config (C64 wizard).
+root_path = (os.environ.get('ROOT_PATH') or '').strip() or (_boot_config.get('ROOT_PATH') or '').strip()
 if root_path:
     root_path = '/' + root_path.strip('/')
 

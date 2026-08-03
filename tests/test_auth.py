@@ -81,16 +81,45 @@ def client(auth_app):
     return auth_app.test_client()
 
 
-def _complete_setup(client, username="admin", password="correct horse", legacy_password=None):
+def _complete_setup(
+    client,
+    username="admin",
+    password="correct horse",
+    legacy_password=None,
+    *,
+    kavita_url="http://kavita.test",
+    kavita_api_key="test-kavita-key",
+    extra=None,
+):
     """POST /setup. `legacy_password` n'est envoyé que si le test le fournit —
-    l'écran ne le réclame que sur une instance qui avait un `ADMIN_PASSWORD`."""
+    l'écran ne le réclame que sur une instance qui avait un `ADMIN_PASSWORD`.
+
+    Depuis le wizard first-run, URL + clé Kavita sont obligatoires (le test
+    de connexion n'est pas requis).
+    """
     data = {
         "username": username,
         "password": password,
         "password_confirm": password,
+        "KAVITA_URL": kavita_url,
+        "KAVITA_API_KEY": kavita_api_key,
+        "UI_LANG": "fr",
+        "TARGET_LANG": "FR",
+        "TRANSLATION_PROVIDER": "GOOGLE",
+        "SMART_SCORING": "true",
+        "SMART_COMPLETION": "true",
+        "MANUAL_REVIEW_MODE": "false",
+        "AUTO_COVER": "false",
+        "AUTO_READING_DIR": "false",
+        "TITLE_FALLBACK_TRANSLATION": "false",
+        "AUTO_SYNC_INTERVAL": "360",
+        "PUBLISHER_PREFERENCE": "LOCALIZED",
+        "LOCALIZED_TITLE_MODE": "all",
     }
     if legacy_password is not None:
         data["legacy_password"] = legacy_password
+    if extra:
+        data.update(extra)
     return client.post("/setup", data=data, follow_redirects=False)
 
 
@@ -250,6 +279,105 @@ def test_setup_is_closed_once_an_account_exists(client):
     })
     assert res.status_code == 302
     assert auth_manager.user_count() == 1, "aucun second compte ne doit être créé"
+
+
+def test_setup_refuses_without_kavita_credentials(client):
+    res = client.post("/setup", data={
+        "username": "admin",
+        "password": "correct horse",
+        "password_confirm": "correct horse",
+        "KAVITA_URL": "",
+        "KAVITA_API_KEY": "",
+    })
+    assert res.status_code == 200
+    assert auth_manager.user_count() == 0
+
+
+def test_setup_persists_wizard_defaults(client):
+    """Finish écrit Kavita + Auto-Sync 6 h + Smart Completion même sans clés scrapers."""
+    import config_manager
+
+    res = _complete_setup(client, extra={"ROOT_PATH": "/metakavita"})
+    assert res.status_code == 302
+
+    cfg = config_manager.load_config()
+    assert cfg.get("KAVITA_URL") == "http://kavita.test"
+    assert cfg.get("KAVITA_API_KEY") == "test-kavita-key"
+    assert cfg.get("ROOT_PATH") == "/metakavita"
+    assert int(cfg.get("AUTO_SYNC_INTERVAL") or 0) == 360
+    assert cfg.get("SMART_SCORING") is True
+    assert cfg.get("SMART_COMPLETION") is True
+    assert cfg.get("TRANSLATION_PROVIDER") == "GOOGLE"
+    assert cfg.get("UI_LANG") == "fr"
+    assert cfg.get("TARGET_LANG") == "FR"
+
+
+def test_setup_test_kavita_is_non_blocking_endpoint(client, monkeypatch):
+    """Le probe échoue → JSON warn, pas d'écriture config ; Finish reste possible."""
+    from kavita_api import KavitaAPI
+
+    monkeypatch.setattr(KavitaAPI, "authenticate", lambda self: False)
+
+    res = client.post("/setup/test-kavita", data={
+        "KAVITA_URL": "http://kavita.test",
+        "KAVITA_API_KEY": "bad",
+        "UI_LANG": "fr",
+    })
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["ok"] is False
+    assert "bibliothèques" in (body.get("message") or "").lower() or "libraries" in (
+        body.get("message") or ""
+    ).lower()
+
+    # Finish avec les mêmes creds (probe non requis côté serveur)
+    assert _complete_setup(client).status_code == 302
+
+
+def test_setup_page_renders_wizard(client):
+    res = client.get("/setup")
+    assert res.status_code == 200
+    html = res.data.decode("utf-8", errors="replace")
+    assert "setupForm" in html
+    assert "KAVITA_URL" in html
+    assert "AUTO_SYNC_INTERVAL" in html
+
+
+def test_setup_csrf_token_not_blanked_by_context(auth_app):
+    """Régression audit C64 : _setup_context ne doit pas écraser ensure_csrf_token."""
+    from csrf_utils import ensure_csrf_token
+
+    @auth_app.context_processor
+    def _inject_csrf():
+        return {"csrf_token": ensure_csrf_token()}
+
+    client = auth_app.test_client()
+    res = client.get("/setup")
+    assert res.status_code == 200
+    html = res.data.decode("utf-8", errors="replace")
+    # meta + hidden field must carry a real token (not empty value="")
+    assert 'name="csrf_token" value=""' not in html
+    assert 'name="csrf-token" content=""' not in html
+    assert "csrf_token" in html
+
+
+def test_setup_config_save_failure_does_not_create_account(client, monkeypatch):
+    import config_manager
+    import routes.auth as auth_routes
+
+    real_save = config_manager.save_config
+
+    def boom(cfg):
+        raise RuntimeError("disk full")
+
+    # routes.auth importe save_config par nom — patcher le binding du module.
+    monkeypatch.setattr(auth_routes, "save_config", boom)
+    res = _complete_setup(client)
+    assert res.status_code == 200
+    assert auth_manager.user_count() == 0
+    assert auth_manager.setup_required() is True
+    # load_config / seed ne sont pas cassés
+    assert real_save is config_manager.save_config
 
 
 # ---------------------------------------------------------------------------

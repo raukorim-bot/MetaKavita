@@ -11,24 +11,191 @@ La logique d'authentification elle-même (hachage, stockage, verrouillage IP)
 vit dans `auth_manager.py` ; ce module reste une couche HTTP fine.
 """
 
+import logging
+import os
+
 from flask import Blueprint, request, render_template, session, redirect, url_for, jsonify
 
 import auth_manager
-from config_manager import load_config
+from config_manager import (
+    load_config,
+    save_config,
+    CONFIG_LOCK,
+    target_lang_from_ui_lang,
+)
 from translations import translations
 
 auth_bp = Blueprint('auth', __name__)
 
+_PROVIDER_KEYS = (
+    'PROVIDER_1', 'PROVIDER_2', 'PROVIDER_3',
+    'COMIC_PROVIDER_1', 'COMIC_PROVIDER_2', 'COMIC_PROVIDER_3',
+    'BOOK_PROVIDER_1', 'BOOK_PROVIDER_2', 'BOOK_PROVIDER_3',
+)
 
-def _t():
-    """(dictionnaire de traduction, config) pour la langue configurée."""
+# Defaults « click and go » appliqués au premier setup (Passer / champs absents).
+_SETUP_BOOL_DEFAULTS = {
+    'SMART_SCORING': True,
+    'SMART_COMPLETION': True,
+    'MANUAL_REVIEW_MODE': False,
+    'AUTO_COVER': False,
+    'AUTO_READING_DIR': False,
+    'TITLE_FALLBACK_TRANSLATION': False,
+}
+_SETUP_AUTO_SYNC_DEFAULT = 360  # 6 h
+
+
+def _t(ui_lang=None):
+    """(dictionnaire de traduction, config) pour la langue demandée ou configurée."""
     config = load_config()
-    return translations.get(config.get('UI_LANG', 'fr'), translations['fr']), config
+    lang = (ui_lang or config.get('UI_LANG') or 'fr').strip().lower()
+    if lang not in translations:
+        lang = 'fr'
+    return translations.get(lang, translations['fr']), config
+
+
+def _normalize_root_path(raw: str) -> str:
+    raw = (raw or '').strip()
+    if not raw:
+        return ''
+    return '/' + raw.strip('/')
+
+
+def _effective_root_path(config: dict) -> str:
+    return _normalize_root_path(
+        (os.environ.get('ROOT_PATH') or '').strip()
+        or (config.get('ROOT_PATH') or '').strip()
+    )
+
+
+def _form_bool(key: str, default: bool) -> bool:
+    if key not in request.form:
+        return default
+    return request.form.get(key, '').strip().lower() in ('true', '1', 'on', 'yes')
+
+
+def _apply_secret(config: dict, form_key: str, config_key: str) -> None:
+    val = request.form.get(form_key, '').strip()
+    if val and val != '********':
+        config[config_key] = val
+
+
+def _apply_setup_config(config: dict) -> bool:
+    """Merge le formulaire wizard dans config. Retourne True si ROOT_PATH change
+    par rapport à la valeur effective actuelle (redémarrage conseillé)."""
+    from scrapers import ScraperRegistry
+
+    before_root = _effective_root_path(config)
+
+    config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
+    _apply_secret(config, 'KAVITA_API_KEY', 'KAVITA_API_KEY')
+
+    new_root = _normalize_root_path(request.form.get('ROOT_PATH', ''))
+    config['ROOT_PATH'] = new_root
+
+    ui_lang = request.form.get('UI_LANG', 'fr').strip().lower()
+    if ui_lang not in ('fr', 'en'):
+        ui_lang = 'fr'
+    config['UI_LANG'] = ui_lang
+
+    target = request.form.get('TARGET_LANG', '').strip()
+    if not target:
+        target = target_lang_from_ui_lang(ui_lang)
+    config['TARGET_LANG'] = target
+
+    config['TRANSLATION_PROVIDER'] = request.form.get(
+        'TRANSLATION_PROVIDER', 'GOOGLE'
+    ).strip() or 'GOOGLE'
+    _apply_secret(config, 'DEEPL_API_KEY', 'DEEPL_API_KEY')
+    _apply_secret(config, 'AZURE_API_KEY', 'AZURE_API_KEY')
+    config['AZURE_REGION'] = request.form.get('AZURE_REGION', '').strip()
+
+    config['PUBLISHER_PREFERENCE'] = request.form.get(
+        'PUBLISHER_PREFERENCE', 'LOCALIZED'
+    ).strip() or 'LOCALIZED'
+    loc_mode = request.form.get('LOCALIZED_TITLE_MODE', 'all').strip().lower()
+    config['LOCALIZED_TITLE_MODE'] = loc_mode if loc_mode in ('all', 'prefer', 'none') else 'all'
+    config['LOCALIZED_TITLE_LANGS'] = request.form.get('LOCALIZED_TITLE_LANGS', '').strip()
+    config['TITLE_FALLBACK_TRANSLATION'] = _form_bool(
+        'TITLE_FALLBACK_TRANSLATION', _SETUP_BOOL_DEFAULTS['TITLE_FALLBACK_TRANSLATION']
+    )
+
+    for key, default in _SETUP_BOOL_DEFAULTS.items():
+        if key == 'TITLE_FALLBACK_TRANSLATION':
+            continue
+        config[key] = _form_bool(key, default)
+
+    try:
+        interval = int(request.form.get('AUTO_SYNC_INTERVAL', _SETUP_AUTO_SYNC_DEFAULT))
+    except (TypeError, ValueError):
+        interval = _SETUP_AUTO_SYNC_DEFAULT
+    config['AUTO_SYNC_INTERVAL'] = max(0, interval)
+
+    for s in ScraperRegistry.get_all(scope="series"):
+        if getattr(s, 'needs_api_key', False):
+            key_name = f"{s.id}_API_KEY"
+            _apply_secret(config, key_name, key_name)
+
+    for key in _PROVIDER_KEYS:
+        if key in request.form:
+            config[key] = request.form.get(key, 'NONE').strip() or 'NONE'
+
+    # Env Docker inchangé : si ROOT_PATH est déjà fourni par l'env, la config
+    # ne change pas l'effectif — pas de notice inutile.
+    env_root = _normalize_root_path(os.environ.get('ROOT_PATH', ''))
+    if env_root:
+        return False
+    return bool(new_root) and new_root != before_root
+
+
+def _setup_context(t, config, error=None, legacy_required=False, form_values=None):
+    from scrapers import ScraperRegistry
+
+    scrapers_with_keys = [
+        s for s in ScraperRegistry.get_all(scope="series")
+        if getattr(s, 'needs_api_key', False)
+    ]
+    manga_providers = [
+        {"id": s.id, "display_name": s.localized_display_name}
+        for s in ScraperRegistry.get_by_type("Manga")
+    ]
+    comic_providers = [
+        {"id": s.id, "display_name": s.localized_display_name}
+        for s in ScraperRegistry.get_by_type("Comic")
+    ]
+    book_providers = [
+        {"id": s.id, "display_name": s.localized_display_name}
+        for s in ScraperRegistry.get_by_type("Book")
+    ]
+
+    wizard_lang = request.args.get('lang') or request.form.get('UI_LANG') or config.get('UI_LANG', 'fr')
+    wizard_lang = str(wizard_lang).strip().lower()
+    if wizard_lang not in ('fr', 'en'):
+        wizard_lang = 'fr'
+
+    # Ne PAS passer csrf_token ici : ça écraserait le context processor
+    # (ensure_csrf_token) avec une chaîne vide et casserait Finish en prod.
+    return dict(
+        error=error,
+        t=t,
+        config=config,
+        min_password_length=auth_manager.MIN_PASSWORD_LENGTH,
+        legacy_required=legacy_required,
+        scrapers_with_keys=scrapers_with_keys,
+        manga_providers=manga_providers,
+        comic_providers=comic_providers,
+        book_providers=book_providers,
+        wizard_lang=wizard_lang,
+        default_target_lang=target_lang_from_ui_lang(wizard_lang),
+        setup_auto_sync_default=_SETUP_AUTO_SYNC_DEFAULT,
+        form_values=form_values or {},
+        resume_step=0,
+    )
 
 
 @auth_bp.route('/setup', methods=['GET', 'POST'])
 def setup():
-    """Création du compte au premier démarrage.
+    """Création du compte + wizard first-run (Kavita, langues, options, cascades).
 
     Accessible UNIQUEMENT tant qu'aucun compte n'existe. Sans ce garde-fou,
     l'écran resterait un moyen non authentifié de créer un second compte — donc
@@ -38,7 +205,8 @@ def setup():
     en plus ce mot de passe comme preuve de propriété : voir
     `auth_manager.legacy_proof_required`.
     """
-    t, config = _t()
+    lang_arg = request.args.get('lang') or request.form.get('UI_LANG')
+    t, config = _t(lang_arg)
 
     if not auth_manager.setup_required():
         return redirect(url_for('auth.login'))
@@ -50,10 +218,9 @@ def setup():
         username = request.form.get('username', '')
         password = request.form.get('password', '')
         confirm = request.form.get('password_confirm', '')
+        kavita_url = request.form.get('KAVITA_URL', '').strip()
+        kavita_key = request.form.get('KAVITA_API_KEY', '').strip()
 
-        # Le verrouillage est consulté d'abord et vaut aussi pour cet écran :
-        # depuis qu'il vérifie un secret, il est devenu une cible de force brute
-        # au même titre que /login.
         locked, remaining = auth_manager.is_locked_out()
         if locked:
             minutes = max(1, (remaining + 59) // 60)
@@ -66,34 +233,128 @@ def setup():
             error = t.get('setup_err_legacy_password')
         elif password != confirm:
             error = t.get('setup_err_password_mismatch')
+        elif not kavita_url or not kavita_key:
+            error = t.get('setup_err_kavita_required')
         else:
-            ok, err_key = auth_manager.create_user(username, password)
-            if ok:
-                # L'ancien mot de passe en clair n'est jamais repris : il est
-                # supprimé maintenant qu'un vrai compte existe (choix du
-                # mainteneur — réinitialisation forcée, cf. issue #15).
-                auth_manager.purge_legacy_admin_password()
+            # Config d'abord : si la persistance échoue, aucun compte orphelin
+            # (sinon /setup se ferme et Kavita reste vide).
+            root_changed = False
+            config_ok = False
+            try:
+                with CONFIG_LOCK:
+                    cfg = load_config()
+                    root_changed = _apply_setup_config(cfg)
+                    save_config(cfg)
+                config_ok = True
+            except Exception as exc:
+                logging.warning(
+                    t.get(
+                        "log_setup_config_fail",
+                        "[Setup] Échec persistance config avant création du compte : %s",
+                    ),
+                    exc,
+                )
+                error = t.get('setup_err_config_save')
 
-                user = auth_manager.verify_credentials(username, password)
-                if user:
-                    # Le compte est créé : plus rien ne justifie de garder le
-                    # propriétaire à distance du verrou déclenché par une rafale.
-                    auth_manager.clear_failed_attempts()
-                    auth_manager.login_session(user)
-                    auth_manager.record_login(user['id'])
-                    return redirect(url_for('pages.index'))
-                error = t.get('setup_err_generic')
-            else:
-                error = t.get(err_key, t.get('setup_err_generic'))
+            if config_ok:
+                ok, err_key = auth_manager.create_user(username, password)
+                if ok:
+                    auth_manager.purge_legacy_admin_password()
+                    user = auth_manager.verify_credentials(username, password)
+                    if user:
+                        auth_manager.clear_failed_attempts()
+                        auth_manager.login_session(user)
+                        auth_manager.record_login(user['id'])
+                        if root_changed:
+                            session['ui_banner'] = t.get(
+                                'setup_restart_root_path',
+                                'Redémarrez MetaKavita pour appliquer le sous-chemin (ROOT_PATH).',
+                            )
+                        return redirect(url_for('pages.index'))
+                    error = t.get('setup_err_generic')
+                else:
+                    error = t.get(err_key, t.get('setup_err_generic'))
 
-    return render_template(
-        'setup.html',
-        error=error,
-        t=t,
-        config=config,
-        min_password_length=auth_manager.MIN_PASSWORD_LENGTH,
-        legacy_required=legacy_required,
+    # Recharger t si la langue wizard a changé après erreur
+    t, config = _t(request.args.get('lang') or request.form.get('UI_LANG'))
+    form_values = {}
+    if error and request.method == 'POST':
+        # Re-préremplir (sauf secrets / mots de passe) après erreur serveur.
+        for key in (
+            'username', 'KAVITA_URL', 'ROOT_PATH', 'UI_LANG', 'TARGET_LANG',
+            'TRANSLATION_PROVIDER', 'AZURE_REGION', 'PUBLISHER_PREFERENCE',
+            'LOCALIZED_TITLE_MODE', 'LOCALIZED_TITLE_LANGS', 'AUTO_SYNC_INTERVAL',
+            *_PROVIDER_KEYS,
+        ):
+            if key in request.form:
+                form_values[key] = request.form.get(key, '')
+        for key, default in _SETUP_BOOL_DEFAULTS.items():
+            form_values[key] = 'true' if _form_bool(key, default) else 'false'
+    resume_step = 0
+    if error and form_values:
+        if error == t.get('setup_err_kavita_required'):
+            resume_step = 1
+        elif error == t.get('setup_err_config_save'):
+            resume_step = 1
+    ctx = _setup_context(
+        t, config, error=error, legacy_required=legacy_required, form_values=form_values
     )
+    ctx['resume_step'] = resume_step
+    return render_template('setup.html', **ctx)
+
+
+@auth_bp.route('/setup/test-kavita', methods=['POST'])
+def setup_test_kavita():
+    """Ping auth Kavita pendant le wizard — n'écrit pas la config."""
+    if not auth_manager.setup_required():
+        return jsonify(ok=False, error='setup_closed'), 403
+
+    lang_arg = request.form.get('UI_LANG') or request.args.get('lang')
+    t, _config = _t(lang_arg)
+
+    url = request.form.get('KAVITA_URL', '').strip().rstrip('/')
+    key = request.form.get('KAVITA_API_KEY', '').strip()
+    if not url or not key:
+        return jsonify(
+            ok=False,
+            error='missing',
+            message=t.get('setup_kavita_test_missing', 'URL et clé API requises.'),
+        )
+
+    try:
+        from kavita_api import KavitaAPI
+
+        probe = KavitaAPI(url, key)
+        ok = bool(probe.authenticate())
+        if ok:
+            return jsonify(
+                ok=True,
+                message=t.get('setup_kavita_test_ok', 'Connexion Kavita réussie.'),
+            )
+        detail = getattr(probe, 'last_auth_error', None) or 'unknown'
+        return jsonify(
+            ok=False,
+            error=detail,
+            message=t.get(
+                'setup_kavita_warn_libs',
+                'Connexion Kavita échouée — les bibliothèques ne pourront pas être chargées '
+                'tant que l’URL ou la clé ne seront pas corrigées (Config).',
+            ),
+        )
+    except Exception as exc:
+        logging.warning(
+            t.get("log_setup_kavita_probe_fail", "[Setup] Test Kavita : %s"),
+            exc,
+        )
+        return jsonify(
+            ok=False,
+            error='unknown',
+            message=t.get(
+                'setup_kavita_warn_libs',
+                'Connexion Kavita échouée — les bibliothèques ne pourront pas être chargées '
+                'tant que l’URL ou la clé ne seront pas corrigées (Config).',
+            ),
+        )
 
 
 @auth_bp.route('/login', methods=['GET', 'POST'])

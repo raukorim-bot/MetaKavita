@@ -7,7 +7,7 @@ rappel sur le nommage des endpoints après passage aux Blueprints).
 
 import logging
 
-from flask import Blueprint, request, render_template
+from flask import Blueprint, request, render_template, session
 
 from config_manager import (
     load_config,
@@ -178,7 +178,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
 def index():
     config = load_config()
     selected_lib = request.args.get('library_id')
-    return _prepare_index_data(config, msg="", error_msg="", selected_lib=selected_lib)
+    msg = (session.pop('ui_banner', None) or '').strip()
+    return _prepare_index_data(config, msg=msg, error_msg="", selected_lib=selected_lib)
 
 
 @pages_bp.route('/stats')

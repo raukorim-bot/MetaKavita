@@ -714,6 +714,7 @@ def is_authenticated() -> bool:
 # verrouille ce comportement.
 _SETUP_ALLOWED_ENDPOINTS = frozenset({
     "auth.setup",
+    "auth.setup_test_kavita",
     "static",
     "misc.healthz",
     "sync.webhook",
@@ -722,6 +723,7 @@ _SETUP_ALLOWED_ENDPOINTS = frozenset({
 _LOGIN_ALLOWED_ENDPOINTS = frozenset({
     "auth.login",
     "auth.setup",
+    "auth.setup_test_kavita",
     "static",
     "misc.healthz",
     "sync.webhook",
