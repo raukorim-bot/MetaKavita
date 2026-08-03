@@ -24,6 +24,20 @@ compté uniquement sur les messages `enrich_series()` qui correspondent à une
 import services.background_tasks as bg
 
 
+def _put_batch_item(series_id, series_name, force_update=False):
+    """C63 : le worker skippe sans ligne SQLite active — seed file + RAM."""
+    from services import batch_queue as bq
+
+    bq.enqueue_items([{
+        "series_id": series_id,
+        "series_name": series_name,
+        "force_update": force_update,
+    }])
+    bg.sync_queue.put(
+        bg.make_sync_item(series_id, series_name, force_update, is_batch=True)
+    )
+
+
 def test_worker_ignores_non_batch_items_for_progress(mocker, isolated_db):
     mocker.patch("services.background_tasks.enrich_series", return_value=(True, "ok", []))
     mocker.patch("services.background_tasks.load_config", return_value={"UI_LANG": "fr"})
@@ -34,11 +48,11 @@ def test_worker_ignores_non_batch_items_for_progress(mocker, isolated_db):
     )
 
     bg.register_batch_enqueue(2, new_batch=True)
-    bg.sync_queue.put(bg.make_sync_item(1, "Batch A", False, is_batch=True))
+    _put_batch_item(1, "Batch A")
     # Un événement webhook (ou une candidate auto-sync) intercalé en plein batch :
     # ne doit produire AUCUN broadcast, donc AUCUN saut de barre côté UI.
     bg.sync_queue.put(bg.make_sync_item(999, "Webhook Intruder", False, is_batch=False))
-    bg.sync_queue.put(bg.make_sync_item(2, "Batch B", False, is_batch=True))
+    _put_batch_item(2, "Batch B")
     bg.sync_queue.put(None)  # sentinel : stoppe _worker() après ces items
 
     bg._worker()
@@ -65,8 +79,8 @@ def test_batch_finished_reports_zero_real_sends_when_everything_was_skipped(mock
     )
 
     bg.register_batch_enqueue(2, new_batch=True)
-    bg.sync_queue.put(bg.make_sync_item(1, "Already up to date A", False, is_batch=True))
-    bg.sync_queue.put(bg.make_sync_item(2, "Already up to date B", False, is_batch=True))
+    _put_batch_item(1, "Already up to date A")
+    _put_batch_item(2, "Already up to date B")
     bg.sync_queue.put(None)
 
     bg._worker()
@@ -91,9 +105,9 @@ def test_batch_finished_counts_only_real_kavita_writes(mocker, isolated_db):
     )
 
     bg.register_batch_enqueue(3, new_batch=True)
-    bg.sync_queue.put(bg.make_sync_item(1, "Skip", False, is_batch=True))
-    bg.sync_queue.put(bg.make_sync_item(2, "Real write", False, is_batch=True))
-    bg.sync_queue.put(bg.make_sync_item(3, "Parked for review", False, is_batch=True))
+    _put_batch_item(1, "Skip")
+    _put_batch_item(2, "Real write")
+    _put_batch_item(3, "Parked for review")
     bg.sync_queue.put(None)
 
     bg._worker()
@@ -138,7 +152,10 @@ def test_drain_sync_queue_resets_batch_progress_counters(mocker):
 def test_a_batch_item_finishing_after_a_stop_does_not_broadcast_stale_progress(mocker, isolated_db):
     """Le job en cours au moment du Stop n'est pas drainé (voir `drain_sync_queue`) :
     il continue jusqu'au bout. Une fois `_batch_total` remis à zéro par le Stop, sa
-    fin ne doit plus émettre de progression (le total de référence n'existe plus)."""
+    fin ne doit plus émettre de progression (le total de référence n'existe plus).
+
+    On laisse la ligne SQLite active : cas « déjà get()'d / mark_running », pas un
+    leftover RAM après cancel (celui-là est skippé sans enrich)."""
     mocker.patch("services.background_tasks.enrich_series", return_value=(True, "ok", []))
     mocker.patch("services.background_tasks.load_config", return_value={"UI_LANG": "fr"})
     calls = []
@@ -148,7 +165,7 @@ def test_a_batch_item_finishing_after_a_stop_does_not_broadcast_stale_progress(m
     )
 
     bg.register_batch_enqueue(1, new_batch=True)
-    bg.sync_queue.put(bg.make_sync_item(1, "In-flight when stopped", False, is_batch=True))
+    _put_batch_item(1, "In-flight when stopped")
     bg.sync_queue.put(None)
 
     # Le Stop arrive "pendant" le traitement : simulé ici par un reset avant que

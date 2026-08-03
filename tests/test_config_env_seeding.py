@@ -33,6 +33,7 @@ def config_env(tmp_path, monkeypatch):
 
     monkeypatch.setattr(config_manager, "DATA_DIR", str(tmp_path))
     monkeypatch.setattr(config_manager, "CONFIG_FILE", str(tmp_path / "config.json"))
+    monkeypatch.setattr(config_manager, "_admin_password_env_warned", False)
     for key in (
         "UI_LANG", "TARGET_LANG", "KAVITA_URL", "KAVITA_API_KEY",
         "PROVIDER_1", "MAX_TAGS", "MAX_GENRES", "SMART_COMPLETION",
@@ -184,6 +185,26 @@ def test_admin_password_is_not_seeded_from_the_environment(config_env, caplog, m
         "il croit son instance protégée alors qu'elle attend une création de compte"
     )
     assert "hunter2" not in caplog.text
+    # Message pédagogique : invite à retirer la variable obsolète de la compose.
+    joined = " ".join(caplog.messages).lower()
+    assert "obsolete" in joined or "obsolète" in joined
+    assert "remove" in joined or "retirez" in joined
+
+
+def test_admin_password_env_warning_is_once_per_process(config_env, caplog, monkeypatch):
+    """BF95 — load_config() est chaud ; un WARNING à chaque appel inondait Live Logs."""
+    monkeypatch.setenv("ADMIN_PASSWORD", "hunter2")
+
+    with caplog.at_level("WARNING"):
+        config_env.load_config()
+        config_env.load_config()
+        config_env.load_config()
+
+    warnings = [
+        r for r in caplog.records
+        if r.levelno >= 30 and "ADMIN_PASSWORD" in r.getMessage()
+    ]
+    assert len(warnings) == 1
 
 
 def test_an_admin_password_already_in_the_file_is_preserved(config_env):

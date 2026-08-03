@@ -39,6 +39,9 @@ CONFIG_FILE = os.path.join(DATA_DIR, "config.json")
 # lire-modifier-écrire, pas seulement l'écriture finale.
 CONFIG_LOCK = threading.RLock()
 
+# Warning ADMIN_PASSWORD env : une fois par process (load_config est appelé souvent).
+_admin_password_env_warned = False
+
 _logged_config_path = False
 
 
@@ -206,7 +209,14 @@ def load_config():
         # au chargement suivant, donc l'écran de setup réclamerait indéfiniment une
         # preuve censée être à usage unique.
         config["ADMIN_PASSWORD"] = file_config.get("ADMIN_PASSWORD", "")
-        if os.getenv("ADMIN_PASSWORD") and not config["ADMIN_PASSWORD"]:
+        global _admin_password_env_warned
+        if (
+            os.getenv("ADMIN_PASSWORD")
+            and not config["ADMIN_PASSWORD"]
+            and not _admin_password_env_warned
+        ):
+            # Une fois par démarrage : load_config() est appelé à chaque requête ;
+            # répéter le WARNING remplissait Live Logs sans aider davantage.
             from translations import get_ui_translations
             _t = get_ui_translations(
                 ui_lang=os.getenv("UI_LANG") or config.get("UI_LANG")
@@ -214,13 +224,14 @@ def load_config():
             logging.warning(
                 _t.get(
                     "log_config_admin_password_env",
-                    "[Config] ADMIN_PASSWORD est défini dans l'environnement mais cette "
-                    "variable est supprimée : l'accès est protégé par le compte créé au "
-                    "premier démarrage. Pour préconfigurer ce compte sans passer par "
-                    "l'écran de configuration, utilisez ADMIN_PASSWORD_HASH "
-                    "(cf. `python debug/hash_password.py`).",
+                    "[Config] ADMIN_PASSWORD est encore défini dans l'environnement "
+                    "(docker-compose / -e) mais cette variable est obsolète et ignorée. "
+                    "Retirez-la de votre configuration : l'accès passe par le compte "
+                    "créé au premier démarrage. Pour précréer ce compte sans /setup, "
+                    "utilisez ADMIN_PASSWORD_HASH (cf. `python debug/hash_password.py`).",
                 )
             )
+            _admin_password_env_warned = True
 
         # Clés connexion : "" dans config.json ne doit pas bloquer un seed env
         # (ex. première sauvegarde UI avant de coller l'URL / la clé).

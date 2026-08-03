@@ -98,7 +98,10 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
             return True
 
         def get_all_series(self, library_id=None):
-            return [{"id": 10, "name": "One Piece"}]
+            return [
+                {"id": 10, "name": "One Piece"},
+                {"id": 11, "name": "Naruto"},
+            ]
 
     monkeypatch.setattr("routes.sync.KavitaAPI", FakeKavita)
     monkeypatch.setattr("routes.sync.load_config", lambda: {
@@ -113,9 +116,16 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
     app.register_blueprint(sync_bp)
     client = app.test_client()
 
-    expected = {
+    expected_10 = {
         "series_id": 10,
         "series_name": "One Piece",
+        "force_update": False,
+        "fields_override": None,
+        "is_batch": True,
+    }
+    expected_11 = {
+        "series_id": 11,
+        "series_name": "Naruto",
         "force_update": False,
         "fields_override": None,
         "is_batch": True,
@@ -127,15 +137,16 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
         data={"selected_series": ["10"], "resume_enqueue": "true"},
     )
     assert res.status_code == 200
-    assert enqueued[0] == expected
+    assert enqueued[0] == expected_10
 
+    # Autre série : C63 refuse le doublon SQLite sur le même series_id.
     enqueued.clear()
     res = client.post(
         "/batch-sync",
-        data={"selected_series": ["10"], "targeted_fields": "ALL"},
+        data={"selected_series": ["11"], "targeted_fields": "ALL"},
     )
     assert res.status_code == 200
-    assert enqueued[0] == expected
+    assert enqueued[0] == expected_11
 
 
 def test_stop_batch_rejects_late_chunks(monkeypatch, isolated_db):

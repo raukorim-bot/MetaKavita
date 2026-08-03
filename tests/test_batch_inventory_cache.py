@@ -63,7 +63,11 @@ def _build_app(monkeypatch, get_all_series_calls, series):
 
 def test_only_the_first_packet_of_a_batch_refetches_the_inventory(monkeypatch, isolated_db):
     calls = []
-    series = [{"id": 10, "name": "One Piece"}, {"id": 11, "name": "Naruto"}]
+    series = [
+        {"id": 10, "name": "One Piece"},
+        {"id": 11, "name": "Naruto"},
+        {"id": 12, "name": "Bleach"},
+    ]
     client, fake_q = _build_app(monkeypatch, calls, series)
 
     # Paquet 1/3 : nouveau batch, doit aller chercher l'inventaire.
@@ -71,9 +75,9 @@ def test_only_the_first_packet_of_a_batch_refetches_the_inventory(monkeypatch, i
     assert res.status_code == 200
     assert len(calls) == 1
 
-    # Paquets 2 et 3 : même batch, aucun nouvel appel réseau.
-    for _ in range(2):
-        res = client.post("/batch-sync", data={"selected_series": ["11"]})
+    # Paquets 2 et 3 : même batch, IDs distincts (C63 déduplique sinon), aucun nouvel appel réseau.
+    for sid in ("11", "12"):
+        res = client.post("/batch-sync", data={"selected_series": [sid]})
         assert res.status_code == 200
     assert len(calls) == 1, "les paquets suivants doivent réutiliser l'instantané du 1er paquet"
     assert len(fake_q.items) == 3
@@ -93,10 +97,10 @@ def test_a_new_batch_forces_a_fresh_inventory(monkeypatch, isolated_db):
     assert len(calls) == 2
 
 
-def test_a_second_concurrent_batch_is_rejected_without_corrupting_the_first(monkeypatch, isolated_db):
-    """Régression critique : deux `resume_enqueue=true` concurrents (deux onglets,
-    double-clic...) écrasaient `_batch_total`/`_batch_done` du premier batch en plein
-    vol. Le second doit être refusé (409) tant que le premier n'est pas terminé."""
+def test_a_second_resume_enqueue_appends_without_resetting_progress(monkeypatch, isolated_db):
+    """C63 : un second `resume_enqueue=true` (autre onglet / nouvel ajout) append
+    pendant qu'un batch tourne. `new_batch=False` : les compteurs s'accumulent,
+    ils ne sont pas remis à zéro (régression ex-409 already_running)."""
     calls = []
     series = [{"id": 10, "name": "One Piece"}, {"id": 11, "name": "Naruto"}]
     client, fake_q = _build_app(monkeypatch, calls, series)
@@ -106,15 +110,14 @@ def test_a_second_concurrent_batch_is_rejected_without_corrupting_the_first(monk
     with bg._batch_progress_lock:
         assert bg._batch_total == 1
 
-    # Deuxième batch pendant que le premier est toujours en cours (aucun item traité).
     res2 = client.post("/batch-sync", data={"selected_series": ["11"], "resume_enqueue": "true"})
-    assert res2.status_code == 409
-    assert res2.get_json()["already_running"] is True
+    assert res2.status_code == 200
+    assert res2.get_json()["added"] == 1
 
-    # Le total du premier batch doit être intact, pas écrasé par le second appel.
     with bg._batch_progress_lock:
-        assert bg._batch_total == 1
-    assert len(fake_q.items) == 1, "le second batch ne doit avoir rien mis en file"
+        assert bg._batch_total == 2
+        assert bg._batch_done == 0
+    assert len(fake_q.items) == 2
 
 
 def test_a_new_batch_is_accepted_once_the_previous_one_is_done(monkeypatch, isolated_db):
