@@ -762,37 +762,6 @@ def test_proxy_cover_hosts_from_requires_proxy(isolated_scrapers, monkeypatch):
     assert "open.example.test" not in hosts
 
 
-def test_openbd_skips_fabricated_cover_url(monkeypatch):
-    """Sans summary.cover, ne pas inventer cover.openbd.jp/{isbn}.jpg (souvent 404)."""
-    import importlib.util
-    from pathlib import Path
-
-    path = Path("data/scrapers/openbd.py")
-    spec = importlib.util.spec_from_file_location("openbd_under_test", path)
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-
-    class _Resp:
-        status_code = 200
-
-        @staticmethod
-        def json():
-            return [{
-                "summary": {
-                    "title": "Test Book",
-                    "author": "Author",
-                    "publisher": "Pub",
-                    "pubdate": "2020-01-01",
-                    "cover": "",
-                }
-            }]
-
-    monkeypatch.setattr(mod.requests, "get", lambda *a, **k: _Resp())
-    cand = mod.OpenbdScraper()._get_isbn("9784088807232")
-    assert cand is not None
-    assert cand.get("cover_url") in (None, "")
-
-
 def test_install_unloadable_rolls_back(isolated_scrapers, monkeypatch):
     from services import scraper_store as store
 

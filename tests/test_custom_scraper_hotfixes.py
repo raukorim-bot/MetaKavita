@@ -14,14 +14,19 @@ ROOT = Path(__file__).resolve().parents[1]
 def _load_custom(module_stem: str):
     """Plug-and-play load-by-path for tests.
 
-    Resolve ``scrapers/<stem>.py`` then ``data/scrapers/<stem>.py``. Execute under an
-    ephemeral module name so the harness never collides with Registry
-    ``scrapers.*`` / ``custom_scrapers.*`` entries in ``sys.modules``.
+    Resolve in order: ``scrapers/<stem>.py`` (image core), ``data/scrapers/``
+    (runtime sideload), then ``tests/fixtures/scrapers/`` (committed CI fixture).
+    Execute under an ephemeral module name so the harness never collides with
+    Registry ``scrapers.*`` / ``custom_scrapers.*`` entries in ``sys.modules``.
     """
-    core = ROOT / "scrapers" / f"{module_stem}.py"
-    path = core if core.is_file() else ROOT / "data" / "scrapers" / f"{module_stem}.py"
-    if not path.is_file():
-        pytest.skip(f"scraper not present: {path}")
+    candidates = (
+        ROOT / "scrapers" / f"{module_stem}.py",
+        ROOT / "data" / "scrapers" / f"{module_stem}.py",
+        ROOT / "tests" / "fixtures" / "scrapers" / f"{module_stem}.py",
+    )
+    path = next((p for p in candidates if p.is_file()), None)
+    if path is None:
+        pytest.skip(f"scraper not present: {module_stem}.py")
     mod_name = f"hotfix_under_test.{module_stem}"
     spec = importlib.util.spec_from_file_location(mod_name, path)
     mod = importlib.util.module_from_spec(spec)
@@ -93,6 +98,37 @@ def test_webtoon_does_not_invent_status():
     assert cand is not None
     assert cand.get("title") == "Solo Leveling"
     assert "status" not in cand
+
+
+def test_openbd_skips_fabricated_cover_url(monkeypatch):
+    """Sans summary.cover, ne pas inventer cover.openbd.jp/{isbn}.jpg (souvent 404).
+
+    openBD est community-only (pas dans scrapers/ image) : le runner CI n'a pas
+    ``data/scrapers/``. Fixture commitée : ``tests/fixtures/scrapers/openbd.py``.
+    """
+    mod = _load_custom("openbd")
+
+    class _Resp:
+        status_code = 200
+
+        @staticmethod
+        def json():
+            return [{
+                "summary": {
+                    "title": "Test Book",
+                    "author": "Author",
+                    "publisher": "Pub",
+                    "pubdate": "2020-01-01",
+                    "cover": "",
+                }
+            }]
+
+    monkeypatch.setattr(mod.requests, "get", lambda *a, **k: _Resp())
+    cand = mod.OpenbdScraper()._get_isbn("9784088807232")
+    assert cand is not None
+    assert cand.get("cover_url") in (None, "")
+    cover = cand.get("cover_url") or ""
+    assert "cover.openbd.jp" not in cover
 
 
 def test_planetebd_bare_id_probes_series_url():
