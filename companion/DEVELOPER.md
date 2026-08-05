@@ -86,7 +86,7 @@ When the embed runs as a **top-level tab**, `manual_review.js` `companionNotifyD
 
 Do **not** open that tab with `noopener` — otherwise `window.close()` / `opener` usually fail.
 
-Documented for users in [README.md](./README.md#contenu-mixte-https-kavita--http-metakavita).
+Documented for users in [README.md](./README.md) (EN: *Mixed content*; FR: *Contenu mixte*). Server-side Companion overview: [../DEVELOPER.md §13](../DEVELOPER.md#13-metakavita-companion-c33).
 
 **Proper fix for in-page MR:** serve MetaKavita over HTTPS (or use HTTP Kavita on LAN).
 

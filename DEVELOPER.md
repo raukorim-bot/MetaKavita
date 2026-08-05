@@ -18,6 +18,7 @@ This guide is designed for developers and AI assistants wishing to understand, m
    * [10. Quality Benchmarking & Debugging Suite](#10-quality-benchmarking--debugging-suite)
    * [11. Critical Pitfalls & Contribution Workflow](#11-critical-pitfalls--contribution-workflow)
    * [12. Modular Architecture (Post-Refactor Module Map)](#12-modular-architecture-post-refactor-module-map)
+   * [13. MetaKavita Companion (C33)](#13-metakavita-companion-c33)
 2. [🇫🇷 Guide de Développement Français](#-guide-de-développement-français)
    * [1. Architecture Globale & Sécurité](#1-architecture-globale--sécurité-1)
    * [2. Moteur de Throttling & Régulation Dynamique](#2-moteur-de-throttling--régulation-dynamique-1)
@@ -31,6 +32,7 @@ This guide is designed for developers and AI assistants wishing to understand, m
    * [10. Suite de Tests & Débogage Qualité](#10-suite-de-tests--débogage-qualité-1)
    * [11. Pièges Critiques & Flux de Contribution](#11-pièges-critiques--flux-de-contribution-1)
    * [12. Architecture Modulaire (Plan des Modules Post-Refactor)](#12-architecture-modulaire-plan-des-modules-post-refactor-1)
+   * [13. MetaKavita Companion (C33)](#13-metakavita-companion-c33-1)
 
 ---
 
@@ -412,13 +414,66 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
 *   **`services/stats_service.py`**: playful `/stats` metrics + Chart.js payload from lifetime counters + cache snapshot + Manual Review achievements (`mr_achievements.py`). Gated by `ENABLE_PLAYFUL_STATS`.
 *   **`services/changelog_service.py`**: `get_app_version()` / `get_current_version()` (cached) / `get_full_changelog_html()`. Imported independently by both `app.py` (global template context) and `routes/misc.py` (`/api/changelog`) — importing from here instead of from each other avoids a circular import.
 *   **`routes/*.py`**: one Flask Blueprint per domain — `auth` (`/setup`, `/setup/test-kavita`, `/login`, `/logout`, `/account/password`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, cover search/apply, `POST …/seal-locks`, `POST …/seal-locks-pending`), `sync` (`/force-sync`, `/batch-sync` [inventory cached per batch, see `_get_batch_inventory` §4.F], `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `manual_review` (`/api/manual-reviews…` incl. `POST …/bulk-accept`), `companion` (`GET /companion/embed` — C33 MR shell for the browser extension; CSP `frame-ancestors` allows `chrome-extension:` / `moz-extension:` + optional `COMPANION_FRAME_ANCESTORS`), `misc` (`/healthz`, `/api/proxy-image`, `/api/changelog`). First-run `/setup` is a 6-step wizard (C64) that creates the account and merges Kavita / languages / options / cascades into `config.json`.
-*   **C33 Companion webhook:** `POST /webhook` accepts `seriesId` alone (name resolved via `KavitaAPI.get_series`); optional `auto` / `super_review` one-shot flags on `make_sync_item` → `enrich_series(..., force_auto=…, super_review_override=…)`. Extension lives in repo `companion/` (Chrome + Firefox MV3). Tests: `tests/test_companion_webhook.py`, `tests/test_companion_embed.py`, `tests/test_companion_i18n.py`.
+*   **C33 Companion** — see **§13** below (webhook flags, embed token, queue priority, extension layout). Short note: extension in repo `companion/` (Chrome + Firefox MV3).
 *   **`sockets/handlers.py`**: Socket.IO handlers (`connect`, `fetch_covers_stream`), registered on `extensions.socketio`; imported once for side effects from `app.py`. Unauthenticated `connect` → `return False`; successful connect emits `manual_review_pending_count` / `manual_review_queue_summary` **to the connecting `sid` only**.
 *   **`static/js/*.js`**: the former monolithic `script.js` is now plain `<script>` files loaded in dependency order (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `manual_review.js` → `license_nag.js` → `main.js`). No bundler and no `type="module"` on purpose: templates rely on inline `onclick="..."` handlers, which require every function to stay in the global scope.
 *   **`templates/partials/*.html`**: the former monolithic `index.html` is now a thin shell that `{% include %}`s Jinja partials — including `_manual_review_modal.html` for C29 — one per self-contained UI region. Edit the relevant partial directly instead of scrolling through a single 600+ line template.
 *   **`tests/`**: the pytest safety net (`conftest.py` fixtures + domain tests such as `test_auth.py`, `test_healthz.py`, `test_config_env_seeding.py`, `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_manual_review.py`, `test_manual_review_bulk_accept.py`, `test_manual_review_queue_api.py`, `test_needs_relock.py`, `test_batch_inventory_cache.py`, `test_batch_progress_isolation.py`, `test_dashboard_renders.py`, `test_supporter_nag_policy.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Fixtures never touch the real `data/` folder or the network — `isolated_db` monkeypatches `db_manager.DB_FILE`/`DATA_DIR` to a `tmp_path` SQLite file, `flask_app`/`client` build a minimal Flask app registering only `routes/series.py` (not the full `app.py`, to avoid spinning up real background workers/logging), and `mock_kavita_api` stubs out every `KavitaAPI` network method. See §10. Also note shared helpers: `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
 ⚠️ **Blueprint endpoint names changed.** Flask always prefixes a Blueprint route's endpoint with the Blueprint's name (e.g. the `login` view in `routes/auth.py`, registered on the `auth` Blueprint, becomes endpoint `auth.login` — there is no way to opt out of this prefixing). Every `url_for(...)` call and the whitelist in `auth_manager.setup_gate` / `login_gate` were updated accordingly (`auth.setup`, `auth.login`, `auth.logout`, `pages.index`, `pages.stats`, `misc.healthz`, `sync.export_errors`, `sync.webhook`). **If you rename a Blueprint or move a route to a different Blueprint, grep for its old endpoint string across `auth_manager.py`, `app.py` and every `.html` template before assuming `url_for()` still resolves.**
+
+---
+
+### 13. MetaKavita Companion (C33)
+
+**Status:** beta / early access — **sideload only** (not on Chrome Web Store or Firefox AMO). Requires MetaKavita **1.6.5+**.
+
+End-user install, pairing, and feature overview: [`companion/README.md`](companion/README.md) (EN + FR). Extension-only contributor notes (layout, message protocol, packing): [`companion/DEVELOPER.md`](companion/DEVELOPER.md).
+
+#### What it is
+
+MV3 browser extension under `companion/` that injects a floating action menu on Kavita **series detail** pages (`/library/{lib}/series/{id}` only — not the reader). Actions: Super Review, Auto, Cover pick, Config, Buy me a coffee.
+
+#### Server surface (MetaKavita)
+
+| Piece | Role |
+|-------|------|
+| `POST /webhook` | Auth via `X-Webhook-Token` (prefer) or legacy `?token=`. Companion may send `seriesId` alone (name resolved via `KavitaAPI.get_series`), plus one-shot flags `auto` / `super_review` (+ usual `force`). |
+| `make_sync_item(..., super_review=, force_auto=)` → `enrich_series(..., force_auto=, super_review_override=)` | One-shot overrides; Companion buttons do **not** require global MR/Super toggles. |
+| `put_front` (`services/background_tasks.py`) | Priority enqueue: after the in-flight job, ahead of the rest of `sync_queue`; drops pending same `series_id` (RAM + C63 `queued` rows). |
+| `GET/POST /companion/embed-token` | Short-lived embed token bound to a `series_id` (`services/companion_embed_auth.py`). |
+| `GET /companion/embed` | Manual Review shell for iframe / new-tab Super Review (`routes/companion.py`, `templates/companion_embed.html`). CSP `frame-ancestors`: `chrome-extension:` / `moz-extension:` + optional `COMPANION_FRAME_ANCESTORS`. |
+| Cover APIs | Used by the extension background for Cover pick (same allowlisted download / proxy paths as the dashboard). |
+
+#### Manual Review streaming
+
+In Manual Review / Super Review paths used by Companion, enrichment parks an empty review early (`begin_streaming_review`) and appends cards as scrapers finish (`append_streaming_candidate` → Socket.IO), then `finalize_streaming_review`. This lets the embed open before the cascade completes.
+
+#### Mixed content
+
+HTTPS Kavita + HTTP MetaKavita: browsers block the HTTP iframe. Companion opens Super Review in a **new tab** (keep `opener`, no `noopener`) and closes it when the run finishes. Proper fix for in-page MR: serve MetaKavita over HTTPS (or use HTTP Kavita on LAN).
+
+#### Auth / CSRF notes
+
+- Webhook is CSRF-exempt (token auth).
+- Embed token can authorize Companion embed + related MR/cover paths without a session cookie (needed inside cross-origin Kavita iframes / tabs). Prefer series-scoped checks where the route has a series id.
+- Socket.IO Companion auth follows the same embed-token pattern for cover streams.
+
+#### Tests
+
+- `tests/test_companion_webhook.py` — `seriesId`, `auto` / `super_review`, enrich overrides
+- `tests/test_companion_embed.py` / `test_companion_embed_auth.py` — embed shell + token
+- `tests/test_companion_i18n.py` — UI strings
+- `tests/test_sync_queue_priority.py` — `put_front` / replace pending
+- `tests/test_manual_review_streaming.py` — streaming park / finalize
+
+#### Packing the extension
+
+```bash
+node companion/scripts/pack.mjs
+```
+
+Writes `companion/dist/metakavita-companion-chrome.zip` and `…-firefox.zip`. Bump **both** `manifest.json` and `manifest.firefox.json` `version` when shipping a user-visible change. Do not commit unpacked `dist/_chrome/` / `dist/_firefox/` staging folders (gitignored).
 
 <br><br>
 
@@ -773,10 +828,63 @@ Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage 
 *   **`services/stats_service.py`** : métriques `/stats` ludiques + payload Chart.js à partir des compteurs lifetime + snapshot cache + hauts-faits Manual Review (`mr_achievements.py`). Piloté par `ENABLE_PLAYFUL_STATS`.
 *   **`services/changelog_service.py`** : `get_app_version()` / `get_current_version()` (mise en cache) / `get_full_changelog_html()`. Importé indépendamment par `app.py` (contexte global des templates) et par `routes/misc.py` (`/api/changelog`) — importer depuis ce module plutôt que l'un depuis l'autre évite un import circulaire.
 *   **`routes/*.py`** : un Blueprint Flask par domaine — `auth` (`/setup`, `/setup/test-kavita`, `/login`, `/logout`, `/account/password`), `pages` (`/`, `/stats`), `config` (`/save-config`, `/regenerate-webhook-token`), `series` (`/save-override`, `/toggle-ignore`, recherche/application de couverture, `POST …/seal-locks`, `POST …/seal-locks-pending`), `sync` (`/force-sync`, `/batch-sync` [inventaire mis en cache par batch, voir `_get_batch_inventory` §4.F], `/stop-batch`, `/reset-errors`, `/export-errors`, `/webhook`), `manual_review` (`/api/manual-reviews…` dont `POST …/bulk-accept`), `companion` (`GET /companion/embed` — shell MR C33 pour l’extension ; CSP `frame-ancestors` : `chrome-extension:` / `moz-extension:` + `COMPANION_FRAME_ANCESTORS` optionnel), `misc` (`/healthz`, `/api/proxy-image`, `/api/changelog`). Le `/setup` first-run est un wizard 6 étapes (C64) qui crée le compte et fusionne Kavita / langues / options / cascades dans `config.json`.
-*   **Webhook Companion C33 :** `POST /webhook` accepte `seriesId` seul (nom via `KavitaAPI.get_series`) ; flags one-shot `auto` / `super_review` → `make_sync_item` → `enrich_series(..., force_auto=…, super_review_override=…)`. Extension dans `companion/` (Chrome + Firefox MV3). Tests : `tests/test_companion_webhook.py`, `tests/test_companion_embed.py`, `tests/test_companion_i18n.py`.
+*   **Companion C33** — voir **§13** ci-dessous (flags webhook, embed token, priorité de file, layout extension). Rappel : extension dans `companion/` (Chrome + Firefox MV3).
 *   **`sockets/handlers.py`** : handlers Socket.IO (`connect`, `fetch_covers_stream`), enregistrés sur `extensions.socketio` ; importé une seule fois pour son effet de bord depuis `app.py`. `connect` non authentifié → `return False` ; connect réussi émet `manual_review_pending_count` / `manual_review_queue_summary` **uniquement vers le `sid` connecté**.
 *   **`static/js/*.js`** : l'ancien `script.js` monolithique est désormais découpé en fichiers `<script>` classiques chargés dans l'ordre de dépendance (`utils.js` → `websocket.js` → `overrides.js` → `covers.js` → `config.js` → `batch.js` → `manual_review.js` → `license_nag.js` → `main.js`). Volontairement sans bundler ni `type="module"` : les templates s'appuient sur des gestionnaires `onclick="..."` inline, qui exigent que chaque fonction reste en portée globale.
 *   **`templates/partials/*.html`** : l'ancien `index.html` monolithique est désormais une coquille légère qui `{% include %}` des partials Jinja — dont `_manual_review_modal.html` pour C29 — un par zone d'UI autonome. Modifiez directement le partial concerné plutôt que de faire défiler un template unique de 600+ lignes.
 *   **`tests/`** : le filet de sécurité pytest (fixtures `conftest.py` + tests métier dont `test_auth.py`, `test_healthz.py`, `test_config_env_seeding.py`, `test_db_manager.py`, `test_kavita_api.py`, `test_playful_stats.py`, `test_manual_review.py`, `test_manual_review_bulk_accept.py`, `test_manual_review_queue_api.py`, `test_needs_relock.py`, `test_batch_inventory_cache.py`, `test_batch_progress_isolation.py`, `test_dashboard_renders.py`, `test_supporter_nag_policy.py`, `test_batch_targeted_fields.py`, `test_comic_flexible.py`, `test_scraper_mangabaka.py`, `test_routes_series.py`, `test_max_tags.py`, `test_max_genres.py`, `test_scraper_max_caps.py`, `test_audit_c1_c3.py`, `test_fallback_query.py`, `test_metadata_fetcher_smart_scoring.py`, …). Les fixtures ne touchent jamais au vrai dossier `data/` ni au réseau — `isolated_db` monkeypatch `db_manager.DB_FILE`/`DATA_DIR` vers un fichier SQLite `tmp_path`, `flask_app`/`client` construisent une application Flask minimale n'enregistrant que `routes/series.py` (pas `app.py` en entier, pour éviter de démarrer de vrais workers de fond/logging), et `mock_kavita_api` bouchonne chaque méthode réseau de `KavitaAPI`. Voir §10. Helpers partagés : `url_allowlist.py`, `csrf_utils.py`, `cors_config.py`.
 
 ⚠️ **Les noms d'endpoints des Blueprints ont changé.** Flask préfixe toujours l'endpoint d'une route de Blueprint par le nom du Blueprint (ex : la vue `login` de `routes/auth.py`, enregistrée sur le Blueprint `auth`, devient l'endpoint `auth.login` — impossible de désactiver ce préfixage). Chaque appel `url_for(...)` et les listes blanches de `auth_manager.setup_gate` / `login_gate` ont été mis à jour en conséquence (`auth.setup`, `auth.login`, `auth.logout`, `pages.index`, `pages.stats`, `misc.healthz`, `sync.export_errors`, `sync.webhook`). **Si vous renommez un Blueprint ou déplacez une route vers un autre Blueprint, recherchez son ancien nom d'endpoint dans `auth_manager.py`, `app.py` et dans chaque template `.html` avant de supposer que `url_for()` fonctionne toujours.**
+
+---
+
+### 13. MetaKavita Companion (C33)
+
+**Statut :** bêta / early access — **sideload uniquement** (pas sur Chrome Web Store ni Firefox AMO). Nécessite MetaKavita **1.6.5+**.
+
+Install utilisateur, branchement et fonctions : [`companion/README.md`](companion/README.md) (EN + FR). Notes contributeurs côté extension (layout, protocole messages, pack) : [`companion/DEVELOPER.md`](companion/DEVELOPER.md).
+
+#### Rôle
+
+Extension MV3 sous `companion/` qui injecte un menu flottant sur les **fiches série** Kavita (`/library/{lib}/series/{id}` uniquement — pas le reader). Actions : Super Review, Auto, Cover, Config, Buy me a coffee.
+
+#### Surface serveur (MetaKavita)
+
+| Élément | Rôle |
+|---------|------|
+| `POST /webhook` | Auth via `X-Webhook-Token` (préféré) ou `?token=` legacy. Companion peut envoyer `seriesId` seul (nom via `KavitaAPI.get_series`), plus flags one-shot `auto` / `super_review` (+ `force` habituel). |
+| `make_sync_item(..., super_review=, force_auto=)` → `enrich_series(..., force_auto=, super_review_override=)` | Overrides one-shot ; les boutons Companion **n’exigent pas** les toggles MR/Super globaux. |
+| `put_front` (`services/background_tasks.py`) | Enfile en priorité : après le job en cours, devant le reste de `sync_queue` ; retire les pending même `series_id` (RAM + lignes C63 `queued`). |
+| `GET/POST /companion/embed-token` | Jeton embed court, lié à un `series_id` (`services/companion_embed_auth.py`). |
+| `GET /companion/embed` | Shell Manual Review pour iframe / nouvel onglet (`routes/companion.py`, `templates/companion_embed.html`). CSP `frame-ancestors` : `chrome-extension:` / `moz-extension:` + `COMPANION_FRAME_ANCESTORS` optionnel. |
+| APIs covers | Utilisées par le background de l’extension pour Cover pick (mêmes chemins allowlist / proxy que le dashboard). |
+
+#### Streaming Manual Review
+
+Sur les chemins MR / Super Review utilisés par Companion, l’enrichissement parque une review vide tôt (`begin_streaming_review`), ajoute les cartes au fil des scrapers (`append_streaming_candidate` → Socket.IO), puis `finalize_streaming_review`. L’embed peut s’ouvrir avant la fin de la cascade.
+
+#### Contenu mixte
+
+HTTPS Kavita + HTTP MetaKavita : le navigateur bloque l’iframe HTTP. Companion ouvre Super Review dans un **nouvel onglet** (garder `opener`, pas de `noopener`) et le ferme en fin de parcours. Vrai correctif pour le MR in-page : servir MetaKavita en HTTPS (ou Kavita en HTTP sur le LAN).
+
+#### Auth / CSRF
+
+- Webhook exempt CSRF (auth par jeton).
+- Le jeton embed peut autoriser l’embed Companion + chemins MR/cover associés sans cookie de session (nécessaire dans les iframes / onglets Kavita cross-origin). Préférer les checks scopés série quand la route a un `series_id`.
+- L’auth Socket.IO Companion suit le même modèle de jeton embed pour les streams de covers.
+
+#### Tests
+
+- `tests/test_companion_webhook.py` — `seriesId`, `auto` / `super_review`, overrides enrich
+- `tests/test_companion_embed.py` / `test_companion_embed_auth.py` — shell embed + jeton
+- `tests/test_companion_i18n.py` — chaînes UI
+- `tests/test_sync_queue_priority.py` — `put_front` / remplacement pending
+- `tests/test_manual_review_streaming.py` — park streaming / finalize
+
+#### Pack de l’extension
+
+```bash
+node companion/scripts/pack.mjs
+```
+
+Produit `companion/dist/metakavita-companion-chrome.zip` et `…-firefox.zip`. Incrémenter **les deux** `version` (`manifest.json` et `manifest.firefox.json`) pour un changement visible. Ne pas committer les dossiers de staging `dist/_chrome/` / `dist/_firefox/` (gitignorés).
