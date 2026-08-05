@@ -322,13 +322,28 @@ In the **Config Modal** (Planning section) you get the base webhook URL (`/webho
 ```json
 {
   "seriesId": 6827,
-  "name": "Chiisakobe",
   "force": true
 }
 ```
-*(Setting `"force": true` in the JSON or adding `&force=true` to the URL triggers a forced re-scrape, overwriting existing metadata even if already marked as completed).*
+`seriesId` is enough — MetaKavita resolves the series name via the Kavita API. Optional legacy `"name"` is still accepted. `"force": true` forces a re-scrape.
 
-#### 3. Health Endpoint
+**Companion flags (C33):**
+```json
+{ "seriesId": 6827, "force": true, "auto": true }
+{ "seriesId": 6827, "force": true, "super_review": true }
+```
+- `auto: true` — write path even if Manual Review mode is on (Companion **Auto** button).
+- `super_review: true` — one-shot Super Manual Review park (wins over `auto` if both are set).
+
+#### 3. MetaKavita Companion (browser extension) — *in development*
+
+Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.22**, MetaKavita **1.6.5**+). Sideload only — not on browser stores. Aimed at power users; production MetaKavita stays on **1.6.4** until 1.6.5 ships.
+
+Floating icon menu on Kavita **series** pages — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review embeds `/companion/embed` when schemes match; HTTPS Kavita + HTTP Meta → **new tab** (mixed-content block), then auto-closes when the review finishes. Companion one-shots **override** MR/Super toggles, jump ahead of a running batch queue (after the in-flight job), and **replace** any pending job for the same series.
+
+Install / pairing / status: [`companion/README.md`](companion/README.md). Pack: `node companion/scripts/pack.mjs`. Also linked from the in-app **Help** menu (1.6.5).
+
+#### 4. Health Endpoint
 
 `GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
 
@@ -660,13 +675,28 @@ Dans la **Modal Config** (section Planification) vous avez l'URL de base (`/webh
 ```json
 {
   "seriesId": 6827,
-  "name": "Chiisakobe",
   "force": true
 }
 ```
-*(Définir `"force": true` dans le JSON ou ajouter `&force=true` dans l'URL déclenche un ré-enrichissement forcé, écrasant les métadonnées existantes même si la fiche était marquée comme complétée).*
+`seriesId` suffit — MetaKavita résout le nom via l’API Kavita. `"name"` legacy optionnel. `"force": true` force un re-scrape.
 
-#### 3. Endpoint de santé
+**Flags Companion (C33) :**
+```json
+{ "seriesId": 6827, "force": true, "auto": true }
+{ "seriesId": 6827, "force": true, "super_review": true }
+```
+- `auto: true` — écriture même si Manual Review global est on (bouton **Auto**).
+- `super_review: true` — Super Review one-shot (prioritaire sur `auto`).
+
+#### 3. MetaKavita Companion (extension navigateur) — *en développement*
+
+Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.22**, MetaKavita **1.6.5**+). Sideload seulement — pas sur les stores. Pour les early adopters ; la prod MetaKavita reste en **1.6.4** jusqu’à la sortie de 1.6.5.
+
+Menu flottant sur les **fiches série** Kavita — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review via `/companion/embed` si les schémas matchent ; HTTPS Kavita + HTTP Meta → **nouvel onglet** (mixed content), fermeture auto en fin de parcours. Les one-shots Companion **passent outre** les toggles MR/Super, passent devant la file batch (après le job en cours) et **remplacent** tout job pending pour la même série.
+
+Install / branchement / état : [`companion/README.md`](companion/README.md). Pack : `node companion/scripts/pack.mjs`. Aussi dans le menu **Aide** (1.6.5).
+
+#### 4. Endpoint de santé
 
 `GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
 

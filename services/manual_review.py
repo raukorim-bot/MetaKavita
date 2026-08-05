@@ -149,6 +149,171 @@ def emit_pending_count() -> int:
     return n
 
 
+def begin_streaming_review(
+    series_id: int,
+    series_name: str,
+    query: str = "",
+    library_id: Optional[int] = None,
+) -> str:
+    """
+    Park an empty `awaiting_pick` review immediately so Companion can open the
+    modal while scrapers are still running. Cards arrive via
+    `append_streaming_candidate` / `manual_review_candidate` events.
+    """
+    review_id = str(uuid.uuid4())
+    payload = {
+        "above": [],
+        "below": [],
+        "query": query or "",
+        "streaming": True,
+    }
+    park_pending_review(
+        review_id=review_id,
+        series_id=int(series_id),
+        series_name=series_name or "",
+        candidates_json=payload,
+        state="awaiting_pick",
+        library_id=library_id,
+    )
+    _safe_emit(
+        "manual_review_queued",
+        {
+            "review_id": review_id,
+            "series_id": int(series_id),
+            "series_name": series_name or "",
+            "above_count": 0,
+            "below_count": 0,
+            "library_id": library_id,
+            "streaming": True,
+        },
+    )
+    emit_pending_count()
+    return review_id
+
+
+def append_streaming_candidate(
+    review_id: str,
+    series_id: int,
+    card: Dict[str, Any],
+    band: str = "above",
+) -> None:
+    """Merge one candidate card into a streaming review and emit to the UI."""
+    if not review_id or not isinstance(card, dict):
+        return
+    band_key = "below" if band == "below" else "above"
+    row = get_pending_review(review_id)
+    if not row:
+        return
+    try:
+        payload = json.loads(row.get("candidates_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        payload = {"above": [], "below": [], "query": ""}
+    if not isinstance(payload, dict):
+        payload = {"above": [], "below": [], "query": ""}
+    provider = card.get("provider")
+    for other in ("above", "below"):
+        cards = payload.get(other) or []
+        if not isinstance(cards, list):
+            continue
+        payload[other] = [
+            c for c in cards
+            if not (isinstance(c, dict) and provider and c.get("provider") == provider)
+        ]
+    bucket = payload.get(band_key)
+    if not isinstance(bucket, list):
+        bucket = []
+        payload[band_key] = bucket
+    bucket.append(card)
+    payload["streaming"] = True
+    update_pending_review(review_id, candidates_json=payload)
+    from metadata_fetcher import candidate_card_for_ui
+
+    lite = candidate_card_for_ui(card) or {
+        "provider": provider,
+        "score": card.get("score"),
+        "title": card.get("title"),
+        "cover_url": card.get("cover_url"),
+    }
+    _safe_emit(
+        "manual_review_candidate",
+        {
+            "review_id": review_id,
+            "series_id": int(series_id),
+            "band": band_key,
+            "card": lite,
+            "above_count": len(payload.get("above") or []),
+            "below_count": len(payload.get("below") or []),
+        },
+    )
+
+
+def finalize_streaming_review(
+    review_id: str,
+    series_id: int,
+    series_name: str,
+    candidates_payload: Dict[str, Any],
+    library_id: Optional[int] = None,
+) -> str:
+    """
+    Replace the streaming payload with the final (translated) candidates and
+    emit `manual_review_scrape_complete`.
+    """
+    t = get_ui_translations()
+    payload = candidates_payload if isinstance(candidates_payload, dict) else {
+        "above": [],
+        "below": [],
+        "query": "",
+    }
+    try:
+        payload, n_tr = translate_candidate_summaries(payload)
+        if n_tr:
+            logging.info(
+                t.get(
+                    "log_mr_summaries_translated",
+                    "[manual_review] {0} résumé(s) traduit(s) avant pick ({1})",
+                ).format(n_tr, series_name or series_id)
+            )
+    except Exception as exc:
+        logging.warning(
+            t.get(
+                "log_mr_summaries_fail",
+                "[manual_review] traduction des résumés échouée pour {0} : {1}",
+            ).format(series_name or series_id, exc)
+        )
+    if isinstance(payload, dict):
+        payload.pop("streaming", None)
+    if get_pending_review(review_id):
+        update_pending_review(
+            review_id,
+            candidates_json=payload,
+            series_name=series_name or "",
+            library_id=library_id,
+            state="awaiting_pick",
+        )
+    else:
+        park_pending_review(
+            review_id=review_id,
+            series_id=int(series_id),
+            series_name=series_name or "",
+            candidates_json=payload,
+            state="awaiting_pick",
+            library_id=library_id,
+        )
+    _safe_emit(
+        "manual_review_scrape_complete",
+        {
+            "review_id": review_id,
+            "series_id": int(series_id),
+            "series_name": series_name or "",
+            "above_count": len(payload.get("above") or []),
+            "below_count": len(payload.get("below") or []),
+            "library_id": library_id,
+        },
+    )
+    emit_pending_count()
+    return review_id
+
+
 def create_review_from_candidates(
     series_id: int,
     series_name: str,

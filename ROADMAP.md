@@ -19,7 +19,7 @@
 - [x] **C60. Core comics / manga promotions (v1.6.3):** ANN, LoCG, Planète BD, and Metron (`METRON_API_KEY`) promoted from the community repo into the Docker image.
 - [x] **C61. Scraper Manage + Community Store (v1.6.3):** `/manage-scrapers` + `/scraper-store` (Help); registry from `data/scrapers/`; catalog sha256; `DISABLED_SCRAPERS`; hub tabs + community beta notice. See Latest Releases.
 - [ ] **C31. Kavita Deduplication Tool:** Dedicated UI panel to detect and merge duplicate series or volumes in Kavita.
-- [ ] **C33. Browser Extension "MetaKavita Companion":** Floating widget overlay directly on top of the Kavita Web UI to trigger MetaKavita updates natively.
+- [x] **C33. Browser Extension "MetaKavita Companion" (dev):** Chrome + Firefox MV3 under `companion/` — series-page FABs (Super Review / Auto / Config) in an extension overlay; webhook `seriesId`-only + `auto` / `super_review`; `/companion/embed` iframe for full Manual Review. Sideload zips via `node companion/scripts/pack.mjs` (not store-published yet).
 - [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) when API rate limits or offline labs matter. (Wikidata itself is Magasin-only since v1.6.3.)
 - [ ] **Volume / issue metadata (community ask #27):** Per-volume / comic-issue enrichment — `BaseScraper.scopes` already reserves `volume`; pipeline + UI still open.
 - [x] **C40. Support the Developer (Donations) (v1.6.1):** Buy Me a Coffee link in the sidebar / topbar / About, rare playful supporter overlays, and café CTA in Manual Review recap (no paywall / license keys).
@@ -204,7 +204,7 @@
 - [x] **C60. Promotions comics / manga core (v1.6.3) :** ANN, LoCG, Planète BD et Metron (`METRON_API_KEY`) promus du dépôt communautaire dans l’image Docker.
 - [x] **C61. Manage scrapers + Magasin (v1.6.3) :** `/manage-scrapers` + `/scraper-store` (Aide) ; registre `data/scrapers/` ; catalogue sha256 ; `DISABLED_SCRAPERS` ; onglets hub + avis beta community. Voir Dernières Nouveautés.
 - [ ] **C31. Outil de Déduplication Kavita :** Panneau UI pour détecter et fusionner les doublons dans Kavita.
-- [ ] **C33. Extension Navigateur "MetaKavita Companion" :** Widget flottant en surcouche directement sur l'interface Web de Kavita pour déclencher les mises à jour MetaKavita nativement.
+- [x] **C33. Extension Navigateur "MetaKavita Companion" (dev) :** Chrome + Firefox MV3 dans `companion/` — FABs page série (Super Review / Auto / Config) en overlay extension ; webhook `seriesId` seul + `auto` / `super_review` ; iframe `/companion/embed` pour le Manual Review complet. Zips sideload via `node companion/scripts/pack.mjs` (pas encore sur les stores).
 - [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel quand les quotas API ou un labo hors-ligne importent. (Wikidata = Magasin seul depuis v1.6.3.)
 - [ ] **Métadonnées volume / issue (demande #27) :** enrichissement par tome / album — `scopes` volume déjà réservé sur `BaseScraper` ; pipeline + UI encore ouverts.
 - [x] **C40. Soutien au développeur (Dons) (v1.6.1) :** lien Buy Me a Coffee dans la sidebar / topbar / À propos, overlays supporter ludiques rares, et CTA café dans le récap Review Manuelle (pas de paywall / clé licence).

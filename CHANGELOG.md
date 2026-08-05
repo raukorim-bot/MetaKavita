@@ -1,11 +1,17 @@
 ## [1.6.5] - 2026-08-03 (Manual Review cover pick hardening)
 
 EN
+### ✨ What's new
+* **C33. MetaKavita Companion docs in Help** — Help → Documentation links to [`companion/README.md`](companion/README.md) (sideload Chrome/Firefox, pairing, mixed-content tab flow). Companion stays **in development** (sideload / power users); not store-published. Project status + install live there; overview also in the main README (Auto-Sync & Webhooks).
+* **C33. Companion Super/Auto queue priority** — Webhook one-shots (`super_review` / `auto`) jump to the front of `sync_queue` (after the in-flight job). If the same series is already pending (batch or otherwise), that job is dropped (RAM + C63 queued row) and replaced by the Companion job. MR/Super sidebar toggles remain optional overrides. Tests: `tests/test_sync_queue_priority.py`.
 ### 🐛 Bug Fixes
 * **BF103. Manual Review cover pick survives reopen / queue jump** — After provider choice (`awaiting_confirm`), reopening the modal or jumping via the series list skipped the cover phase and jumped straight to edit (worse when cover-only / edit off). `showCurrentReview` now restores the cover phase when `MANUAL_REVIEW_COVER_PICK` is on (auto-confirm / CBW unchanged).
 * **BF103. Explicit MR cover upload locks MetaKavita `targeted_fields`** — Dashboard `/update-cover` already removed `cover` from the series field mask; Manual Review `force_cover_upload` only set Kavita `lockCover`. Shared helper `protect_manual_cover_field` now runs after a successful explicit cover upload so a later sync with `AUTO_COVER` cannot overwrite the pick. `/update-cover` refactored onto the same helper. Tests: `tests/test_manual_review.py`, `tests/test_routes_series_cover.py`.
 
 FR
+### ✨ Nouveautés
+* **C33. Companion dans le menu Aide** — Aide → Documentation pointe vers [`companion/README.md`](companion/README.md) (sideload Chrome/Firefox, branchement, onglet mixed content). Companion reste **en développement** (sideload / early adopters) ; pas de publication store. État du projet + install détaillés là ; aperçu aussi dans le README principal (Auto-Sync & Webhooks).
+* **C33. Priorité file Companion Super/Auto** — Les one-shots webhook (`super_review` / `auto`) passent en tête de `sync_queue` (après le job en cours). Si la même série est déjà en attente (batch ou autre), ce job est retiré (RAM + ligne C63 queued) et remplacé par le job Companion. Les toggles MR/Super sidebar restent optionnels (override). Tests : `tests/test_sync_queue_priority.py`.
 ### 🐛 Correctifs
 * **BF103. Phase couverture Manual Review survit au reopen / jump** — Après le pick (`awaiting_confirm`), rouvrir la modale ou jumper via la liste sautait la phase cover pour l’edit (pire en cover-only). `showCurrentReview` restaure la phase cover si `MANUAL_REVIEW_COVER_PICK` est actif (auto-confirm / CBW inchangé).
 * **BF103. Upload cover MR explicite verrouille `targeted_fields` MetaKavita** — `/update-cover` retirait déjà `cover` du masque ; le chemin MR `force_cover_upload` ne posait que `lockCover` Kavita. Helper partagé `protect_manual_cover_field` après upload explicite réussi — un sync ultérieur avec `AUTO_COVER` ne peut plus écraser le choix. `/update-cover` refactoré sur le même helper. Tests : `tests/test_manual_review.py`, `tests/test_routes_series_cover.py`.

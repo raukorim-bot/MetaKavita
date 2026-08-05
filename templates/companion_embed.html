@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark" class="companion-embed">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>{{ companion_wait_title }} — MetaKavita Companion</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        body.companion-embed-body {
+            margin: 0;
+            min-height: 100vh;
+            background: var(--bg-main, #0f1419);
+            color: var(--text-main, #e8eef5);
+        }
+        .companion-wait {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 12px;
+            min-height: 100vh;
+            padding: 24px;
+            text-align: center;
+        }
+        .companion-wait h1 {
+            margin: 0;
+            font-size: 1.25rem;
+            font-weight: 650;
+        }
+        .companion-wait p {
+            margin: 0;
+            max-width: 28rem;
+            color: var(--text-muted, #94a3b8);
+            font-size: 0.95rem;
+            line-height: 1.45;
+        }
+        .companion-wait-spinner {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: 3px solid color-mix(in srgb, var(--primary, #38bdf8) 25%, transparent);
+            border-top-color: var(--primary, #38bdf8);
+            animation: companion-spin 0.8s linear infinite;
+        }
+        @keyframes companion-spin { to { transform: rotate(360deg); } }
+        /* Embed: MR modal fills the frame */
+        .companion-embed #manualReviewModal.modal-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            background: var(--bg-main, #0f1419);
+        }
+        .companion-embed #manualReviewModal .modal-content.mr-modal {
+            width: 100%;
+            max-width: none;
+            height: 100%;
+            max-height: none;
+            margin: 0;
+            border-radius: 0;
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        window.ROOT_PATH = "{{ request.script_root }}";
+        window.KAVITA_UI_URL = {{ kavita_ui_url|tojson }};
+        window.PROXY_COVER_HOSTS = {{ proxy_cover_hosts|default([])|tojson }};
+        window.AppTranslations = {{ app_translations|tojson }};
+        window.COMPANION_EMBED = {
+            seriesId: {{ series_id|int }},
+            reviewId: {{ review_id|tojson }},
+            parentOrigin: {{ parent_origin|tojson }},
+            topOrigin: {{ top_origin|tojson }},
+            embedToken: {{ embed_token|tojson }},
+            singleSeries: true
+        };
+        // Inject embed token on every API call (session cookies are not sent in
+        // a cross-origin Kavita iframe under SameSite=Lax).
+        (function () {
+            var cfg = window.COMPANION_EMBED || {};
+            if (!cfg.embedToken || !window.fetch) return;
+            var originalFetch = window.fetch.bind(window);
+            window.fetch = function (input, init) {
+                init = init || {};
+                var headers = new Headers(init.headers || {});
+                if (!headers.has("X-Companion-Embed-Token")) {
+                    headers.set("X-Companion-Embed-Token", cfg.embedToken);
+                }
+                init = Object.assign({}, init, { headers: headers, credentials: init.credentials || "include" });
+                return originalFetch(input, init);
+            };
+        })();
+        // Tell the overlay we actually loaded (lets it detect a blocked iframe).
+        (function () {
+            var cfg = window.COMPANION_EMBED || {};
+            function ping() {
+                try {
+                    var target = cfg.topOrigin || cfg.parentOrigin;
+                    if (window.parent && window.parent !== window && target) {
+                        window.parent.postMessage(
+                            { source: "metakavita-companion", type: "mk:embed-ready", seriesId: cfg.seriesId },
+                            target
+                        );
+                    }
+                } catch (e) { /* ignore */ }
+            }
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", ping);
+            } else {
+                ping();
+            }
+            window.addEventListener("load", ping);
+        })();
+    </script>
+</head>
+<body class="companion-embed-body" data-companion-embed="1">
+    <div id="companionWait" class="companion-wait" data-companion-marker="embed-wait">
+        <div class="companion-wait-spinner" aria-hidden="true"></div>
+        <h1>{{ companion_wait_title }}</h1>
+        <p>{{ companion_wait_text }}</p>
+    </div>
+
+    {% include "partials/_manual_review_modal.html" %}
+
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/websocket.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/covers.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/manual_review.js') }}"></script>
+</body>
+</html>

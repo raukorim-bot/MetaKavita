@@ -62,7 +62,7 @@ class OpenLibraryScraper(BaseScraper):
     is_core = True
     display_name = "Open Library (Livres/Romans)"
     supported_types = {"Book", "Comic"}
-    rate_limit = 2.0
+    rate_limit = 1.1  # ~0.91/s: 10% under anonymous 1 req/s (no login / no special setup)
     proxy_domains = ["openlibrary.org", "covers.openlibrary.org", "books.google.com"]
     has_direct_id_support = True
     requires_proxy = False

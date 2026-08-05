@@ -549,7 +549,7 @@ def _install_zero_match_threshold():
     return restore
 
 
-def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO", existing_metadata=None, smart_scoring=None, return_candidates=False):
+def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO", existing_metadata=None, smart_scoring=None, return_candidates=False, on_candidate=None):
     """
     Orchestre la cascade multi-fournisseurs.
 
@@ -574,6 +574,10 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     Collecte tous les candidats utiles (seuil scrapers temporairement à 0.0),
     partitionne above/below selon le vrai seuil UI, retourne
     `({"above": [...], "below": [...], "query": query}, used_providers)`.
+
+    `on_candidate(card, band)` (optionnel, return_candidates only) : appelé dès
+    qu'un scraper utile répond — même pattern que le stream covers — pour que
+    l'UI affiche les cartes au fur et à mesure.
     """
     config = load_config()
     ui_lang = config.get('UI_LANG', 'fr')
@@ -585,6 +589,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     used_providers = []
     base_provider_set = False
     collected = []  # [(idx, p, data), ...] — mode return_candidates uniquement
+    streamed_providers = set()  # évite les doublons si fallback rejoue un provider
 
     accumulated_ids = {'anilist_id': None, 'mal_id': None, 'mangabaka_id': None}
     accumulated_links = set()
@@ -671,6 +676,22 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 elif isinstance(link_obj, str):
                     accumulated_links.add(link_obj)
 
+    def stream_candidate(idx, p, data):
+        """Emit one MR card as soon as a scraper returns useful data."""
+        if not return_candidates or not callable(on_candidate):
+            return
+        if p in streamed_providers:
+            return
+        streamed_providers.add(p)
+        try:
+            # Use the real UI threshold for band (scrapers ran at 0.0).
+            score = _safe_match_score(data)
+            is_below = score < get_match_accept_threshold()
+            card = build_candidate_card(p, data, below_threshold=is_below)
+            on_candidate(card, "below" if is_below else "above")
+        except Exception as exc:
+            logging.debug("on_candidate skipped for %s: %s", p, exc)
+
     def apply_accepted(accepted):
         """Applique la liste ordonnée de candidats (vainqueur + éventuelle fusion)."""
         nonlocal base_provider_set, master_data
@@ -678,6 +699,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
             for entry in accepted:
                 collected.append(entry)
                 absorb_candidate(entry[2])
+                stream_candidate(entry[0], entry[1], entry[2])
             return
 
         for _, p, data in accepted:
@@ -747,11 +769,15 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         p0 = providers_list[0]
         _, p0_data = call_provider(p0, current_query, is_id_search_forced, current_existing)
         if p0_data and has_useful_data(p0_data):
+            p0_data = apply_explicit_label_age(p0_data) or p0_data
             accepted.append((0, p0, p0_data))
             # Snapshot obligatoire pour le contexte wave-2 (ISBN/auteurs/IDs).
             # apply_accepted() en fin de run ré-absorbe aussi — double absorb
             # intentionnel et idempotent (ne pas retirer ce bloc).
             absorb_candidate(p0_data)
+            # Stream immediately (covers-like) so Companion can open on first hit.
+            if return_candidates:
+                stream_candidate(0, p0, p0_data)
 
         # Vague 2 (parallèle) : providers restants sur un instantané figé du contexte.
         rest = providers_list[1:]
@@ -770,12 +796,17 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                         logging.error(t.get("log_scraper_parallel_err", "❌ [Scraper {0}] Erreur inattendue en exécution parallèle : {1}").format(p, e))
                         data = None
                     if data and has_useful_data(data):
+                        data = apply_explicit_label_age(data) or data
                         accepted.append((idx, p, data))
+                        if return_candidates:
+                            # Progressive emit — do not wait for the whole wave.
+                            stream_candidate(idx, p, data)
 
         if not accepted:
             return
 
         # BF81: hentai/futanari → x18 before sort/apply (scores unchanged).
+        # (Already applied above for progressive path; keep for safety.)
         accepted = [
             (idx, p, apply_explicit_label_age(data) or data)
             for idx, p, data in accepted
@@ -789,6 +820,11 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 key=lambda entry: (-_safe_match_score(entry[2]), entry[0])
             )
             tie = []
+            # Cards already streamed during the wave; only collect + absorb here.
+            for entry in accepted:
+                collected.append(entry)
+                absorb_candidate(entry[2])
+            return
         else:
             accepted.sort(
                 key=lambda entry: (

@@ -296,20 +296,37 @@ class KavitaAPI:
         `None` si cette série n'a jamais été résolue dans ce process."""
         return self._series_library_id_cache.get(int(series_id))
 
+    def fetch_series(self, series_id, timeout: float = 15):
+        """
+        Like get_series but distinguishes failures.
+
+        Returns (series_dict|None, error_code|None) where error_code is one of:
+          kavita_auth | kavita_unreachable | series_not_found
+        """
+        if not self.token and not self.authenticate():
+            return None, "kavita_auth"
+        try:
+            res = requests.get(
+                f"{self.url}/api/Series/{series_id}",
+                headers=self.headers,
+                timeout=timeout,
+            )
+            if res.status_code == 200:
+                return res.json(), None
+            if res.status_code == 404:
+                return None, "series_not_found"
+            return None, "kavita_unreachable"
+        except Exception as e:
+            logging.error(self.t.get("log_kavita_get_series_err", "[Erreur get_series] {0}").format(e))
+            return None, "kavita_unreachable"
+
     def get_series(self, series_id) -> dict:
         """
         Récupère l'objet SeriesDto principal depuis Kavita (Généralités, Titres, Format).
         Target: GET /api/Series/{series_id}
         """
-        if not self.token and not self.authenticate():
-            return None
-        try:
-            res = requests.get(f"{self.url}/api/Series/{series_id}", headers=self.headers, timeout=15)
-            if res.status_code == 200:
-                return res.json()
-        except Exception as e:
-            logging.error(self.t.get("log_kavita_get_series_err", "[Erreur get_series] {0}").format(e))
-        return None
+        data, _err = self.fetch_series(series_id)
+        return data
 
     def get_series_metadata(self, series_id) -> dict:
         """

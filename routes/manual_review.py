@@ -84,6 +84,7 @@ def api_list_manual_reviews():
             "below": _lite(cands.get("below")),
             "query": cands.get("query") or "",
             "flow": cands.get("flow") or "",
+            "streaming": bool(cands.get("streaming")),
             "preview": preview,
         })
     return jsonify(success=True, reviews=out, count=count_pending_reviews())

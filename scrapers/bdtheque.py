@@ -107,7 +107,7 @@ class BdthequeScraper(BaseScraper):
     display_name = "BDTheque.com (Franco-Belge)"
     supported_types = {"Comic"}
     uses_unified_scoring = True
-    rate_limit = 1.5
+    rate_limit = 2.2  # HTML polite-use + margin
     proxy_domains = ["bdtheque.com", "www.bdtheque.com"]
     has_direct_id_support = True
 

@@ -33,8 +33,10 @@ function toDisplayCoverUrl(url) {
         'static.comicvine.com', 'comicvine.gamespot.com',
         'cdn.anime-planet.com', 'anime-planet.com', 'www.anime-planet.com',
     ];
+    // Union: registry hosts + fallback. Never drop anime-planet / mangadex when
+    // PROXY_COVER_HOSTS is a non-empty partial list (community scraper not loaded yet).
     const configured = Array.isArray(window.PROXY_COVER_HOSTS) ? window.PROXY_COVER_HOSTS : [];
-    const hosts = configured.length ? configured : fallbackHosts;
+    const hosts = Array.from(new Set(configured.concat(fallbackHosts)));
     const needsProxy = hosts.some((d) => {
         const dom = String(d || '').toLowerCase();
         return !!dom && (host === dom || host.endsWith('.' + dom));

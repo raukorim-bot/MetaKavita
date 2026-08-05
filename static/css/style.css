@@ -2423,7 +2423,92 @@ a.about-link-kavita {
     box-shadow: 0 0 0 1px color-mix(in srgb, var(--teal) 40%, transparent),
                 0 0 14px color-mix(in srgb, var(--teal) 25%, transparent);
 }
-.mr-edit-grid {
+.mr-edit-grid,
+.mr-edit-fiche {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.mr-edit-fiche-top {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr);
+    gap: 14px 16px;
+    align-items: start;
+}
+.mr-edit-cover-col {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+.mr-edit-cover-thumb-wrap {
+    width: 120px;
+    height: 168px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+}
+.mr-edit-cover-thumb {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.mr-edit-cover-empty {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    color: var(--text-muted);
+    pointer-events: none;
+}
+.mr-edit-cover-url {
+    font-size: 11px;
+    color: var(--text-muted);
+}
+.mr-edit-cover-url > summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    list-style: none;
+}
+.mr-edit-cover-url > summary::-webkit-details-marker {
+    display: none;
+}
+.mr-edit-cover-url[open] > summary {
+    margin-bottom: 6px;
+    color: var(--text-main);
+}
+.mr-edit-cover-url-field {
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+}
+.mr-edit-meta-col {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-width: 0;
+}
+.mr-edit-meta-row {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 8px;
+}
+.mr-edit-fiche-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.mr-edit-dual {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
@@ -2431,27 +2516,30 @@ a.about-link-kavita {
 .mr-edit-field {
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 5px;
     min-width: 0;
-    padding: 10px 12px;
-    border-radius: 10px;
-    border: 1px solid var(--border-color);
-    background: color-mix(in srgb, var(--bg-input) 92%, var(--bg-card));
+    padding: 0;
+    border: none;
+    background: transparent;
 }
 .mr-edit-field.mr-edit-wide {
     grid-column: 1 / -1;
+}
+.mr-edit-field.mr-edit-compact .mr-edit-label {
+    font-size: 10px;
 }
 .mr-edit-label {
     display: block;
     margin: 0;
     font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--text-muted) 55%, var(--text-main));
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    text-transform: none;
+    color: color-mix(in srgb, var(--text-muted) 70%, var(--text-main));
 }
 input.mr-edit-input[type="text"],
-textarea.mr-edit-input {
+textarea.mr-edit-input,
+select.mr-edit-input {
     display: block;
     width: 100%;
     box-sizing: border-box;
@@ -2468,8 +2556,24 @@ textarea.mr-edit-input {
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
     resize: vertical;
 }
+select.mr-edit-input {
+    appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-muted) 50%),
+                      linear-gradient(135deg, var(--text-muted) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 55%, calc(100% - 9px) 55%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 28px;
+    cursor: pointer;
+}
+.mr-edit-compact input.mr-edit-input[type="text"],
+.mr-edit-compact select.mr-edit-input {
+    padding: 7px 9px;
+    font-size: 12px;
+}
 [data-theme="dark"] input.mr-edit-input[type="text"],
-[data-theme="dark"] textarea.mr-edit-input {
+[data-theme="dark"] textarea.mr-edit-input,
+[data-theme="dark"] select.mr-edit-input {
     background-color: #1a1f2e;
     border-color: rgba(148, 163, 184, 0.28);
 }
@@ -2478,20 +2582,22 @@ textarea.mr-edit-input::placeholder {
     color: color-mix(in srgb, var(--text-muted) 70%, transparent);
 }
 input.mr-edit-input[type="text"]:hover,
-textarea.mr-edit-input:hover {
+textarea.mr-edit-input:hover,
+select.mr-edit-input:hover {
     border-color: color-mix(in srgb, var(--primary) 40%, var(--border-color));
 }
 input.mr-edit-input[type="text"]:focus,
-textarea.mr-edit-input:focus {
+textarea.mr-edit-input:focus,
+select.mr-edit-input:focus {
     border-color: color-mix(in srgb, var(--primary) 75%, var(--border-color));
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 22%, transparent);
 }
 textarea.mr-edit-input {
-    min-height: 72px;
+    min-height: 64px;
     font-family: inherit;
 }
 textarea.mr-edit-input[data-field="summary"] {
-    min-height: 110px;
+    min-height: 128px;
 }
 .mr-recap-panel {
     --mr-ach-accent: #2dd4bf;
@@ -2734,7 +2840,13 @@ textarea.mr-edit-input[data-field="summary"] {
     .mr-cover { width: 64px; height: 92px; }
     .mr-summary { max-height: 12em; }
     .mr-candidate.is-selected .mr-summary { max-height: 22em; }
-    .mr-edit-grid { grid-template-columns: 1fr; }
+    .mr-edit-fiche-top {
+        grid-template-columns: 1fr;
+        justify-items: stretch;
+    }
+    .mr-edit-cover-col { align-items: center; }
+    .mr-edit-meta-row { grid-template-columns: 1fr 1fr; }
+    .mr-edit-dual { grid-template-columns: 1fr; }
     .mr-footer { flex-direction: column; align-items: stretch; }
     .mr-footer-left,
     .mr-footer-right { width: 100%; justify-content: stretch; }

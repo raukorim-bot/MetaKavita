@@ -25,6 +25,31 @@ from scrapers.utils import library_type_for_scraper
 from translations import get_ui_translations
 
 
+def _companion_socket_authorized(auth=None) -> bool:
+    """Accept Companion embed_token from Socket.IO auth/query (cross-origin iframe)."""
+    try:
+        from services.companion_embed_auth import peek_embed_token, validate_embed_token
+
+        payload = auth if isinstance(auth, dict) else {}
+        token = (
+            str(payload.get("embed_token") or payload.get("embedToken") or "").strip()
+            or (request.args.get("embed_token") or request.args.get("embedToken") or "").strip()
+        )
+        sid_raw = (
+            payload.get("series_id")
+            or payload.get("seriesId")
+            or request.args.get("series_id")
+            or request.args.get("seriesId")
+        )
+        if not token:
+            return False
+        if sid_raw is not None and str(sid_raw).strip() != "":
+            return validate_embed_token(token, int(sid_raw)) is not None
+        return peek_embed_token(token) is not None
+    except Exception:
+        return False
+
+
 def _reject_unauthenticated(event_name):
     """True (et socket fermée) si l'émetteur n'a pas de session valide.
 
@@ -33,7 +58,7 @@ def _reject_unauthenticated(event_name):
     client. Chaque handler qui déclenche un travail réel vérifie donc lui-même,
     pour qu'un client qui émettrait avant d'avoir été éjecté ne fasse rien.
     """
-    if auth_manager.is_authenticated():
+    if auth_manager.is_authenticated() or _companion_socket_authorized():
         return False
     t = get_ui_translations()
     logging.warning(t.get("log_ws_event_rejected", "🚨 [Sécurité] Événement WebSocket '{0}' rejeté (Non authentifié) IP: {1}").format(event_name, request.remote_addr))
@@ -42,7 +67,7 @@ def _reject_unauthenticated(event_name):
 
 
 @socketio.on('connect')
-def handle_connect():
+def handle_connect(auth=None):
     """Refuse toute connexion WebSocket non authentifiée.
 
     Le gate HTTP (`auth_manager.login_gate`) ne couvre PAS Socket.IO : le
@@ -55,6 +80,9 @@ def handle_connect():
     comportement qui ne vérifiait quoi que ce soit que si un `ADMIN_PASSWORD`
     était renseigné.
 
+    Companion Super Review may also connect with a short-lived embed_token
+    (session cookies are not sent in cross-origin Kavita iframes).
+
     ⚠️ Le refus se fait par `return False`, seule forme documentée par
     Flask-SocketIO pour rejeter un handshake : le serveur répond alors
     `connect_error` et n'acquitte jamais la connexion. Un `disconnect()` posé ici
@@ -62,7 +90,7 @@ def handle_connect():
     paquet de fermeture — deux paquets dont l'ordre d'interprétation côté client
     décidait si une fenêtre d'émission existait ou non.
     """
-    if not auth_manager.is_authenticated():
+    if not auth_manager.is_authenticated() and not _companion_socket_authorized(auth):
         t = get_ui_translations()
         logging.warning(t.get("log_ws_connect_rejected", "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {0}").format(request.remote_addr))
         return False
