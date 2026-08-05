@@ -49,11 +49,12 @@ def get_current_version() -> str:
 
 
 def _format_inline_markdown(text: str) -> str:
-    """Échappe le HTML puis applique **gras**, *italique* et `code`.
+    """Échappe le HTML puis applique **gras**, *italique*, `code` et liens markdown.
 
     L'échappement DOIT précéder le wrapping : un CHANGELOG contenant
     `` `<script>` `` injecté via innerHTML ferait sinon fermer le document
     HTML du navigateur et tronquerait toute la suite de la modale.
+    Liens : uniquement ``http(s)://`` (pas de ``javascript:``).
     """
     safe = html.escape(text, quote=True)
     safe = re.sub(r'\*\*(.*?)\*\*', r'<strong>\1</strong>', safe)
@@ -61,6 +62,12 @@ def _format_inline_markdown(text: str) -> str:
     safe = re.sub(
         r'`([^`]+)`',
         r'<code style="background: var(--bg-input); padding: 2px 5px; border-radius: 4px; font-size: 11px;">\1</code>',
+        safe,
+    )
+    safe = re.sub(
+        r'\[([^\]]+)\]\((https?://[^)\s]+)\)',
+        r'<a href="\2" target="_blank" rel="noopener noreferrer" '
+        r'style="color: var(--accent); text-decoration: underline;">\1</a>',
         safe,
     )
     return safe

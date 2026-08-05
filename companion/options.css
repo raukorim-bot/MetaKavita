@@ -1,0 +1,132 @@
+:root {
+  --mk-bg: #0f172a;
+  --mk-panel: #1e293b;
+  --mk-text: #e2e8f0;
+  --mk-muted: #94a3b8;
+  --mk-accent: #38bdf8;
+  --mk-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  padding: 0;
+  background: var(--mk-bg);
+  color: var(--mk-text);
+  /* Chrome action popup: size to content — never height:100% / overflow:hidden */
+  min-width: 360px;
+  width: 380px;
+  max-width: 100%;
+  min-height: 420px;
+  overflow: auto;
+}
+
+body {
+  padding: 16px;
+}
+
+.panel {
+  display: block;
+  width: 100%;
+  background: var(--mk-panel);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 14px;
+  padding: 14px;
+  box-shadow: var(--mk-shadow);
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.field label {
+  font-size: 11px;
+  color: var(--mk-muted);
+  font-weight: 600;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0f172a;
+  color: var(--mk-text);
+  font: inherit;
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: var(--mk-text);
+}
+
+.bmc-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid rgba(226, 192, 141, 0.35);
+  border-radius: 10px;
+  background: rgba(226, 192, 141, 0.08);
+  font-size: 12px;
+  font-weight: 600;
+  color: #e2c08d;
+  text-decoration: none;
+  box-sizing: border-box;
+}
+
+.bmc-link:hover {
+  color: #f0d4a8;
+  border-color: rgba(226, 192, 141, 0.55);
+  background: rgba(226, 192, 141, 0.14);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 650;
+  cursor: pointer;
+  background: var(--mk-accent);
+  color: #0b1220;
+  font-size: 12px;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--mk-text);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+#status {
+  margin-top: 12px;
+  font-size: 12px;
+  color: var(--mk-muted);
+  min-height: 1.2em;
+}

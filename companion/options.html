@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MetaKavita Companion</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="panel" id="configPanel">
+    <h2 data-i18n="configTitle">Companion settings</h2>
+    <div class="field">
+      <label for="metaUrl" data-i18n="configMetaUrl">MetaKavita URL</label>
+      <input type="text" id="metaUrl" autocomplete="off" spellcheck="false" placeholder="https://metakavita.example">
+    </div>
+    <div class="field">
+      <label for="token" data-i18n="configToken">Webhook token</label>
+      <input type="password" id="token" autocomplete="off" spellcheck="false">
+    </div>
+    <label class="check"><input type="checkbox" id="showFabs" checked> <span data-i18n="configShowFabs">Show Super / Auto</span></label>
+    <label class="check"><input type="checkbox" id="cacheBust" checked> <span data-i18n="configCacheBust">Cache bust</span></label>
+    <div class="field">
+      <label for="uiLang" data-i18n="configLang">Language</label>
+      <select id="uiLang">
+        <option value="auto" data-i18n="configLangAuto">Auto</option>
+        <option value="fr" data-i18n="configLangFr">Français</option>
+        <option value="en" data-i18n="configLangEn">English</option>
+      </select>
+    </div>
+    <div class="row">
+      <button type="button" class="btn" id="btnSave" data-i18n="configSave">Save</button>
+      <button type="button" class="btn btn-secondary" id="btnTest" data-i18n="configTest">Test</button>
+      <button type="button" class="btn btn-secondary" id="btnEnableSite" data-i18n="configEnableSite">Enable on this Kavita site</button>
+    </div>
+    <a class="bmc-link" href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer" data-i18n-aria="fabBmc" data-i18n-title="fabBmc" title="Buy me a coffee">
+      <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h8a3 3 0 0 1 0 6h-1"/><path d="M7 7v8a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-1"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h.5"/><path d="M7 21h8"/></svg>
+      <span data-i18n="fabBmc">Buy me a coffee</span>
+    </a>
+    <p id="status"></p>
+  </div>
+  <script type="module" src="options.js"></script>
+</body>
+</html>
