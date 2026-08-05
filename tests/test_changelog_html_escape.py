@@ -19,6 +19,21 @@ def test_format_escapes_raw_angle_brackets():
     assert "&gt;" in out
 
 
+def test_format_renders_https_markdown_links():
+    out = _format_inline_markdown(
+        "Download [chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)."
+    )
+    assert 'href="https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip"' in out
+    assert "chrome.zip</a>" in out
+    assert 'target="_blank"' in out
+
+
+def test_format_rejects_javascript_markdown_links():
+    out = _format_inline_markdown("[x](javascript:alert(1))")
+    assert "<a " not in out
+    assert "javascript:alert(1)" in out
+
+
 def test_full_changelog_html_does_not_embed_raw_script_tags():
     """Le CHANGELOG réel mentionne `<script>` (modularisation frontend)."""
     html_out = get_full_changelog_html()

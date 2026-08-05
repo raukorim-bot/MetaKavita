@@ -13,7 +13,7 @@ class MangaBakaScraper(BaseScraper):
     is_core = True
     display_name = "MangaBaka (API / Rapide)"
     supported_types = {"Manga", "Book"}
-    rate_limit = 2.5
+    rate_limit = 2.25  # ~27/min: 10% under MangaBaka search 30/min
     # API is on *.mangabaka.org; cover/CDN URLs still come back as *.mangabaka.dev
     # (images.mangabaka.org has no DNS yet). Whitelist both so uploads/proxy work.
     proxy_domains = [

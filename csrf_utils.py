@@ -22,6 +22,8 @@ CSRF_FORM_FIELD = "csrf_token"
 CSRF_EXEMPT_ENDPOINTS = frozenset({
     "sync.webhook",
     "static",
+    # Companion: webhook-authenticated short-lived token issue (extension fetch).
+    "companion.companion_embed_token",
 })
 
 
@@ -63,6 +65,16 @@ def csrf_protect_before_request():
         return None
     if endpoint.startswith("static"):
         return None
+    # Companion embed token is a short-lived capability secret; when present and
+    # valid it replaces the session double-submit cookie (which SameSite=Lax
+    # will not send inside a cross-origin Kavita iframe).
+    try:
+        from services.companion_embed_auth import authorize_companion_request
+
+        if authorize_companion_request() is not None:
+            return None
+    except Exception:
+        pass
     if validate_csrf():
         return None
 

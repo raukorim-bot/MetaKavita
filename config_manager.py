@@ -140,7 +140,10 @@ def load_config():
             "ENABLE_PLAYFUL_STATS": True,
             "ADMIN_PASSWORD": "",
             "SECRET_KEY": "",
-            "WEBHOOK_TOKEN": ""
+            "WEBHOOK_TOKEN": "",
+            # C33 Companion: CSV d'origins HTTP(S) supplémentaires pour
+            # frame-ancestors sur /companion/embed (chrome/moz-extension: toujours inclus).
+            "COMPANION_FRAME_ANCESTORS": "",
         }
 
         file_config = {}

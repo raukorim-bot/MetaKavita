@@ -60,7 +60,7 @@ class MetronScraper(BaseScraper):
     is_core = True
     display_name = "Metron (Comics API)"
     supported_types = {"Comic"}
-    rate_limit = 3.0  # Burst API : 20 req/min
+    rate_limit = 3.4  # ~17.6/min: 10% under Metron burst 20/min
     proxy_domains = [
         "metron.cloud",
         "static.metron.cloud",

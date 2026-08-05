@@ -224,6 +224,7 @@ def _apply_comic_flexible_manga_fallback(
     existing_metadata,
     smart_scoring,
     t,
+    on_candidate=None,
 ):
     """Bascule Comic → Manga pour une bibliothèque Flexible, cohérente avec le
     mode Auto : condition de déclenchement (`_candidates_have_a_strong_hit`,
@@ -270,6 +271,7 @@ def _apply_comic_flexible_manga_fallback(
         forced_provider=forced_provider,
         existing_metadata=existing_metadata,
         smart_scoring=smart_scoring,
+        on_candidate=on_candidate,
     )
     used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
     if not _candidates_empty(manga_payload):
@@ -536,7 +538,15 @@ def _top1_provider(candidates_payload):
     return top[0].get("provider")
 
 
-def enrich_series(series_id, series_name, force_update=False, targeted_fields_override=None):
+def enrich_series(
+    series_id,
+    series_name,
+    force_update=False,
+    targeted_fields_override=None,
+    *,
+    super_review_override=None,
+    force_auto=False,
+):
     """
     Récupère les métadonnées existantes dans Kavita, scrape les fournisseurs
     externes configurés, applique les champs ciblés par l'utilisateur, puis
@@ -544,6 +554,11 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
 
     `targeted_fields_override` : masque éphémère (ex. batch) qui prime sur le
     `targeted_fields` persisté en cache pour CE run uniquement.
+
+    C33 Companion (webhook one-shot) :
+    - `super_review_override=True` : MR + expand scrapers même si Super sidebar off.
+    - `force_auto=True` : chemin Auto (écriture) même si MANUAL_REVIEW_MODE on ;
+      ignore aussi CONFIRM_BEFORE_WRITE. Si les deux sont demandés, Super gagne.
 
     Retourne un tuple (success: bool, message: str, used_providers: list).
     """
@@ -639,6 +654,13 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
         manual_mode, super_review = resolve_manual_review_flags(
             config, is_forced_id=is_forced_id
         )
+        # C33 : overrides webhook Companion (Super > force_auto).
+        if super_review_override is True:
+            manual_mode = True
+            super_review = True
+        elif force_auto:
+            manual_mode = False
+            super_review = False
 
         if is_forced_id:
             if search_query.startswith('http://') or search_query.startswith('https://'):
@@ -741,11 +763,33 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
 
         # ========== MODE MANUEL (C29) ==========
         if manual_mode:
+            from services.manual_review import (
+                append_streaming_candidate,
+                begin_streaming_review,
+                finalize_streaming_review,
+            )
+            from db_manager import delete_pending_by_series
+
+            library_id = kavita.get_cached_library_id(series_id)
+            # Park empty review immediately so Companion / MR UI can open and
+            # stream cards as each scraper finishes (covers-like UX).
+            review_id = begin_streaming_review(
+                series_id,
+                series_name,
+                query=search_query,
+                library_id=library_id,
+            )
+            _emit_series_status(series_id, "PENDING_REVIEW", series_name)
+
+            def _on_candidate(card, band):
+                append_streaming_candidate(review_id, series_id, card, band)
+
             candidates_payload, used_providers = fetch_metadata(
                 search_query,
                 providers_list,
                 smart_completion,
                 return_candidates=True,
+                on_candidate=_on_candidate,
                 **fetch_kwargs,
             )
             # Comic Flexible : même critère de bascule Manga qu'en Auto (voir
@@ -765,24 +809,29 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
                 existing_metadata=existing_metadata,
                 smart_scoring=smart_scoring,
                 t=t,
+                on_candidate=_on_candidate,
             )
 
             if _candidates_empty(candidates_payload):
                 logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
+                try:
+                    delete_pending_by_series(series_id)
+                except Exception:
+                    pass
+                from services.manual_review import emit_pending_count
+                emit_pending_count()
                 update_status(series_id, "NOT_FOUND")
                 _emit_series_status(series_id, "NOT_FOUND", series_name)
                 _broadcast_enrichment_stats(record_enrichment_miss())
                 return False, "Introuvable.", used_providers or []
 
-            from services.manual_review import create_review_from_candidates
-
-            create_review_from_candidates(
+            finalize_streaming_review(
+                review_id,
                 series_id,
                 series_name,
                 candidates_payload,
-                library_id=kavita.get_cached_library_id(series_id),
+                library_id=library_id,
             )
-            _emit_series_status(series_id, "PENDING_REVIEW", series_name)
             logging.info(
                 f"[{series_name}] 👁️ PENDING_REVIEW "
                 f"(above={len((candidates_payload or {}).get('above') or [])}, "
@@ -880,7 +929,8 @@ def enrich_series(series_id, series_name, force_update=False, targeted_fields_ov
 
         # Confirm-before-write (MR off) : park preview, pas d'écriture immédiate.
         # BF68: score tie → pick normal (pas awaiting_confirm).
-        if not manual_mode and bool(config.get("CONFIRM_BEFORE_WRITE")):
+        # C33 force_auto : Companion Auto doit écrire sans park CBW.
+        if not manual_mode and bool(config.get("CONFIRM_BEFORE_WRITE")) and not force_auto:
             if score_tie:
                 from services.manual_review import create_review_from_candidates
 

@@ -104,9 +104,17 @@ function _buildCoverItem(cover, onPick) {
     };
 
     const img = document.createElement("img");
-    img.src = cover.display_url || "";
+    img.src = cover.display_url || cover.url || "";
     img.alt = "Cover";
     img.loading = "lazy";
+    img.referrerPolicy = "no-referrer";
+    img.onerror = function () {
+        // Proxy/CDN hiccup: fall back to raw URL once if display_url differed.
+        if (cover.url && img.src && cover.url !== img.getAttribute("data-raw") && img.src.indexOf("/api/proxy-image") !== -1) {
+            img.setAttribute("data-raw", cover.url);
+            img.src = cover.url;
+        }
+    };
 
     const titleDiv = document.createElement("div");
     titleDiv.className = "cover-title";

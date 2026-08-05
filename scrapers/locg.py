@@ -61,7 +61,7 @@ class LocgScraper(BaseScraper):
     is_core = True
     display_name = "League of Comic Geeks"
     supported_types = {"Comic"}
-    rate_limit = 4.0  # prudent : HTML/XHR site, risque de ban inconnu
+    rate_limit = 5.0  # interactive HTML/XHR; Crawl-delay 30 is for search bots — do not bulk-crawl
     proxy_domains = [
         "leagueofcomicgeeks.com",
         "www.leagueofcomicgeeks.com",

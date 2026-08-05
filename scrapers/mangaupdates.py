@@ -27,7 +27,7 @@ class MangaUpdatesScraper(BaseScraper):
     is_core = True
     display_name = "MangaUpdates (Baka-Updates)"
     supported_types = {"Manga"}
-    rate_limit = 1.0
+    rate_limit = 0.55  # reads mostly unlimited; cushion vs DDoS 429
     proxy_domains = ["mangaupdates.com", "api.mangaupdates.com", "www.mangaupdates.com"]
     has_direct_id_support = True
     requires_proxy = False

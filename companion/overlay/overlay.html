@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MetaKavita Companion</title>
+  <link rel="stylesheet" href="overlay.css">
+</head>
+<body>
+  <div id="root">
+    <div class="fab-stack" id="fabStack">
+      <div class="fab-actions" id="fabActions" hidden>
+        <button type="button" class="fab fab-super" id="btnSuper" data-i18n-aria="fabSuper" data-i18n-title="fabSuper" title="Super Review" aria-label="Super Review">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.9 4.6L18.5 9l-4.6 1.9L12 15.5l-1.9-4.6L5.5 9l4.6-1.6L12 3z"/><path d="M19 14l.9 2.1L22 17l-2.1.9L19 20l-.9-2.1L16 17l2.1-.9L19 14z"/></svg>
+        </button>
+        <button type="button" class="fab fab-auto" id="btnAuto" data-i18n-aria="fabAuto" data-i18n-title="fabAuto" title="Auto" aria-label="Auto">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M13 3 4 14h6l-1 7 9-11h-6l1-7z"/></svg>
+        </button>
+        <button type="button" class="fab fab-cover" id="btnCover" data-i18n-aria="fabCover" data-i18n-title="fabCover" title="Cover" aria-label="Cover">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9.5" r="1.6"/><path d="M21 15.5l-5.5-5-9.5 8.5"/></svg>
+        </button>
+        <button type="button" class="fab fab-config" id="btnConfig" data-i18n-aria="fabConfig" data-i18n-title="fabConfig" title="Config" aria-label="Config">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.9 2.9l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.9-2.9l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.9-2.9l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.6V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.6 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.9 2.9l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.6 1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.6 1z"/></svg>
+        </button>
+        <button type="button" class="fab fab-bmc" id="btnBmc" data-i18n-aria="fabBmc" data-i18n-title="fabBmc" title="Buy me a coffee" aria-label="Buy me a coffee">
+          <svg viewBox="0 0 24 24" width="19" height="19" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h8a3 3 0 0 1 0 6h-1"/><path d="M7 7v8a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-1"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h.5"/><path d="M7 21h8"/></svg>
+        </button>
+      </div>
+      <button type="button" class="fab-logo" id="btnLogo" data-i18n-aria="fabLogo" aria-expanded="false" aria-controls="fabActions" title="MetaKavita">
+        <img src="../icons/logo.png" width="40" height="40" alt="MetaKavita" draggable="false">
+      </button>
+    </div>
+
+    <div class="panel" id="configPanel" role="dialog" aria-labelledby="configTitle">
+      <h2 id="configTitle" data-i18n="configTitle">Companion settings</h2>
+      <div class="field">
+        <label for="metaUrl" data-i18n="configMetaUrl">MetaKavita URL</label>
+        <input type="text" id="metaUrl" autocomplete="off" spellcheck="false" placeholder="https://metakavita.example">
+      </div>
+      <div class="field">
+        <label for="token" data-i18n="configToken">Webhook token</label>
+        <input type="password" id="token" autocomplete="off" spellcheck="false">
+      </div>
+      <label class="check"><input type="checkbox" id="showFabs" checked> <span data-i18n="configShowFabs">Show Super / Auto</span></label>
+      <label class="check"><input type="checkbox" id="cacheBust" checked> <span data-i18n="configCacheBust">Cache bust</span></label>
+      <div class="field">
+        <label for="uiLang" data-i18n="configLang">Language</label>
+        <select id="uiLang">
+          <option value="auto" data-i18n="configLangAuto">Auto</option>
+          <option value="fr" data-i18n="configLangFr">Français</option>
+          <option value="en" data-i18n="configLangEn">English</option>
+        </select>
+      </div>
+      <div class="row">
+        <button type="button" class="btn" id="btnSave" data-i18n="configSave">Save</button>
+        <button type="button" class="btn btn-secondary" id="btnTest" data-i18n="configTest">Test</button>
+        <button type="button" class="btn btn-secondary" id="btnEnableSite" data-i18n="configEnableSite">Enable site</button>
+        <button type="button" class="btn btn-secondary" id="btnCloseConfig" data-i18n="close">Close</button>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status"></div>
+  </div>
+  <script type="module" src="overlay.js"></script>
+</body>
+</html>

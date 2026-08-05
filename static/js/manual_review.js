@@ -7,6 +7,11 @@
     var currentReviewId = null;
     var selectedProvider = null;
     var includeProviders = [];
+    // Companion embed: scope the whole queue to a single series so the user only
+    // ever reviews the series opened from the Kavita page (never the first in the
+    // global pending queue, and no auto-advance into other series).
+    var companionOnlySeriesId = null;
+    var companionOnlyReviewId = "";
     var baselinePreview = null;
     var phase = "pick"; // pick | cover | edit | waiting | recap
     var session = emptySession();
@@ -686,7 +691,18 @@
             }
             var prevEmpty = queue.length === 0;
             queue = data.reviews || [];
-            updateBadge(data.count != null ? data.count : queue.length);
+            if (companionOnlySeriesId != null) {
+                queue = queue.filter(function (r) {
+                    if (Number(r.series_id) !== companionOnlySeriesId) return false;
+                    if (companionOnlyReviewId && String(r.review_id) !== companionOnlyReviewId) return false;
+                    return true;
+                });
+            }
+            updateBadge(
+                companionOnlySeriesId != null
+                    ? queue.length
+                    : (data.count != null ? data.count : queue.length)
+            );
             reanchorIndex();
             return { data: data, prevEmpty: prevEmpty, stale: false };
         });
@@ -744,6 +760,82 @@
         }
     }
 
+    function ensureStreamStatusBar(review) {
+        var host = document.getElementById("mrPickPanel") || document.getElementById("mrAboveList");
+        if (!host) return;
+        var bar = document.getElementById("mrStreamStatus");
+        var streaming = !!(review && review.streaming);
+        if (!streaming) {
+            if (bar) bar.remove();
+            return;
+        }
+        if (!bar) {
+            bar = document.createElement("div");
+            bar.id = "mrStreamStatus";
+            bar.className = "stream-status-bar";
+            bar.style.cssText = "display:flex;align-items:center;gap:8px;margin:0 0 10px;font-size:12px;color:var(--text-muted,#94a3b8);";
+            var spin = document.createElement("span");
+            spin.className = "stream-spinner";
+            var label = document.createElement("span");
+            label.className = "mr-stream-label";
+            bar.appendChild(spin);
+            bar.appendChild(label);
+            if (host.id === "mrAboveList" && host.parentNode) {
+                host.parentNode.insertBefore(bar, host);
+            } else {
+                host.insertBefore(bar, host.firstChild);
+            }
+        }
+        var labelEl = bar.querySelector(".mr-stream-label");
+        if (labelEl) {
+            var n = ((review.above || []).length) + ((review.below || []).length);
+            labelEl.textContent = t(
+                "mr_streaming",
+                "Scraping en cours… {0} candidat(s) reçus"
+            ).replace("{0}", String(n));
+        }
+    }
+
+    function mergeStreamedCandidate(payload) {
+        if (!payload || !payload.review_id || !payload.card) return;
+        var rid = String(payload.review_id);
+        var review = null;
+        for (var i = 0; i < queue.length; i++) {
+            if (String(queue[i].review_id) === rid) {
+                review = queue[i];
+                break;
+            }
+        }
+        if (!review) {
+            // Review not in local queue yet — soft insert so Companion can show it.
+            review = {
+                review_id: rid,
+                series_id: payload.series_id,
+                series_name: "",
+                state: "awaiting_pick",
+                above: [],
+                below: [],
+                streaming: true,
+                query: ""
+            };
+            queue.push(review);
+            if (companionOnlySeriesId != null && Number(review.series_id) !== companionOnlySeriesId) {
+                queue = queue.filter(function (r) { return Number(r.series_id) === companionOnlySeriesId; });
+            }
+            reanchorIndex();
+        }
+        var band = payload.band === "below" ? "below" : "above";
+        var provider = payload.card.provider;
+        review.above = (review.above || []).filter(function (c) { return c.provider !== provider; });
+        review.below = (review.below || []).filter(function (c) { return c.provider !== provider; });
+        if (!review[band]) review[band] = [];
+        review[band].push(payload.card);
+        review.streaming = true;
+        if (isModalOpen() && String(currentReviewId) === rid) {
+            renderCandidates();
+        }
+    }
+
     function renderCandidates() {
         var review = currentReview();
         var aboveEl = document.getElementById("mrAboveList");
@@ -754,6 +846,7 @@
         var belowLabel = document.getElementById("mrBelowLabel");
         var emptyEl = document.getElementById("mrNoCandidates");
         if (!aboveEl || !belowEl) return;
+        ensureStreamStatusBar(review);
 
         aboveEl.innerHTML = "";
         belowEl.innerHTML = "";
@@ -1141,19 +1234,123 @@
         mrCoverContinue();
     };
 
-    var EDIT_KEYS = [
-        "title", "summary", "year", "status", "genres", "tags",
-        "publisher", "age_rating", "format", "cover_url", "localized_name",
-        "staff", "writers", "pencillers"
-    ];
-    var EDIT_WIDE = {
-        title: true, summary: true, genres: true, tags: true,
-        cover_url: true, localized_name: true, staff: true, writers: true, pencillers: true
+    var AGE_TOKENS = ["safe", "suggestive", "mature", "r18", "x18"];
+    var AGE_ALIASES = { erotica: "r18", pornographic: "x18" };
+    var FIELD_LABEL_FALLBACKS = {
+        title: "Title",
+        summary: "Summary",
+        year: "Year",
+        status: "Status",
+        genres: "Genres",
+        tags: "Tags",
+        publisher: "Publisher",
+        age_rating: "Age rating",
+        format: "Format",
+        cover_url: "Cover URL",
+        localized_name: "Localized title",
+        staff: "Staff",
+        writers: "Writers",
+        pencillers: "Pencillers"
     };
-    var EDIT_TEXTAREA = {
-        summary: 5, genres: 2, tags: 2, cover_url: 2,
-        localized_name: 2, staff: 2, writers: 2, pencillers: 2
-    };
+
+    function normalizeAgeRatingToken(raw) {
+        if (raw == null) return "";
+        var s = String(raw).trim().toLowerCase();
+        if (!s) return "";
+        if (AGE_ALIASES[s]) return AGE_ALIASES[s];
+        if (AGE_TOKENS.indexOf(s) !== -1) return s;
+        return "";
+    }
+
+    function fieldLabel(key) {
+        return t("mr_field_" + key, FIELD_LABEL_FALLBACKS[key] || key);
+    }
+
+    function previewFieldString(preview, key) {
+        var val = preview ? preview[key] : "";
+        if (val == null) val = "";
+        if (Array.isArray(val)) val = val.join(", ");
+        else if (typeof val === "object") val = JSON.stringify(val);
+        else val = String(val);
+        if (key === "age_rating") val = normalizeAgeRatingToken(val);
+        return val;
+    }
+
+    function buildEditField(key, opts) {
+        opts = opts || {};
+        var val = previewFieldString(baselinePreview, key);
+        var group = document.createElement("div");
+        group.className = "mr-edit-field" + (opts.compact ? " mr-edit-compact" : "")
+            + (opts.wide ? " mr-edit-wide" : "")
+            + (opts.extraClass ? (" " + opts.extraClass) : "");
+        var label = document.createElement("label");
+        label.className = "mr-edit-label";
+        label.htmlFor = "mr-field-" + key;
+        label.textContent = fieldLabel(key);
+        group.appendChild(label);
+
+        var control;
+        if (key === "age_rating") {
+            control = document.createElement("select");
+            control.className = "mr-edit-input";
+            control.setAttribute("data-field", key);
+            control.id = "mr-field-" + key;
+            var noneOpt = document.createElement("option");
+            noneOpt.value = "";
+            noneOpt.textContent = t("mr_age_none", "(none)");
+            control.appendChild(noneOpt);
+            [
+                ["safe", "mr_age_safe", "Everyone"],
+                ["suggestive", "mr_age_suggestive", "Teen"],
+                ["mature", "mr_age_mature", "Mature 17+"],
+                ["r18", "mr_age_r18", "R18+"],
+                ["x18", "mr_age_x18", "X18+"]
+            ].forEach(function (row) {
+                var opt = document.createElement("option");
+                opt.value = row[0];
+                opt.textContent = t(row[1], row[2]);
+                control.appendChild(opt);
+            });
+            control.value = val;
+        } else if (opts.rows) {
+            control = document.createElement("textarea");
+            control.className = "mr-edit-input";
+            control.setAttribute("data-field", key);
+            control.id = "mr-field-" + key;
+            control.rows = opts.rows;
+            control.spellcheck = false;
+            control.value = val;
+        } else {
+            control = document.createElement("input");
+            control.className = "mr-edit-input";
+            control.type = "text";
+            control.setAttribute("data-field", key);
+            control.id = "mr-field-" + key;
+            control.spellcheck = false;
+            control.autocomplete = "off";
+            control.value = val;
+        }
+        group.appendChild(control);
+        return group;
+    }
+
+    function syncEditCoverThumb(img, url) {
+        if (!img) return;
+        var safe = typeof toDisplayCoverUrl === "function" ? toDisplayCoverUrl(url) : (url || "");
+        if (safe) {
+            img.src = safe;
+            img.style.display = "";
+            img.alt = fieldLabel("cover_url");
+        } else {
+            img.removeAttribute("src");
+            img.style.display = "none";
+            img.alt = "";
+        }
+        var empty = img.parentElement
+            ? img.parentElement.querySelector(".mr-edit-cover-empty")
+            : null;
+        if (empty) empty.style.display = safe ? "none" : "";
+    }
 
     function renderEdit(preview) {
         baselinePreview = preview || {};
@@ -1162,40 +1359,94 @@
             baselinePreview.writers = "";
             baselinePreview.pencillers = "";
         }
+        // Canon âge dès l'entrée edit (évite faux diff erotica → r18)
+        baselinePreview.age_rating = normalizeAgeRatingToken(baselinePreview.age_rating);
+
         renderEditFusionBar(baselinePreview);
         var wrap = document.getElementById("mrEditFields");
         if (!wrap) return;
         wrap.innerHTML = "";
-        EDIT_KEYS.forEach(function (key) {
-            // Éviter doublon staff + writers/pencillers vides
-            if ((key === "writers" || key === "pencillers") && baselinePreview.staff
-                && !baselinePreview.writers && !baselinePreview.pencillers) {
-                return;
-            }
-            if (key === "staff" && (baselinePreview.writers || baselinePreview.pencillers)
-                && !baselinePreview.staff) {
-                return;
-            }
-            var val = baselinePreview[key];
-            if (val == null) val = "";
-            if (Array.isArray(val)) val = val.join(", ");
-            else if (typeof val === "object") val = JSON.stringify(val);
-            var group = document.createElement("div");
-            group.className = "mr-edit-field" + (EDIT_WIDE[key] ? " mr-edit-wide" : "");
-            var rows = EDIT_TEXTAREA[key];
-            var control = rows
-                ? '<textarea class="mr-edit-input" data-field="' + key + '" rows="' + rows + '" spellcheck="false"></textarea>'
-                : '<input class="mr-edit-input" data-field="' + key + '" type="text" spellcheck="false" autocomplete="off">';
-            group.innerHTML =
-                '<label class="mr-edit-label" for="mr-field-' + key + '">' + key + "</label>" +
-                control;
-            wrap.appendChild(group);
-            var input = group.querySelector("[data-field]");
-            if (input) {
-                input.id = "mr-field-" + key;
-                input.value = String(val);
-            }
+        wrap.className = "mr-edit-fiche";
+
+        var top = document.createElement("div");
+        top.className = "mr-edit-fiche-top";
+
+        var coverCol = document.createElement("div");
+        coverCol.className = "mr-edit-cover-col";
+        var thumbWrap = document.createElement("div");
+        thumbWrap.className = "mr-edit-cover-thumb-wrap";
+        var thumb = document.createElement("img");
+        thumb.className = "mr-edit-cover-thumb";
+        thumb.alt = "";
+        var thumbEmpty = document.createElement("div");
+        thumbEmpty.className = "mr-edit-cover-empty";
+        thumbEmpty.textContent = "—";
+        thumbWrap.appendChild(thumb);
+        thumbWrap.appendChild(thumbEmpty);
+        coverCol.appendChild(thumbWrap);
+
+        var coverDetails = document.createElement("details");
+        coverDetails.className = "mr-edit-cover-url";
+        var coverSummary = document.createElement("summary");
+        coverSummary.textContent = t("mr_cover_url_toggle", "Cover URL");
+        coverDetails.appendChild(coverSummary);
+        var coverField = buildEditField("cover_url", { rows: 2, extraClass: "mr-edit-cover-url-field" });
+        // Label déjà dans summary — on masque le label interne du champ
+        var coverLabel = coverField.querySelector(".mr-edit-label");
+        if (coverLabel) coverLabel.style.display = "none";
+        coverDetails.appendChild(coverField);
+        coverCol.appendChild(coverDetails);
+        top.appendChild(coverCol);
+
+        var metaCol = document.createElement("div");
+        metaCol.className = "mr-edit-meta-col";
+        metaCol.appendChild(buildEditField("title"));
+        metaCol.appendChild(buildEditField("localized_name", { rows: 2 }));
+
+        var metaRow = document.createElement("div");
+        metaRow.className = "mr-edit-meta-row";
+        ["year", "status", "age_rating", "format"].forEach(function (key) {
+            metaRow.appendChild(buildEditField(key, { compact: true }));
         });
+        metaCol.appendChild(metaRow);
+        metaCol.appendChild(buildEditField("publisher", { compact: true }));
+        top.appendChild(metaCol);
+        wrap.appendChild(top);
+
+        var body = document.createElement("div");
+        body.className = "mr-edit-fiche-body";
+        body.appendChild(buildEditField("summary", { rows: 6, wide: true }));
+
+        var dual = document.createElement("div");
+        dual.className = "mr-edit-dual";
+        dual.appendChild(buildEditField("genres", { rows: 2 }));
+        dual.appendChild(buildEditField("tags", { rows: 2 }));
+        body.appendChild(dual);
+
+        var hasStaff = !!(baselinePreview.staff);
+        var hasSplit = !!(baselinePreview.writers || baselinePreview.pencillers);
+        if (hasStaff && !hasSplit) {
+            body.appendChild(buildEditField("staff", { rows: 2, wide: true }));
+        } else if (hasSplit) {
+            var staffDual = document.createElement("div");
+            staffDual.className = "mr-edit-dual";
+            if (baselinePreview.writers) staffDual.appendChild(buildEditField("writers", { rows: 2 }));
+            if (baselinePreview.pencillers) staffDual.appendChild(buildEditField("pencillers", { rows: 2 }));
+            body.appendChild(staffDual);
+        } else {
+            body.appendChild(buildEditField("staff", { rows: 2, wide: true }));
+        }
+        wrap.appendChild(body);
+
+        var coverInput = wrap.querySelector('[data-field="cover_url"]');
+        syncEditCoverThumb(thumb, coverInput ? coverInput.value : baselinePreview.cover_url);
+        if (coverInput) {
+            var onCoverChange = function () {
+                syncEditCoverThumb(thumb, coverInput.value);
+            };
+            coverInput.addEventListener("input", onCoverChange);
+            coverInput.addEventListener("change", onCoverChange);
+        }
     }
 
     function collectEdits() {
@@ -1209,6 +1460,10 @@
             else if (base == null) base = "";
             else if (typeof base === "object") base = JSON.stringify(base);
             else base = String(base);
+            if (key === "age_rating") {
+                raw = normalizeAgeRatingToken(raw);
+                base = normalizeAgeRatingToken(base);
+            }
             if (String(raw) !== String(base)) {
                 fieldEdits += 1;
                 if (key === "genres" || key === "tags" || key === "writers" || key === "pencillers") {
@@ -1267,7 +1522,7 @@
             showRecapIfEmpty();
             return;
         }
-        // Auto-confirm ou preview déjà prêt → phase edit directe
+        // Auto-confirm ou preview déjà prêt → reprise post-pick
         if (review.preview && (isAutoConfirmReview(review) || review.state === "awaiting_confirm")) {
             selectedProvider = review.base_provider
                 || (review.above && review.above[0] && review.above[0].provider)
@@ -1283,6 +1538,14 @@
             }
             if (posEl) posEl.textContent = (currentIndex + 1) + " / " + queue.length;
             updateKavitaLink(review);
+            baselinePreview = review.preview || {};
+            syncOptionsFromSidebar();
+            // MR + cover pick : ne pas sauter la phase cover au reopen / jump
+            // (auto_confirm / CBW n'active jamais le toggle cover — MR mode requis).
+            if (!isAutoConfirmReview(review) && isCoverPickOn()) {
+                enterCoverPhase(baselinePreview);
+                return;
+            }
             renderEdit(review.preview);
             setPhase("edit");
             return;
@@ -1641,7 +1904,80 @@
             try { previouslyFocused.focus(); } catch (e) { /* ignore */ }
         }
         previouslyFocused = null;
+        // C33 Companion embed : fermeture sans confirm/skip → cancel
+        companionNotifyDone("cancel");
     };
+
+    // Resolve the real postMessage parent of the embed. When the overlay injects
+    // the MR iframe straight into the Kavita page (http-in-http), the parent is
+    // the Kavita page (topOrigin). Legacy nested mode uses the extension origin.
+    // Mixed-content tab mode: top-level MetaKavita tab opened via window.open —
+    // notify opener (Kavita) then close this tab.
+    function companionParentTarget() {
+        var cfg = window.COMPANION_EMBED;
+        if (!cfg) return "";
+        var target = cfg.topOrigin || cfg.parentOrigin;
+        if (!target || typeof target !== "string") return "";
+        if (
+            target.indexOf("chrome-extension://") === 0 ||
+            target.indexOf("moz-extension://") === 0 ||
+            target.indexOf("http://") === 0 ||
+            target.indexOf("https://") === 0
+        ) {
+            return target;
+        }
+        return "";
+    }
+
+    function companionIsStandaloneTab() {
+        try {
+            return !!(window.COMPANION_EMBED && window.top === window);
+        } catch (e) {
+            return !!window.COMPANION_EMBED;
+        }
+    }
+
+    function companionCloseStandaloneTab() {
+        if (!companionIsStandaloneTab()) return;
+        try {
+            if (window.opener && !window.opener.closed) {
+                window.opener.focus();
+            }
+        } catch (e) { /* cross-origin / closed */ }
+        // Defer close so focus can return to the Kavita tab first.
+        setTimeout(function () {
+            try {
+                window.close();
+            } catch (e2) { /* browser may ignore if not script-opened */ }
+        }, 80);
+    }
+
+    var companionDoneSent = false;
+    function companionNotifyDone(outcome) {
+        var cfg = window.COMPANION_EMBED;
+        if (!cfg || companionDoneSent) return;
+        companionDoneSent = true;
+        var payload = {
+            source: "metakavita-companion",
+            type: "mk:mr-done",
+            seriesId: cfg.seriesId,
+            outcome: outcome || "cancel"
+        };
+        var target = companionParentTarget();
+        try {
+            // In-page iframe → Kavita (or extension) parent.
+            if (window.parent && window.parent !== window && target) {
+                window.parent.postMessage(payload, target);
+            }
+        } catch (e) { /* ignore */ }
+        try {
+            // Mixed-content tab → notify the Kavita opener for cache-bust, then close.
+            if (companionIsStandaloneTab() && window.opener && !window.opener.closed && target) {
+                window.opener.postMessage(payload, target);
+            }
+        } catch (e2) { /* ignore */ }
+        companionCloseStandaloneTab();
+    }
 
     window.mrSubmitPick = function () {
         var review = currentReview();
@@ -1684,6 +2020,7 @@
             recordSessionConfirm(review, data.detail, 0, fusionList.length);
             var nextStatus = (data.detail && data.detail.status) || (data.message === "NEEDS_RELOCK" ? "NEEDS_RELOCK" : "COMPLETED");
             markSeriesStatus(review.series_id, nextStatus);
+            companionNotifyDone("confirm");
             advanceAfterRemove(review.review_id);
         }).catch(function (err) {
             alert(err.message || String(err));
@@ -1732,6 +2069,7 @@
             var nextStatus = (data.detail && data.detail.status) || (data.message === "NEEDS_RELOCK" ? "NEEDS_RELOCK" : "COMPLETED");
             markSeriesStatus(review.series_id, nextStatus);
             coverPicked = false;
+            companionNotifyDone("confirm");
             advanceAfterRemove(review.review_id);
         }).catch(function (err) {
             alert(err.message || String(err));
@@ -1752,6 +2090,7 @@
             playTone("skip");
             session.skipped += 1;
             markSeriesStatus(review.series_id, "PENDING");
+            companionNotifyDone("skip");
             advanceAfterRemove(review.review_id);
         }).catch(function (err) {
             alert(err.message || String(err));
@@ -2111,6 +2450,21 @@
                 console.warn("[manual_review] queue refresh failed", err);
             });
         });
+        socket.on("manual_review_candidate", function (payload) {
+            mergeStreamedCandidate(payload);
+        });
+        socket.on("manual_review_scrape_complete", function (payload) {
+            if (!payload || !payload.review_id) return;
+            loadQueue().then(function (r) {
+                if (r && !r.stale && isModalOpen()) {
+                    if (String(currentReviewId) === String(payload.review_id)) {
+                        showCurrentReview();
+                    } else {
+                        onQueueUpdated(r.prevEmpty);
+                    }
+                }
+            }).catch(function () { /* ignore */ });
+        });
         socket.on("manual_review_queue_summary", function (payload) {
             updateBadge((payload && payload.count) || 0);
             if (isModalOpen()) {
@@ -2212,8 +2566,107 @@
         }
     }
 
+    function startCompanionEmbedBootstrap() {
+        var cfg = window.COMPANION_EMBED;
+        if (!cfg || cfg.seriesId == null) return;
+        var waitEl = document.getElementById("companionWait");
+        var targetSid = Number(cfg.seriesId);
+        var targetRid = cfg.reviewId ? String(cfg.reviewId) : "";
+        // Scope every subsequent loadQueue() to this series only.
+        companionOnlySeriesId = targetSid;
+        companionOnlyReviewId = targetRid;
+
+        function findMatch() {
+            for (var i = 0; i < queue.length; i++) {
+                if (Number(queue[i].series_id) !== targetSid) continue;
+                if (targetRid && String(queue[i].review_id) !== targetRid) continue;
+                return queue[i];
+            }
+            return null;
+        }
+
+        function tryOpen() {
+            return loadQueue().then(function () {
+                var match = findMatch();
+                if (!match) return false;
+                if (waitEl) waitEl.style.display = "none";
+                window.openManualReviewModal({ resetSession: true });
+                window.mrJumpToReview(match.review_id);
+                return true;
+            });
+        }
+
+        tryOpen().then(function (ok) {
+            if (ok) return;
+            var ticks = 0;
+            var timer = setInterval(function () {
+                ticks += 1;
+                tryOpen().then(function (opened) {
+                    if (opened) {
+                        clearInterval(timer);
+                        return;
+                    }
+                    if (ticks >= 120) {
+                        clearInterval(timer);
+                        if (waitEl) {
+                            var msg =
+                                (window.AppTranslations && window.AppTranslations.companion_wait_timeout) ||
+                                "Timed out — open Manual Review in MetaKavita or retry.";
+                            var p = waitEl.querySelector("p");
+                            if (p) p.textContent = msg;
+                            var spin = waitEl.querySelector(".companion-wait-spinner");
+                            if (spin) spin.style.display = "none";
+                        }
+                        try {
+                            if (window.parent && window.parent !== window) {
+                                var target = companionParentTarget();
+                                if (target) {
+                                    window.parent.postMessage({
+                                        source: "metakavita-companion",
+                                        type: "mk:mr-timeout",
+                                        seriesId: targetSid
+                                    }, target);
+                                }
+                            }
+                        } catch (e) { /* ignore */ }
+                    }
+                }).catch(function () {
+                    if (ticks >= 120) clearInterval(timer);
+                });
+            }, 2000);
+        }).catch(function () { /* ignore */ });
+
+        if (typeof socket !== "undefined") {
+            socket.on("manual_review_queued", function (payload) {
+                if (payload && Number(payload.series_id) === targetSid) {
+                    tryOpen();
+                }
+            });
+            socket.on("manual_review_candidate", function (payload) {
+                if (!payload || Number(payload.series_id) !== targetSid) return;
+                mergeStreamedCandidate(payload);
+                if (waitEl && waitEl.style.display !== "none") {
+                    tryOpen();
+                }
+            });
+            socket.on("manual_review_scrape_complete", function (payload) {
+                if (!payload || Number(payload.series_id) !== targetSid) return;
+                loadQueue().then(function () {
+                    var match = findMatch();
+                    if (!match) return;
+                    if (waitEl) waitEl.style.display = "none";
+                    if (!isModalOpen()) {
+                        window.openManualReviewModal({ resetSession: true });
+                    }
+                    window.mrJumpToReview(match.review_id);
+                }).catch(function () { /* ignore */ });
+            });
+        }
+    }
+
     onDomReady(function () {
         syncQueueBadge();
+        startCompanionEmbedBootstrap();
     });
 
     // Compat sidebar : ouverture explicite uniquement

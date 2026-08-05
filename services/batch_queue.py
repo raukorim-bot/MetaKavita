@@ -209,6 +209,30 @@ def cancel_item(item_id: str) -> str:
     return "ok"
 
 
+def cancel_queued_by_series(series_id: int) -> int:
+    """Cancel all STATE_QUEUED rows for this series_id. Leaves running untouched.
+
+    Used when Companion Super/Auto replaces a pending batch job for the same series.
+    Returns the number of rows cancelled.
+    """
+    ensure_tables()
+    with _LOCK:
+        conn = db_manager._connect()
+        try:
+            cur = conn.execute(
+                "UPDATE batch_queue SET state = ? WHERE series_id = ? AND state = ?",
+                (STATE_CANCELLED, int(series_id), STATE_QUEUED),
+            )
+            n = cur.rowcount if cur.rowcount is not None else 0
+            conn.commit()
+        finally:
+            conn.close()
+    n = max(0, int(n))
+    if n:
+        broadcast_queue_updated()
+    return n
+
+
 def cancel_all_queued() -> int:
     ensure_tables()
     with _LOCK:

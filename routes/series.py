@@ -18,7 +18,7 @@ from kavita_api import KavitaAPI
 from models import SeriesOverride
 from scrapers import ScraperRegistry
 from scrapers.utils import library_type_for_scraper
-from services.enrichment_engine import ALL_TARGETED_FIELDS
+from services.kavita_payload import protect_manual_cover_field
 from secure_logging import safe_exc_str
 from translations import translations
 
@@ -126,33 +126,14 @@ def apply_series_cover(series_id):
     success, msg = kavita.upload_series_cover(series_id, cover_url)
 
     if success:
-        # Protège le choix manuel : on retire 'cover' des champs ciblés de cette
-        # série pour qu'un futur scraping (webhook, auto-sync, force-sync, batch)
-        # ne réécrase pas silencieusement la couverture avec celle du fournisseur.
+        # Protège le choix manuel : retire 'cover' des champs ciblés sans changer
+        # le statut (IGNORED / COMPLETED / …). Voir protect_manual_cover_field.
         cache_data = get_all_cached_data().get(int(series_id), {})
-        override = SeriesOverride.from_cache_dict(series_id, cache_data)
         original_status = cache_data.get('status') or 'PENDING'
-
-        current_fields = override.targeted_fields
-        if current_fields == 'ALL':
-            all_fields = list(ALL_TARGETED_FIELDS)
-        else:
-            all_fields = current_fields.split(',')
-
-        remaining_fields = [f for f in all_fields if f != 'cover']
-        override.targeted_fields = ",".join(remaining_fields) if remaining_fields else "NONE"
-
-        save_series_override(override)
-        # save_series_override() force TOUJOURS status='PENDING' (voir db_manager.py) :
-        # c'est le comportement voulu pour /save-override (l'utilisateur fournit un
-        # meilleur indice pour relancer la recherche), mais ici on ne fait QUE protéger
-        # la couverture. Sans cette restauration, choisir une couverture manuelle
-        # ré-ouvrait silencieusement une série IGNORED (elle repasserait dans la file
-        # du prochain auto-sync) ou COMPLETED/NOT_FOUND (fausse les stats et expose la
-        # série à un re-scraping inutile, voire à l'écrasement d'autres champs si un
-        # force_update survient entre-temps).
-        update_status(int(series_id), original_status)
-        logging.info(t.get("log_cover_field_locked", "🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {0} (protégé contre les futurs scrapings automatiques).").format(series_id))
+        if protect_manual_cover_field(
+            series_id, status=original_status, purge_pending=True
+        ):
+            logging.info(t.get("log_cover_field_locked", "🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {0} (protégé contre les futurs scrapings automatiques).").format(series_id))
 
     return jsonify({"success": success, "msg": msg})
 

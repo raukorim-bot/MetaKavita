@@ -1,0 +1,42 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extName__",
+  "version": "1.0.22",
+  "default_locale": "en",
+  "description": "__MSG_extDescription__",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "metakavita-companion@metakavita.local",
+      "strict_min_version": "121.0"
+    }
+  },
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "__MSG_extName__",
+    "default_popup": "options.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png"
+    }
+  },
+  "background": {
+    "scripts": ["background.js"],
+    "type": "module"
+  },
+  "permissions": ["storage", "scripting", "activeTab"],
+  "optional_host_permissions": ["*://*/*"],
+  "options_ui": {
+    "page": "options.html",
+    "open_in_tab": true
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["overlay/overlay.html", "overlay/*", "lib/*", "_locales/*", "icons/*"],
+      "matches": ["*://*/*"]
+    }
+  ]
+}

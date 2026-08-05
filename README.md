@@ -322,13 +322,28 @@ In the **Config Modal** (Planning section) you get the base webhook URL (`/webho
 ```json
 {
   "seriesId": 6827,
-  "name": "Chiisakobe",
   "force": true
 }
 ```
-*(Setting `"force": true` in the JSON or adding `&force=true` to the URL triggers a forced re-scrape, overwriting existing metadata even if already marked as completed).*
+`seriesId` is enough — MetaKavita resolves the series name via the Kavita API. Optional legacy `"name"` is still accepted. `"force": true` forces a re-scrape.
 
-#### 3. Health Endpoint
+**Companion flags (C33):**
+```json
+{ "seriesId": 6827, "force": true, "auto": true }
+{ "seriesId": 6827, "force": true, "super_review": true }
+```
+- `auto: true` — write path even if Manual Review mode is on (Companion **Auto** button).
+- `super_review: true` — one-shot Super Manual Review park (wins over `auto` if both are set).
+
+#### 3. MetaKavita Companion (browser extension) — *beta*
+
+Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.22**, MetaKavita **1.6.5**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
+
+Floating icon menu on Kavita **series** pages — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review embeds `/companion/embed` when schemes match; HTTPS Kavita + HTTP Meta → **new tab** (mixed-content block), then auto-closes when the review finishes. Companion one-shots **override** MR/Super toggles, jump ahead of a running batch queue (after the in-flight job), and **replace** any pending job for the same series.
+
+**Install (sideload):** Chrome/Edge → download [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extract → `chrome://extensions` → Developer mode → Load unpacked. Firefox → download [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extract → `about:debugging` → Load Temporary Add-on → `manifest.json`. Pair with MetaKavita URL + webhook token in Companion → Config. Full guide: [`companion/README.md`](https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md) (also Help menu). Pack: `node companion/scripts/pack.mjs`.
+
+#### 4. Health Endpoint
 
 `GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
 
@@ -660,13 +675,28 @@ Dans la **Modal Config** (section Planification) vous avez l'URL de base (`/webh
 ```json
 {
   "seriesId": 6827,
-  "name": "Chiisakobe",
   "force": true
 }
 ```
-*(Définir `"force": true` dans le JSON ou ajouter `&force=true` dans l'URL déclenche un ré-enrichissement forcé, écrasant les métadonnées existantes même si la fiche était marquée comme complétée).*
+`seriesId` suffit — MetaKavita résout le nom via l’API Kavita. `"name"` legacy optionnel. `"force": true` force un re-scrape.
 
-#### 3. Endpoint de santé
+**Flags Companion (C33) :**
+```json
+{ "seriesId": 6827, "force": true, "auto": true }
+{ "seriesId": 6827, "force": true, "super_review": true }
+```
+- `auto: true` — écriture même si Manual Review global est on (bouton **Auto**).
+- `super_review: true` — Super Review one-shot (prioritaire sur `auto`).
+
+#### 3. MetaKavita Companion (extension navigateur) — *bêta*
+
+Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.22**, MetaKavita **1.6.5**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
+
+Menu flottant sur les **fiches série** Kavita — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review via `/companion/embed` si les schémas matchent ; HTTPS Kavita + HTTP Meta → **nouvel onglet** (mixed content), fermeture auto en fin de parcours. Les one-shots Companion **passent outre** les toggles MR/Super, passent devant la file batch (après le job en cours) et **remplacent** tout job pending pour la même série.
+
+**Install (sideload) :** Chrome/Edge → télécharger [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extraire → `chrome://extensions` → Mode développeur → Charger non empaquetée. Firefox → télécharger [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extraire → `about:debugging` → Charger un module temporaire → `manifest.json`. Brancher avec URL MetaKavita + jeton webhook dans Companion → Config. Guide : [`companion/README.md`](https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md) (aussi menu Aide). Pack : `node companion/scripts/pack.mjs`.
+
+#### 4. Endpoint de santé
 
 `GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
 

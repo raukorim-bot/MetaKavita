@@ -1226,7 +1226,14 @@ def test_apply_auto_confirm_skips_manual_telemetry(isolated_db, mocker):
 
 
 def test_apply_manual_review_force_cover_upload_without_auto_cover(isolated_db, mocker):
-    """cover_picked / cover_url édité → upload même si AUTO_COVER est off."""
+    """cover_picked / cover_url édité → upload même si AUTO_COVER est off + lock targeted_fields."""
+    from models import SeriesOverride
+
+    isolated_db.save_series_override(
+        SeriesOverride(series_id=9300, targeted_fields="ALL"),
+        purge_pending=False,
+        status="PENDING_REVIEW",
+    )
     payload = {
         "above": [
             {
@@ -1277,6 +1284,9 @@ def test_apply_manual_review_force_cover_upload_without_auto_cover(isolated_db, 
     upload.assert_called_once()
     assert upload.call_args[0][1] == "https://cdn.example/picked.jpg"
     assert isolated_db.get_pending_review(rid) is None
+    cached = isolated_db.get_all_cached_data()[9300]
+    assert "cover" not in (cached.get("targeted_fields") or "").split(",")
+    assert cached["status"] in ("COMPLETED", "NEEDS_RELOCK")
 
 
 def test_apply_manual_review_no_cover_upload_without_auto_or_pick(isolated_db, mocker):

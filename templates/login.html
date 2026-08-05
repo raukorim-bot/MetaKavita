@@ -18,7 +18,14 @@
         <div class="alert error" style="padding: 8px; margin-bottom: 15px;">{{ error }}</div>
         {% endif %}
 
-        <form method="POST" action="{{ url_for('auth.login') }}">
+        <div id="iframeLoginHint" style="display:none; padding: 10px; margin-bottom: 15px; border-radius: 8px; background: rgba(248,113,113,0.12); color: var(--text-main); font-size: 13px; line-height: 1.4;">
+            {{ t.get('login_iframe_hint', 'La connexion dans une iframe échoue (cookies/CSRF). Ouvrez MetaKavita dans un onglet, connectez-vous, puis réessayez Super Review.') }}
+            <div style="margin-top: 10px;">
+                <a class="btn-primary" id="iframeLoginOpen" href="{{ url_for('auth.login') }}" target="_blank" rel="noopener" style="display:inline-block; padding: 10px 14px; text-decoration:none;">{{ t.get('login_open_tab', 'Ouvrir la connexion') }}</a>
+            </div>
+        </div>
+
+        <form id="loginForm" method="POST" action="{{ url_for('auth.login') }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
             <div class="form-group" style="text-align: left;">
                 <input type="text" name="username" placeholder="{{ t.login_username }}" required autofocus
@@ -31,5 +38,24 @@
             <button type="submit" class="btn-primary w-100" style="padding: 12px; font-size: 16px;">{{ t.login_unlock }}</button>
         </form>
     </div>
+    <script>
+        // Cross-origin iframe (Companion): SameSite=Lax cookies + CSRF fail on
+        // nested POSTs. Hide the form and ask for a top-level login tab.
+        (function () {
+            try {
+                if (window.top !== window.self) {
+                    var hint = document.getElementById("iframeLoginHint");
+                    var form = document.getElementById("loginForm");
+                    if (hint) hint.style.display = "block";
+                    if (form) form.style.display = "none";
+                }
+            } catch (e) {
+                var hint2 = document.getElementById("iframeLoginHint");
+                var form2 = document.getElementById("loginForm");
+                if (hint2) hint2.style.display = "block";
+                if (form2) form2.style.display = "none";
+            }
+        })();
+    </script>
 </body>
 </html>

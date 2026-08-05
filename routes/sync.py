@@ -20,7 +20,6 @@ from db_manager import get_all_cached_data, reset_errors
 from kavita_api import KavitaAPI
 from translations import translations
 from services.background_tasks import (
-    sync_queue,
     set_batch_enqueue_enabled,
     is_batch_enqueue_enabled,
     drain_sync_queue,
@@ -29,6 +28,8 @@ from services.background_tasks import (
     make_sync_item,
     register_batch_enqueue,
     is_batch_active,
+    put_sync,
+    put_front,
 )
 from services import batch_queue as batch_queue_svc
 from services.enrichment_engine import enrich_series
@@ -171,7 +172,7 @@ def batch_sync():
     elif added:
         register_batch_enqueue(added, new_batch=new_batch)
         for item in result.get("items") or []:
-            sync_queue.put(
+            put_sync(
                 make_sync_item(
                     item["series_id"],
                     item["series_name"],
@@ -324,24 +325,144 @@ def webhook():
 
     if not token_ok:
         logging.warning(t.get("log_webhook_unauthorized", "🚨 [Sécurité] Tentative d'accès au webhook bloquée (Jeton invalide)."))
-        return jsonify(success=False, message="Unauthorized"), 401
+        return jsonify(success=False, code="unauthorized", message="Unauthorized"), 401
 
     payload = request.get_json(silent=True) or request.form or {}
+
+    def _truthy(val):
+        if val is None:
+            return False
+        return str(val).lower() in ("true", "1", "yes")
+
+    # Companion / clients : sonde auth sans enfiler de job (évite le spam "missing seriesId").
+    if _truthy(payload.get("probe")) or _truthy(request.args.get("probe")):
+        return jsonify(success=True, probe=True), 200
+
     series_id = payload.get("seriesId") or payload.get("SeriesId") or payload.get("series_id")
     series_name = payload.get("name") or payload.get("Name") or payload.get("series_name")
 
-    force_param = payload.get("force") or payload.get("force_update") or payload.get("forceUpdate") or request.args.get('force')
-    force_update = str(force_param).lower() in ['true', '1', 'yes'] if force_param is not None else False
+    force_param = (
+        payload.get("force")
+        or payload.get("force_update")
+        or payload.get("forceUpdate")
+        or request.args.get("force")
+    )
+    force_update = _truthy(force_param) if force_param is not None else False
+    # C33 Companion : Super Review one-shot > Auto one-shot si les deux sont posés.
+    want_super = _truthy(payload.get("super_review") or payload.get("superReview"))
+    want_auto = _truthy(payload.get("auto") or payload.get("force_auto") or payload.get("forceAuto"))
+    if want_super:
+        want_auto = False
+    # Companion one-shots must not be skipped as "already up to date".
+    if want_super or want_auto:
+        force_update = True
 
-    if series_id and series_name:
-        sync_queue.put(make_sync_item(series_id, series_name, force_update))
-        mode_str = t.get("log_webhook_force_mode", " (⚠️ Mode Forcé)") if force_update else ""
-        logging.info(t.get("log_webhook_received", "⚡ [Webhook] Événement reçu ! Série '{0}' (ID: {1}){2} ajoutée à la file.").format(series_name, series_id, mode_str))
+    if not series_id:
+        logging.warning(
+            t.get(
+                "log_webhook_ignored",
+                "⚠️ [Webhook] Événement ignoré : champ 'seriesId' manquant dans le payload.",
+            )
+        )
         return jsonify(
-            success=True,
-            message=t.get("webhook_event_received", "Event reçu"),
-            force_update=force_update,
-        ), 200
+            success=False,
+            code="missing_series_id",
+            message=t.get("msg_webhook_missing_fields", "Champs requis manquants"),
+        ), 400
 
-    logging.warning(t.get("log_webhook_ignored", "⚠️ [Webhook] Événement ignoré : champs 'seriesId' ou 'name' manquants dans le payload."))
-    return jsonify(success=False, message=t.get("msg_webhook_missing_fields", "Champs requis manquants")), 400
+    try:
+        series_id_int = int(series_id)
+    except (TypeError, ValueError):
+        return jsonify(
+            success=False,
+            code="invalid_series_id",
+            message=t.get("msg_webhook_invalid_series_id", "seriesId invalide"),
+        ), 400
+
+    if not series_name:
+        # C33 : seriesId seul — résoudre le nom via l'API Kavita (pas de scrape DOM).
+        kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
+        series, resolve_err = kavita.fetch_series(series_id_int, timeout=8)
+        if not series:
+            if resolve_err in ("kavita_auth", "kavita_unreachable"):
+                logging.warning(
+                    t.get(
+                        "log_webhook_kavita_unreachable",
+                        "⚠️ [Webhook] Kavita injoignable pour résoudre seriesId={0} ({1}).",
+                    ).format(series_id_int, resolve_err)
+                )
+                return jsonify(
+                    success=False,
+                    code=resolve_err or "kavita_unreachable",
+                    message=t.get(
+                        "msg_webhook_kavita_unreachable",
+                        "Kavita injoignable",
+                    ),
+                ), 503
+            logging.warning(
+                t.get(
+                    "log_webhook_series_not_found",
+                    "⚠️ [Webhook] Série introuvable côté Kavita (ID: {0}).",
+                ).format(series_id_int)
+            )
+            return jsonify(
+                success=False,
+                code="series_not_found",
+                message=t.get("msg_webhook_series_not_found", "Série introuvable"),
+            ), 404
+        series_name = (
+            series.get("name")
+            or series.get("Name")
+            or series.get("originalName")
+            or ""
+        ).strip()
+        if not series_name:
+            return jsonify(
+                success=False,
+                code="series_not_found",
+                message=t.get("msg_webhook_series_not_found", "Série introuvable"),
+            ), 404
+
+    item = make_sync_item(
+        series_id_int,
+        series_name,
+        force_update,
+        super_review=want_super,
+        force_auto=want_auto,
+    )
+    replaced = 0
+    if want_super or want_auto:
+        replaced = put_front(item)
+    else:
+        put_sync(item)
+    mode_str = t.get("log_webhook_force_mode", " (⚠️ Mode Forcé)") if force_update else ""
+    if want_super:
+        mode_str += t.get("log_webhook_super_mode", " (Super Review)")
+    elif want_auto:
+        mode_str += t.get("log_webhook_auto_mode", " (Auto)")
+    if want_super or want_auto:
+        mode_str += t.get("log_webhook_priority", " (priorité Companion)")
+    logging.info(
+        t.get(
+            "log_webhook_received",
+            "⚡ [Webhook] Événement reçu ! Série '{0}' (ID: {1}){2} ajoutée à la file.",
+        ).format(series_name, series_id_int, mode_str)
+    )
+    if replaced:
+        logging.info(
+            t.get(
+                "log_webhook_replaced",
+                "⚡ [Webhook] Série {0} : {1} job(s) en attente remplacé(s) par Companion.",
+            ).format(series_id_int, replaced)
+        )
+    return jsonify(
+        success=True,
+        message=t.get("webhook_event_received", "Event reçu"),
+        series_id=series_id_int,
+        series_name=series_name,
+        force_update=force_update,
+        force_auto=want_auto,
+        super_review=want_super,
+        replaced_pending=replaced,
+        priority=bool(want_super or want_auto),
+    ), 200

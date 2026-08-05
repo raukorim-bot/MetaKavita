@@ -30,7 +30,7 @@ class MangaNewsScraper(BaseScraper):
     is_core = True
     display_name = "Manga-News (Catalogue VF)"
     supported_types = {"Manga"}
-    rate_limit = 1.5
+    rate_limit = 2.5  # HTML polite-use + margin
     proxy_domains = ["manga-news.com", "www.manga-news.com"]
     has_direct_id_support = True
     requires_proxy = False

@@ -11,7 +11,7 @@ class MangaDexScraper(BaseScraper):
     is_core = True
     display_name = "MangaDex (API)"
     supported_types = {"Manga"}
-    rate_limit = 0.5
+    rate_limit = 0.25  # ~4.5/s: 10% under MangaDex global ~5 req/s
     proxy_domains = ["mangadex.org", "uploads.mangadex.org", "api.mangadex.org"]
     has_direct_id_support = True
     requires_proxy = True

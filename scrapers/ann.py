@@ -70,7 +70,7 @@ class AnnScraper(BaseScraper):
     is_core = True
     display_name = "Anime News Network"
     supported_types = {"Manga"}
-    rate_limit = 1.2
+    rate_limit = 1.1  # ~0.91/s: 10% under ANN official 1 req/s
     proxy_domains = [
         "animenewsnetwork.com",
         "cdn.animenewsnetwork.com",

@@ -31,7 +31,7 @@ class ShikimoriScraper(BaseScraper):
     is_core = True
     display_name = "Shikimori (API JSON)"
     supported_types = {"Manga"}
-    rate_limit = 0.5
+    rate_limit = 0.75  # ~80/min: 10% under official 90 rpm (also 5 rps)
     proxy_domains = ["shikimori.one", "shikimori.me"]
     has_direct_id_support = True
     requires_proxy = False

@@ -1,0 +1,390 @@
+:root {
+  --mk-bg: #0f172a;
+  --mk-panel: #1e293b;
+  --mk-text: #e2e8f0;
+  --mk-muted: #94a3b8;
+  --mk-accent: #38bdf8;
+  --mk-auto: #34d399;
+  --mk-danger: #f87171;
+  --mk-shadow: 0 8px 28px rgba(0, 0, 0, 0.45);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  background: transparent !important;
+  background-color: transparent !important;
+  color: var(--mk-text);
+  overflow: hidden;
+  pointer-events: none;
+}
+
+#root {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: transparent;
+}
+
+.fab-stack {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  width: 56px;
+  height: 56px;
+  pointer-events: none;
+  opacity: 0;
+  transform: translateY(10px) scale(0.96);
+  transition: opacity 0.32s ease, transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+  z-index: 2;
+}
+
+.fab-stack.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+/* Premium floating logo button — glass disc, subtle ring, soft glow */
+.fab-logo {
+  position: relative;
+  z-index: 2;
+  pointer-events: auto;
+  width: 56px;
+  height: 56px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 50%;
+  background: radial-gradient(
+    120% 120% at 50% 20%,
+    rgba(30, 41, 59, 0.82),
+    rgba(15, 23, 42, 0.86)
+  );
+  -webkit-backdrop-filter: blur(12px) saturate(1.15);
+  backdrop-filter: blur(12px) saturate(1.15);
+  box-shadow:
+    0 10px 30px rgba(2, 6, 23, 0.45),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  transition: transform 0.25s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.25s ease, border-color 0.25s ease;
+}
+
+.fab-logo img {
+  width: 34px;
+  height: 34px;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  user-select: none;
+}
+
+.fab-logo:hover {
+  transform: translateY(-1px) scale(1.05);
+  border-color: color-mix(in srgb, var(--mk-accent) 55%, transparent);
+  box-shadow:
+    0 14px 36px rgba(2, 6, 23, 0.5),
+    0 0 0 4px color-mix(in srgb, var(--mk-accent) 16%, transparent);
+}
+
+.fab-logo:active {
+  transform: scale(0.97);
+}
+
+.fab-logo[aria-expanded="true"] {
+  border-color: color-mix(in srgb, var(--mk-accent) 60%, transparent);
+  box-shadow:
+    0 14px 36px rgba(2, 6, 23, 0.5),
+    0 0 0 4px color-mix(in srgb, var(--mk-accent) 20%, transparent);
+}
+
+.fab-actions {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 0;
+  pointer-events: none;
+}
+
+/* Every action is the same 46px glass disc — uniform footprint is what
+   makes the radial layout math (see overlay.js layoutArc) land evenly. */
+.fab {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  z-index: 1;
+  --x: 0px;
+  --y: 0px;
+  --delay: 0s;
+  width: 46px;
+  height: 46px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  opacity: 0;
+  transform: translate(-50%, -50%) scale(0.4);
+  transition: opacity 0.2s ease, transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.2s ease, border-color 0.2s ease;
+  transition-delay: 0s;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  cursor: pointer;
+  color: var(--mk-text);
+  background: radial-gradient(120% 120% at 50% 18%, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.75));
+  -webkit-backdrop-filter: blur(10px) saturate(1.15);
+  backdrop-filter: blur(10px) saturate(1.15);
+  box-shadow: 0 8px 20px rgba(2, 6, 23, 0.35), inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+  box-sizing: border-box;
+  pointer-events: none;
+}
+
+.fab svg {
+  width: 19px;
+  height: 19px;
+  display: block;
+  pointer-events: none;
+}
+
+.fab-actions:not([hidden]) .fab {
+  pointer-events: auto;
+}
+
+.fab-stack.is-open .fab {
+  opacity: 1;
+  transition-delay: var(--delay);
+  transform: translate(-50%, -50%) translate(var(--x), var(--y));
+}
+
+.fab-stack.is-open .fab:hover {
+  transform: translate(-50%, -50%) translate(var(--x), var(--y)) scale(1.1);
+  box-shadow: 0 10px 26px rgba(2, 6, 23, 0.5),
+    0 0 0 5px color-mix(in srgb, currentColor 16%, transparent);
+  border-color: color-mix(in srgb, currentColor 65%, transparent);
+}
+
+.fab-stack.is-open .fab:active {
+  transform: translate(-50%, -50%) translate(var(--x), var(--y)) scale(0.96);
+}
+
+.fab-super {
+  color: var(--mk-accent);
+  border-color: color-mix(in srgb, var(--mk-accent) 40%, transparent);
+}
+
+.fab-auto {
+  color: var(--mk-auto);
+  border-color: color-mix(in srgb, var(--mk-auto) 40%, transparent);
+}
+
+.fab-cover {
+  color: #fbbf24;
+  border-color: rgba(251, 191, 36, 0.4);
+}
+
+.fab-config {
+  color: var(--mk-text);
+  border-color: rgba(148, 163, 184, 0.4);
+}
+
+.fab-bmc {
+  color: #e2c08d;
+  border-color: rgba(226, 192, 141, 0.4);
+}
+
+.fab:disabled {
+  cursor: wait;
+}
+
+.fab-stack.is-open .fab:disabled {
+  opacity: 0.55;
+}
+
+.panel {
+  position: fixed;
+  right: 20px;
+  bottom: 88px;
+  width: min(320px, calc(100vw - 32px));
+  max-height: min(58vh, 420px);
+  overflow: auto;
+  background: rgba(30, 41, 59, 0.92);
+  -webkit-backdrop-filter: blur(14px) saturate(1.1);
+  backdrop-filter: blur(14px) saturate(1.1);
+  border: 1px solid rgba(148, 163, 184, 0.28);
+  border-radius: 16px;
+  padding: 14px;
+  box-shadow: 0 18px 48px rgba(2, 6, 23, 0.55);
+  pointer-events: auto;
+  display: none;
+  z-index: 3;
+}
+
+.panel.is-open { display: block; }
+
+.panel:focus-within,
+.fab:focus-visible,
+.fab-logo:focus-visible,
+.btn:focus-visible {
+  outline: 2px solid var(--mk-accent);
+  outline-offset: 2px;
+}
+
+.panel h2 {
+  margin: 0 0 12px;
+  font-size: 15px;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+.field label {
+  font-size: 11px;
+  color: var(--mk-muted);
+  font-weight: 600;
+}
+
+.field input[type="text"],
+.field input[type="password"],
+.field select {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  background: #0f172a;
+  color: var(--mk-text);
+  font: inherit;
+}
+
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  margin-bottom: 8px;
+  color: var(--mk-text);
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.btn {
+  border: 0;
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-weight: 650;
+  cursor: pointer;
+  background: var(--mk-accent);
+  color: #0b1220;
+  font-size: 12px;
+}
+
+.btn-secondary {
+  background: transparent;
+  color: var(--mk-text);
+  border: 1px solid rgba(148, 163, 184, 0.4);
+}
+
+.toast {
+  position: fixed;
+  right: 12px;
+  left: 12px;
+  bottom: auto;
+  top: 10px;
+  transform: translateY(-8px);
+  background: var(--mk-panel);
+  color: var(--mk-text);
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.35);
+  box-shadow: var(--mk-shadow);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 5;
+  font-size: 12px;
+  text-align: center;
+}
+
+.toast.is-show {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.toast.is-error { border-color: var(--mk-danger); }
+
+.mr-host {
+  position: fixed;
+  inset: 0;
+  background: rgba(2, 6, 23, 0.72);
+  display: none;
+  pointer-events: auto;
+  z-index: 4;
+}
+
+.mr-host.is-open { display: block; }
+
+.mr-host iframe {
+  position: absolute;
+  inset: 3%;
+  width: 94%;
+  height: 94%;
+  border: 0;
+  border-radius: 12px;
+  background: #0f1419;
+  box-shadow: var(--mk-shadow);
+}
+
+.mr-close {
+  position: absolute;
+  top: 1.2%;
+  right: 3.5%;
+  z-index: 1;
+  pointer-events: auto;
+}
+
+.mr-fallback {
+  position: absolute;
+  inset: 3%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+  text-align: center;
+  border-radius: 12px;
+  background: var(--mk-panel);
+  color: var(--mk-text);
+  box-shadow: var(--mk-shadow);
+  pointer-events: auto;
+  z-index: 2;
+}
+
+.mr-fallback p {
+  margin: 0;
+  max-width: 26rem;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--mk-muted);
+}
+
+.mr-fallback .btn {
+  text-decoration: none;
+  display: inline-block;
+}

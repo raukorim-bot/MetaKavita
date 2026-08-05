@@ -88,7 +88,7 @@ def test_hydrate_puts_to_ram(bq, monkeypatch):
     import services.background_tasks as bt
 
     puts = []
-    monkeypatch.setattr(bt.sync_queue, "put", lambda item: puts.append(item))
+    monkeypatch.setattr(bt, "put_sync", lambda item: puts.append(item))
     monkeypatch.setattr(bt, "register_batch_enqueue", lambda count, new_batch: None)
 
     bq.enqueue_items([
@@ -195,7 +195,6 @@ def test_batch_sync_unpauses_and_hydrates(bq, monkeypatch, isolated_db):
         "KAVITA_API_KEY": "x",
         "UI_LANG": "fr",
     })
-    monkeypatch.setattr("routes.sync.sync_queue", fake_q)
     monkeypatch.setattr("routes.sync.batch_queue_svc", bq)
     monkeypatch.setattr(bg, "sync_queue", fake_q)
 

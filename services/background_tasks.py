@@ -23,6 +23,9 @@ from services.enrichment_engine import enrich_series
 # consommée par le worker démarré ci-dessous.
 sync_queue = queue.Queue()
 
+# Sérialise put / put_front / drain-detach qui réordonnent la file RAM.
+_sync_queue_lock = threading.Lock()
+
 # Après Stop, rejette les paquets /batch-sync encore en vol (chunks de 50 côté UI).
 # Le premier chunk d'un nouveau lancement renvoie `resume_enqueue=true` pour réarmer.
 _batch_enqueue_lock = threading.Lock()
@@ -59,16 +62,31 @@ def is_batch_enqueue_enabled() -> bool:
         return _batch_enqueue_enabled
 
 
-def make_sync_item(series_id, series_name, force_update, fields_override=None, is_batch=False):
+def make_sync_item(
+    series_id,
+    series_name,
+    force_update,
+    fields_override=None,
+    is_batch=False,
+    *,
+    super_review=False,
+    force_auto=False,
+):
     """Structure unique poussée dans `sync_queue` par les 3 producteurs (batch-sync,
     webhook, auto-sync). `is_batch` est le seul signal utilisé pour la barre de
-    progression batch — voir le commentaire sur `_batch_total` ci-dessus."""
+    progression batch — voir le commentaire sur `_batch_total` ci-dessus.
+
+    C33 Companion : `super_review` / `force_auto` sont des overrides one-shot
+    (webhook) ; défauts False pour rétrocompat batch / auto-sync.
+    """
     return {
         "series_id": series_id,
         "series_name": series_name,
         "force_update": force_update,
         "fields_override": fields_override,
         "is_batch": is_batch,
+        "super_review": bool(super_review),
+        "force_auto": bool(force_auto),
     }
 
 
@@ -79,7 +97,7 @@ def register_batch_enqueue(count, new_batch):
     compteur à zéro ; les paquets suivants du même batch s'additionnent dessus,
     puisque le total réel n'est connu qu'une fois tous les paquets envoyés mais
     que le premier paquet doit déjà pouvoir afficher une progression.
-    À appeler AVANT `sync_queue.put(...)` pour que le worker ne lise jamais un
+    À appeler AVANT `put_sync(...)` pour que le worker ne lise jamais un
     total pas encore à jour.
     """
     global _batch_total, _batch_done, _batch_real_sends
@@ -89,6 +107,67 @@ def register_batch_enqueue(count, new_batch):
             _batch_done = 0
             _batch_real_sends = 0
         _batch_total += max(0, int(count))
+
+
+def put_sync(item) -> None:
+    """Enqueue FIFO sous lock (producteurs batch / webhook / auto-sync / hydrate)."""
+    with _sync_queue_lock:
+        sync_queue.put(item)
+
+
+def put_front(item) -> int:
+    """Insert `item` at the head of the RAM queue (next job after in-flight).
+
+    Drops every pending item with the same ``series_id`` (batch, webhook, or
+    prior Companion) and cancels matching C63 ``queued`` rows so the Companion
+    one-shot replaces them. Does not preempt the job already taken by ``_worker``.
+
+    Returns the number of pending jobs removed.
+    """
+    global _batch_done
+    sid = int(item["series_id"])
+    dropped = 0
+    dropped_batch = 0
+    with _sync_queue_lock:
+        rest = []
+        while True:
+            try:
+                pending = sync_queue.get_nowait()
+            except queue.Empty:
+                break
+            if isinstance(pending, dict) and int(pending.get("series_id", -1)) == sid:
+                sync_queue.task_done()
+                dropped += 1
+                if pending.get("is_batch"):
+                    dropped_batch += 1
+            else:
+                rest.append(pending)
+
+        sync_queue.put(item)
+        for other in rest:
+            sync_queue.put(other)
+            sync_queue.task_done()
+
+    # Always clear durable queued rows for this series (paused file, or RAM drop).
+    try:
+        from services import batch_queue as bq
+
+        bq.cancel_queued_by_series(sid)
+    except Exception as exc:
+        logging.debug("cancel_queued_by_series skipped: %s", exc)
+
+    if dropped_batch:
+        with _batch_progress_lock:
+            _batch_done = min(_batch_total, _batch_done + dropped_batch)
+            remaining = max(0, _batch_total - _batch_done)
+            batch_finished = _batch_total > 0 and _batch_done >= _batch_total
+            real_sends = _batch_real_sends
+        if batch_finished:
+            broadcast_batch_progress(0, real_sends=real_sends)
+        else:
+            broadcast_batch_progress(remaining)
+
+    return dropped
 
 
 def is_batch_active() -> bool:
@@ -141,10 +220,13 @@ def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=N
 
 
 def _detach_batch_from_ram_unlocked() -> int:
-    """Retire les items is_batch de sync_queue ; réinsère le reste. Sans touch SQLite."""
+    """Retire les items is_batch de sync_queue ; réinsère le reste. Sans touch SQLite.
+
+    Caller must hold `_sync_queue_lock`.
+    """
     drained = 0
     kept = []
-    while not sync_queue.empty():
+    while True:
         try:
             item = sync_queue.get_nowait()
         except queue.Empty:
@@ -167,7 +249,8 @@ def drain_sync_queue() -> int:
     `sync_queue` est partagée avec le webhook et le polling auto-sync : les items
     non-batch sont réinsérés. Appelé avec cancel SQLite côté stop_batch.
     """
-    drained = _detach_batch_from_ram_unlocked()
+    with _sync_queue_lock:
+        drained = _detach_batch_from_ram_unlocked()
     reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=True)
@@ -176,7 +259,8 @@ def drain_sync_queue() -> int:
 
 def detach_batch_from_ram() -> int:
     """Pause : retire le batch de la RAM sans annuler la file SQLite."""
-    drained = _detach_batch_from_ram_unlocked()
+    with _sync_queue_lock:
+        drained = _detach_batch_from_ram_unlocked()
     reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=False)
@@ -192,7 +276,7 @@ def hydrate_batch_queue_to_ram(*, new_batch: bool = True) -> int:
         return 0
     register_batch_enqueue(len(items), new_batch=new_batch)
     for s in items:
-        sync_queue.put(
+        put_sync(
             make_sync_item(
                 s["series_id"],
                 s["series_name"],
@@ -216,6 +300,8 @@ def _worker():
             force_update = item["force_update"]
             fields_override = item.get("fields_override")
             is_batch = bool(item.get("is_batch"))
+            item_super_review = bool(item.get("super_review"))
+            item_force_auto = bool(item.get("force_auto"))
 
             config = load_config()
             t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
@@ -243,6 +329,8 @@ def _worker():
                 series_name,
                 force_update,
                 targeted_fields_override=fields_override,
+                super_review_override=True if item_super_review else None,
+                force_auto=item_force_auto,
             )
 
             if is_batch:
@@ -308,7 +396,7 @@ def _auto_sync_worker():
                         if to_process:
                             logging.info(t.get('log_auto_sync_found').format(len(to_process)))
                             for s in to_process:
-                                sync_queue.put(make_sync_item(s['id'], s['name'], False))
+                                put_sync(make_sync_item(s['id'], s['name'], False))
 
                 except Exception as e:
                     logging.error(f"❌ [Auto-Sync] Erreur : {e}")

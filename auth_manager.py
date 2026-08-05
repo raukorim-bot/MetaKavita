@@ -707,6 +707,16 @@ def is_authenticated() -> bool:
     return session.get("user_id") is not None
 
 
+def companion_embed_authorized(series_id=None) -> bool:
+    """True if the request carries a valid Companion embed token (optionally scoped)."""
+    try:
+        from services.companion_embed_auth import authorize_companion_request
+
+        return authorize_companion_request(series_id) is not None
+    except Exception:
+        return False
+
+
 # --- GATES HTTP ------------------------------------------------------------
 # Endpoints joignables sans compte. ⚠️ La liste porte sur des NOMS D'ENDPOINTS
 # Flask ('blueprint.vue') : renommer un blueprint ou une vue déplace donc
@@ -718,6 +728,7 @@ _SETUP_ALLOWED_ENDPOINTS = frozenset({
     "static",
     "misc.healthz",
     "sync.webhook",
+    "companion.companion_embed_token",
 })
 
 _LOGIN_ALLOWED_ENDPOINTS = frozenset({
@@ -727,7 +738,17 @@ _LOGIN_ALLOWED_ENDPOINTS = frozenset({
     "static",
     "misc.healthz",
     "sync.webhook",
+    "companion.companion_embed_token",
 })
+
+# Endpoints the Companion Super Review shell may call with only an embed token
+# (SameSite=Lax session cookies are not sent inside a cross-origin Kavita iframe).
+# Note: companion.companion_embed itself is handled above with series-scoped
+# validation — do NOT allowlist the whole companion.* prefix or a token for
+# series A would open the embed for series B.
+_COMPANION_EMBED_API_PREFIXES = (
+    "manual_review.",
+)
 
 
 def setup_gate():
@@ -763,6 +784,35 @@ def login_gate():
         return None
     if request.endpoint in _LOGIN_ALLOWED_ENDPOINTS:
         return None
+    # C33: /companion/embed-token is webhook-authenticated in the view itself.
+    if request.endpoint == "companion.companion_embed_token":
+        return None
+    # C33: Super Review iframe — short-lived embed_token bypasses session cookies
+    # that SameSite=Lax will not send in nested cross-origin Kavita frames.
+    if request.endpoint == "companion.companion_embed":
+        tok = (request.args.get("embed_token") or request.args.get("embedToken") or "").strip()
+        sid_raw = request.args.get("series_id") or request.args.get("seriesId")
+        if tok and sid_raw is not None:
+            try:
+                from services.companion_embed_auth import validate_embed_token
+
+                if validate_embed_token(tok, int(sid_raw)):
+                    return None
+            except (TypeError, ValueError):
+                pass
+    endpoint = request.endpoint or ""
+    if endpoint.startswith(_COMPANION_EMBED_API_PREFIXES) and companion_embed_authorized():
+        return None
+    # Companion Cover Pick: series-scoped embed token on cover GET/POST.
+    if endpoint in ("series.get_series_covers", "series.apply_series_cover"):
+        view_args = request.view_args or {}
+        sid = view_args.get("series_id")
+        if sid is not None:
+            try:
+                if companion_embed_authorized(int(sid)):
+                    return None
+            except (TypeError, ValueError):
+                pass
     if not is_authenticated():
         return redirect(url_for("auth.login"))
     return None

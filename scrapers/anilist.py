@@ -12,7 +12,7 @@ class AnilistScraper(BaseScraper):
     # Comic stays: AniList has no COMIC Media type; manhwa/manhua/comics live under MANGA.
     # Book: search still uses type MANGA but candidates are filtered to format NOVEL.
     supported_types = {"Manga", "Comic", "Book"}
-    rate_limit = 1.0
+    rate_limit = 2.25  # ~27/min: 10% under AniList degraded 30/min (normal 90/min)
     proxy_domains = ["anilist.co"]
     has_direct_id_support = True
     uses_unified_scoring = True

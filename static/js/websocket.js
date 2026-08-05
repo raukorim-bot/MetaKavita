@@ -2,12 +2,32 @@
 // Dépend de utils.js (getRootPath). La variable globale `socket` est réutilisée
 // par covers.js (flux de couvertures en direct) : ce fichier doit donc être
 // chargé AVANT covers.js.
-var socket = io({ path: getRootPath() + '/socket.io' });
+// Companion Super Review: pass embed_token so Socket.IO works without a
+// SameSite session cookie inside a cross-origin Kavita iframe.
+(function () {
+    var opts = { path: getRootPath() + '/socket.io' };
+    var cfg = window.COMPANION_EMBED;
+    if (cfg && cfg.embedToken) {
+        opts.auth = {
+            embed_token: cfg.embedToken,
+            series_id: cfg.seriesId
+        };
+        opts.query = {
+            embed_token: cfg.embedToken,
+            series_id: cfg.seriesId
+        };
+    }
+    window.socket = io(opts);
+})();
+var socket = window.socket;
 var logConsole = document.getElementById('log-console');
-socket.on('connect', function() { 
-    logConsole.innerHTML += '<div class="log-line" style="color: var(--primary);">' + window.AppTranslations.terminal_ready + '</div>'; 
+socket.on('connect', function() {
+    if (!logConsole) return;
+    var ready = (window.AppTranslations && window.AppTranslations.terminal_ready) || 'Ready';
+    logConsole.innerHTML += '<div class="log-line" style="color: var(--primary);">' + ready + '</div>';
 });
 socket.on('log_update', function(msg) {
+    if (!logConsole) return;
     var newLog = document.createElement('div');
     newLog.className = 'log-line';
     newLog.textContent = msg.data;

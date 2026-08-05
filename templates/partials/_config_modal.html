@@ -216,6 +216,22 @@
                                     <button type="button" class="btn-secondary" onclick="regenerateWebhookToken(this)">{{ t.regen_webhook_btn }}</button>
                                 </div>
                             </div>
+
+                            <div class="form-group m-0 companion-config-blurb" data-companion-config="1">
+                                <label>{{ t.companion_config_title }}</label>
+                                <p class="field-hint m-0">{{ t.companion_config_blurb }}</p>
+                                <p class="field-hint m-0">{{ t.companion_config_howto }}</p>
+                                <div class="inline-field-row" style="margin-top:8px; flex-wrap:wrap; gap:8px;">
+                                    <button type="button" class="btn-secondary" id="companionCopyBaseUrlBtn"
+                                            onclick="(function(){ var el=document.getElementById('webhookUrlInput'); if(!el) return; var u=window.location.origin+(window.ROOT_PATH||''); navigator.clipboard&&navigator.clipboard.writeText(u); })();">
+                                        {{ t.companion_copy_base_url }}
+                                    </button>
+                                    <button type="button" class="btn-secondary" id="companionCopyTokenBtn"
+                                            onclick="(function(){ var el=document.getElementById('webhookTokenInput'); if(el&&navigator.clipboard) navigator.clipboard.writeText(el.value); })();">
+                                        {{ t.companion_copy_token }}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
 
                         {# Section indépendante du gros formulaire de config : ses champs n'ont
