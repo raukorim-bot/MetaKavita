@@ -215,11 +215,15 @@ def test_manual_mode_falls_back_to_manga_on_a_weak_comic_hit(mocker, isolated_db
     mocker.patch.object(enrichment_engine.ScraperRegistry, "get", side_effect=_get)
     mocker.patch.object(enrichment_engine.ScraperRegistry, "get_by_type", return_value=[comic])
     mocker.patch("metadata_fetcher.fetch_metadata", side_effect=_fake_fetch)
+    mocker.patch.object(KavitaAPI, "get_cached_library_id", return_value=1)
 
-    created = {}
+    # Mode manuel streame via begin/finalize (plus create_review_from_candidates).
+    finalized = {}
+    mocker.patch("services.manual_review.begin_streaming_review", return_value="review-1")
+    mocker.patch("services.manual_review.append_streaming_candidate")
     mocker.patch(
-        "services.manual_review.create_review_from_candidates",
-        side_effect=lambda sid, name, payload, **kwargs: created.update(payload=payload),
+        "services.manual_review.finalize_streaming_review",
+        side_effect=lambda rid, sid, name, payload, **kwargs: finalized.update(payload=payload),
     )
 
     ok, msg, used = enrichment_engine.enrich_series(44, "One Piece", force_update=True)
@@ -229,10 +233,10 @@ def test_manual_mode_falls_back_to_manga_on_a_weak_comic_hit(mocker, isolated_db
     assert len(calls) == 2, "la vague Manga doit avoir été appelée"
     assert calls[0]["library_type"] == "Comic"
     assert calls[1]["library_type"] == "Manga"
-    # La review proposée à l'utilisateur doit contenir le hit Manga fort, pas
+    # La review finalisée doit contenir le hit Manga fort, pas
     # le hit Comic faible qu'aurait gardé l'ancien critère `_candidates_empty`.
-    assert created["payload"]["above"][0]["provider"] == "MANGA_FAKE"
-    assert created["payload"]["below"] == []
+    assert finalized["payload"]["above"][0]["provider"] == "MANGA_FAKE"
+    assert finalized["payload"]["below"] == []
 
 
 def test_manual_mode_keeps_the_weak_comic_hit_when_manga_also_misses(mocker, isolated_db):
@@ -272,11 +276,14 @@ def test_manual_mode_keeps_the_weak_comic_hit_when_manga_also_misses(mocker, iso
     mocker.patch.object(enrichment_engine.ScraperRegistry, "get", side_effect=_get)
     mocker.patch.object(enrichment_engine.ScraperRegistry, "get_by_type", return_value=[comic])
     mocker.patch("metadata_fetcher.fetch_metadata", side_effect=_fake_fetch)
+    mocker.patch.object(KavitaAPI, "get_cached_library_id", return_value=1)
 
-    created = {}
+    finalized = {}
+    mocker.patch("services.manual_review.begin_streaming_review", return_value="review-1")
+    mocker.patch("services.manual_review.append_streaming_candidate")
     mocker.patch(
-        "services.manual_review.create_review_from_candidates",
-        side_effect=lambda sid, name, payload, **kwargs: created.update(payload=payload),
+        "services.manual_review.finalize_streaming_review",
+        side_effect=lambda rid, sid, name, payload, **kwargs: finalized.update(payload=payload),
     )
 
     ok, msg, used = enrichment_engine.enrich_series(45, "Mystery Series", force_update=True)
@@ -284,7 +291,7 @@ def test_manual_mode_keeps_the_weak_comic_hit_when_manga_also_misses(mocker, iso
     assert ok is True
     assert msg == "PENDING_REVIEW"
     assert len(calls) == 2
-    assert created["payload"]["below"][0]["provider"] == "COMIC_FAKE"
+    assert finalized["payload"]["below"][0]["provider"] == "COMIC_FAKE"
 
 
 def test_get_by_type_comic_flexible_unions_comic_and_manga():

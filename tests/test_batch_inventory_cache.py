@@ -51,7 +51,7 @@ def _build_app(monkeypatch, get_all_series_calls, series):
         "UI_LANG": "fr",
     })
     fake_q = FakeQueue()
-    monkeypatch.setattr("routes.sync.sync_queue", fake_q)
+    # sync_queue vit dans background_tasks (put_sync) — plus dans routes.sync.
     monkeypatch.setattr(bg, "sync_queue", fake_q)
     bg.set_batch_enqueue_enabled(True)
 

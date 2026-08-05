@@ -46,8 +46,8 @@ def test_batch_sync_enqueues_fields_override(monkeypatch, isolated_db):
         "KAVITA_API_KEY": "x",
         "UI_LANG": "fr",
     })
-    monkeypatch.setattr("routes.sync.sync_queue", FakeQueue())
-    monkeypatch.setattr(bg, "sync_queue", FakeQueue())
+    fake_q = FakeQueue()
+    monkeypatch.setattr(bg, "sync_queue", fake_q)
 
     app = Flask(__name__)
     app.config["TESTING"] = True
@@ -72,6 +72,8 @@ def test_batch_sync_enqueues_fields_override(monkeypatch, isolated_db):
         "force_update": True,
         "fields_override": "summary,alt_titles",
         "is_batch": True,
+        "super_review": False,
+        "force_auto": False,
     }
 
 
@@ -109,7 +111,8 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
         "KAVITA_API_KEY": "x",
         "UI_LANG": "fr",
     })
-    monkeypatch.setattr("routes.sync.sync_queue", FakeQueue())
+    fake_q = FakeQueue()
+    monkeypatch.setattr(bg, "sync_queue", fake_q)
 
     app = Flask(__name__)
     app.config["TESTING"] = True
@@ -122,6 +125,8 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
         "force_update": False,
         "fields_override": None,
         "is_batch": True,
+        "super_review": False,
+        "force_auto": False,
     }
     expected_11 = {
         "series_id": 11,
@@ -129,6 +134,8 @@ def test_batch_sync_no_override_when_all(monkeypatch, isolated_db):
         "force_update": False,
         "fields_override": None,
         "is_batch": True,
+        "super_review": False,
+        "force_auto": False,
     }
 
     # Pas de targeted_fields → fields_override=None
@@ -192,7 +199,6 @@ def test_stop_batch_rejects_late_chunks(monkeypatch, isolated_db):
         "UI_LANG": "fr",
     })
     fake_q = FakeQueue()
-    monkeypatch.setattr("routes.sync.sync_queue", fake_q)
     monkeypatch.setattr(bg, "sync_queue", fake_q)
     bg.set_batch_enqueue_enabled(True)
 
@@ -231,4 +237,6 @@ def test_stop_batch_rejects_late_chunks(monkeypatch, isolated_db):
         "force_update": False,
         "fields_override": None,
         "is_batch": True,
+        "super_review": False,
+        "force_auto": False,
     }]
