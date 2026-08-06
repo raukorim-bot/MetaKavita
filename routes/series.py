@@ -7,8 +7,6 @@ et application de couvertures.
 """
 
 import logging
-from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import quote
 
 from flask import Blueprint, request, jsonify
 
@@ -16,8 +14,7 @@ from config_manager import load_config
 from db_manager import get_all_cached_data, update_status, save_series_override
 from kavita_api import KavitaAPI
 from models import SeriesOverride
-from scrapers import ScraperRegistry
-from scrapers.utils import library_type_for_scraper
+from services.cover_search import collect_covers_http
 from services.kavita_payload import protect_manual_cover_field
 from secure_logging import safe_exc_str
 from translations import translations
@@ -70,50 +67,23 @@ def toggle_ignore():
 
 @series_bp.route('/api/series/<int:series_id>/covers', methods=['GET'])
 def get_series_covers(series_id):
-    series_name = request.args.get('series_name')
+    series_name = request.args.get('series_name') or ""
     cache_data = get_all_cached_data().get(series_id, {})
-    search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or series_name
 
     config = load_config()
-    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
-
     library_type = kavita.get_library_type_for_series(series_id)
-    target_scrapers = ScraperRegistry.get_by_type(library_type)
-
-    if not target_scrapers:
-        target_scrapers = ScraperRegistry.get_by_type("Manga")
-
     script_root = request.script_root or ""
-    covers = []
 
-    def fetch_single_scraper(scraper):
-        """Fonction exécutée en parallèle pour chaque scraper."""
-        try:
-            fetch_lt = library_type_for_scraper(scraper, library_type)
-            s_covers = scraper.fetch_covers(search_query, library_type=fetch_lt)
-            results = []
-            if s_covers:
-                for c in s_covers:
-                    if getattr(scraper, 'requires_proxy', False):
-                        c['display_url'] = f"{script_root}/api/proxy-image?url={quote(c['url'])}"
-                    else:
-                        c['display_url'] = c['url']
-                    results.append(c)
-            return results
-        except Exception as e:
-            logging.error(t.get("log_covers_scraper_err", "[Covers] Erreur sur le scraper {0} : {1}").format(scraper.id, e))
-            return []
-
-    # Lancement en parallèle de tous les scrapers disponibles
-    with ThreadPoolExecutor(max_workers=min(len(target_scrapers), 8)) as executor:
-        futures = [executor.submit(fetch_single_scraper, scraper) for scraper in target_scrapers]
-        for future in as_completed(futures):
-            res = future.result()
-            if res:
-                covers.extend(res)
-
-    return jsonify({"success": True, "covers": covers[:20]})
+    covers = collect_covers_http(
+        cache_data,
+        series_name,
+        library_type,
+        script_root=script_root,
+        max_covers=20,
+        max_workers=8,
+    )
+    return jsonify({"success": True, "covers": covers})
 
 
 @series_bp.route('/api/series/<int:series_id>/update-cover', methods=['POST'])

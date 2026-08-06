@@ -36,6 +36,7 @@ from services.kavita_payload import (
     _broadcast_enrichment_stats,
     _emit_series_status,
 )
+from services.magic_input import detect_provider_from_url
 
 # --- GARDE ANTI-CONCURRENCE PAR SÉRIE ---
 # `enrich_series()` a deux points d'entrée indépendants qui peuvent s'exécuter
@@ -307,10 +308,9 @@ def _scrape_manual_candidates(
     if is_forced_id:
         if str(search_query).startswith("http://") or str(search_query).startswith("https://"):
             if forced_provider == "AUTO":
-                for s in ScraperRegistry.get_all(scope="series"):
-                    if s.extract_id_from_url(search_query):
-                        forced_provider = s.id
-                        break
+                detected = detect_provider_from_url(search_query)
+                if detected:
+                    forced_provider = detected
         elif forced_provider == "AUTO" and not super_review:
             providers_list = [
                 p for p in providers_list
@@ -665,11 +665,21 @@ def enrich_series(
         if is_forced_id:
             if search_query.startswith('http://') or search_query.startswith('https://'):
                 if forced_provider == 'AUTO':
-                    for s in ScraperRegistry.get_all(scope="series"):
-                        if s.extract_id_from_url(search_query):
-                            forced_provider = s.id
-                            logging.info(t.get('log_auto_url_found', "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.").format(series_name, s.display_name))
-                            break
+                    detected = detect_provider_from_url(search_query)
+                    if detected:
+                        forced_provider = detected
+                        scraper = ScraperRegistry.get(detected)
+                        display = (
+                            scraper.display_name
+                            if scraper
+                            else detected
+                        )
+                        logging.info(
+                            t.get(
+                                'log_auto_url_found',
+                                "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.",
+                            ).format(series_name, display)
+                        )
             else:
                 # ID brut : filtre ID-capable uniquement hors Super (Super expand all ensuite)
                 if forced_provider == 'AUTO' and not super_review:

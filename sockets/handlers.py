@@ -10,7 +10,6 @@ l'importer une fois (pour effet de bord) depuis app.py, après
 """
 
 import logging
-from urllib.parse import quote
 
 from flask import request
 from flask_socketio import disconnect
@@ -20,8 +19,7 @@ from extensions import socketio
 from config_manager import load_config
 from db_manager import get_all_cached_data
 from kavita_api import KavitaAPI
-from scrapers import ScraperRegistry
-from scrapers.utils import library_type_for_scraper
+from services.cover_search import iter_cover_jobs, run_cover_job
 from translations import get_ui_translations
 
 
@@ -133,54 +131,63 @@ def handle_fetch_covers_stream(data):
 
     series_id = data.get('series_id')
     query = data.get('query')
-    if not series_id or not query: return
+    if not series_id or not query:
+        return
 
     cache_data = get_all_cached_data().get(int(series_id), {})
-    search_query = cache_data.get('forced_id') or cache_data.get('alternative_title') or query
+    series_name = query or ""
 
     config = load_config()
     t = get_ui_translations(config=config)
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
     library_type = kavita.get_library_type_for_series(series_id)
 
-    target_scrapers = ScraperRegistry.get_by_type(library_type) or ScraperRegistry.get_by_type("Manga")
+    jobs = iter_cover_jobs(cache_data, series_name, library_type)
     script_root = request.script_root or ""
     # Capturé ici : les tâches de fond ci-dessous tournent hors contexte de
     # requête, `request.sid` n'y serait plus lisible. Les couvertures répondent à
     # la recherche d'un client précis et n'ont rien à faire chez les autres.
     sid = request.sid
 
-    total_scrapers = len(target_scrapers)
+    total_jobs = len(jobs)
     finished_counter = [0]
 
-    def process_and_emit_covers(scraper):
-        try:
-            fetch_lt = library_type_for_scraper(scraper, library_type)
-            s_covers = scraper.fetch_covers(search_query, library_type=fetch_lt)
-            if s_covers:
-                results = []
-                for c in s_covers:
-                    if getattr(scraper, 'requires_proxy', False):
-                        c['display_url'] = f"{script_root}/api/proxy-image?url={quote(c['url'])}"
-                    else:
-                        c['display_url'] = c['url']
-                    results.append(c)
+    if total_jobs == 0:
+        socketio.emit('cover_stream_complete', {'series_id': int(series_id)}, to=sid)
+        socketio.sleep(0)
+        return
 
-                # Émission vers le client web à l'origine de la recherche
+    def process_and_emit_covers(job):
+        try:
+            results = run_cover_job(job, script_root=script_root)
+            if results:
+                provider = getattr(
+                    job.scraper, "localized_display_name", None
+                ) or getattr(job.scraper, "display_name", job.scraper.id)
                 socketio.emit('cover_stream_data', {
                     'series_id': int(series_id),
-                    'provider': scraper.localized_display_name,
-                    'covers': results
+                    'provider': provider,
+                    'covers': results,
                 }, to=sid)
-                # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket sur le réseau
+                # VITAL POUR EVENTLET : Force l'envoi immédiat de la trame WebSocket
                 socketio.sleep(0)
         except Exception as e:
-            logging.error(t.get("log_covers_stream_err", "[Covers Stream] Erreur sur {0} : {1}").format(scraper.id, e))
+            logging.error(
+                t.get(
+                    "log_covers_stream_err",
+                    "[Covers Stream] Erreur sur {0} : {1}",
+                ).format(getattr(job.scraper, "id", "?"), e)
+            )
         finally:
             finished_counter[0] += 1
-            if finished_counter[0] >= total_scrapers:
-                socketio.emit('cover_stream_complete', {'series_id': int(series_id)}, to=sid)
+            if finished_counter[0] >= total_jobs:
+                socketio.emit(
+                    'cover_stream_complete',
+                    {'series_id': int(series_id)},
+                    to=sid,
+                )
                 socketio.sleep(0)
 
-    for scraper in target_scrapers:
-        socketio.start_background_task(process_and_emit_covers, scraper)
+    # Resolved by_id first (priority 0), then the rest — jobs already sorted.
+    for job in jobs:
+        socketio.start_background_task(process_and_emit_covers, job)
