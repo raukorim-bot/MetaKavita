@@ -1,3 +1,21 @@
+## [1.6.6] - 2026-08-08 (WebLinks reset + Companion hardening)
+
+EN
+### ✨ What's new
+* **Magic Input for cover search** — Cover picker (HTTP + Socket stream) honors series Magic URL/ID: resolved provider uses `fetch(is_id)` (XOR title search). Never passes an `http(s)` URL to `fetch_covers`. Shared helper `services/magic_input.py` + orchestrator `services/cover_search.py`. Tests: `tests/test_magic_cover_search.py`.
+### 🐛 Bug Fixes
+* **BF104. WebLinks replace on force + clear context** — With **Clear Kavita context when forced** + forced update, targeted WebLinks no longer append onto stale Kavita URLs (false-positive leftovers). Links are replaced by this scrape’s set (or cleared if none). Merge/append unchanged when the reset-context option is off. Help text / README updated. Tests: `tests/test_weblinks_reset_context.py`.
+* **Companion 1.0.23 — POSIX zip paths** — Sideload zips packed on Windows no longer store backslash entry names (broken folders on Linux/macOS). Pure Node zip writer in `companion/scripts/pack.mjs`.
+* **Companion 1.0.24 — same-host reverse proxy ([#34](https://github.com/raukorim-bot/MetaKavita/issues/34))** — Kavita + Meta on one host (`/kavita` + `/metakavita`) no longer blocked as “This is MetaKavita”. Meta detected via `metaBaseUrl` path prefix (`isMetaKavitaUrl`).
+
+FR
+### ✨ Nouveautés
+* **Champ Magique pour la recherche de couvertures** — Le cover picker (HTTP + stream Socket) respecte l’URL/ID Magique de la série : provider résolu en `fetch(is_id)` (XOR recherche titre). Jamais d’URL `http(s)` passée à `fetch_covers`. Helper `services/magic_input.py` + orchestrateur `services/cover_search.py`. Tests : `tests/test_magic_cover_search.py`.
+### 🐛 Correctifs
+* **BF104. Remplacement des WebLinks si force + effacer le contexte** — Avec **Effacer le contexte Kavita si forcé** + mise à jour forcée, les WebLinks ciblés ne s’empilent plus sur d’anciennes URLs Kavita (restes de faux positifs). Remplacement par le set du scrape (ou vidage si aucun lien). Merge/append inchangé si l’option est décochée. Aide / README mis à jour. Tests : `tests/test_weblinks_reset_context.py`.
+* **Companion 1.0.23 — chemins zip POSIX** — Les zips sideload packés sous Windows ne stockent plus de `\` dans les noms d’entrées (dossiers cassés sous Linux/macOS). Writer Node pur dans `companion/scripts/pack.mjs`.
+* **Companion 1.0.24 — reverse proxy même hôte ([#34](https://github.com/raukorim-bot/MetaKavita/issues/34))** — Kavita + Meta sur un seul host (`/kavita` + `/metakavita`) n’est plus refusé comme « Ceci est MetaKavita ». Détection Meta via le préfixe `metaBaseUrl` (`isMetaKavitaUrl`).
+
 ## [1.6.5] - 2026-08-05 (MetaKavita Companion beta)
 
 EN

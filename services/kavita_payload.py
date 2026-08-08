@@ -421,12 +421,20 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
         mb_id = pd.get("mangabaka_id")
         external_ids = {"anilist": a_id, "mal": m_id, "mangabaka": mb_id}
 
-        existing_links_raw = meta.get("webLinks")
-        links_list = (
-            [link.strip() for link in str(existing_links_raw).split(",")]
-            if existing_links_raw
-            else []
+        # force + RESET_CONTEXT_ON_FORCE → replace (drop stale Kavita links from
+        # false positives). Otherwise merge/append into existing webLinks.
+        replace_links = bool(
+            force_update and config.get("RESET_CONTEXT_ON_FORCE", False)
         )
+        if replace_links:
+            links_list = []
+        else:
+            existing_links_raw = meta.get("webLinks")
+            links_list = (
+                [link.strip() for link in str(existing_links_raw).split(",")]
+                if existing_links_raw
+                else []
+            )
 
         def add_weblink(url):
             if url and str(url).strip() and str(url).strip() not in links_list:
@@ -446,6 +454,9 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
         safe_links = [str(l) for l in links_list if l is not None and str(l).strip()]
         if safe_links:
             meta["webLinks"] = ",".join(safe_links)
+        elif replace_links:
+            # Explicit clear so a failed/empty scrape does not keep old URLs.
+            meta["webLinks"] = ""
 
     # 12. Langue (BF57) — uniquement si le champ est dans le masque ciblé.
     # Avant : écriture hors active_fields à chaque enrich réussi.
