@@ -387,11 +387,8 @@ document.getElementById("btnEnableSite").addEventListener("click", async () => {
     showToast(t("toastNeedHosts"), true);
     return;
   }
-  const metaOrigin = originFromUrl(normalizeBaseUrl((settings && settings.metaBaseUrl) || ""));
-  if (metaOrigin && kavitaOrigin === metaOrigin) {
-    showToast(t("toastMetaIsNotKavita"), true);
-    return;
-  }
+  // Overlay is opened from a Kavita series context. Do not compare origins to
+  // Meta — reverse proxies often share one host (#34).
   await chrome.runtime.sendMessage({ type: "pendingEnable", origin: kavitaOrigin });
   if (!(await requestOriginPermission(kavitaOrigin))) {
     showToast(t("toastPermissionDenied"), true);

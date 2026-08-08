@@ -46,6 +46,11 @@ companion/
 3. On a **series detail** URL only (`/library/{id}/series/{id}` exact), `watch.js` mounts the page UI.
 4. Actions go through the service worker (content scripts cannot use `chrome.permissions` reliably).
 
+**Same-host reverse proxy (issue #34):** Kavita and Meta may share one origin
+(`https://host/kavita` + `https://host/metakavita`). Do **not** compare origins alone —
+use `isMetaKavitaUrl(pageUrl, metaBaseUrl)` (path prefix). Content scripts may inject on
+the whole origin; FABs still only mount on Kavita series URLs.
+
 ## Series page detection
 
 ```js

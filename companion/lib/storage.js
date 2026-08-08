@@ -33,6 +33,37 @@ export function originFromUrl(url) {
   }
 }
 
+/**
+ * True when pageUrl is the MetaKavita app (same origin + under metaBaseUrl path).
+ * Supports reverse-proxy setups where Kavita and Meta share a host
+ * (e.g. https://host/kavita vs https://host/metakavita) — origin equality alone
+ * must not treat Kavita as Meta (issue #34).
+ *
+ * When Meta is configured at the host root (no path), only non-series pages on
+ * that origin are treated as Meta so a same-origin /library/…/series/… Kavita
+ * tab can still be enabled.
+ */
+export function isMetaKavitaUrl(pageUrl, metaBaseUrl) {
+  const meta = normalizeBaseUrl(metaBaseUrl);
+  if (!meta || !pageUrl) return false;
+  let page;
+  let base;
+  try {
+    page = new URL(String(pageUrl));
+    base = new URL(meta);
+  } catch {
+    return false;
+  }
+  if (page.origin !== base.origin) return false;
+
+  const metaPath = base.pathname.replace(/\/+$/, "") || "";
+  if (!metaPath) {
+    return !/\/library\/\d+\/series\/\d+\/?$/i.test(page.pathname || "");
+  }
+  const pagePath = page.pathname || "/";
+  return pagePath === metaPath || pagePath.startsWith(`${metaPath}/`);
+}
+
 export async function loadSettings() {
   const data = await chrome.storage.local.get(Object.keys(DEFAULTS));
   return { ...DEFAULTS, ...data };

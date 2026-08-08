@@ -1,4 +1,10 @@
-import { loadSettings, saveSettings, originFromUrl, normalizeBaseUrl } from "./lib/storage.js";
+import {
+  loadSettings,
+  saveSettings,
+  originFromUrl,
+  normalizeBaseUrl,
+  isMetaKavitaUrl,
+} from "./lib/storage.js";
 import { hasOriginPermission, originFromMatchPattern } from "./lib/permissions.js";
 import { postWebhook, testConnection } from "./lib/webhook.js";
 
@@ -18,11 +24,13 @@ function queueSync(fn) {
 
 async function listEnabledKavitaOrigins() {
   const settings = await loadSettings();
-  const metaOrigin = stripOrigin(originFromUrl(normalizeBaseUrl(settings.metaBaseUrl)));
+  // Same-origin reverse proxies (Kavita + Meta on one host, different paths)
+  // share an origin — do not exclude metaOrigin here (issue #34). FABs only
+  // mount on Kavita series URLs via watch.js SERIES_RE.
   const unique = [];
   for (const raw of settings.kavitaOrigins || []) {
     const origin = stripOrigin(raw);
-    if (!origin || origin === metaOrigin) continue;
+    if (!origin) continue;
     if (!(await hasOriginPermission(origin))) continue;
     if (!unique.includes(origin)) unique.push(origin);
   }
@@ -87,15 +95,18 @@ async function syncWatchRegistration() {
   });
 }
 
-async function enableKavitaOrigin(origin, { trustSenderOrigin = false } = {}) {
+async function enableKavitaOrigin(
+  origin,
+  { trustSenderOrigin = false, pageUrl = "" } = {}
+) {
   const clean = stripOrigin(origin);
   if (!clean) return null;
   // Content scripts cannot call chrome.permissions; if the message comes from a
   // tab already on this origin, host access is already effective.
   if (!trustSenderOrigin && !(await hasOriginPermission(clean))) return null;
   const settings = await loadSettings();
-  const metaOrigin = stripOrigin(originFromUrl(normalizeBaseUrl(settings.metaBaseUrl)));
-  if (metaOrigin && clean === metaOrigin) return null;
+  // Block only when the tab is actually Meta (path-aware), not merely same origin.
+  if (pageUrl && isMetaKavitaUrl(pageUrl, settings.metaBaseUrl)) return null;
   const next = Array.from(new Set([...(settings.kavitaOrigins || []).map(stripOrigin), clean]));
   await saveSettings({ kavitaOrigins: next, pendingEnableOrigin: "" });
   await syncWatchRegistration();
@@ -151,7 +162,10 @@ chrome.permissions.onAdded.addListener((perms) => {
     const pending = stripOrigin(settings.pendingEnableOrigin || "");
     for (const pattern of perms.origins || []) {
       const origin = stripOrigin(originFromMatchPattern(pattern));
-      if (!origin || origin === metaOrigin) continue;
+      if (!origin) continue;
+      // Meta-only grant (Save/Test): do not register as Kavita unless user
+      // explicitly pending-enabled this origin (same-host reverse proxy, #34).
+      if (origin === metaOrigin && !pending) continue;
       if (pending && origin !== pending) continue;
       const enabled = await enableKavitaOrigin(origin);
       if (enabled) await injectIntoOpenKavitaTabs([enabled]);
@@ -269,15 +283,20 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         const clean = stripOrigin(origin);
         let trustSenderOrigin = false;
+        let pageUrl = typeof msg.pageUrl === "string" ? msg.pageUrl : "";
         try {
           if (sender.tab && sender.tab.url) {
             trustSenderOrigin = stripOrigin(new URL(sender.tab.url).origin) === clean;
+            if (!pageUrl) pageUrl = sender.tab.url;
           }
         } catch {
           trustSenderOrigin = false;
         }
         await saveSettings({ pendingEnableOrigin: clean });
-        const enabled = await enableKavitaOrigin(clean, { trustSenderOrigin });
+        const enabled = await enableKavitaOrigin(clean, {
+          trustSenderOrigin,
+          pageUrl,
+        });
         if (!enabled) {
           sendResponse({ ok: false, error: "permission_denied" });
           return;

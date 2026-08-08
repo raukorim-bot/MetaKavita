@@ -444,6 +444,27 @@
     }
   }
 
+  /** Path-aware Meta detection (same-host reverse proxy, issue #34). */
+  function isMetaKavitaUrl(pageUrl, metaBaseUrl) {
+    const meta = normalizeBaseUrl(metaBaseUrl);
+    if (!meta || !pageUrl) return false;
+    let page;
+    let base;
+    try {
+      page = new URL(String(pageUrl));
+      base = new URL(meta);
+    } catch {
+      return false;
+    }
+    if (page.origin !== base.origin) return false;
+    const metaPath = base.pathname.replace(/\/+$/, "") || "";
+    if (!metaPath) {
+      return !/\/library\/\d+\/series\/\d+\/?$/i.test(page.pathname || "");
+    }
+    const pagePath = page.pathname || "/";
+    return pagePath === metaPath || pagePath.startsWith(metaPath + "/");
+  }
+
   // chrome.permissions is NOT available in content scripts — always go via SW.
   async function hasHostPermission(origin) {
     if (!origin) return false;
@@ -767,8 +788,8 @@
 
     els.btnEnableSite.addEventListener("click", async () => {
       const origin = location.origin;
-      const metaOrigin = originFromUrl((settings && settings.metaBaseUrl) || "");
-      if (metaOrigin && origin === metaOrigin) {
+      const metaBase = (settings && settings.metaBaseUrl) || "";
+      if (isMetaKavitaUrl(location.href, metaBase)) {
         showToast(t("toastMetaIsNotKavita"), true);
         return;
       }
@@ -780,7 +801,11 @@
         showToast(t("toastSiteAlreadyEnabled"));
         return;
       }
-      const res = await chrome.runtime.sendMessage({ type: "enableKavitaOrigin", origin });
+      const res = await chrome.runtime.sendMessage({
+        type: "enableKavitaOrigin",
+        origin,
+        pageUrl: location.href,
+      });
       if (res && res.ok) {
         settings = (await chrome.runtime.sendMessage({ type: "getSettings" })).settings || settings;
         showToast(t("toastSiteEnabled"));

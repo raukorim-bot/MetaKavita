@@ -1,5 +1,5 @@
 import { applyI18n, setUiLang, t } from "./lib/i18n.js";
-import { originFromUrl, normalizeBaseUrl } from "./lib/storage.js";
+import { originFromUrl, normalizeBaseUrl, isMetaKavitaUrl } from "./lib/storage.js";
 import { requestOriginPermission } from "./lib/permissions.js";
 
 async function load() {
@@ -103,8 +103,9 @@ document.getElementById("btnEnableSite").addEventListener("click", async () => {
       status.textContent = t("toastNeedHosts");
       return;
     }
-    const metaOrigin = metaOriginFromForm();
-    if (metaOrigin && origin === metaOrigin) {
+    const metaBase = normalizeBaseUrl(document.getElementById("metaUrl").value);
+    // Path-aware: same host + /kavita vs /metakavita must not be blocked (#34).
+    if (isMetaKavitaUrl(url, metaBase)) {
       status.textContent = t("toastMetaIsNotKavita");
       return;
     }
@@ -118,6 +119,7 @@ document.getElementById("btnEnableSite").addEventListener("click", async () => {
     const res = await chrome.runtime.sendMessage({
       type: "enableKavitaOrigin",
       origin,
+      pageUrl: url,
       tabId: tab.id,
     });
     if (!res || !res.ok) {
