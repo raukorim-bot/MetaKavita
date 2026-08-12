@@ -115,8 +115,23 @@ for (const [zipName, firefox] of [
   const entries = readZip(zipPath);
 
   for (const name of entries.keys()) {
+    // ZIP APPNOTE 4.4.17: entry names use forward slashes, always. Packing with
+    // PowerShell Compress-Archive stored "lib\storage.js" as a single filename,
+    // and 1.0.23 extracted on Linux as a flat pile of oddly named files.
+    check(
+      !name.includes("\\"),
+      `${zipName} : ${name} porte un antislash — l'archive s'extraira à plat hors Windows`,
+    );
+    check(
+      !name.startsWith("/") && !name.split("/").includes(".."),
+      `${zipName} : ${name} sort du dossier d'extraction`,
+    );
     check(expected.has(name), `${zipName} : ${name} n'existe plus dans les sources`);
   }
+  check(
+    [...entries.keys()].some((n) => n.includes("/")),
+    `${zipName} : aucune entrée en sous-dossier — l'arborescence a été aplatie`,
+  );
 
   for (const [name, abs] of expected) {
     const packed = entries.get(name);

@@ -82,6 +82,48 @@ def test_web_accessible_resources_expose_only_the_icon():
         )
 
 
+def _entry_names(path: Path) -> list[str]:
+    """Noms lus dans le répertoire central, tels qu'ils sont écrits.
+
+    `zipfile.namelist()` ne convient pas ici : il traduit les antislashs en `/`
+    à la lecture, donc il déclare saine l'archive même que ce test cherche.
+    """
+    import struct
+
+    raw = path.read_bytes()
+    eocd = raw.rfind(b"PK\x05\x06")
+    assert eocd != -1, f"{path.name} : fin d'archive introuvable"
+    count, _size, offset = struct.unpack_from("<HLL", raw, eocd + 10)
+
+    names = []
+    for _ in range(count):
+        assert raw[offset:offset + 4] == b"PK\x01\x02", "entrée centrale corrompue"
+        name_len, extra_len, comment_len = struct.unpack_from("<HHH", raw, offset + 28)
+        names.append(raw[offset + 46:offset + 46 + name_len].decode("utf-8"))
+        offset += 46 + name_len + extra_len + comment_len
+    return names
+
+
+def test_the_zip_entry_names_use_forward_slashes():
+    """ZIP APPNOTE 4.4.17 : les noms d'entrée s'écrivent avec des `/`. Packée
+    sous PowerShell, la 1.0.23 stockait « lib\\storage.js » comme un seul nom de
+    fichier, et s'extrayait sous Linux en un tas de fichiers à plat."""
+    for name in ("metakavita-companion-chrome.zip", "metakavita-companion-firefox.zip"):
+        names = _entry_names(COMPANION / "dist" / name)
+
+        backslashed = [n for n in names if "\\" in n]
+        assert not backslashed, f"{name} : noms en antislash — {backslashed[:3]}"
+
+        escaping = [n for n in names if n.startswith("/") or ".." in n.split("/")]
+        assert not escaping, f"{name} : sort du dossier d'extraction — {escaping}"
+
+        # Et l'arborescence est bien là : un zip aplati passerait les deux
+        # contrôles ci-dessus sans broncher.
+        for prefix in ("content/", "lib/", "_locales/", "icons/"):
+            assert any(n.startswith(prefix) for n in names), \
+                f"{name} : rien sous {prefix}"
+
+
 def test_the_zips_carry_lf_whatever_the_machine_that_packed_them():
     """Les zips sont packés à la main, le plus souvent sous Windows, où git
     sort les fichiers texte en CRLF ; le runner CI, lui, les sort en LF. Une

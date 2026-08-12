@@ -63,6 +63,8 @@ def test_the_zips_are_extracted_by_a_real_unzip():
 
     assert "unzip -t" in tests_wf, "l'intégrité doit être jugée par unzip lui-même"
     assert 'unzip -q "$zip"' in tests_wf, "et l'archive réellement extraite"
+    assert "unzip -Z1" in tests_wf, \
+        "les noms d'entrée doivent être lus par unzip, pas par notre lecteur"
     assert "! -readable" in tests_wf, \
         "un zip marqué Unix sans attributs extrait des fichiers en mode 000"
 

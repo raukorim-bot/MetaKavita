@@ -66,6 +66,15 @@ jobs:
         run: |
           for zip in companion/dist/*.zip; do
             unzip -t "$zip"
+            # Jugé sur le listing d'unzip lui-même, pas sur notre lecteur : un
+            # nom comme "lib\storage.js" est un nom de fichier valide ici, et
+            # c'est tout le problème.
+            if unzip -Z1 "$zip" | grep -q '\\'; then
+              echo "antislash dans un nom d'entrée de $zip"
+              unzip -Z1 "$zip" | grep '\\'
+              exit 1
+            fi
+            unzip -Z1 "$zip" | grep -q '/' || { echo "$zip est à plat"; exit 1; }
             dest="$(mktemp -d)"
             unzip -q "$zip" -d "$dest"
             test -r "$dest/manifest.json" || { echo "manifest illisible dans $zip"; exit 1; }
