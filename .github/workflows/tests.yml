@@ -59,6 +59,28 @@ jobs:
       - name: Check the shipped zips match the sources
         run: node companion/scripts/verify-dist.mjs
 
+      - name: Extract the zips the way a Linux user would
+        # verify-dist reads the archives with our own zip reader, which proves
+        # nothing about a real unzip: 1.0.23 shipped entry names with
+        # backslashes and extracted as a flat pile of files named "lib\…".
+        run: |
+          for zip in companion/dist/*.zip; do
+            unzip -t "$zip"
+            dest="$(mktemp -d)"
+            unzip -q "$zip" -d "$dest"
+            test -r "$dest/manifest.json" || { echo "manifest illisible dans $zip"; exit 1; }
+            node -e "JSON.parse(require('fs').readFileSync('$dest/manifest.json','utf8'))"
+            test -d "$dest/content" -a -d "$dest/lib" -a -d "$dest/_locales" \
+              || { echo "arborescence à plat dans $zip"; exit 1; }
+            # Un fichier extrait illisible (mode 000) sort d'un zip marqué Unix
+            # avec des attributs vides ; le nôtre se déclare MS-DOS exprès.
+            if find "$dest" -type f ! -readable | grep -q .; then
+              echo "fichier extrait sans droit de lecture dans $zip"
+              exit 1
+            fi
+            rm -rf "$dest"
+          done
+
   pytest:
     runs-on: ubuntu-latest
 

@@ -54,6 +54,19 @@ def test_the_companion_is_checked_before_publishing():
         "un fichier de l'extension qui ne parse pas casserait l'extension entière"
 
 
+def test_the_zips_are_extracted_by_a_real_unzip():
+    """`verify-dist.mjs` lit les archives avec notre propre lecteur : il ne dit
+    rien de ce qu'en fait un vrai `unzip`. La 1.0.23 est partie avec des noms
+    d'entrée en antislash, extraits sous Linux en un tas de fichiers plats
+    nommés « lib\\storage.js »."""
+    tests_wf = _read("tests.yml")
+
+    assert "unzip -t" in tests_wf, "l'intégrité doit être jugée par unzip lui-même"
+    assert 'unzip -q "$zip"' in tests_wf, "et l'archive réellement extraite"
+    assert "! -readable" in tests_wf, \
+        "un zip marqué Unix sans attributs extrait des fichiers en mode 000"
+
+
 def test_ruff_is_pinned_in_dev_requirements():
     """Une version flottante ferait apparaître de nouvelles règles sans préavis,
     faisant échouer la CI — et donc la publication — sur un commit sans rapport."""
