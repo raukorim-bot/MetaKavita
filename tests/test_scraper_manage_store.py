@@ -2,8 +2,6 @@
 Tests seed / registry data-only / DISABLED_SCRAPERS / scopes / store install.
 """
 import hashlib
-import json
-import os
 import textwrap
 from unittest.mock import MagicMock
 

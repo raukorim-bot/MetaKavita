@@ -435,6 +435,13 @@ function getSeriesActionEls(btn) {
     };
 }
 
+/** Libellé de résultat temporaire sur un bouton de ligne (traduit). */
+function flashSeriesResult(btn, ok) {
+    const T = window.AppTranslations || {};
+    btn.innerText = ok ? (T.action_ok || '✅ OK') : (T.action_fail || '❌ Fail');
+    setTimeout(() => { btn.innerText = T.update; }, 3000);
+}
+
 function setSeriesSyncBusy(btn, busy) {
     const { optionsBtn, loading } = getSeriesActionEls(btn);
     btn.style.display = busy ? 'none' : 'inline-block';
@@ -479,27 +486,41 @@ function syncSingle(id, name, btn) {
         .then(() => proceedSyncSingle(id, name, btn, loading))
         .catch(() => {
             setSeriesSyncBusy(btn, false);
-            btn.innerText = "❌ Fail";
-            setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
+            flashSeriesResult(btn, false);
         });
     } else {
         proceedSyncSingle(id, name, btn, null);
     }
 }
 
+// Séries dont on attend la fin d'un sync unitaire, par id : le serveur répond
+// désormais 202 dès la mise en file, la fin arrive par l'événement Socket.IO
+// `series_status` (voir websocket.js) ou, à défaut, par le filet de sécurité
+// ci-dessous.
+const pendingSingleSyncs = new Map();
+const SINGLE_SYNC_WATCHDOG_MS = 10 * 60 * 1000;
+
+/** Fin d'un sync unitaire : rend le bouton, quelle que soit l'issue. */
+function settleSingleSync(seriesId, ok) {
+    const key = String(seriesId);
+    const pending = pendingSingleSyncs.get(key);
+    if (!pending) return;
+    pendingSingleSyncs.delete(key);
+    clearTimeout(pending.watchdog);
+    setSeriesSyncBusy(pending.btn, false);
+    if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
+    flashSeriesResult(pending.btn, ok);
+}
+window.settleSingleSync = settleSingleSync;
+
 function proceedSyncSingle(id, name, btn, loadingElem) {
-    let loading = loadingElem;
-    if (!loading) {
-        loading = setSeriesSyncBusy(btn, true);
+    if (!loadingElem) {
+        setSeriesSyncBusy(btn, true);
     }
 
     if (typeof mrPrepareForBatch === "function") {
         mrPrepareForBatch();
     }
-
-    const restoreBtn = () => {
-        setSeriesSyncBusy(btn, false);
-    };
 
     fetch(getRootPath() + '/force-sync', {
         method: 'POST',
@@ -511,20 +532,31 @@ function proceedSyncSingle(id, name, btn, loadingElem) {
         return res.json();
     })
     .then(data => {
-        restoreBtn();
-        if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
-        if(data.success) {
-            btn.innerText = "✅ OK";
-        } else {
-            btn.innerText = "❌ Fail";
+        if (!data.success) {
+            setSeriesSyncBusy(btn, false);
+            if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
+            flashSeriesResult(btn, false);
+            return;
         }
-        setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
+        // Le bouton reste occupé : la série est en file, pas traitée. Un watchdog
+        // le libère si aucun statut n'arrive (socket coupée, série ignorée en
+        // amont) pour ne pas laisser la ligne bloquée indéfiniment.
+        const key = String(id);
+        const previous = pendingSingleSyncs.get(key);
+        if (previous) clearTimeout(previous.watchdog);
+        pendingSingleSyncs.set(key, {
+            btn: btn,
+            watchdog: setTimeout(() => {
+                pendingSingleSyncs.delete(key);
+                setSeriesSyncBusy(btn, false);
+                if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
+            }, SINGLE_SYNC_WATCHDOG_MS)
+        });
     })
     .catch(() => {
-        restoreBtn();
+        setSeriesSyncBusy(btn, false);
         if (typeof mrOnSyncSettled === "function") mrOnSyncSettled();
-        btn.innerText = "❌ Fail";
-        setTimeout(() => { btn.innerText = window.AppTranslations.update; }, 3000);
+        flashSeriesResult(btn, false);
     });
 }
 
@@ -849,7 +881,7 @@ function resetErrors(btn) {
     .then(res => res.json())
     .then(data => {
         if (data.success) {
-            btn.innerText = "✅ OK";
+            btn.innerText = (window.AppTranslations || {}).action_ok || '✅ OK';
             setTimeout(() => { btn.innerText = originalText; }, 2000);
             
             // Remise à jour visuelle des éléments NOT_FOUND et IGNORED en PENDING
@@ -1036,7 +1068,7 @@ async function ignoreSelection() {
         }
     }
 
-    btn.innerText = "✅ OK";
+    btn.innerText = (window.AppTranslations || {}).action_ok || '✅ OK';
     setTimeout(() => {
         btn.innerText = originalText;
         btn.disabled = false;

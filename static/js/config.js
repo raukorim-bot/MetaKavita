@@ -149,7 +149,7 @@ function saveProvidersConfig() {
     .then(data => {
         if (data.success) {
             if (btn) {
-                btn.innerText = '✅ OK';
+                btn.innerText = (window.AppTranslations && window.AppTranslations.action_ok) || '✅ OK';
                 setTimeout(() => {
                     if (btn) btn.innerText = originalText;
                     closeProvidersModal();

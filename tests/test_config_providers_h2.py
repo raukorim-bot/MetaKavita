@@ -1,7 +1,6 @@
 """
 Non-régression : defaults/env Comic/Book providers + RESET_CONTEXT_ON_FORCE (H2).
 """
-import json
 
 
 def test_load_config_includes_comic_book_defaults(tmp_path, monkeypatch):

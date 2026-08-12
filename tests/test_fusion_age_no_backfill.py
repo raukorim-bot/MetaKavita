@@ -103,8 +103,6 @@ def test_smart_completion_tie_keeps_empty_age_not_adult(monkeypatch, caplog):
             lambda *a, **k: _useful("Adult Title", 1.0, "pornographic", genres=["X"]),
         ),
     }
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(
         metadata_fetcher,
         "load_config",
@@ -145,8 +143,6 @@ def test_smart_completion_fills_suggestive_from_secondary(monkeypatch):
             lambda *a, **k: _useful("MD Title", 0.90, "suggestive"),
         ),
     }
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(
         metadata_fetcher,
         "load_config",

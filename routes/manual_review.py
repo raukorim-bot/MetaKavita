@@ -7,6 +7,7 @@ import logging
 
 from flask import Blueprint, request, jsonify
 
+from auth_manager import companion_embed_scope, is_authenticated
 from config_manager import load_config
 from db_manager import list_pending_reviews, get_pending_review, count_pending_reviews, update_pending_review
 from metadata_fetcher import candidate_card_for_ui
@@ -40,6 +41,13 @@ def api_list_manual_reviews():
     except (TypeError, ValueError):
         limit = 200
     rows = list_pending_reviews(state=state, limit=limit)
+    # Companion sans session : le jeton d'embed est émis pour une série précise,
+    # depuis sa page Kavita. La file complète (noms des autres séries, volumétrie)
+    # n'a pas à sortir par ce chemin — l'embed ne montrait déjà que sa série,
+    # mais le filtre était côté client.
+    embed_scope = None if is_authenticated() else companion_embed_scope()
+    if embed_scope is not None:
+        rows = [r for r in rows if str(r.get("series_id")) == str(embed_scope)]
     config = load_config()
     # Ne pas renvoyer le blob data brut de chaque candidat (lourd) — résumé UI
     out = []
@@ -87,7 +95,8 @@ def api_list_manual_reviews():
             "streaming": bool(cands.get("streaming")),
             "preview": preview,
         })
-    return jsonify(success=True, reviews=out, count=count_pending_reviews())
+    count = len(out) if embed_scope is not None else count_pending_reviews()
+    return jsonify(success=True, reviews=out, count=count)
 
 
 @manual_review_bp.route("/api/manual-reviews/<review_id>/choice", methods=["POST"])

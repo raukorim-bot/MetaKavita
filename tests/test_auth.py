@@ -12,7 +12,6 @@ une app Flask ad hoc : c'est précisément pourquoi ils vivent dans
 `auth_manager.py` et non dans `app.py`.
 """
 import json
-import os
 
 import pytest
 from flask import Flask

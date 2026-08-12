@@ -216,3 +216,127 @@ def test_proxy_image_allows_companion_embed_token_header(companion_app, monkeypa
     )
     assert res.status_code == 200
     assert res.data[:2] == b"\xff\xd8"
+
+
+# --------------------------------------------------------------------------
+# Portée série du jeton sur les routes de review manuelle
+#
+# Le préfixe `manual_review.*` acceptait n'importe quel jeton valide : un jeton
+# émis pour la série 7 pouvait lister, confirmer, re-chercher ou passer les
+# reviews de toutes les autres séries pendant ses 15 minutes de vie.
+# --------------------------------------------------------------------------
+
+@pytest.fixture
+def review_app(companion_app, isolated_db):
+    from routes.manual_review import manual_review_bp
+
+    companion_app.register_blueprint(manual_review_bp)
+    return companion_app
+
+
+def _park(isolated_db, series_id, name):
+    payload = {"above": [{"provider": "A", "score": 0.9, "title": name, "data": {}}],
+               "below": [], "query": name}
+    review_id = f"rev-{series_id}"
+    isolated_db.park_pending_review(
+        review_id=review_id, series_id=series_id, series_name=name,
+        candidates_json=payload, base_provider="A", chosen_score=0.9,
+    )
+    return review_id
+
+
+def test_embed_token_cannot_confirm_another_series_review(review_app, isolated_db, monkeypatch):
+    client = review_app.test_client()
+    tok = _issue_token(client, series_id=7)
+    other = _park(isolated_db, 99, "Autre série")
+    applied = []
+    monkeypatch.setattr(
+        "routes.manual_review.apply_manual_review",
+        lambda *a, **k: applied.append(a) or (True, "ok", {}),
+    )
+
+    res = client.post(
+        f"/api/manual-reviews/{other}/confirm",
+        json={"base_provider": "A"},
+        headers={"X-Companion-Embed-Token": tok},
+    )
+
+    assert res.status_code in (302, 401), "le jeton de la série 7 ne doit pas confirmer la série 99"
+    assert applied == [], "aucune écriture ne doit avoir lieu"
+
+
+def test_embed_token_confirms_its_own_series_review(review_app, isolated_db, monkeypatch):
+    client = review_app.test_client()
+    tok = _issue_token(client, series_id=7)
+    mine = _park(isolated_db, 7, "Ma série")
+    monkeypatch.setattr(
+        "routes.manual_review.apply_manual_review",
+        lambda *a, **k: (True, "ok", {}),
+    )
+
+    res = client.post(
+        f"/api/manual-reviews/{mine}/confirm",
+        json={"base_provider": "A"},
+        headers={"X-Companion-Embed-Token": tok},
+    )
+
+    assert res.status_code == 200
+    assert res.get_json()["success"] is True
+
+
+def test_embed_token_cannot_skip_another_series_review(review_app, isolated_db):
+    client = review_app.test_client()
+    tok = _issue_token(client, series_id=7)
+    other = _park(isolated_db, 99, "Autre série")
+
+    res = client.post(
+        f"/api/manual-reviews/{other}/skip",
+        headers={"X-Companion-Embed-Token": tok},
+    )
+
+    assert res.status_code in (302, 401)
+    assert isolated_db.get_pending_review(other) is not None
+
+
+def test_embed_token_only_sees_its_own_series_in_the_queue(review_app, isolated_db):
+    """La file complète — noms des autres séries, volumétrie de la bibliothèque —
+    ne doit pas sortir par un jeton d'embed."""
+    client = review_app.test_client()
+    tok = _issue_token(client, series_id=7)
+    _park(isolated_db, 7, "Ma série")
+    _park(isolated_db, 99, "Série privée")
+
+    res = client.get("/api/manual-reviews", headers={"X-Companion-Embed-Token": tok})
+
+    assert res.status_code == 200
+    body = res.get_json()
+    assert [r["series_id"] for r in body["reviews"]] == [7]
+    assert body["count"] == 1
+    assert "Série privée" not in res.get_data(as_text=True)
+
+
+def test_embed_token_cannot_bulk_accept_or_purge(review_app, isolated_db):
+    """Deux opérations de masse sur toute la file : session obligatoire."""
+    client = review_app.test_client()
+    tok = _issue_token(client, series_id=7)
+    _park(isolated_db, 7, "Ma série")
+    _park(isolated_db, 99, "Autre série")
+
+    for url in ("/api/manual-reviews/bulk-accept", "/api/manual-reviews/purge"):
+        res = client.post(url, json={}, headers={"X-Companion-Embed-Token": tok})
+        assert res.status_code in (302, 401), url
+
+    assert isolated_db.count_pending_reviews() == 2
+
+
+def test_an_unknown_review_answers_404_not_a_login_redirect(review_app, isolated_db):
+    """Un 302 vers /login ferait croire à une session expirée dans l'embed."""
+    client = review_app.test_client()
+    tok = _issue_token(client, series_id=7)
+
+    res = client.post(
+        "/api/manual-reviews/does-not-exist/skip",
+        headers={"X-Companion-Embed-Token": tok},
+    )
+
+    assert res.status_code == 404

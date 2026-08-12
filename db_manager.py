@@ -868,6 +868,20 @@ def get_all_cached_data():
     } for row in rows}
 
 def clean_orphaned_cache(active_ids):
+    """Retire du cache les séries absentes de `active_ids`.
+
+    `series_cache` porte les réglages saisis à la main (id forcé, champs ciblés,
+    préférence éditeur, couverture manuelle) et la suppression entraîne celle des
+    reviews en attente : un inventaire Kavita vide n'est donc jamais un feu vert
+    suffisant. Les appelants doivent en plus vérifier
+    `KavitaAPI.last_inventory_complete`.
+    """
+    if not active_ids:
+        logging.warning(
+            "[Cache] Purge des orphelines ignorée : inventaire Kavita vide "
+            "(refus de supprimer tout le cache et les reviews en attente)."
+        )
+        return 0
     conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)

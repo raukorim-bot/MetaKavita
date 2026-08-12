@@ -11,7 +11,6 @@ from urllib.parse import urljoin, urlparse
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 
-from config_manager import get_max_genres, get_max_tags
 from scrapers.base import BaseScraper
 from scrapers.utils import (
     attach_match_score,

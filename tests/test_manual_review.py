@@ -394,8 +394,6 @@ def test_merge_candidates_no_fusion_keeps_base_only():
 
 
 def test_fetch_return_candidates_partitions_above_below(monkeypatch):
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(metadata_fetcher, "load_config", lambda: {
         "UI_LANG": "fr",
         "SMART_SCORING": True,
@@ -435,8 +433,6 @@ def test_fetch_return_candidates_partitions_above_below(monkeypatch):
 
 
 def test_fetch_return_candidates_below_only_when_all_under_threshold(monkeypatch):
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(metadata_fetcher, "load_config", lambda: {
         "UI_LANG": "fr",
         "SMART_SCORING": True,
@@ -474,8 +470,6 @@ def test_fetch_return_candidates_below_only_when_all_under_threshold(monkeypatch
 
 
 def test_fetch_return_candidates_empty_both_bands(monkeypatch):
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(metadata_fetcher, "load_config", lambda: {
         "UI_LANG": "fr",
         "SMART_SCORING": True,

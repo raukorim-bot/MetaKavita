@@ -17,17 +17,14 @@
     var scrollRaf = 0;
     var T = function () { return window.AppTranslations || {}; };
 
+    // Échappement partagé (utils.js) : voir escapeHtmlText, l'apostrophe incluse.
+    // `escAttr` reste un alias : les gabarits ci-dessous s'en servent pour marquer
+    // les insertions en position d'attribut.
     function esc(s) {
-        return String(s == null ? '' : s)
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;')
-            .replace(/"/g, '&quot;');
+        return window.escapeHtmlText(s);
     }
 
-    function escAttr(s) {
-        return esc(s).replace(/'/g, '&#39;');
-    }
+    var escAttr = esc;
 
     function badgeHtml(status) {
         var tr = T();

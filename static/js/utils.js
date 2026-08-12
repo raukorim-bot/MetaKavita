@@ -7,6 +7,26 @@
 const getRootPath = () => window.ROOT_PATH || '';
 
 /**
+ * Échappement HTML unique du frontend.
+ *
+ * L'apostrophe compte autant que le guillemet double : plusieurs gabarits
+ * construisent des attributs en quotes simples (`onclick='...'`, `title='...'`),
+ * qu'un titre de série contenant une apostrophe suffirait à refermer. Les
+ * modules gardent un alias local (`esc`, `escapeHtml`, `_escHtml`) mais tous
+ * délèguent ici : quatre implémentations divergentes, dont deux incomplètes,
+ * avaient déjà laissé passer ce cas.
+ */
+function escapeHtmlText(value) {
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+window.escapeHtmlText = escapeHtmlText;
+
+/**
  * URL d'affichage navigateur pour une couverture externe.
  * Les scrapers avec `requires_proxy=True` bloquent le hotlink : l'<img> doit
  * passer par `/api/proxy-image` (Referer serveur). L'URL stockée / envoyée à

@@ -387,8 +387,14 @@ def _auto_sync_worker():
                         # séries des bibliothèques exclues du polling, sinon elles
                         # seraient traitées comme orphelines et purgées.
                         all_series = kavita.get_all_series()
-                        active_ids = {s['id'] for s in all_series}
-                        clean_orphaned_cache(active_ids)
+                        # Une bibliothèque muette (timeout, 500) tronque
+                        # l'inventaire : purger sur cette base effacerait les
+                        # réglages manuels de séries bien vivantes.
+                        if getattr(kavita, "last_inventory_complete", False):
+                            active_ids = {s['id'] for s in all_series}
+                            clean_orphaned_cache(active_ids)
+                        else:
+                            logging.warning(t.get("log_orphans_skipped", "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet."))
                         cached = get_all_cached_data()
 
                         to_process = select_auto_sync_candidates(all_series, cached, config)

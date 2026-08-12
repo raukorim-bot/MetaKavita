@@ -23,8 +23,17 @@ from services.cover_search import iter_cover_jobs, run_cover_job
 from translations import get_ui_translations
 
 
-def _companion_socket_authorized(auth=None) -> bool:
-    """Accept Companion embed_token from Socket.IO auth/query (cross-origin iframe)."""
+def _companion_embed_series(auth=None):
+    """`series_id` du jeton d'embed présenté par cette connexion, sinon None.
+
+    La valeur vient du jeton lui-même, jamais du `series_id` fourni par le
+    client : ce dernier ne sert qu'à vérifier que les deux concordent.
+
+    Relu à chaque événement plutôt que mémorisé à la connexion : le client passe
+    le jeton dans la query string du handshake (`static/js/websocket.js`), donc
+    `request.args` reste lisible pendant toute la vie de la socket — et un jeton
+    révoqué ou expiré cesse d'agir immédiatement, sans attendre une reconnexion.
+    """
     try:
         from services.companion_embed_auth import peek_embed_token, validate_embed_token
 
@@ -33,19 +42,28 @@ def _companion_socket_authorized(auth=None) -> bool:
             str(payload.get("embed_token") or payload.get("embedToken") or "").strip()
             or (request.args.get("embed_token") or request.args.get("embedToken") or "").strip()
         )
+        if not token:
+            return None
         sid_raw = (
             payload.get("series_id")
             or payload.get("seriesId")
             or request.args.get("series_id")
             or request.args.get("seriesId")
         )
-        if not token:
-            return False
         if sid_raw is not None and str(sid_raw).strip() != "":
-            return validate_embed_token(token, int(sid_raw)) is not None
-        return peek_embed_token(token) is not None
+            data = validate_embed_token(token, int(sid_raw))
+        else:
+            data = peek_embed_token(token)
+        if not data:
+            return None
+        return int(data["series_id"])
     except Exception:
-        return False
+        return None
+
+
+def _companion_socket_authorized(auth=None) -> bool:
+    """Accept Companion embed_token from Socket.IO auth/query (cross-origin iframe)."""
+    return _companion_embed_series(auth) is not None
 
 
 def _reject_unauthenticated(event_name):
@@ -88,10 +106,13 @@ def handle_connect(auth=None):
     paquet de fermeture — deux paquets dont l'ordre d'interprétation côté client
     décidait si une fenêtre d'émission existait ou non.
     """
-    if not auth_manager.is_authenticated() and not _companion_socket_authorized(auth):
-        t = get_ui_translations()
-        logging.warning(t.get("log_ws_connect_rejected", "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {0}").format(request.remote_addr))
-        return False
+    embed_scope = None
+    if not auth_manager.is_authenticated():
+        embed_scope = _companion_embed_series(auth)
+        if embed_scope is None:
+            t = get_ui_translations()
+            logging.warning(t.get("log_ws_connect_rejected", "🚨 [Sécurité] Connexion WebSocket rejetée (Non authentifié) IP: {0}").format(request.remote_addr))
+            return False
 
     # Compteur + résumé file review manuelle (mode C29).
     #
@@ -103,11 +124,17 @@ def handle_connect(auth=None):
     sid = request.sid
     try:
         from db_manager import count_pending_reviews, list_pending_reviews
-        n = count_pending_reviews()
+        rows = list_pending_reviews(limit=30)
+        if embed_scope is not None:
+            # Jeton d'embed : la file des autres séries ne sort pas d'ici.
+            rows = [r for r in rows if str(r.get("series_id")) == str(embed_scope)]
+            n = len(rows)
+        else:
+            n = count_pending_reviews()
         socketio.emit("manual_review_pending_count", {"count": n}, to=sid)
         if n:
             summary = []
-            for r in list_pending_reviews(limit=30):
+            for r in rows:
                 summary.append({
                     "review_id": r["review_id"],
                     "series_id": r["series_id"],
@@ -133,6 +160,20 @@ def handle_fetch_covers_stream(data):
     query = data.get('query')
     if not series_id or not query:
         return
+
+    # Connexion Companion : le jeton vaut pour une série, l'événement ne peut pas
+    # en viser une autre (le `series_id` vient du client).
+    if not auth_manager.is_authenticated():
+        scope = _companion_embed_series()
+        if scope is None or int(series_id) != scope:
+            t = get_ui_translations()
+            logging.warning(
+                t.get(
+                    "log_ws_event_rejected",
+                    "🚨 [Sécurité] Événement WebSocket '{0}' rejeté (Non authentifié) IP: {1}",
+                ).format("fetch_covers_stream", request.remote_addr)
+            )
+            return
 
     cache_data = get_all_cached_data().get(int(series_id), {})
     series_name = query or ""

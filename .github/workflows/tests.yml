@@ -5,8 +5,31 @@ on:
     branches: [ "main", "dev" ]
   pull_request:
     branches: [ "main", "dev" ]
+  # Appelé par docker-publish.yml : aucune image ne part sans être passée par ici
+  # (y compris sur un tag de release, que les déclencheurs ci-dessus ignorent).
+  workflow_call:
 
 jobs:
+  lint:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run ruff
+        run: ruff check .
+
   pytest:
     runs-on: ubuntu-latest
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Optional
 
-from .external_ids import _ID_KEYS, _links_have_external, _truthy_id
+from .external_ids import _links_have_external, _truthy_id
 
 _ANILIST_RE = re.compile(r"anilist\.co/(?:manga|anime)/(\d+)", re.I)
 _MAL_RE = re.compile(r"myanimelist\.net/(?:manga|anime)/(\d+)", re.I)

@@ -1,60 +1,20 @@
 import logging
 import re
 import sys
-import threading
-import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from scrapers import ScraperRegistry
 from scrapers.utils import get_match_accept_threshold, MATCH_SCORE_KEY
 from config_manager import load_config
 from translations import translations
 
+# La cadence vit dans services/provider_throttle.py : la recherche de
+# couvertures doit partager les mêmes horodatages que l'enrichissement sans
+# importer ce module. Réexporté ici car plusieurs appelants historiques
+# (services/scraper_diagnostics.py, inventaire) importent `throttle_provider`
+# depuis metadata_fetcher.
+from services.provider_throttle import LAST_REQUEST_TIMES, throttle_provider  # noqa: F401
+
 ALLOWED_PROXY_DOMAINS = ScraperRegistry.get_all_proxy_domains()
-
-# 🎯 DÉCTIONNAIRE D'HORODATAGE GLOBAL (Mémoire des derniers appels par scraper)
-LAST_REQUEST_TIMES = {}
-
-# --- GARDE ANTI-COURSE PAR SCRAPER ---
-# `throttle_provider()` fait un cycle lire (last_call) -> éventuellement dormir
-# -> écrire (nouvel horodatage), en 3 étapes séparées. Sans verrou, deux appels
-# concurrents pour LE MÊME scraper (ex: le bouton "Sync" d'une série pendant que
-# la file de fond traite une AUTRE série qui utilise aussi ce fournisseur comme
-# provider #1) peuvent tous les deux lire le même `last_call` périmé AVANT que
-# l'un des deux n'ait écrit son propre horodatage : les deux jugent alors,
-# indépendamment, qu'il n'y a pas besoin d'attendre, et partent quasi
-# simultanément vers l'API externe — violant le rate_limit qu'on croyait
-# respecter, avec un risque de 429/ban IP chez le fournisseur. Un verrou par
-# scraper (pas un verrou global, pour ne pas ralentir des fournisseurs
-# indépendants entre eux) rend tout le cycle lire-dormir-écrire atomique.
-_THROTTLE_LOCKS_GUARD = threading.Lock()
-_THROTTLE_LOCKS = {}
-
-
-def _get_throttle_lock(scraper_id):
-    with _THROTTLE_LOCKS_GUARD:
-        lock = _THROTTLE_LOCKS.get(scraper_id)
-        if lock is None:
-            lock = threading.Lock()
-            _THROTTLE_LOCKS[scraper_id] = lock
-        return lock
-
-
-def throttle_provider(scraper):
-    """
-    Attend uniquement le temps strictement nécessaire pour respecter le rate_limit 
-    du scraper ciblé. Si l'API était inactive, délai = 0.0s !
-    """
-    with _get_throttle_lock(scraper.id):
-        now = time.time()
-        last_call = LAST_REQUEST_TIMES.get(scraper.id, 0.0)
-        elapsed = now - last_call
-        required_delay = getattr(scraper, 'rate_limit', 1.0)
-
-        if elapsed < required_delay:
-            sleep_needed = required_delay - elapsed
-            time.sleep(sleep_needed)
-
-        LAST_REQUEST_TIMES[scraper.id] = time.time()
 
 
 def _safe_match_score(candidate):

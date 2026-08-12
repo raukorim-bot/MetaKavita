@@ -32,7 +32,6 @@ from services.background_tasks import (
     put_front,
 )
 from services import batch_queue as batch_queue_svc
-from services.enrichment_engine import enrich_series
 
 sync_bp = Blueprint('sync', __name__)
 
@@ -76,13 +75,46 @@ def amnistie():
 
 @sync_bp.route('/force-sync', methods=['POST'])
 def force_sync():
+    """Met UNE série en tête de la file de synchronisation.
+
+    L'enrichissement ne s'exécute plus dans la requête : il durait de quelques
+    secondes à plusieurs minutes (scrapers, écritures Kavita, éventuel parking en
+    review), pendant lesquelles le worker eventlet restait bloqué et le
+    reverse-proxy pouvait couper la connexion. L'utilisateur voyait alors « Fail »
+    sur un traitement qui se terminait en réalité correctement, et la série
+    tournait en parallèle du worker de fond au lieu d'être sérialisée avec lui.
+
+    Réponse 202 : le travail est accepté, pas terminé. L'UI suit la fin via
+    l'événement Socket.IO `series_status` de la série (voir batch.js).
+    """
     t = translations.get(load_config().get('UI_LANG', 'fr'), translations['fr'])
     series_id = request.form.get('series_id')
     series_name = request.form.get('series_name')
-    if not series_id or not series_name: return jsonify(success=False, msg=t.get('err_missing'))
+    if not series_id or not series_name:
+        return jsonify(success=False, msg=t.get('err_missing'))
 
-    success, result_msg, _ = enrich_series(series_id, series_name, force_update=True)
-    return jsonify(success=success, msg=result_msg)
+    try:
+        series_id_int = int(series_id)
+    except (TypeError, ValueError):
+        return jsonify(success=False, msg=t.get('err_missing')), 400
+
+    # En tête de file : le clic vient d'un humain qui regarde sa série, il passe
+    # devant le reste d'un batch en cours. `put_front` retire au passage les jobs
+    # en attente sur la même série (doublons batch/webhook) et recale la barre.
+    replaced = put_front(make_sync_item(series_id_int, series_name, True))
+    logging.info(
+        t.get(
+            "log_force_sync_queued",
+            "⚡ Série '{0}' (ID: {1}) placée en tête de la file de synchronisation.",
+        ).format(series_name, series_id_int)
+    )
+    return jsonify(
+        success=True,
+        queued=True,
+        series_id=series_id_int,
+        replaced_pending=replaced,
+        msg=t.get("msg_force_sync_queued", "Série mise en file."),
+    ), 202
 
 
 @sync_bp.route('/batch-sync', methods=['POST'])

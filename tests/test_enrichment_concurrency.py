@@ -1,18 +1,17 @@
 """
-Non-régression : `enrich_series()` (services/enrichment_engine.py) a DEUX points
-d'entrée indépendants qui peuvent s'exécuter en parallèle sur le même process :
+Non-régression : le traitement d'une série n'est pas réentrant, et plusieurs
+chemins peuvent le déclencher en parallèle sur le même process :
 
-1. `routes/sync.py::force_sync()` — bouton "Sync" d'une ligne, appel HTTP
-   SYNCHRONE qui appelle `enrich_series()` directement, hors file d'attente.
-2. `services/background_tasks.py::_worker()` — thread de fond unique qui
-   dépile `sync_queue` (alimentée par le batch-sync et le webhook Kavita).
+1. `services/background_tasks.py::_worker()` — thread de fond unique qui dépile
+   `sync_queue` (batch, webhook Kavita, auto-sync, bouton "Sync" d'une ligne).
+2. l'application d'une review manuelle et le retry de pose de verrous
+   (`services/kavita_payload.py::_schedule_seal_retry`), tous deux hors file.
 
-Rien n'empêchait qu'un clic sur "Sync" pour une série arrive PENDANT qu'un
-webhook pour CETTE MÊME série vient d'être dépilé par le worker : les deux
-threads liraient l'état Kavita en parallèle, appliqueraient leurs changements
-indépendamment, et l'un écraserait silencieusement le travail de l'autre
-(perte de mise à jour) — avec le même risque pour la couverture que le bug de
-course historique (voir CODE_REVIEW.md / DEVELOPER.md section 11).
+Deux chemins visant LA MÊME série liraient l'état Kavita en parallèle,
+appliqueraient leurs changements indépendamment, et l'un écraserait
+silencieusement le travail de l'autre (perte de mise à jour) — avec le même
+risque pour la couverture que le bug de course historique (voir
+CODE_REVIEW.md / DEVELOPER.md section 11).
 
 Ces tests vérifient le verrou en mémoire `_processing_series_ids` qui rejette
 toute requête concurrente pour un `series_id` déjà en cours de traitement, et

@@ -1,7 +1,7 @@
 """
-Non-régression : `throttle_provider()` (metadata_fetcher.py) fait un cycle
-lire (dernier appel) -> éventuellement dormir -> écrire (nouvel horodatage) en
-3 étapes distinctes sur le dict global `LAST_REQUEST_TIMES`. Sans verrou, deux
+Non-régression : `throttle_provider()` (services/provider_throttle.py) fait un
+cycle lire (dernier appel) -> éventuellement dormir -> écrire (nouvel horodatage)
+en 3 étapes distinctes sur le dict global `LAST_REQUEST_TIMES`. Sans verrou, deux
 appels concurrents pour LE MÊME scraper (ex: le bouton "Sync" d'une série
 pendant que la file de fond traite une autre série utilisant le même
 fournisseur en provider #1) peuvent tous les deux lire le même `last_call`
@@ -19,12 +19,18 @@ import time
 from types import SimpleNamespace
 
 import metadata_fetcher
+from services import provider_throttle
 
 
-def test_throttle_provider_serializes_concurrent_calls_for_the_same_scraper(monkeypatch):
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
+def test_metadata_fetcher_still_exposes_the_shared_throttle():
+    """Plusieurs modules importent `throttle_provider` depuis metadata_fetcher :
+    la réexportation doit désigner la même fonction, sinon deux cadences
+    coexisteraient sans se voir."""
+    assert metadata_fetcher.throttle_provider is provider_throttle.throttle_provider
+    assert metadata_fetcher.LAST_REQUEST_TIMES is provider_throttle.LAST_REQUEST_TIMES
 
+
+def test_throttle_provider_serializes_concurrent_calls_for_the_same_scraper():
     scraper = SimpleNamespace(id="FAKE_SCRAPER_FOR_TEST", rate_limit=0.2)
 
     call_times = []
@@ -54,13 +60,10 @@ def test_throttle_provider_serializes_concurrent_calls_for_the_same_scraper(monk
         )
 
 
-def test_throttle_provider_does_not_serialize_unrelated_scrapers(monkeypatch):
+def test_throttle_provider_does_not_serialize_unrelated_scrapers():
     """Le verrou est PAR scraper : deux fournisseurs différents ne doivent pas
     se ralentir mutuellement (sinon un fournisseur lent pénaliserait tous les
     autres à chaque appel simultané)."""
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
-
     scraper_a = SimpleNamespace(id="FAKE_SCRAPER_A", rate_limit=1.0)
     scraper_b = SimpleNamespace(id="FAKE_SCRAPER_B", rate_limit=1.0)
 

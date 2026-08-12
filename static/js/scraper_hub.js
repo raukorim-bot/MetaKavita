@@ -40,12 +40,9 @@
         return `<span class="hub-badge ${cls || ""}">${escapeHtml(label)}</span>`;
     }
 
+    // Échappement partagé (utils.js) : voir escapeHtmlText, l'apostrophe incluse.
     function escapeHtml(s) {
-        return String(s == null ? "" : s)
-            .replace(/&/g, "&amp;")
-            .replace(/</g, "&lt;")
-            .replace(/>/g, "&gt;")
-            .replace(/"/g, "&quot;");
+        return window.escapeHtmlText(s);
     }
 
     function matchesFilters(row) {

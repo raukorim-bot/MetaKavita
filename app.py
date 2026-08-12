@@ -93,7 +93,7 @@ logging.basicConfig(
 logging.getLogger('werkzeug').setLevel(logging.ERROR)
 
 from werkzeug.middleware.proxy_fix import ProxyFix
-from flask import Flask, request, session, redirect, url_for, make_response
+from flask import Flask, request, make_response
 
 from auth_manager import (
     get_trusted_proxy_count,

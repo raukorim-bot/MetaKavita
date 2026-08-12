@@ -47,6 +47,20 @@ def _clean_batch_progress_counters():
 
 
 @pytest.fixture(autouse=True)
+def _clean_provider_throttle():
+    """`LAST_REQUEST_TIMES`/`_THROTTLE_LOCKS` (services/provider_throttle.py) sont
+    des globaux de module partagés par l'enrichissement, le diagnostic scrapers,
+    l'inventaire et la recherche de couvertures : sans reset, un test qui appelle
+    un fournisseur factice déjà « appelé » par un test précédent dormirait
+    réellement le temps de son `rate_limit`."""
+    from services.provider_throttle import reset_throttle_state
+
+    reset_throttle_state()
+    yield
+    reset_throttle_state()
+
+
+@pytest.fixture(autouse=True)
 def _clean_kavita_series_caches():
     """`_series_lib_type_cache`/`_series_library_id_cache` (kavita_api.py) sont
     des attributs de CLASSE partagés par toutes les instances de `KavitaAPI` :

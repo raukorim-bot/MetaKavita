@@ -66,8 +66,6 @@ def test_return_candidates_ignores_smart_completion_flag(monkeypatch):
             },
         ),
     }
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(
         metadata_fetcher,
         "load_config",

@@ -11,8 +11,6 @@ from scrapers.utils import MATCH_SCORE_KEY
 
 @pytest.fixture(autouse=True)
 def _isolate_module_state(monkeypatch):
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(
         metadata_fetcher,
         "load_config",

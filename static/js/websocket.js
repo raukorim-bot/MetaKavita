@@ -116,6 +116,11 @@ socket.on('series_status', function(payload) {
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.updateStatus === 'function') {
         window.SeriesList.updateStatus(sid, status);
     }
+    // Sync unitaire : /force-sync ne fait plus qu'enfiler, c'est ce statut qui
+    // marque la fin réelle du traitement pour le bouton de la ligne.
+    if (typeof window.settleSingleSync === 'function') {
+        window.settleSingleSync(sid, status === 'COMPLETED' || status === 'NEEDS_RELOCK');
+    }
 });
 
 /** QoS batch : une série OK se décoche pour pouvoir relancer le lot sans re-scraper les déjà faits. */

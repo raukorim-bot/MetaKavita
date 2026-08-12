@@ -17,7 +17,6 @@ jamais `app.py` : celui-ci démarre des threads de fond et charge tous les
 scrapers à l'import. On enregistre donc uniquement le blueprint testé sur une
 app Flask ad hoc.
 """
-import io
 import os
 import stat
 

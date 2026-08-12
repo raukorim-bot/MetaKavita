@@ -6,7 +6,14 @@ on:
     tags: [ "v*" ]
 
 jobs:
+  # L'image ne doit jamais partir devant les tests : les deux workflows
+  # partageaient les mêmes déclencheurs et tournaient en parallèle, donc un
+  # `pytest` rouge n'empêchait pas la publication sur GHCR.
+  tests:
+    uses: ./.github/workflows/tests.yml
+
   build:
+    needs: tests
     runs-on: ubuntu-latest
     permissions:
       contents: read

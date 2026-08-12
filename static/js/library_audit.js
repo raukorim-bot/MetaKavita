@@ -8,12 +8,9 @@ function _auditT() {
     return window.AppTranslations || {};
 }
 
+// Échappement partagé (utils.js) : voir escapeHtmlText, l'apostrophe incluse.
 function _escHtml(s) {
-    return String(s == null ? '' : s)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+    return window.escapeHtmlText(s);
 }
 
 function _selectedLibraryId() {

@@ -1,0 +1,44 @@
+# Configuration ruff — exécutée en CI (.github/workflows/tests.yml, job `lint`),
+# qui conditionne la publication de l'image Docker.
+#
+# Le jeu de règles est volontairement étroit : ce qui attrape de vrais défauts
+# (nom indéfini, import mort, variable morte, `except` nu, argument par défaut
+# mutable) sans imposer un reformatage du dépôt. Le style — longueur de ligne,
+# ordre des imports, guillemets — n'est pas contrôlé, la base ayant été écrite
+# sans formateur.
+target-version = "py311"
+line-length = 120
+
+# Scripts de mise au point, jamais embarqués dans l'image : ils gardent leurs
+# imports exploratoires et leurs variables laissées en place pour inspection.
+exclude = [
+    "debug",
+    "debug_*.py",
+    "dev_local",
+    "data",
+    ".venv",
+]
+
+[lint]
+select = [
+    "F",     # pyflakes : noms indéfinis, imports et variables morts
+    "E401",  # imports multiples sur une ligne
+    "E402",  # import après du code exécutable
+    "E711",  # comparaison à None avec ==
+    "E712",  # comparaison à True/False avec ==
+    "E713",  # `not x in y`
+    "E714",  # `not x is y`
+    "E722",  # `except:` nu
+    "E9",    # erreurs de syntaxe / d'indentation
+    "B006",  # argument par défaut mutable
+    "B008",  # appel de fonction dans un défaut d'argument
+]
+
+[lint.per-file-ignores]
+# Les scrapers de test exposent volontairement des symboles non utilisés
+# localement (contrat de l'interface scraper).
+"tests/fixtures/scrapers/*" = ["F401", "F541"]
+# `sys.path` doit être complété avant d'importer les modules du dépôt.
+"tests/conftest.py" = ["E402"]
+# `eventlet.monkey_patch()` doit précéder tous les autres imports.
+"app.py" = ["E402"]

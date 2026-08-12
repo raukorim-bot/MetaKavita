@@ -61,11 +61,16 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
 
                 if not selected_lib:
                     # Inventaire complet pour ne pas effacer le cache des séries
-                    # temporairement hors sync (dénylist).
-                    full_ids = {s['id'] for s in series_list}
-                    cleaned = clean_orphaned_cache(full_ids)
-                    if cleaned > 0:
-                        logging.info(t.get("log_orphans_cleaned", "🧹 Nettoyage : {0} séries orphelines retirées du cache.").format(cleaned))
+                    # temporairement hors sync (dénylist). Une bibliothèque qui
+                    # n'a pas répondu rendrait ses séries orphelines : on ne
+                    # purge que sur un inventaire intégralement lu.
+                    if getattr(kavita, "last_inventory_complete", False):
+                        full_ids = {s['id'] for s in series_list}
+                        cleaned = clean_orphaned_cache(full_ids)
+                        if cleaned > 0:
+                            logging.info(t.get("log_orphans_cleaned", "🧹 Nettoyage : {0} séries orphelines retirées du cache.").format(cleaned))
+                    else:
+                        logging.warning(t.get("log_orphans_skipped", "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet."))
             else:
                 error_msg = t.get('err_no_libraries', "Aucune bibliothèque trouvée dans Kavita.")
         else:

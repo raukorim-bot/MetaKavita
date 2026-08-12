@@ -1,8 +1,9 @@
 """
 Cover search orchestration with Magic Input awareness.
 
-Import rules (acyclic): magic_input, ScraperRegistry, library_type_for_scraper.
-Must NOT import enrichment_engine, metadata_fetcher, routes, sockets, or app.
+Import rules (acyclic): magic_input, ScraperRegistry, library_type_for_scraper,
+provider_throttle. Must NOT import enrichment_engine, metadata_fetcher, routes,
+sockets, or app.
 """
 
 from __future__ import annotations
@@ -15,6 +16,7 @@ from urllib.parse import quote
 from scrapers import ScraperRegistry
 from scrapers.utils import library_type_for_scraper
 from services.magic_input import is_http_url, resolve_magic_cover_query
+from services.provider_throttle import throttle_provider
 from secure_logging import safe_exc_str
 
 
@@ -167,8 +169,16 @@ def run_cover_job(
     job: CoverJob,
     script_root: str = "",
 ) -> List[Dict[str, str]]:
-    """Execute one cover job; never raises."""
+    """Execute one cover job; never raises.
+
+    Passe par la même cadence que l'enrichissement : une recherche de couvertures
+    interroge tous les fournisseurs de la bibliothèque en parallèle (un greenlet
+    par job côté Socket.IO, 8 threads côté HTTP), et le fournisseur ne distingue
+    pas cet appel d'un appel d'enrichissement. Sans ce point de passage, ouvrir le
+    sélecteur de couvertures pendant un batch doublait le débit vers chaque API.
+    """
     scraper = job.scraper
+    throttle_provider(scraper)
     try:
         if job.mode == "by_id":
             covers = cover_dict_from_fetch(scraper, job.query, job.library_type)

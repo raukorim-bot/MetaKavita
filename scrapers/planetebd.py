@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -333,11 +333,9 @@ class PlanetebdScraper(BaseScraper):
         album_meta: Dict[str, Any] = {}
         series_url = None
         series_title = None
-        series_id = None
 
         if sm:
             series_url = url
-            series_id = sm.group("id")
             series_title = self._fetch_series_title(session, url)
             # Prendre un album de la série pour cover/staff
             album_meta = self._first_album_from_series(session, url) or {}
@@ -347,7 +345,6 @@ class PlanetebdScraper(BaseScraper):
                 return None
             series_url = album_meta.get("series_url")
             series_title = album_meta.get("series_title")
-            series_id = album_meta.get("series_id")
             # Affiner le titre série via page série
             if series_url:
                 st = self._fetch_series_title(session, series_url)

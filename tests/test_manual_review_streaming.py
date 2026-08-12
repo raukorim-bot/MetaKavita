@@ -3,8 +3,6 @@ from __future__ import annotations
 
 import json
 
-import pytest
-
 from services.manual_review import (
     append_streaming_candidate,
     begin_streaming_review,

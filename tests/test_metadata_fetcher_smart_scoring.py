@@ -36,8 +36,6 @@ from scrapers.utils import MATCH_ACCEPT_THRESHOLD
 def _isolate_module_state(monkeypatch):
     """Évite toute interférence entre tests (horodatages de rate-limit partagés)
     et tout accès réseau/disque réel (config.json)."""
-    monkeypatch.setattr(metadata_fetcher, "LAST_REQUEST_TIMES", {})
-    monkeypatch.setattr(metadata_fetcher, "_THROTTLE_LOCKS", {})
     monkeypatch.setattr(metadata_fetcher, "load_config", lambda: {
         "UI_LANG": "fr",
         "SMART_SCORING": True,

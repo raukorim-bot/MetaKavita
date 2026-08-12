@@ -327,8 +327,15 @@ def reset_lockout_state():
 # --- STOCKAGE --------------------------------------------------------------
 
 def _connect():
-    """Connexion SQLite, une par appel — même convention que db_manager."""
-    return sqlite3.connect(db_manager.DB_FILE)
+    """Connexion SQLite, une par appel — déléguée à db_manager.
+
+    La table `users` vit dans le même fichier que le cache : ouvrir la base sans
+    WAL ni `busy_timeout` (5 s par défaut) suffisait à faire échouer un login ou
+    un changement de mot de passe pendant un batch ou une analyse d'inventaire,
+    avec un « database is locked ». Déléguer plutôt que recopier les pragmas
+    garantit que les deux chemins ne peuvent plus diverger.
+    """
+    return db_manager._connect()
 
 
 def _ensure_users_table(c):
@@ -717,6 +724,25 @@ def companion_embed_authorized(series_id=None) -> bool:
         return False
 
 
+def companion_embed_scope():
+    """`series_id` porté par le jeton d'embed de la requête, sinon None.
+
+    Permet aux vues de se restreindre à cette série au lieu de servir toute la
+    file : un jeton est émis pour UNE série depuis la page Kavita correspondante.
+    """
+    try:
+        from services.companion_embed_auth import authorize_companion_request
+
+        data = authorize_companion_request()
+        if not data:
+            return None
+        return int(data["series_id"])
+    except (TypeError, ValueError, KeyError):
+        return None
+    except Exception:
+        return None
+
+
 # --- GATES HTTP ------------------------------------------------------------
 # Endpoints joignables sans compte. ⚠️ La liste porte sur des NOMS D'ENDPOINTS
 # Flask ('blueprint.vue') : renommer un blueprint ou une vue déplace donc
@@ -749,6 +775,45 @@ _LOGIN_ALLOWED_ENDPOINTS = frozenset({
 _COMPANION_EMBED_API_PREFIXES = (
     "manual_review.",
 )
+
+# Opérations de masse sur la file : un jeton d'embed est émis pour une série,
+# il n'a rien à faire ici. Session obligatoire.
+_COMPANION_EMBED_DENIED_ENDPOINTS = frozenset({
+    "manual_review.api_manual_reviews_bulk_accept",
+    "manual_review.api_manual_reviews_purge",
+})
+
+
+def _companion_embed_may_call_manual_review(endpoint: str) -> bool:
+    """Portée série d'un jeton d'embed sur les routes de review manuelle.
+
+    Les reviews sont adressées par `review_id` alors que le jeton est lié à un
+    `series_id` : la correspondance est résolue en base plutôt que déduite de
+    l'URL. Sans cela, tout le préfixe `manual_review.*` acceptait n'importe quel
+    jeton valide, donc un jeton émis pour la série A pilotait — et confirmait —
+    les reviews de toutes les autres pendant sa durée de vie.
+    """
+    if endpoint in _COMPANION_EMBED_DENIED_ENDPOINTS:
+        return False
+    scope = companion_embed_scope()
+    if scope is None:
+        return False
+    review_id = (request.view_args or {}).get("review_id")
+    if review_id is None:
+        # Liste de la file : la vue se restreint elle-même à la série du jeton.
+        return True
+    try:
+        review = db_manager.get_pending_review(review_id)
+    except Exception:
+        return False
+    if not review:
+        # Review inconnue : laisser la vue répondre 404 plutôt qu'une redirection
+        # vers /login, qui ferait croire à une session expirée.
+        return True
+    try:
+        return int(review.get("series_id")) == scope
+    except (TypeError, ValueError):
+        return False
 
 
 def setup_gate():
@@ -801,8 +866,9 @@ def login_gate():
             except (TypeError, ValueError):
                 pass
     endpoint = request.endpoint or ""
-    if endpoint.startswith(_COMPANION_EMBED_API_PREFIXES) and companion_embed_authorized():
-        return None
+    if endpoint.startswith(_COMPANION_EMBED_API_PREFIXES):
+        if _companion_embed_may_call_manual_review(endpoint):
+            return None
     # Companion Cover Pick: series-scoped embed token on cover GET/POST.
     if endpoint in ("series.get_series_covers", "series.apply_series_cover"):
         view_args = request.view_args or {}

@@ -5,7 +5,6 @@ import logging
 import re
 import xml.etree.ElementTree as ET
 from typing import Any, Dict, List, Optional, Tuple
-from urllib.parse import quote
 
 from curl_cffi import requests
 

@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-import pytest
-
 import metadata_fetcher
 import services.enrichment_engine as enrichment_engine
 import services.manual_review as mr

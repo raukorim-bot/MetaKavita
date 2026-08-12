@@ -5,7 +5,6 @@ Non-régression : whitelist CORS Docker (`CORS_ALLOWED_ORIGINS`).
 - Headers HTTP uniquement pour une Origin whitelistée
 - Preflight OPTIONS
 """
-import pytest
 from flask import Flask, jsonify
 
 from cors_config import (

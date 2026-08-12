@@ -46,6 +46,11 @@ class KavitaAPI:
         self.headers = {}
         self._write_timeout_override = write_timeout
         self.t = get_ui_translations()
+        # Vrai uniquement après un get_all_series() sans filtre qui a lu toutes
+        # les bibliothèques sans erreur. Seul feu vert acceptable pour purger le
+        # cache : un inventaire tronqué ferait passer des séries vivantes pour
+        # des orphelines (voir db_manager.clean_orphaned_cache).
+        self.last_inventory_complete = False
 
     def _write_timeout(self) -> int:
         if self._write_timeout_override is not None:
@@ -219,7 +224,12 @@ class KavitaAPI:
         Renvoie toujours l'inventaire complet : DISABLED_LIBRARIES n'est pas lu ici.
         Le filtrage appartient au seul appelant concerné (polling auto-sync, voir
         `services.background_tasks.select_auto_sync_candidates`).
+
+        Pose `self.last_inventory_complete` : les appelants qui purgent le cache
+        doivent le tester, une liste tronquée n'étant pas distinguable d'une
+        bibliothèque réellement vidée.
         """
+        self.last_inventory_complete = False
         if not self.token and not self.authenticate():
             return []
         try:
@@ -232,11 +242,21 @@ class KavitaAPI:
             else:
                 libraries_to_scan = all_libs
             unique_series = {}
+            all_libraries_read = bool(libraries_to_scan)
 
             for lib in libraries_to_scan:
                 try:
                     series_url = f"{self.url}/api/Series/all-v2"
                     series_res = requests.post(series_url, json={"libraryId": lib["id"]}, headers=self.headers, timeout=10)
+
+                    if series_res.status_code != 200:
+                        all_libraries_read = False
+                        logging.warning(
+                            self.t.get(
+                                "log_kavita_library_http_err",
+                                "[Kavita] Bibliothèque {0} : inventaire indisponible (code {1})",
+                            ).format(lib.get("id"), series_res.status_code)
+                        )
 
                     if series_res.status_code == 200:
                         for s in series_res.json():
@@ -249,10 +269,13 @@ class KavitaAPI:
                                 s.setdefault('libraryId', lib['id'])
                                 unique_series[s['id']] = s
                 except Exception as inner_e:
+                    all_libraries_read = False
                     logging.error(self.t.get("log_kavita_library_item_err", "[Erreur] Bibliothèque {0} : {1}").format(lib.get("id"), inner_e))
 
             all_series = list(unique_series.values())
             all_series.sort(key=lambda x: x.get('name', '').lower())
+            # Complet = aucun filtre + toutes les bibliothèques lues sans erreur.
+            self.last_inventory_complete = all_libraries_read and not library_id
             return all_series
         except Exception as e:
             logging.error(self.t.get("log_kavita_global_err", "[Erreur globale] {0}").format(e))
@@ -628,7 +651,6 @@ class KavitaAPI:
 
         try:
             from scrapers import ScraperRegistry
-            from urllib.parse import urlparse
             from url_allowlist import validate_proxied_image_url, fetch_with_safe_redirects
 
             allowed_domains = ScraperRegistry.get_all_proxy_domains()
@@ -636,14 +658,6 @@ class KavitaAPI:
             if not ok:
                 logging.warning(self.t.get("log_cover_url_refused_log", "[Upload Cover] URL refusée ({0}) : {1}").format(reason, cover_url))
                 return False, self.t.get("msg_cover_url_refused", "URL de couverture refusée ({0})").format(reason)
-
-            parsed = urlparse(cover_url)
-            # Détection propre de l'extension (.jpg, .png, .webp)
-            ext = "jpg"
-            if "." in parsed.path:
-                possible_ext = parsed.path.split(".")[-1].lower()
-                if possible_ext in ["jpg", "jpeg", "png", "webp"]:
-                    ext = possible_ext
 
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"

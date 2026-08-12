@@ -20,7 +20,6 @@ Non-régression sur les deux bugs critiques corrigés dans kavita_api.py :
    tente de sceller les verrous sans rejouer scrape/écriture. sealed=False
    propage le soft-fail vers le statut NEEDS_RELOCK.
 """
-import pytest
 import requests
 
 from kavita_api import KavitaAPI, _RELOCK_RETRY_TIMEOUT_CAP_S

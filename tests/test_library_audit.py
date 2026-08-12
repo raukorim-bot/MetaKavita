@@ -2,10 +2,6 @@
 
 from __future__ import annotations
 
-import json
-
-import pytest
-
 from kavita_api import KavitaAPI
 from services.library_audit import (
     build_volume_report,
