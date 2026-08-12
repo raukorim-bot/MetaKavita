@@ -15,9 +15,17 @@ from config_manager import (
     get_kavita_plus_url,
     get_disabled_library_ids,
 )
-from db_manager import get_all_cached_data, clean_orphaned_cache, get_provider_stats, get_lifetime_stats
+from db_manager import (
+    get_all_cached_data,
+    clean_orphaned_cache,
+    get_provider_stats,
+    get_lifetime_stats,
+    get_series_audit_flags,
+    get_volume_report_hygiene_map,
+    get_hygiene_library_meta,
+)
 from kavita_api import KavitaAPI
-from scrapers.utils import get_match_accept_threshold
+from scrapers.utils import get_dup_accept_threshold, get_match_accept_threshold
 from translations import translations
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
@@ -74,7 +82,6 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         error_msg = t.get('err_missing', "Données manquantes.")
 
     cached_info = get_all_cached_data()
-
     stats = {
         'total': len(cached_info),
         'completed': sum(1 for v in cached_info.values() if v.get('status') == 'COMPLETED'),
@@ -83,6 +90,17 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         'not_found': sum(1 for v in cached_info.values() if v.get('status') == 'NOT_FOUND'),
         'ignored': sum(1 for v in cached_info.values() if v.get('status') == 'IGNORED')
     }
+
+    # Hygiene SSR fields only after a real Analyser scan for this library.
+    # "Toutes les bibliothèques" (selected_lib falsy) is scanned/stored under
+    # the "all" key so the feature works there too (see hygiene_scan.py).
+    # Inventaire coupé : on saute les deux lectures SQLite (et tout le rendu des
+    # cartouches) plutôt que de les calculer pour une interface qui les masque.
+    inventory_on = config.get("LIBRARY_INVENTORY_ENABLED", True) is not False
+    hygiene_lib_key = str(selected_lib) if selected_lib else "all"
+    hygiene_meta = get_hygiene_library_meta(hygiene_lib_key) if inventory_on else None
+    audit_flags = get_series_audit_flags() if hygiene_meta else {}
+    hygiene_map = get_volume_report_hygiene_map() if hygiene_meta else {}
 
     if libraries:
         for s in series_list:
@@ -94,6 +112,34 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             s['forced_provider'] = item_cache.get('forced_provider') or 'AUTO'
             s['publisher_pref'] = item_cache.get('publisher_pref') or 'GLOBAL'
             s['alt_title_langs'] = item_cache.get('alt_title_langs') or ''
+            s['cover_manual'] = bool(item_cache.get('cover_manual'))
+            s['inventory_excluded'] = bool(item_cache.get('inventory_excluded'))
+            if hygiene_meta and not s['inventory_excluded']:
+                flag = audit_flags.get(s['id']) or {}
+                hy = hygiene_map.get(s['id']) or {}
+                s['has_external_id'] = (
+                    bool(flag.get('has_external_id'))
+                    if flag.get('has_external_id') is not None
+                    else None
+                )
+                s['audit_badge'] = hy.get('badge') or ''
+                s['duplicate_group_id'] = flag.get('duplicate_group_id') or ''
+                s['missing_count'] = hy.get('missing_count') or 0
+                s['catalog_expected'] = hy.get('catalog_expected')
+                s['publication_status'] = hy.get('publication_status') or 'UNKNOWN'
+                s['completion_state'] = hy.get('completion_state') or ''
+                s['forced_expected'] = bool(hy.get('forced_expected'))
+                s['audit_unit'] = hy.get('unit') or 'volumes'
+            else:
+                s['has_external_id'] = None
+                s['audit_badge'] = ''
+                s['duplicate_group_id'] = ''
+                s['missing_count'] = 0
+                s['catalog_expected'] = None
+                s['publication_status'] = ''
+                s['completion_state'] = ''
+                s['forced_expected'] = False
+                s['audit_unit'] = ''
 
     # Ne jamais injecter la vraie clé NI le sentinel « ******** » dans le HTML :
     # les navigateurs (autofill mot de passe) écrasent souvent ce champ, et un
@@ -147,15 +193,32 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             "targeted_fields": s.get("targeted_fields") or "ALL",
             "publisher_pref": s.get("publisher_pref") or "GLOBAL",
             "alt_title_langs": s.get("alt_title_langs") or "",
+            "cover_manual": bool(s.get("cover_manual")),
+            "has_external_id": s.get("has_external_id"),
+            "audit_badge": s.get("audit_badge") or "",
+            "duplicate_group_id": s.get("duplicate_group_id") or "",
+            "missing_count": int(s.get("missing_count") or 0),
+            "catalog_expected": s.get("catalog_expected"),
+            "publication_status": s.get("publication_status") or "",
+            "completion_state": s.get("completion_state") or "",
+            "forced_expected": bool(s.get("forced_expected")),
+            "audit_unit": s.get("audit_unit") or "",
+            "inventory_excluded": bool(s.get("inventory_excluded")),
         }
         for s in series_list
     ]
     use_virtual_series_list = len(series_list) >= _VIRTUAL_SERIES_THRESHOLD
+    hygiene_counts = (hygiene_meta or {}).get("counts") or {}
+    hygiene_scanned_at = (hygiene_meta or {}).get("scanned_at") or ""
 
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
                            all_libraries=all_libraries, disabled_library_ids=disabled_ids,
                            t=t, stats=stats,
+                           hygiene_meta=hygiene_meta,
+                           hygiene_counts=hygiene_counts,
+                           hygiene_scanned_at=hygiene_scanned_at,
+                           inventory_enabled=inventory_on,
                            lifetime=get_lifetime_stats(),
                            kavita_ui_url=get_kavita_ui_url(config),
                            kavita_plus_url=get_kavita_plus_url(config),
@@ -169,6 +232,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            has_azure_api_key=has_azure_api_key,
                            scraper_has_api_key=scraper_has_api_key,
                            match_accept_threshold=get_match_accept_threshold(config),
+                           dup_accept_threshold=get_dup_accept_threshold(config),
                            pending_core_updates=pending_core_updates,
                            series_index_payload=series_index_payload,
                            use_virtual_series_list=use_virtual_series_list)

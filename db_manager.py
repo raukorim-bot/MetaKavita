@@ -37,6 +37,15 @@ def _ensure_schema(c):
         ("targeted_fields", "TEXT DEFAULT 'ALL'"),
         ("publisher_pref", "TEXT DEFAULT 'GLOBAL'"),
         ("alt_title_langs", "TEXT DEFAULT ''"),
+        # Provenance de la couverture : 1 = choisie à la main dans MetaKavita.
+        # Distinct du verrou Kavita `coverImageLocked`, que MetaKavita pose sur
+        # TOUS ses uploads (sans quoi le scan Kavita régénère la vignette depuis
+        # les fichiers) et qui ne dit donc rien de l'origine de l'image.
+        ("cover_manual", "INTEGER DEFAULT 0"),
+        # Séries que l'inventaire doit ignorer (compilations, doujin, séries que
+        # nul catalogue ne connaîtra) : sans ça elles polluent les compteurs de
+        # manquants à vie, et le seul recours serait de couper l'inventaire.
+        ("inventory_excluded", "INTEGER DEFAULT 0"),
     ]
     for col_name, col_type in columns:
         try:
@@ -64,8 +73,70 @@ def init_db():
     _ensure_schema(c)
     _ensure_pending_reviews_table(c)
     _ensure_batch_queue_tables(c)
+    _ensure_library_audit_tables(c)
     conn.commit()
     conn.close()
+
+
+def _ensure_library_audit_tables(c):
+    """Caches for library hygiene reports (volume gaps / duplicate groups)."""
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS volume_report_cache (
+             series_id INTEGER PRIMARY KEY,
+             summary_json TEXT NOT NULL,
+             badge TEXT,
+             structure TEXT,
+             updated_at TEXT NOT NULL
+           )'''
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS duplicate_group_cache (
+             library_id TEXT NOT NULL,
+             group_id TEXT NOT NULL,
+             payload_json TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             PRIMARY KEY (library_id, group_id)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_dup_cache_lib ON duplicate_group_cache(library_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS series_audit_flags (
+             series_id INTEGER PRIMARY KEY,
+             has_external_id INTEGER,
+             duplicate_group_id TEXT,
+             updated_at TEXT NOT NULL
+           )'''
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS hygiene_library_meta (
+             library_id TEXT PRIMARY KEY,
+             scanned_at TEXT NOT NULL,
+             counts_json TEXT NOT NULL
+           )'''
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS hygiene_dup_dismissals (
+             library_id TEXT NOT NULL,
+             group_key TEXT NOT NULL,
+             series_ids_json TEXT NOT NULL,
+             reason TEXT NOT NULL,
+             updated_at TEXT NOT NULL,
+             PRIMARY KEY (library_id, group_key)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_hygiene_dismiss_lib "
+        "ON hygiene_dup_dismissals(library_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS hygiene_catalog_overrides (
+             series_id INTEGER PRIMARY KEY,
+             expected INTEGER NOT NULL,
+             updated_at TEXT NOT NULL
+           )'''
+    )
 
 
 def _ensure_lifetime_stats_table(c):
@@ -652,6 +723,69 @@ def update_status(series_id, status):
     conn.commit()
     conn.close()
 
+def set_cover_manual(series_id, manual: bool = True):
+    """Marque (ou libère) la provenance manuelle de la couverture d'une série.
+
+    Écrit uniquement `cover_manual` : ni le statut d'une ligne existante, ni les
+    champs ciblés. C'est ce qui distingue ce marqueur de l'ancien détournement
+    de `targeted_fields`, qui décochait `cover` dans la config de l'utilisateur
+    et rendait la protection invisible autant qu'irréversible sans clic.
+    """
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_schema(c)
+    c.execute('''INSERT INTO series_cache (series_id, status, cover_manual) VALUES (?, 'PENDING', ?)
+                 ON CONFLICT(series_id) DO UPDATE SET cover_manual=excluded.cover_manual''',
+              (int(series_id), 1 if manual else 0))
+    conn.commit()
+    conn.close()
+
+
+def is_cover_manual(series_id) -> bool:
+    """Provenance manuelle de la couverture, lue à la source (sans passer par
+    l'inventaire complet de `get_all_cached_data`)."""
+    if not os.path.exists(DB_FILE):
+        return False
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_schema(c)
+    row = c.execute(
+        "SELECT cover_manual FROM series_cache WHERE series_id = ?", (int(series_id),)
+    ).fetchone()
+    conn.close()
+    return bool(row[0]) if row and row[0] is not None else False
+
+
+def set_inventory_excluded(series_id, excluded: bool = True):
+    """Exclut (ou réintègre) une série de l'inventaire, sans toucher au reste."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_schema(c)
+    c.execute('''INSERT INTO series_cache (series_id, status, inventory_excluded) VALUES (?, 'PENDING', ?)
+                 ON CONFLICT(series_id) DO UPDATE SET inventory_excluded=excluded.inventory_excluded''',
+              (int(series_id), 1 if excluded else 0))
+    conn.commit()
+    conn.close()
+
+
+def get_inventory_excluded_ids() -> set:
+    """Identifiants des séries exclues de l'inventaire."""
+    if not os.path.exists(DB_FILE):
+        return set()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_schema(c)
+    rows = c.execute(
+        "SELECT series_id FROM series_cache WHERE inventory_excluded = 1"
+    ).fetchall()
+    conn.close()
+    return {int(r[0]) for r in rows}
+
+
 def save_series_override(override: SeriesOverride, *, purge_pending: bool = True, status: str = "PENDING"):
     """
     Persiste un SeriesOverride complet en une seule opération atomique.
@@ -718,7 +852,7 @@ def get_all_cached_data():
     
     _ensure_schema(c)
         
-    c.execute("SELECT series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref, alt_title_langs FROM series_cache")
+    c.execute("SELECT series_id, status, forced_id, alternative_title, forced_provider, targeted_fields, publisher_pref, alt_title_langs, cover_manual, inventory_excluded FROM series_cache")
     rows = c.fetchall()
     conn.close()
     return {row[0]: {
@@ -729,6 +863,8 @@ def get_all_cached_data():
         'targeted_fields': row[5],
         'publisher_pref': row[6] if len(row) > 6 else 'GLOBAL',
         'alt_title_langs': row[7] if len(row) > 7 else '',
+        'cover_manual': bool(row[8]) if len(row) > 8 else False,
+        'inventory_excluded': bool(row[9]) if len(row) > 9 else False,
     } for row in rows}
 
 def clean_orphaned_cache(active_ids):
@@ -749,3 +885,549 @@ def clean_orphaned_cache(active_ids):
         conn.commit()
     conn.close()
     return len(orphans)
+
+
+def save_volume_report_cache(series_id: int, report: dict):
+    """Persist compact volume hygiene summary for badges (not full units)."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    cat = report.get("catalog") or {}
+    summary = {
+        "series_name": report.get("series_name") or "",
+        "structure": report.get("structure"),
+        "is_oneshot": report.get("is_oneshot"),
+        "gaps": report.get("gaps") or [],
+        "missing_volumes": report.get("missing_volumes") or [],
+        "catalog": cat,
+        "stats": report.get("stats") or {},
+        "badge": report.get("badge") or "—",
+        "publication_status": (
+            report.get("publication_status")
+            or cat.get("publication_status")
+            or "UNKNOWN"
+        ),
+        # C66 : unité de la série (tomes ou chapitres), état de complétion et
+        # attendu forcé, nécessaires au code couleur du dashboard sans relire
+        # le rapport complet.
+        "unit_mode": report.get("unit_mode") or "volumes",
+        "primary": report.get("primary") or {},
+        "completion": report.get("completion") or {},
+        "chapters": report.get("chapters") or {},
+    }
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        '''INSERT INTO volume_report_cache(series_id, summary_json, badge, structure, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(series_id) DO UPDATE SET
+             summary_json=excluded.summary_json,
+             badge=excluded.badge,
+             structure=excluded.structure,
+             updated_at=excluded.updated_at''',
+        (
+            int(series_id),
+            json.dumps(summary, ensure_ascii=False),
+            summary["badge"],
+            summary.get("structure") or "",
+            now,
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_volume_report_cache(series_id: int):
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT summary_json, badge, structure, updated_at FROM volume_report_cache WHERE series_id = ?",
+        (int(series_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        summary = json.loads(row[0] or "{}")
+    except (TypeError, ValueError):
+        summary = {}
+    summary.setdefault("badge", row[1] or "—")
+    summary.setdefault("structure", row[2] or "")
+    summary["updated_at"] = row[3]
+    return summary
+
+
+def get_volume_report_badges(series_ids=None) -> dict:
+    """Map series_id -> badge string for dashboard (optional id filter)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    if series_ids:
+        ids = [int(x) for x in series_ids]
+        placeholders = ",".join("?" for _ in ids)
+        c.execute(
+            f"SELECT series_id, badge FROM volume_report_cache WHERE series_id IN ({placeholders})",
+            ids,
+        )
+    else:
+        c.execute("SELECT series_id, badge FROM volume_report_cache")
+    out = {row[0]: row[1] or "—" for row in c.fetchall()}
+    conn.close()
+    return out
+
+
+def get_volume_report_hygiene_map(series_ids=None) -> dict:
+    """Map series_id -> {badge, missing_count, catalog_expected, publication_status}."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    if series_ids:
+        ids = [int(x) for x in series_ids]
+        ph = ",".join("?" for _ in ids)
+        c.execute(
+            f"SELECT series_id, badge, summary_json FROM volume_report_cache "
+            f"WHERE series_id IN ({ph})",
+            ids,
+        )
+    else:
+        c.execute("SELECT series_id, badge, summary_json FROM volume_report_cache")
+    out = {}
+    for sid, badge, raw in c.fetchall():
+        try:
+            summary = json.loads(raw or "{}")
+        except (TypeError, ValueError):
+            summary = {}
+        cat = summary.get("catalog") or {}
+        stats = summary.get("stats") or {}
+        primary = summary.get("primary") or {}
+        completion = summary.get("completion") or {}
+        # Rapports d'avant C66 : pas de bloc `primary`, on retombe sur les tomes.
+        missing = primary.get("missing") or summary.get("missing_volumes") or []
+        out[sid] = {
+            "badge": badge or summary.get("badge") or "—",
+            "missing_count": len(missing),
+            "catalog_expected": cat.get("expected"),
+            "publication_status": (
+                summary.get("publication_status")
+                or cat.get("publication_status")
+                or "UNKNOWN"
+            ),
+            "series_name": summary.get("series_name") or "",
+            "missing_volumes": list(missing),
+            "missing_label": primary.get("missing_label") or "",
+            "catalog_status": cat.get("status") or "unknown",
+            "catalog_provider": cat.get("provider") or "",
+            "catalog_reason": cat.get("reason") or "",
+            "kavita_count": stats.get("kavita_count"),
+            "unit_mode": summary.get("unit_mode") or "volumes",
+            "unit": primary.get("unit") or cat.get("unit") or "volumes",
+            "primary_count": primary.get("count", stats.get("kavita_count")),
+            "primary_expected": primary.get("expected", cat.get("expected")),
+            "chapter_count": (summary.get("chapters") or {}).get("count") or 0,
+            "completion_state": completion.get("state") or "unknown",
+            "completion_ratio": completion.get("ratio"),
+            "forced_expected": bool(
+                completion.get("forced")
+                or cat.get("reason") == "manual"
+                or cat.get("provider") == "MANUAL"
+            ),
+        }
+    conn.close()
+    return out
+
+
+def get_catalog_expected_override(series_id: int):
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT expected FROM hygiene_catalog_overrides WHERE series_id = ?",
+        (int(series_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        n = int(row[0])
+        return n if n >= 1 else None
+    except (TypeError, ValueError):
+        return None
+
+
+def set_catalog_expected_override(series_id: int, expected):
+    """Set or clear (expected=None) manual catalogue expected for a series."""
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    sid = int(series_id)
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    if expected is None:
+        c.execute("DELETE FROM hygiene_catalog_overrides WHERE series_id = ?", (sid,))
+    else:
+        n = int(expected)
+        if n < 1:
+            raise ValueError("expected must be >= 1")
+        now = datetime.now(timezone.utc).isoformat()
+        c.execute(
+            """INSERT INTO hygiene_catalog_overrides(series_id, expected, updated_at)
+               VALUES (?, ?, ?)
+               ON CONFLICT(series_id) DO UPDATE SET
+                 expected=excluded.expected,
+                 updated_at=excluded.updated_at""",
+            (sid, n, now),
+        )
+    conn.commit()
+    conn.close()
+    return expected
+
+
+def list_catalog_expected_overrides() -> dict:
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute("SELECT series_id, expected FROM hygiene_catalog_overrides")
+    out = {int(r[0]): int(r[1]) for r in c.fetchall()}
+    conn.close()
+    return out
+
+
+_DUP_META_GROUP_ID = "__meta__"
+
+
+def save_duplicate_groups_cache(library_id, groups: list):
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    lib = str(library_id)
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT group_id, payload_json FROM duplicate_group_cache WHERE library_id = ?",
+        (lib,),
+    )
+    old_sids = []
+    for (gid, payload) in c.fetchall():
+        if gid == _DUP_META_GROUP_ID:
+            continue
+        try:
+            old = json.loads(payload or "{}")
+            old_sids.extend(old.get("series_ids") or [])
+        except (TypeError, ValueError):
+            pass
+    if old_sids:
+        ph = ",".join("?" for _ in old_sids)
+        c.execute(
+            f"UPDATE series_audit_flags SET duplicate_group_id = NULL "
+            f"WHERE series_id IN ({ph})",
+            [int(x) for x in old_sids],
+        )
+    c.execute("DELETE FROM duplicate_group_cache WHERE library_id = ?", (lib,))
+    # Sentinel so "scanned, zero groups" ≠ "never scanned"
+    c.execute(
+        '''INSERT INTO duplicate_group_cache(library_id, group_id, payload_json, updated_at)
+           VALUES (?, ?, ?, ?)''',
+        (
+            lib,
+            _DUP_META_GROUP_ID,
+            json.dumps({"scanned": True, "count": len(groups or [])}, ensure_ascii=False),
+            now,
+        ),
+    )
+    for g in groups or []:
+        gid = g.get("group_id") or ""
+        if not gid or gid == _DUP_META_GROUP_ID:
+            continue
+        c.execute(
+            '''INSERT INTO duplicate_group_cache(library_id, group_id, payload_json, updated_at)
+               VALUES (?, ?, ?, ?)''',
+            (lib, gid, json.dumps(g, ensure_ascii=False), now),
+        )
+        for sid in g.get("series_ids") or []:
+            c.execute(
+                '''INSERT INTO series_audit_flags(series_id, has_external_id, duplicate_group_id, updated_at)
+                   VALUES (?, NULL, ?, ?)
+                   ON CONFLICT(series_id) DO UPDATE SET
+                     duplicate_group_id=excluded.duplicate_group_id,
+                     updated_at=excluded.updated_at''',
+                (int(sid), gid, now),
+            )
+    conn.commit()
+    conn.close()
+
+
+def has_duplicate_groups_cache(library_id) -> bool:
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT 1 FROM duplicate_group_cache WHERE library_id = ? LIMIT 1",
+        (str(library_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    return bool(row)
+
+
+def get_duplicate_groups_cache(library_id) -> list:
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT group_id, payload_json FROM duplicate_group_cache WHERE library_id = ? ORDER BY group_id",
+        (str(library_id),),
+    )
+    rows = c.fetchall()
+    conn.close()
+    out = []
+    for (gid, payload) in rows:
+        if gid == _DUP_META_GROUP_ID:
+            continue
+        try:
+            out.append(json.loads(payload))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
+def set_series_external_id_flags(flags: dict):
+    """flags: {series_id: bool has_external_id}"""
+    from datetime import datetime, timezone
+
+    if not flags:
+        return
+    if not os.path.exists(DB_FILE):
+        init_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    for sid, has in flags.items():
+        c.execute(
+            '''INSERT INTO series_audit_flags(series_id, has_external_id, duplicate_group_id, updated_at)
+               VALUES (?, ?, NULL, ?)
+               ON CONFLICT(series_id) DO UPDATE SET
+                 has_external_id=excluded.has_external_id,
+                 updated_at=excluded.updated_at''',
+            (int(sid), 1 if has else 0, now),
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_series_audit_flags(series_ids=None) -> dict:
+    """{series_id: {has_external_id, duplicate_group_id}}"""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    if series_ids:
+        ids = [int(x) for x in series_ids]
+        ph = ",".join("?" for _ in ids)
+        c.execute(
+            f"SELECT series_id, has_external_id, duplicate_group_id FROM series_audit_flags WHERE series_id IN ({ph})",
+            ids,
+        )
+    else:
+        c.execute(
+            "SELECT series_id, has_external_id, duplicate_group_id FROM series_audit_flags"
+        )
+    out = {}
+    for sid, has_ext, dup in c.fetchall():
+        out[sid] = {
+            "has_external_id": None if has_ext is None else bool(has_ext),
+            "duplicate_group_id": dup,
+        }
+    conn.close()
+    return out
+
+def set_hygiene_library_meta(library_id, counts: dict, scanned_at=None):
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    lib = str(library_id)
+    now = scanned_at or datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        """INSERT INTO hygiene_library_meta(library_id, scanned_at, counts_json)
+           VALUES (?, ?, ?)
+           ON CONFLICT(library_id) DO UPDATE SET
+             scanned_at=excluded.scanned_at,
+             counts_json=excluded.counts_json""",
+        (lib, now, json.dumps(counts or {}, ensure_ascii=False)),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_hygiene_library_meta(library_id):
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT scanned_at, counts_json FROM hygiene_library_meta WHERE library_id = ?",
+        (str(library_id),),
+    )
+    row = c.fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        counts = json.loads(row[1] or "{}")
+    except (TypeError, ValueError):
+        counts = {}
+    return {"library_id": str(library_id), "scanned_at": row[0], "counts": counts}
+
+
+def save_dup_dismissal(library_id, series_ids, reason: str):
+    import json
+    from datetime import datetime, timezone
+
+    from services.library_audit.duplicates import dup_group_key
+
+    if reason not in ("not_duplicate", "ignored"):
+        raise ValueError("invalid dismissal reason")
+    ids = [int(x) for x in series_ids]
+    if len(ids) < 2:
+        raise ValueError("need at least 2 series_ids")
+    gkey = dup_group_key(ids)
+    if not os.path.exists(DB_FILE):
+        init_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        """INSERT INTO hygiene_dup_dismissals(library_id, group_key, series_ids_json, reason, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(library_id, group_key) DO UPDATE SET
+             series_ids_json=excluded.series_ids_json,
+             reason=excluded.reason,
+             updated_at=excluded.updated_at""",
+        (str(library_id), gkey, json.dumps(sorted(ids)), reason, now),
+    )
+    conn.commit()
+    conn.close()
+    return gkey
+
+
+def delete_dup_dismissal(library_id, series_ids=None, group_key=None):
+    from services.library_audit.duplicates import dup_group_key
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    gkey = group_key
+    if not gkey and series_ids:
+        gkey = dup_group_key([int(x) for x in series_ids])
+    if not gkey:
+        raise ValueError("group_key or series_ids required")
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "DELETE FROM hygiene_dup_dismissals WHERE library_id = ? AND group_key = ?",
+        (str(library_id), gkey),
+    )
+    deleted = c.rowcount
+    conn.commit()
+    conn.close()
+    return deleted > 0
+
+
+def list_dup_dismissals(library_id):
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT group_key, series_ids_json, reason, updated_at "
+        "FROM hygiene_dup_dismissals WHERE library_id = ?",
+        (str(library_id),),
+    )
+    out = []
+    for gkey, sids, reason, updated in c.fetchall():
+        try:
+            ids = json.loads(sids or "[]")
+        except (TypeError, ValueError):
+            ids = []
+        out.append(
+            {
+                "group_key": gkey,
+                "series_ids": ids,
+                "reason": reason,
+                "updated_at": updated,
+            }
+        )
+    conn.close()
+    return out
+
+
+def list_dismissed_group_keys(library_id) -> set:
+    return {d["group_key"] for d in list_dup_dismissals(library_id)}
+
+
+def purge_series_hygiene_cache(series_id: int, *, keep_overrides: bool = False):
+    """Remove volume cache + audit flags for a deleted series.
+
+    `keep_overrides` sert à l'exclusion d'inventaire : on efface le rapport pour
+    faire disparaître la cartouche, mais l'attendu forcé saisi par l'utilisateur
+    doit survivre à une réintégration.
+    """
+    if not os.path.exists(DB_FILE):
+        return
+    sid = int(series_id)
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute("DELETE FROM volume_report_cache WHERE series_id = ?", (sid,))
+    c.execute("DELETE FROM series_audit_flags WHERE series_id = ?", (sid,))
+    if not keep_overrides:
+        c.execute("DELETE FROM hygiene_catalog_overrides WHERE series_id = ?", (sid,))
+    conn.commit()
+    conn.close()
+

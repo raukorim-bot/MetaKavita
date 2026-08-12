@@ -813,6 +813,11 @@ def login_gate():
                     return None
             except (TypeError, ValueError):
                 pass
+    # Companion Cover Pick previews: <img> on the Kavita page cannot send
+    # X-Companion-Embed-Token headers, so the token is passed as ?embed_token=.
+    # Domain allowlist + size cap still apply inside misc.proxy_image.
+    if endpoint == "misc.proxy_image" and companion_embed_authorized():
+        return None
     if not is_authenticated():
         return redirect(url_for("auth.login"))
     return None

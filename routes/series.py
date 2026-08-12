@@ -15,7 +15,7 @@ from db_manager import get_all_cached_data, update_status, save_series_override
 from kavita_api import KavitaAPI
 from models import SeriesOverride
 from services.cover_search import collect_covers_http
-from services.kavita_payload import protect_manual_cover_field
+from services.kavita_payload import mark_cover_manual, release_cover_manual
 from secure_logging import safe_exc_str
 from translations import translations
 
@@ -96,16 +96,36 @@ def apply_series_cover(series_id):
     success, msg = kavita.upload_series_cover(series_id, cover_url)
 
     if success:
-        # Protège le choix manuel : retire 'cover' des champs ciblés sans changer
-        # le statut (IGNORED / COMPLETED / …). Voir protect_manual_cover_field.
-        cache_data = get_all_cached_data().get(int(series_id), {})
-        original_status = cache_data.get('status') or 'PENDING'
-        if protect_manual_cover_field(
-            series_id, status=original_status, purge_pending=True
-        ):
-            logging.info(t.get("log_cover_field_locked", "🔒 [Couverture Manuelle] Champ 'cover' verrouillé pour la série {0} (protégé contre les futurs scrapings automatiques).").format(series_id))
+        # Marque la provenance manuelle : ni le statut (IGNORED / COMPLETED / …)
+        # ni les champs ciblés de l'utilisateur ne sont touchés.
+        mark_cover_manual(series_id)
+        logging.info(
+            t.get(
+                "log_cover_marked_manual",
+                "🔒 [{0}] Couverture marquée comme choix manuel (protégée des scrapings automatiques).",
+            ).format(series_id)
+        )
 
-    return jsonify({"success": success, "msg": msg})
+    return jsonify({"success": success, "msg": msg, "cover_manual": bool(success)})
+
+
+@series_bp.route('/api/series/<int:series_id>/release-cover', methods=['POST'])
+def release_series_cover(series_id):
+    """Rend une couverture manuelle à la gestion automatique (clic sur la cartouche).
+
+    Le pendant de masse est l'interrupteur `COVER_FORCE_OVERWRITE` : ici on
+    libère une série, là on écrase tout un run sans clic.
+    """
+    release_cover_manual(series_id)
+    config = load_config()
+    t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+    logging.info(
+        t.get(
+            "log_cover_released",
+            "🔓 [{0}] Couverture rendue à la gestion automatique.",
+        ).format(series_id)
+    )
+    return jsonify({"success": True, "cover_manual": False})
 
 
 @series_bp.route('/api/series/<int:series_id>/seal-locks', methods=['POST'])

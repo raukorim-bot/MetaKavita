@@ -55,6 +55,22 @@ def test_dashboard_renders_in_english_too(pages_client, isolated_db, monkeypatch
     assert response.status_code == 200
 
 
+def test_inventory_can_be_switched_off_from_the_dashboard(pages_client, isolated_db, monkeypatch):
+    """`data-inventory` porte la visibilité de tout l'inventaire côté CSS : sans
+    lui, désactiver la fonctionnalité laisserait la barre d'outils et les
+    cartouches à l'écran."""
+    monkeypatch.setattr("routes.pages.load_config", lambda: {"UI_LANG": "fr"})
+    assert 'data-inventory="1"' in pages_client.get("/").get_data(as_text=True)
+
+    monkeypatch.setattr(
+        "routes.pages.load_config",
+        lambda: {"UI_LANG": "fr", "LIBRARY_INVENTORY_ENABLED": False},
+    )
+    html = pages_client.get("/").get_data(as_text=True)
+    assert 'data-inventory="0"' in html
+    assert "sidebar_library_inventory" in html, "l'interrupteur doit rester joignable"
+
+
 def _sync_libraries_fragment(html):
     start = html.index('class="sync-libraries-list"')
     end = html.index("</div>", start)

@@ -104,6 +104,54 @@ class TestUpdateSeriesGeneral:
             assert payload["nameLocked"] is True
             assert payload["sortNameLocked"] is True
 
+    def test_never_unlocks_cover_image(self, mocker):
+        """BF106 : un `coverImageLocked` absent (donc false côté .NET) fait vider
+        `CoverImage` à Kavita et régénérer la couverture depuis les fichiers, ce qui
+        détruisait la couverture choisie manuellement au sync suivant."""
+        api = _authenticated_api()
+        current_state = {
+            "id": 42,
+            "name": "One Piece",
+            "sortName": "One Piece",
+            "localizedName": "Wan Pisu",
+            "nameLocked": True,
+            "sortNameLocked": True,
+            "localizedNameLocked": True,
+            "coverImageLocked": True,
+            "dontMatch": True,
+        }
+        mocker.patch("kavita_api.requests.get", return_value=mocker.Mock(status_code=200, json=lambda: current_state))
+        mock_post = mocker.patch("kavita_api.requests.post", return_value=mocker.Mock(status_code=200, text="OK"))
+
+        api.update_series_general(42, format_val=2)
+
+        assert mock_post.call_count == 2
+        for call in mock_post.call_args_list:
+            payload = call.kwargs["json"]
+            assert payload["coverImageLocked"] is True
+            assert payload["dontMatch"] is True
+
+    def test_cover_lock_false_stays_false(self, mocker):
+        """Miroir de BF106 : on reflète l'état réel, on ne verrouille pas d'office."""
+        api = _authenticated_api()
+        current_state = {
+            "id": 42,
+            "name": "One Piece",
+            "sortName": "One Piece",
+            "localizedName": None,
+            "nameLocked": False,
+            "sortNameLocked": False,
+            "localizedNameLocked": False,
+            "coverImageLocked": False,
+        }
+        mocker.patch("kavita_api.requests.get", return_value=mocker.Mock(status_code=200, json=lambda: current_state))
+        mock_post = mocker.patch("kavita_api.requests.post", return_value=mocker.Mock(status_code=200, text="OK"))
+
+        api.update_series_general(42, format_val=2)
+
+        for call in mock_post.call_args_list:
+            assert call.kwargs["json"]["coverImageLocked"] is False
+
     def test_explicit_localized_name_uses_unlock_relock(self, mocker):
         api = _authenticated_api()
         current_state = {
@@ -315,6 +363,7 @@ class TestSealSeriesLocks:
             "sortNameLocked": False,
             "localizedNameLocked": False,
             "format": 1,
+            "coverImageLocked": True,
         }
         mocker.patch.object(api, "get_series_metadata", return_value=dict(meta))
         mocker.patch.object(api, "get_series", return_value=dict(series))
@@ -331,6 +380,8 @@ class TestSealSeriesLocks:
         gen_payload = mock_post.call_args_list[1].kwargs["json"]
         assert gen_payload["localizedNameLocked"] is True
         assert gen_payload["formatLocked"] is True
+        # BF106 : sceller les verrous ne doit pas faire régénérer la couverture.
+        assert gen_payload["coverImageLocked"] is True
 
 
 class TestCachedLibraryId:

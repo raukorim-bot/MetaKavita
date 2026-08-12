@@ -51,7 +51,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof syncManualReviewCoverSwitch === 'function') syncManualReviewCoverSwitch();
     if (savedStatus) {
         const statusSelect = document.getElementById('statusFilter');
-        if (statusSelect) statusSelect.value = savedStatus;
+        // Legacy: duplicates used to live in the status filter — ignore it.
+        if (statusSelect && savedStatus !== 'DUPLICATES') {
+            statusSelect.value = savedStatus;
+        } else if (savedStatus === 'DUPLICATES') {
+            localStorage.setItem('filter_status', 'ALL');
+        }
     }
     if (savedHideIgnored && savedHideIgnored === 'false') {
         const hideIgnoredCb = document.getElementById('hideIgnoredCb');

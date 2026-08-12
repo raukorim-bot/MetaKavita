@@ -5,7 +5,7 @@
         <div class="modal-content modal-shell modal-large mr-modal">
             <div class="modal-header mr-header">
                 <div class="mr-header-top">
-                    <h3 class="m-0" id="mrModalTitle">{{ t.mr_title }} <span id="mrQueueBadge" class="mr-queue-badge">0</span></h3>
+                    <h3 class="m-0" id="mrModalTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-review"></use></svg>{{ t.mr_title }} <span id="mrQueueBadge" class="mr-queue-badge">0</span></h3>
                     <div class="mr-header-actions">
                         <button type="button" class="btn-secondary mr-list-toggle-btn" id="mrListToggleBtn"
                                 onclick="mrToggleListView()" title="{{ t.mr_list_open }}">📋 {{ t.mr_list_open }}</button>
@@ -48,15 +48,30 @@
                     <p id="mrListFeedback" class="field-hint m-0" aria-live="polite"></p>
                 </div>
                 <div id="mrListBody" class="mr-list-body"></div>
-                <p id="mrListEmpty" class="mr-empty-hint" style="display:none;">{{ t.mr_empty }}</p>
+                {# `display:""` (posé par le JS) rend la valeur de la feuille de style :
+                   le bloc reprend donc sa mise en page centrée en réapparaissant. #}
+                <div id="mrListEmpty" class="audit-state audit-state--ok audit-state--inline" style="display:none;">
+                    <svg class="audit-state-art" aria-hidden="true"><use href="#mk-ico-complete"></use></svg>
+                    <p class="audit-state-title">{{ t.mr_empty }}</p>
+                </div>
             </div>
 
             <div id="mrPickPanel" class="modal-scroll-body mr-pick-panel">
+                <div class="mr-show-below-row">
+                    <label class="checkbox-label mr-show-below-label" for="mrShowBelow">
+                        <input type="checkbox" id="mrShowBelow">
+                        {{ t.mr_show_below }}
+                    </label>
+                </div>
+                <p id="mrHiddenBelowHint" class="mr-hidden-below-hint" style="display:none;" aria-live="polite"></p>
                 <div id="mrAboveLabel" class="mr-band-label" style="display:none;">{{ t.mr_above }}</div>
                 <div id="mrAboveList" class="mr-candidate-list"></div>
                 <div id="mrBelowLabel" class="mr-band-label mr-band-weak" style="display:none;">{{ t.mr_below }}</div>
                 <div id="mrBelowList" class="mr-candidate-list"></div>
-                <p id="mrNoCandidates" class="mr-empty-hint" style="display:none;">{{ t.mr_empty }}</p>
+                <div id="mrNoCandidates" class="audit-state audit-state--inline" style="display:none;">
+                    <svg class="audit-state-art" aria-hidden="true"><use href="#mk-ico-scan"></use></svg>
+                    <p class="audit-state-title">{{ t.mr_empty }}</p>
+                </div>
             </div>
 
             <div id="mrWaitPanel" class="modal-scroll-body mr-wait-panel" style="display:none;">

@@ -426,7 +426,9 @@ class KavitaAPI:
         silencieusement le titre alternatif à `null`. Pire : `NameLocked`/`SortNameLocked`/
         `LocalizedNameLocked` sont eux aussi réaffectés de façon INCONDITIONNELLE (aucun
         Lock Guard sur ces 3 flags précis), donc un simple appel "je ne veux changer que le
-        format" les repasse tous à `false` s'ils sont absents du JSON.
+        format" les repasse tous à `false` s'ils sont absents du JSON. `CoverImageLocked`
+        (BF106) est encore plus destructeur : le passage true -> false vide `CoverImage` et
+        replanifie une génération de couverture depuis les fichiers.
         C'est ce mécanisme qui cassait silencieusement l'extension KOReader "Kamare" : celle-ci
         lit `localizedName` sans vérifier son type, et un JSON `null` (représenté en Lua comme
         une userdata, pas comme `nil`) provoque un crash `bad argument #1 to 'find'`.
@@ -460,6 +462,17 @@ class KavitaAPI:
         current_name_locked = bool(current.get('nameLocked', False))
         current_sort_name_locked = bool(current.get('sortNameLocked', False))
         current_localized_name_locked = bool(current.get('localizedNameLocked', False))
+        # BF106 — `coverImageLocked` appartient à la même famille de flags sans Lock
+        # Guard que les trois ci-dessus, mais avec une conséquence bien plus violente :
+        # quand Kavita voit un verrou passer de true à false, il ne se contente pas de
+        # déverrouiller, il EFFACE `CoverImage` et replanifie une génération depuis les
+        # fichiers. Omettre la clé (donc envoyer false par défaut .NET) après un choix
+        # manuel de couverture — qui, lui, upload avec `lockCover: True` — détruisait
+        # donc la couverture choisie au sync suivant, sans rien remettre à la place :
+        # la couverture étant marquée comme choix manuel (voir `cover_manual`),
+        # MetaKavita l'épargne et ne réuploade pas.
+        current_cover_locked = bool(current.get('coverImageLocked', False))
+        current_dont_match = bool(current.get('dontMatch', False))
 
         # Base commune : on réinjecte systématiquement l'état actuel de name/sortName et de
         # leurs verrous, pour empêcher Kavita de réinitialiser NameLocked/SortNameLocked à
@@ -470,6 +483,8 @@ class KavitaAPI:
             "sortName": current_sort_name,
             "nameLocked": current_name_locked,
             "sortNameLocked": current_sort_name_locked,
+            "coverImageLocked": current_cover_locked,
+            "dontMatch": current_dont_match,
         }
 
         # Titre alternatif (localizedName)
@@ -579,6 +594,10 @@ class KavitaAPI:
             "nameLocked": bool(current.get("nameLocked", False)),
             "sortNameLocked": bool(current.get("sortNameLocked", False)),
             "localizedNameLocked": True,
+            # BF106 : omettre le flag revient à demander un déverrouillage, que Kavita
+            # traduit par « efface la couverture et régénère-la depuis les fichiers ».
+            "coverImageLocked": bool(current.get("coverImageLocked", False)),
+            "dontMatch": bool(current.get("dontMatch", False)),
         }
         if current.get("format") is not None:
             try:
@@ -752,22 +771,71 @@ class KavitaAPI:
             logging.error(self.t.get("log_update_ids_err", "[Erreur Update IDs] {0}").format(e))
             return False, str(e)
 
+    def get_series_volumes(self, series_id) -> list:
+        """Liste brute des volumes Kavita (`GET /api/Series/volumes`). [] si erreur / auth."""
+        if not self.token and not self.authenticate():
+            return []
+        try:
+            res = requests.get(
+                f"{self.url}/api/Series/volumes?seriesId={series_id}",
+                headers=self.headers,
+                timeout=20,
+            )
+            if res.status_code == 200:
+                data = res.json()
+                return data if isinstance(data, list) else []
+        except Exception as e:
+            logging.error(self.t.get("log_isbn_err", "[Erreur ISBN] {0}").format(e))
+        return []
+
+    def delete_series(self, series_id) -> bool:
+        """
+        Supprime une série dans Kavita (admin). DELETE /api/Series/{seriesId}.
+        Ne touche pas aux fichiers disque côté Meta — récupération = rescan Kavita.
+        """
+        if not self.token and not self.authenticate():
+            return False
+        try:
+            res = requests.delete(
+                f"{self.url}/api/Series/{int(series_id)}",
+                headers=self.headers,
+                timeout=30,
+            )
+            if res.status_code == 200:
+                body = (res.text or "").strip().lower()
+                # Kavita may return JSON true / "true" / empty 200
+                if body in ("", "true"):
+                    return True
+                try:
+                    return bool(res.json()) is True or res.json() is True
+                except Exception:
+                    return True
+            logging.error(
+                self.t.get("log_kavita_delete_err", "[Erreur Delete Series] {0}").format(
+                    res.status_code
+                )
+            )
+            return False
+        except Exception as e:
+            logging.error(
+                self.t.get("log_kavita_delete_err", "[Erreur Delete Series] {0}").format(e)
+            )
+            return False
+
     def get_series_isbn(self, series_id) -> str:
         """
         Analyse les volumes et chapitres d'une série pour extraire le premier ISBN valide disponible.
         Renoie une chaîne d'ISBN nettoyée (sans espaces ni tirets).
         """
-        if not self.token and not self.authenticate():
-            return None
         try:
-            res = requests.get(f"{self.url}/api/Series/volumes?seriesId={series_id}", headers=self.headers, timeout=20)
-            if res.status_code == 200:
-                for vol in res.json():
-                    if vol.get('isbn'):
-                        return str(vol.get('isbn')).replace('-', '').replace(' ', '').strip()
-                    for chap in vol.get('chapters', []):
-                        if chap.get('isbn'):
-                            return str(chap.get('isbn')).replace('-', '').replace(' ', '').strip()
+            for vol in self.get_series_volumes(series_id):
+                if not isinstance(vol, dict):
+                    continue
+                if vol.get('isbn'):
+                    return str(vol.get('isbn')).replace('-', '').replace(' ', '').strip()
+                for chap in vol.get('chapters') or []:
+                    if isinstance(chap, dict) and chap.get('isbn'):
+                        return str(chap.get('isbn')).replace('-', '').replace(' ', '').strip()
         except Exception as e:
             logging.error(self.t.get("log_isbn_err", "[Erreur ISBN] {0}").format(e))
         return None

@@ -15,6 +15,8 @@ const FR = {
   coverEmpty: "Aucune couverture trouvée",
   coverApplied: "Couverture appliquée",
   coverApplyFail: "Échec de l’application de la couverture",
+  coverPreviewFail: "Aperçu indisponible",
+  coverPreviewLogin: "Aperçus refusés par MetaKavita (connexion requise) — instance à jour ?",
   configCacheBust: "Rafraîchir la couverture après confirm (anti-cache)",
   configLang: "Langue",
   configLangAuto: "Auto (navigateur)",
@@ -50,6 +52,7 @@ const FR = {
   mrEmbedBlocked: "Super Review n’a pas pu s’afficher ici (navigateur/sécurité). Ouvrez-le dans un onglet.",
   mrOpenInTab: "Ouvrir dans un onglet",
   toastMixedContentTab: "Kavita est en HTTPS et MetaKavita en HTTP — Super Review s’ouvre dans un onglet",
+  toastMixedContentWindow: "Kavita est en HTTPS et MetaKavita en HTTP — Super Review s’ouvre dans une fenêtre dédiée",
   close: "Fermer",
 };
 
@@ -70,6 +73,8 @@ const EN = {
   coverEmpty: "No covers found",
   coverApplied: "Cover applied",
   coverApplyFail: "Failed to apply cover",
+  coverPreviewFail: "Preview unavailable",
+  coverPreviewLogin: "MetaKavita refused the previews (login required) — instance up to date?",
   configCacheBust: "Refresh cover after confirm (cache bust)",
   configLang: "Language",
   configLangAuto: "Auto (browser)",
@@ -105,6 +110,7 @@ const EN = {
   mrEmbedBlocked: "Super Review couldn’t load here (browser/security). Open it in a tab.",
   mrOpenInTab: "Open in a new tab",
   toastMixedContentTab: "Kavita is HTTPS and MetaKavita is HTTP — opening Super Review in a tab",
+  toastMixedContentWindow: "Kavita is HTTPS and MetaKavita is HTTP — opening Super Review in a dedicated window",
   close: "Close",
 };
 

@@ -68,7 +68,7 @@ Each series has an advanced Options panel and relies on a powerful underlying sc
 *   **Context Reset on Force Update**: When forcing an update, ignore existing Kavita matching context (authors / publisher / year / genres — ISBN stays available for OpenLibrary etc.) to break false-positive loops. If **WebLinks** is a targeted field, Kavita web links are **replaced** by this scrape’s set (no more stacking leftover wrong URLs).
 
 #### 5. Live WebSocket Cover Streaming (*Progressive Loading*)
-Manual cover searches stream image results live over WebSockets (`Socket.IO`) as each provider responds, rather than blocking until all scrapers finish. Selecting a cover manually automatically unchecks the global `AUTO_COVER` field for that series to permanently lock your choice and protect it against background sync overwrites.
+Manual cover searches stream image results live over WebSockets (`Socket.IO`) as each provider responds, rather than blocking until all scrapers finish. A cover you pick by hand is marked **🔒 Manual cover** on the dashboard row and is never overwritten by a later automatic scrape — your targeted fields are left untouched. Click the chip to hand the cover back to automatic management, or tick **Overwrite manual covers** (`COVER_FORCE_OVERWRITE`) in the sidebar to lift the protection for a whole run, for instance after switching provider.
 
 #### 6. Live Processing Tracker, KPIs & WS Logs
 During batch execution, the active series being processed pulses with a glowing purple outline (`.is-processing`) and automatically scrolls into view. A **batch progress bar** above the action buttons shows `done / total` (Socket.IO `batch_progress` from the worker queue). Badge statuses update dynamically on completion; successful series **auto-uncheck** so you can relaunch the remaining selection. The topbar shows live lifetime counters (enriched / matches / misses) plus a **session** counter (resets when the tab closes). The console displays real-time, sanitized, human-readable logs streamed via WebSockets.
@@ -81,6 +81,9 @@ If Kavita metadata write succeeds but field re-locking fails, the series gets an
 
 #### 9. Playful Statistics (`/stats`)
 Optional fun dashboard (enabled by default via `ENABLE_PLAYFUL_STATS`): Chart.js donuts/bars, lifetime hit-rate, ~24 playful cards, and a Manual Review achievements chapter (stable even if series leave Kavita). Occasional discrete **Buy Me a Coffee** tips may appear after a strong batch or rich Manual Review recap (never a paywall).
+
+#### 10. Library Inventory (v1.6.6, `LIBRARY_INVENTORY_ENABLED`)
+An **Inventory** panel above the series list tells you which series are incomplete. **Analyze library** runs in the background: it counts the volumes (or chapters) you own in Kavita, asks the provider cascade how many there should be, and clusters look-alike series. You get a health bar, **Missing / Duplicates / No id** chips, an `N/M` badge on each row coloured by completion, a per-series report with the missing numbers folded into ranges, CSV / TXT exports, and duplicate groups you can dismiss or delete from Kavita. Expected counts can be forced by hand, and a series no catalogue will ever know can be excluded from the counters while still being scraped. Inventory only reads — it never writes volume metadata and never merges series. Switch it off from the sidebar (**Inventory** category) and the panel, badges and API all go away.
 
 ---
 
@@ -175,7 +178,7 @@ No cloning required. Create a `docker-compose.yml` file anywhere on your server 
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.6.1 / :1.6 after a v* release tag
+    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.6.6 / :1.6 after a v* release tag
     container_name: metakavita
     restart: unless-stopped
     ports:
@@ -269,6 +272,8 @@ docker compose up -d --build
 | `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
 | `DISABLED_LIBRARIES` | Comma-separated Kavita library IDs to exclude from **auto-sync polling** only. Empty = all enabled. Dashboard, manual batch, and webhook are not filtered. | _(empty)_ |
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
+| `COVER_FORCE_OVERWRITE` | Let automatic scrapes overwrite covers you picked by hand (the 🔒 chip). Leave off to keep manual picks. | `false` |
+| `LIBRARY_INVENTORY_ENABLED` | Show the Inventory panel (missing volumes / chapters, duplicates, series without external id). | `true` |
 | `AUTO_READING_DIR` | Auto-detect and set Manga/Webtoon reading direction. | `false` |
 
 ---
@@ -337,15 +342,15 @@ In the **Config Modal** (Planning section) you get the base webhook URL (`/webho
 
 #### 3. MetaKavita Companion (browser extension) — *beta*
 
-Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.22**, MetaKavita **1.6.5**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
+Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.26**, MetaKavita **1.6.6**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
 
-Floating icon menu on Kavita **series** pages — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review embeds `/companion/embed` when schemes match; HTTPS Kavita + HTTP Meta → **new tab** (mixed-content block), then auto-closes when the review finishes. Companion one-shots **override** MR/Super toggles, jump ahead of a running batch queue (after the in-flight job), and **replace** any pending job for the same series.
+Floating icon menu on Kavita **series** pages — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review embeds `/companion/embed` when schemes match; an HTTPS Kavita with an HTTP MetaKavita cannot embed it (mixed content), so the review opens in a small **dedicated window** centred over Kavita and closes itself when it finishes. Cover previews that travel through MetaKavita are fetched by the extension itself, so they render in both cases. Companion one-shots **override** MR/Super toggles, jump ahead of a running batch queue (after the in-flight job), and **replace** any pending job for the same series.
 
 **Install (sideload):** Chrome/Edge → download [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extract → `chrome://extensions` → Developer mode → Load unpacked. Firefox → download [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extract → `about:debugging` → Load Temporary Add-on → `manifest.json`. Pair with MetaKavita URL + webhook token in Companion → Config. Full guide: [`companion/README.md`](https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md) (also Help menu). Pack: `node companion/scripts/pack.mjs`.
 
 #### 4. Health Endpoint
 
-`GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
+`GET /healthz` → `{"status": "ok", "version": "1.6.6"}`
 
 A liveness probe for orchestrators — it is what the Docker `HEALTHCHECK` targets, and it works with Kubernetes, Portainer, Uptime Kuma and the like. Unauthenticated by design, so it keeps answering once a password is set. It touches no configuration, no database and never contacts Kavita: it reports only that the application is running and routing, not that its dependencies are up. That is deliberate — a Kavita outage should not make a healthy MetaKavita container restart in a loop.
 
@@ -421,7 +426,7 @@ Chaque série dispose d'un volet d'options avancées reposant sur un puissant mo
 
 #### 5. Streaming de Couvertures en Temps Réel (*Progressive Loading*)
 La recherche manuelle d'images envoie les cartes de couvertures en direct au fil de l'eau via WebSockets (`Socket.IO`) dès qu'un provider répond. 
-> 🔒 **Verrouillage Anti-Écrasement :** Appliquer une couverture manuelle depuis cette fenêtre décoche automatiquement l'option "Couverture" de l'œuvre. Cela fige votre choix définitivement et empêche l'Auto-Sync de l'écraser plus tard.
+> 🔒 **Verrouillage Anti-Écrasement :** une couverture appliquée à la main est marquée **🔒 Couverture manuelle** sur la ligne de la série et n'est plus jamais écrasée par un scrape automatique — vos champs ciblés restent intacts. Cliquez la cartouche pour rendre la couverture à la gestion automatique, ou cochez **Écraser les couvertures manuelles** (`COVER_FORCE_OVERWRITE`) dans la sidebar pour lever la protection le temps d'un run, par exemple après un changement de provider.
 
 #### 6. Suivi Live, KPI & Logs WebSockets
 Pendant l'exécution d'un lot, la série en cours de traitement clignote avec une pulsation violette (`.is-processing`) et défile automatiquement à l'écran. Une **barre de progression batch** au-dessus des boutons affiche `fait / total` (Socket.IO `batch_progress` depuis la file worker). Les badges se mettent à jour dynamiquement ; une série OK se **décoche** pour pouvoir relancer le reste. La topbar affiche les compteurs lifetime (enrichies / matchs / ratés) plus un compteur **session** (remis à 0 à la fermeture de l’onglet). La console affiche en temps réel des logs épurés via WebSockets.
@@ -434,6 +439,9 @@ Si l’écriture des métadonnées Kavita réussit mais que le re-verrouillage d
 
 #### 9. Statistiques ludiques (`/stats`)
 Tableau de bord optionnel (activé par défaut via `ENABLE_PLAYFUL_STATS`) : donuts/barres Chart.js, taux de hit lifetime, ~24 cartes fun, et un chapitre hauts-faits Manual Review (stables même si des séries quittent Kavita). Des tips discrets **Buy Me a Coffee** peuvent apparaître après un bon batch ou un récap Review Manuelle riche (jamais de paywall).
+
+#### 10. Inventaire de la bibliothèque (v1.6.6, `LIBRARY_INVENTORY_ENABLED`)
+Un panneau **Inventaire**, au-dessus de la liste des séries, vous dit lesquelles sont incomplètes. **Analyser la bibliothèque** travaille en arrière-plan : il compte les tomes (ou les chapitres) que vous possédez dans Kavita, demande à la cascade de providers combien il devrait y en avoir, et regroupe les séries qui se ressemblent. Vous obtenez une barre de santé, des chips **Manquants / Doublons / Sans id**, une cartouche `N/M` colorée selon la complétion sur chaque ligne, un rapport par série avec les numéros manquants pliés en intervalles, des exports CSV / TXT, et des groupes de doublons à ignorer ou à supprimer de Kavita. L'attendu peut être forcé à la main, et une série qu'aucun catalogue ne connaîtra jamais peut être exclue des compteurs tout en restant scrapée. L'Inventaire ne fait que lire : il n'écrit aucune métadonnée de volume et ne fusionne jamais de séries. Désactivez-le depuis la sidebar (catégorie **Inventaire**) et le panneau, les cartouches et l'API disparaissent.
 
 ---
 
@@ -528,7 +536,7 @@ Aucun clonage de dépôt n'est requis. Crée simplement un fichier `docker-compo
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest   # ou pin :1.6.1 / :1.6 après un tag v*
+    image: ghcr.io/raukorim-bot/metakavita:latest   # ou pin :1.6.6 / :1.6 après un tag v*
     container_name: metakavita
     restart: unless-stopped
     ports:
@@ -622,6 +630,8 @@ docker compose up -d --build
 | `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
 | `DISABLED_LIBRARIES` | IDs exclus du **polling auto-sync** uniquement (dénylist, virgules). Vide = auto-sync toutes. Dashboard, batch manuel et webhook non filtrés. | _(vide)_ |
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
+| `COVER_FORCE_OVERWRITE` | Autoriser les scrapes automatiques à écraser les couvertures choisies à la main (cartouche 🔒). Laissez décoché pour les conserver. | `false` |
+| `LIBRARY_INVENTORY_ENABLED` | Afficher le panneau Inventaire (tomes / chapitres manquants, doublons, séries sans id externe). | `true` |
 | `AUTO_READING_DIR` | Configurer automatiquement le sens de lecture. | `false` |
 
 ---
@@ -690,15 +700,15 @@ Dans la **Modal Config** (section Planification) vous avez l'URL de base (`/webh
 
 #### 3. MetaKavita Companion (extension navigateur) — *bêta*
 
-Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.22**, MetaKavita **1.6.5**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
+Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.26**, MetaKavita **1.6.6**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
 
-Menu flottant sur les **fiches série** Kavita — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review via `/companion/embed` si les schémas matchent ; HTTPS Kavita + HTTP Meta → **nouvel onglet** (mixed content), fermeture auto en fin de parcours. Les one-shots Companion **passent outre** les toggles MR/Super, passent devant la file batch (après le job en cours) et **remplacent** tout job pending pour la même série.
+Menu flottant sur les **fiches série** Kavita — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review via `/companion/embed` si les schémas matchent ; un Kavita en HTTPS avec un MetaKavita en HTTP ne peut pas l'embarquer (contenu mixte), la review s'ouvre alors dans une petite **fenêtre dédiée** centrée sur Kavita et se ferme en fin de parcours. Les aperçus de couverture qui transitent par MetaKavita sont récupérés par l'extension elle-même, donc ils s'affichent dans les deux cas. Les one-shots Companion **passent outre** les toggles MR/Super, passent devant la file batch (après le job en cours) et **remplacent** tout job pending pour la même série.
 
 **Install (sideload) :** Chrome/Edge → télécharger [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extraire → `chrome://extensions` → Mode développeur → Charger non empaquetée. Firefox → télécharger [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extraire → `about:debugging` → Charger un module temporaire → `manifest.json`. Brancher avec URL MetaKavita + jeton webhook dans Companion → Config. Guide : [`companion/README.md`](https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md) (aussi menu Aide). Pack : `node companion/scripts/pack.mjs`.
 
 #### 4. Endpoint de santé
 
-`GET /healthz` → `{"status": "ok", "version": "1.6.1"}`
+`GET /healthz` → `{"status": "ok", "version": "1.6.6"}`
 
 Sonde de liveness pour les orchestrateurs — c'est la cible du `HEALTHCHECK` Docker, et elle fonctionne aussi avec Kubernetes, Portainer, Uptime Kuma, etc. Non authentifiée par conception, afin de continuer à répondre une fois un mot de passe défini. Elle ne lit aucune configuration, n'ouvre aucune base et ne contacte jamais Kavita : elle indique seulement que l'application tourne et route, pas que ses dépendances sont disponibles. C'est délibéré — une panne de Kavita ne doit pas faire redémarrer en boucle un conteneur MetaKavita parfaitement sain.
 

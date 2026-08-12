@@ -29,6 +29,31 @@
     var previouslyFocused = null;
     var listViewOpen = false;
     var bulkAcceptInFlight = false;
+    var SHOW_BELOW_PREF_KEY = "mk_mr_show_below";
+    var showBelowThreshold = loadShowBelowPref();
+    /** review_id → true after scrape_complete (blocks re-arming streaming). */
+    var finalizedStreamIds = Object.create(null);
+
+    function loadShowBelowPref() {
+        try {
+            return localStorage.getItem(SHOW_BELOW_PREF_KEY) === "1";
+        } catch (e) {
+            return false;
+        }
+    }
+
+    function saveShowBelowPref(on) {
+        try {
+            localStorage.setItem(SHOW_BELOW_PREF_KEY, on ? "1" : "0");
+        } catch (e) {
+            /* private mode / blocked storage */
+        }
+    }
+
+    function syncShowBelowCheckbox() {
+        var cb = document.getElementById("mrShowBelow");
+        if (cb) cb.checked = !!showBelowThreshold;
+    }
 
     function emptySession() {
         return {
@@ -532,12 +557,30 @@
         } catch (e) { /* ignore */ }
     }
 
+    /**
+     * Companion embed shell: no sidebar, so the review options come from the
+     * server config (window.COMPANION_EMBED.options) instead of checkboxes.
+     * Reading the absent DOM used to leave coverPickEnabled false forever, which
+     * is why the Companion Super Review never offered the cover picker (BF107).
+     */
+    function embedOptions() {
+        var cfg = window.COMPANION_EMBED;
+        return cfg && cfg.options ? cfg.options : null;
+    }
+
     function syncOptionsFromSidebar() {
         var editCb = document.getElementById("sidebar_manual_review_edit");
-        editEnabled = editCb ? !!editCb.checked : true;
         var soundCb = document.getElementById("sidebar_manual_review_sounds");
-        soundsEnabled = soundCb ? !!soundCb.checked : false;
         var coverCb = document.getElementById("sidebar_manual_review_cover");
+        var embed = embedOptions();
+        if (embed && !editCb && !coverCb) {
+            editEnabled = embed.edit !== false;
+            soundsEnabled = false;
+            coverPickEnabled = !!embed.coverPick;
+            return;
+        }
+        editEnabled = editCb ? !!editCb.checked : true;
+        soundsEnabled = soundCb ? !!soundCb.checked : false;
         coverPickEnabled = !!(isManualModeOn() && coverCb && !coverCb.disabled && coverCb.checked);
     }
 
@@ -568,6 +611,8 @@
     }
 
     function isSuperReviewOn() {
+        var embed = embedOptions();
+        if (embed) return !!embed.superReview;
         if (!isManualModeOn()) return false;
         var cb = document.getElementById("sidebar_manual_review_super");
         return !!(cb && !cb.disabled && cb.checked);
@@ -698,6 +743,16 @@
                     return true;
                 });
             }
+            queue.forEach(function (r) {
+                if (!r) return;
+                var rid = String(r.review_id || "");
+                if (finalizedStreamIds[rid] || !r.streaming) {
+                    r.streaming = false;
+                    if (rid) finalizedStreamIds[rid] = true;
+                } else {
+                    r.streaming = true;
+                }
+            });
             updateBadge(
                 companionOnlySeriesId != null
                     ? queue.length
@@ -796,6 +851,89 @@
         }
     }
 
+    function shouldShowBelow(review) {
+        if (!review) return false;
+        var below = review.below || [];
+        if (!below.length) return false;
+        if (showBelowThreshold) return true;
+        var above = review.above || [];
+        return !review.streaming && !above.length;
+    }
+
+    function assembleCandidates(review) {
+        var all = [];
+        if (!review) return all;
+        (review.above || []).forEach(function (c) {
+            all.push({ card: c, weak: false });
+        });
+        if (shouldShowBelow(review)) {
+            (review.below || []).forEach(function (c) {
+                all.push({ card: c, weak: true });
+            });
+        }
+        return all;
+    }
+
+    function reconcileSelectionToVisible(all) {
+        var visible = {};
+        var i;
+        for (i = 0; i < all.length; i++) {
+            if (all[i].card && all[i].card.provider) {
+                visible[all[i].card.provider] = true;
+            }
+        }
+        includeProviders = includeProviders.filter(function (p) {
+            return !!visible[p];
+        });
+        if (selectedProvider && !visible[selectedProvider]) {
+            selectedProvider = all.length ? all[0].card.provider : null;
+            if (selectedProvider) {
+                includeProviders = includeProviders.filter(function (p) {
+                    return p !== selectedProvider;
+                });
+            }
+        }
+        if (!selectedProvider && all.length) {
+            selectedProvider = all[0].card.provider;
+        }
+    }
+
+    function updateHiddenBelowHint(review) {
+        var hint = document.getElementById("mrHiddenBelowHint");
+        if (!hint) return;
+        var above = (review && review.above) || [];
+        var below = (review && review.below) || [];
+        var show =
+            !!review &&
+            !!review.streaming &&
+            !showBelowThreshold &&
+            !above.length &&
+            below.length > 0;
+        if (!show) {
+            hint.style.display = "none";
+            hint.textContent = "";
+            return;
+        }
+        hint.textContent = t(
+            "mr_hidden_below",
+            "{0} below threshold — check to show"
+        ).replace("{0}", String(below.length));
+        hint.style.display = "";
+    }
+
+    function markStreamingComplete(reviewId) {
+        if (!reviewId) return null;
+        var rid = String(reviewId);
+        finalizedStreamIds[rid] = true;
+        for (var i = 0; i < queue.length; i++) {
+            if (String(queue[i].review_id) === rid) {
+                queue[i].streaming = false;
+                return queue[i];
+            }
+        }
+        return null;
+    }
+
     function mergeStreamedCandidate(payload) {
         if (!payload || !payload.review_id || !payload.card) return;
         var rid = String(payload.review_id);
@@ -830,7 +968,12 @@
         review.below = (review.below || []).filter(function (c) { return c.provider !== provider; });
         if (!review[band]) review[band] = [];
         review[band].push(payload.card);
-        review.streaming = true;
+        // Late candidate after scrape_complete: do not re-arm streaming (filet).
+        if (!finalizedStreamIds[rid]) {
+            review.streaming = true;
+        } else {
+            review.streaming = false;
+        }
         if (isModalOpen() && String(currentReviewId) === rid) {
             renderCandidates();
         }
@@ -846,6 +989,7 @@
         var belowLabel = document.getElementById("mrBelowLabel");
         var emptyEl = document.getElementById("mrNoCandidates");
         if (!aboveEl || !belowEl) return;
+        syncShowBelowCheckbox();
         ensureStreamStatusBar(review);
 
         aboveEl.innerHTML = "";
@@ -854,6 +998,7 @@
             if (nameEl && document.activeElement !== nameEl) nameEl.value = "";
             if (aboveLabel) aboveLabel.style.display = "none";
             if (belowLabel) belowLabel.style.display = "none";
+            updateHiddenBelowHint(null);
             if (emptyEl) emptyEl.style.display = "";
             updateKavitaLink(null);
             renderFusionBar();
@@ -865,24 +1010,17 @@
         if (posEl) posEl.textContent = (currentIndex + 1) + " / " + queue.length;
         updateKavitaLink(review);
 
-        var all = [];
         var above = review.above || [];
-        var below = review.below || [];
-        // Plan: show below-threshold only when above is empty
-        above.forEach(function (c) { all.push({ card: c, weak: false }); });
-        if (!above.length) {
-            below.forEach(function (c) { all.push({ card: c, weak: true }); });
-        }
+        var showingBelow = shouldShowBelow(review);
+        var all = assembleCandidates(review);
+        updateHiddenBelowHint(review);
+        reconcileSelectionToVisible(all);
 
         if (aboveLabel) aboveLabel.style.display = above.length ? "" : "none";
         if (belowLabel) {
-            belowLabel.style.display = (!above.length && below.length) ? "" : "none";
+            belowLabel.style.display = showingBelow ? "" : "none";
         }
         if (emptyEl) emptyEl.style.display = all.length ? "none" : "";
-
-        if (!selectedProvider && all.length) {
-            selectedProvider = all[0].card.provider;
-        }
 
         var showMerge = all.length > 1;
 
@@ -2444,6 +2582,10 @@
             if (payload && payload.series_id) {
                 markSeriesStatus(payload.series_id, "PENDING_REVIEW");
             }
+            // New/restarted stream for this review_id — allow streaming again.
+            if (payload && payload.streaming && payload.review_id) {
+                delete finalizedStreamIds[String(payload.review_id)];
+            }
             loadQueue().then(function (r) {
                 if (r && !r.stale) onQueueUpdated(r.prevEmpty);
             }).catch(function (err) {
@@ -2455,6 +2597,10 @@
         });
         socket.on("manual_review_scrape_complete", function (payload) {
             if (!payload || !payload.review_id) return;
+            markStreamingComplete(payload.review_id);
+            if (isModalOpen() && String(currentReviewId) === String(payload.review_id)) {
+                renderCandidates();
+            }
             loadQueue().then(function (r) {
                 if (r && !r.stale && isModalOpen()) {
                     if (String(currentReviewId) === String(payload.review_id)) {
@@ -2651,6 +2797,10 @@
             });
             socket.on("manual_review_scrape_complete", function (payload) {
                 if (!payload || Number(payload.series_id) !== targetSid) return;
+                markStreamingComplete(payload.review_id);
+                if (isModalOpen() && String(currentReviewId) === String(payload.review_id)) {
+                    renderCandidates();
+                }
                 loadQueue().then(function () {
                     var match = findMatch();
                     if (!match) return;
@@ -2664,7 +2814,20 @@
         }
     }
 
+    function wireShowBelowCheckbox() {
+        var cb = document.getElementById("mrShowBelow");
+        if (!cb || cb.__mkShowBelowWired) return;
+        cb.__mkShowBelowWired = true;
+        syncShowBelowCheckbox();
+        cb.addEventListener("change", function () {
+            showBelowThreshold = !!cb.checked;
+            saveShowBelowPref(showBelowThreshold);
+            if (isModalOpen()) renderCandidates();
+        });
+    }
+
     onDomReady(function () {
+        wireShowBelowCheckbox();
         syncQueueBadge();
         startCompanionEmbedBootstrap();
     });

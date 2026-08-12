@@ -523,6 +523,49 @@
     }
   }
 
+  /**
+   * An HTTP MetaKavita iframe cannot live in an HTTPS Kavita page — no extension
+   * trick gets around it (the mixed-content check looks at the top frame, so an
+   * extension-hosted iframe is blocked too). A script-opened popup window is the
+   * closest thing to a modal: chromeless, centered over Kavita, and still an
+   * opener-linked window, which is what lets Super Review close itself.
+   */
+  function openReviewWindow() {
+    const screenW = (window.screen && window.screen.availWidth) || 1440;
+    const screenH = (window.screen && window.screen.availHeight) || 900;
+    const w = Math.max(720, Math.min(1180, Math.round(screenW * 0.68)));
+    const h = Math.max(620, Math.min(1000, Math.round(screenH * 0.88)));
+    const hostW = window.outerWidth || screenW;
+    const hostH = window.outerHeight || screenH;
+    const left = Math.max(0, Math.round((window.screenX || 0) + (hostW - w) / 2));
+    const top = Math.max(0, Math.round((window.screenY || 0) + (hostH - h) / 2));
+    let win = null;
+    try {
+      win = window.open(
+        "",
+        "mkCompanionSuperReview",
+        `popup=1,width=${w},height=${h},left=${left},top=${top}`
+      );
+    } catch {
+      return null;
+    }
+    if (!win) return null;
+    try {
+      // about:blank inherits this origin, so the placeholder avoids a white flash
+      // while the embed page loads.
+      win.document.write(
+        '<!doctype html><meta charset="utf-8"><title>MetaKavita — Super Review</title>' +
+          '<body style="margin:0;height:100vh;display:flex;align-items:center;' +
+          'justify-content:center;background:#0f172a;color:#94a3b8;' +
+          'font:600 13px/1.4 Segoe UI,system-ui,sans-serif">Super Review…</body>'
+      );
+      win.document.close();
+    } catch {
+      /* placeholder is cosmetic */
+    }
+    return win;
+  }
+
   async function openMr() {
     if (!settings || !settings.metaBaseUrl) {
       showToast(t("toastNeedConfig"), true);
@@ -536,6 +579,14 @@
     closeConfig();
     setMenuOpen(false);
     const base = normalizeBaseUrl(settings.metaBaseUrl);
+    // Mixed content is decided before any await: the popup has to be opened while
+    // the click is still a user gesture, otherwise the popup blocker kills it.
+    const needsWindow = location.protocol === "https:" && /^http:/i.test(base);
+    let reviewWin = null;
+    if (needsWindow) {
+      showToast(t("toastMixedContentWindow"));
+      reviewWin = openReviewWindow();
+    }
     const parentOrigin = chrome.runtime.getURL("").replace(/\/$/, "");
     let embedToken = "";
     try {
@@ -554,12 +605,20 @@
     url.searchParams.set("top_origin", location.origin);
     if (embedToken) url.searchParams.set("embed_token", embedToken);
     const finalUrl = url.toString();
-    const metaIsHttp = /^http:/i.test(base);
-    if (location.protocol === "https:" && metaIsHttp) {
-      showToast(t("toastMixedContentTab"));
-      // Keep opener so the Super Review tab can focus Kavita and window.close()
-      // itself when the review finishes (noopener would block that).
-      window.open(finalUrl, "_blank");
+    if (needsWindow) {
+      // Keep opener so Super Review can focus Kavita and window.close() itself
+      // when the review finishes (noopener would block both).
+      if (reviewWin && !reviewWin.closed) {
+        try {
+          reviewWin.location.replace(finalUrl);
+          reviewWin.focus();
+        } catch {
+          window.open(finalUrl, "_blank");
+        }
+      } else {
+        showToast(t("toastMixedContentTab"));
+        window.open(finalUrl, "_blank");
+      }
       return;
     }
     if (typeof window.__mkCompanionOpenMr === "function") {
@@ -610,6 +669,8 @@
           close: t("close"),
           applied: t("coverApplied"),
           fail: t("coverApplyFail"),
+          previewFail: t("coverPreviewFail"),
+          previewLogin: t("coverPreviewLogin"),
         },
       });
     }

@@ -315,6 +315,10 @@ function saveConfig(options) {
     if (matchThresholdCustom) formData.append('MATCH_THRESHOLD_CUSTOM', matchThresholdCustom.checked ? 'true' : 'false');
     if (matchAcceptThreshold) formData.append('MATCH_ACCEPT_THRESHOLD', matchAcceptThreshold.value);
     if (autoCover) formData.append('AUTO_COVER', autoCover.checked ? 'true' : 'false');
+    const coverForceOverwrite = document.getElementById('sidebar_cover_force_overwrite');
+    if (coverForceOverwrite) formData.append('COVER_FORCE_OVERWRITE', coverForceOverwrite.checked ? 'true' : 'false');
+    const inventoryEnabled = document.getElementById('sidebar_library_inventory');
+    if (inventoryEnabled) formData.append('LIBRARY_INVENTORY_ENABLED', inventoryEnabled.checked ? 'true' : 'false');
     if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
     
     const titleFallback = document.getElementById('config_title_fallback');

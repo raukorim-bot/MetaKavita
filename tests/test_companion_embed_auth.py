@@ -58,6 +58,7 @@ def companion_app(monkeypatch):
             "COMPANION_FRAME_ANCESTORS": "",
             "WEBHOOK_TOKEN": "w-secret",
             "SECRET_KEY": "k",
+            "MANUAL_REVIEW_COVER_PICK": True,
         },
     )
     monkeypatch.setattr(auth_manager, "setup_required", lambda: False)
@@ -121,6 +122,21 @@ def test_embed_with_token_bypasses_login(companion_app):
     assert 'data-companion-marker="embed-wait"' in res2.get_data(as_text=True)
 
 
+def test_embed_exposes_review_options(companion_app):
+    """BF107 — the shell has no sidebar, so manual_review.js reads the cover-pick /
+    super-review options from COMPANION_EMBED.options. Missing them silently
+    skipped the cover phase on every Companion Super Review."""
+    client = companion_app.test_client()
+    tok = _issue_token(client, series_id=7)
+
+    res = client.get(f"/companion/embed?series_id=7&embed_token={tok}")
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+    assert '"coverPick": true' in html
+    assert '"superReview": true' in html
+    assert '"manualMode": true' in html
+
+
 def test_embed_token_wrong_series_still_requires_login(companion_app):
     client = companion_app.test_client()
     res = client.post(
@@ -131,3 +147,72 @@ def test_embed_token_wrong_series_still_requires_login(companion_app):
     tok = res.get_json()["embed_token"]
     res2 = client.get(f"/companion/embed?series_id=99&embed_token={tok}")
     assert res2.status_code in (302, 401)
+
+
+def test_proxy_image_requires_login_without_embed_token(companion_app):
+    client = companion_app.test_client()
+    res = client.get("/api/proxy-image?url=https://uploads.mangadex.org/covers/x.jpg")
+    assert res.status_code in (302, 401)
+
+
+def _issue_token(client, series_id=7):
+    res = client.post(
+        "/companion/embed-token",
+        headers={"X-Webhook-Token": "w-secret"},
+        json={"seriesId": series_id, "parent_origin": "chrome-extension://abc"},
+    )
+    return res.get_json()["embed_token"]
+
+
+def _stub_proxy_image(monkeypatch):
+    class FakeResp:
+        status_code = 200
+        headers = {"Content-Type": "image/jpeg", "Content-Length": "4"}
+
+        def iter_content(self, chunk_size=65536):
+            yield b"\xff\xd8\xff\xd9"
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "routes.misc.fetch_with_safe_redirects",
+        lambda *a, **k: (FakeResp(), None, "https://uploads.mangadex.org/covers/x.jpg"),
+    )
+    monkeypatch.setattr(
+        "routes.misc.ScraperRegistry.get_all_proxy_domains",
+        lambda: ["uploads.mangadex.org", "mangadex.org"],
+    )
+    monkeypatch.setattr(
+        "routes.misc.ScraperRegistry.get_all",
+        lambda include_disabled=False: [],
+    )
+
+
+def test_proxy_image_allows_companion_embed_token(companion_app, monkeypatch):
+    """Cover picker <img> on Kavita page: absolute Meta proxy + ?embed_token=."""
+    client = companion_app.test_client()
+    tok = _issue_token(client)
+    _stub_proxy_image(monkeypatch)
+
+    res = client.get(
+        "/api/proxy-image?url=https://uploads.mangadex.org/covers/x.jpg"
+        f"&embed_token={tok}"
+    )
+    assert res.status_code == 200
+    assert res.data[:2] == b"\xff\xd8"
+
+
+def test_proxy_image_allows_companion_embed_token_header(companion_app, monkeypatch):
+    """Mixed content (HTTPS Kavita + HTTP Meta): the service worker fetches the
+    preview itself and can send the token as a header instead of a query param."""
+    client = companion_app.test_client()
+    tok = _issue_token(client)
+    _stub_proxy_image(monkeypatch)
+
+    res = client.get(
+        "/api/proxy-image?url=https://uploads.mangadex.org/covers/x.jpg",
+        headers={"X-Companion-Embed-Token": tok},
+    )
+    assert res.status_code == 200
+    assert res.data[:2] == b"\xff\xd8"

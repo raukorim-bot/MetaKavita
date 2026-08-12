@@ -193,6 +193,14 @@
                                             <span class="so-switch-text"><strong>{{ t.force_update }}</strong></span>
                                         </label>
                                         <p class="so-alert-text">{{ t.force_update_warn }}</p>
+                                        <label class="so-switch so-switch--danger">
+                                            <input type="checkbox" id="sidebar_cover_force_overwrite" value="true"
+                                                   {% if config.get('COVER_FORCE_OVERWRITE') %}checked{% endif %}
+                                                   onchange="saveConfig()">
+                                            <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                            <span class="so-switch-text"><strong>{{ t.cover_force_overwrite }}</strong></span>
+                                        </label>
+                                        <p class="so-alert-text">{{ t.cover_force_overwrite_warn }}</p>
                                     </div>
                                     <details class="targeted-scraping-details batch-fields-details so-batch-fields">
                                         <summary>{{ t.batch_targeted_fields }}</summary>
@@ -216,6 +224,26 @@
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-language" value="language" checked> {{ t.field_language }}</label>
                                         </div>
                                     </details>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="so-cat" id="scrapingCatInventory" data-so-cat="inventory" open>
+                            <summary class="so-cat-summary">
+                                <span class="so-chevron" aria-hidden="true"></span>
+                                <span class="so-cat-title">{{ t.scraping_cat_inventory }}</span>
+                            </summary>
+                            <div class="so-cat-body so-anim-body">
+                                <div class="so-anim-inner so-cat-panel">
+                                    <label class="so-switch">
+                                        <input type="checkbox" id="sidebar_library_inventory" value="true"
+                                               {% if config.get('LIBRARY_INVENTORY_ENABLED', True) %}checked{% endif %}
+                                               onchange="onInventoryToggle(this)">
+                                        <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                        <span class="so-switch-icon" aria-hidden="true">📊</span>
+                                        <span class="so-switch-text">{{ t.library_inventory_enabled }}</span>
+                                    </label>
+                                    <p class="so-hint">{{ t.library_inventory_enabled_hint }}</p>
                                 </div>
                             </div>
                         </details>

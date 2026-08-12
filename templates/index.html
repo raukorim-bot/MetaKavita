@@ -14,6 +14,7 @@
 		window.APP_VERSION = "{{ app_version }}";
 		window.KAVITA_UI_URL = "{{ kavita_ui_url }}";
         window.PROXY_COVER_HOSTS = {{ proxy_cover_hosts|default([])|tojson }};
+        window.DUP_ACCEPT_THRESHOLD = {{ dup_accept_threshold|default(0.92)|tojson }};
 		const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
         window.AppTranslations = {
@@ -50,11 +51,15 @@
             seal_locks_btn: "{{ t.seal_locks_btn }}",
             seal_locks_ok: "{{ t.seal_locks_ok }}",
             seal_locks_fail: "{{ t.seal_locks_fail }}",
+            cover_manual_badge: {{ t.cover_manual_badge|tojson }},
+            cover_manual_badge_hint: {{ t.cover_manual_badge_hint|tojson }},
+            cover_release_fail: {{ t.cover_release_fail|tojson }},
             account_fill_all: "{{ t.account_fill_all }}",
             account_err_mismatch: "{{ t.account_err_mismatch }}",
             filter_completed: "{{ t.filter_completed }}",
             filter_notfound: "{{ t.filter_notfound }}",
             filter_ignored: "{{ t.filter_ignored }}",
+            filter_no_external_id: "{{ t.filter_no_external_id }}",
             ignore_btn: "{{ t.ignore_btn }}",
             unignore_btn: "{{ t.unignore_btn }}",
             element: "{{ t.element }}",
@@ -231,9 +236,17 @@
 			changelog_loading: "{{ t.changelog_loading }}"
         };
 
+        /* Inventaire : injecté en bloc plutôt que clé par clé, car library_audit.js
+           compose des clés dynamiques (audit_state_<état>, audit_unit_<unité>). */
+        Object.assign(window.AppTranslations, {
+        {%- for key, value in t.items() if key.startswith('audit_') %}
+            {{ key|tojson }}: {{ value|tojson }},
+        {%- endfor %}
+        });
+
     </script>
 </head>
-<body>
+<body data-inventory="{{ '1' if inventory_enabled|default(true) else '0' }}">
     <div class="dashboard-wrapper">
         <header class="topbar">
             <div class="logo">
@@ -364,6 +377,10 @@
                             {{ t.batch_queue_btn }}
                             <span id="batchQueueBadge" class="batch-queue-badge" hidden>0</span>
                         </button>
+                        <label class="checkbox-label" title="{{ t.audit_scan_with_batch }}">
+                            <input type="checkbox" id="hygieneWithBatchCb">
+                            {{ t.audit_scan_with_batch }}
+                        </label>
                         <button type="submit" class="btn-batch" id="mainBatchBtn" title="{{ t.launch_batch_hint }}">{{ t.launch_batch }}</button>
                         <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
                     </div>
@@ -404,6 +421,8 @@
         </div>
     </div>
 
+    {% include "partials/_icons_sprite.html" %}
+
     {% include "partials/_config_modal.html" %}
 
     {% include "partials/_providers_modal.html" %}
@@ -417,6 +436,8 @@
     {% include "partials/_scraping_options_help_modal.html" %}
 
     {% include "partials/_manual_review_modal.html" %}
+
+    {% include "partials/_library_audit_modal.html" %}
 
     {% include "partials/_license_nag_modal.html" %}
 
@@ -436,6 +457,7 @@
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <script src="{{ url_for('static', filename='js/batch.js') }}"></script>
     <script src="{{ url_for('static', filename='js/series_list.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/library_audit.js') }}"></script>
     <script src="{{ url_for('static', filename='js/license_nag.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
 </body>

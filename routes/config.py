@@ -40,6 +40,18 @@ def save_config_ajax():
             save_config(config)
             return jsonify(success=True)
 
+        # Partial: hygiene duplicate threshold preset (toolbar)
+        if request.form.get('DUP_PRESET_SAVE') == '1':
+            config['DUP_THRESHOLD_CUSTOM'] = True
+            try:
+                config['DUP_ACCEPT_THRESHOLD'] = float(
+                    request.form.get('DUP_ACCEPT_THRESHOLD', 0.92)
+                )
+            except (TypeError, ValueError):
+                config['DUP_ACCEPT_THRESHOLD'] = 0.92
+            save_config(config)
+            return jsonify(success=True)
+
         config['TRANSLATION_PROVIDER'] = request.form.get('TRANSLATION_PROVIDER', 'GOOGLE').strip()
         config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
         config['KAVITA_EXTERNAL_URL'] = request.form.get('KAVITA_EXTERNAL_URL', '').strip().rstrip('/')
@@ -104,6 +116,17 @@ def save_config_ajax():
                 config['MATCH_ACCEPT_THRESHOLD'] = 0.60
         else:
             config['MATCH_ACCEPT_THRESHOLD'] = 0.60
+        if 'DUP_THRESHOLD_CUSTOM' in request.form or 'DUP_ACCEPT_THRESHOLD' in request.form:
+            config['DUP_THRESHOLD_CUSTOM'] = request.form.get('DUP_THRESHOLD_CUSTOM') == 'true'
+            if config['DUP_THRESHOLD_CUSTOM']:
+                try:
+                    config['DUP_ACCEPT_THRESHOLD'] = float(
+                        request.form.get('DUP_ACCEPT_THRESHOLD', 0.92)
+                    )
+                except (TypeError, ValueError):
+                    config['DUP_ACCEPT_THRESHOLD'] = 0.92
+            else:
+                config['DUP_ACCEPT_THRESHOLD'] = 0.92
         config['RESET_CONTEXT_ON_FORCE'] = request.form.get('RESET_CONTEXT_ON_FORCE') == 'true'
 
         config['TITLE_FALLBACK_TRANSLATION'] = request.form.get('TITLE_FALLBACK_TRANSLATION') == 'true'
@@ -166,7 +189,12 @@ def save_config_ajax():
                     pass
 
         config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
+        config['COVER_FORCE_OVERWRITE'] = request.form.get('COVER_FORCE_OVERWRITE') == 'true'
         config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'
+        if 'LIBRARY_INVENTORY_ENABLED' in request.form:
+            config['LIBRARY_INVENTORY_ENABLED'] = (
+                request.form.get('LIBRARY_INVENTORY_ENABLED') == 'true'
+            )
 
         t = get_ui_translations(config=config)
         try:

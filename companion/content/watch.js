@@ -276,6 +276,52 @@
     if (el) el.remove();
   }
 
+  /**
+   * Cover previews: an http:// MetaKavita preview is blocked as mixed content on
+   * an https:// Kavita page. The service worker can still fetch it, so we ask it
+   * for an inline data: URL instead of pointing <img> at MetaKavita directly.
+   */
+  function coverNeedsImageBridge(url) {
+    if (!url || /^data:/i.test(url)) return false;
+    return location.protocol === "https:" && /^http:\/\//i.test(url);
+  }
+
+  async function bridgeCoverImage(img, url, seriesId, onFail) {
+    let error = "unavailable";
+    try {
+      const res = await chrome.runtime.sendMessage({
+        type: "fetchImageData",
+        url,
+        seriesId,
+      });
+      if (res && res.ok && res.dataUrl) {
+        img.src = res.dataUrl;
+        return true;
+      }
+      error = (res && res.error) || error;
+    } catch {
+      error = "extension_reloaded";
+    }
+    if (typeof onFail === "function") onFail(error, url);
+    return false;
+  }
+
+  function setCoverImageSrc(img, url, seriesId, onFail) {
+    if (!url) return;
+    if (coverNeedsImageBridge(url)) {
+      bridgeCoverImage(img, url, seriesId, onFail);
+      return;
+    }
+    img.addEventListener(
+      "error",
+      () => {
+        bridgeCoverImage(img, url, seriesId, onFail);
+      },
+      { once: true }
+    );
+    img.src = url;
+  }
+
   function openCoverPicker(opts) {
     removeCover();
     removeMr();
@@ -412,6 +458,19 @@
           return;
         }
         status.textContent = covers.length + " cover(s)";
+        let previewErrorReported = false;
+        const reportPreviewError = (error, failedUrl) => {
+          console.warn(
+            "[MetaKavita Companion] cover preview failed (" + error + "):",
+            failedUrl
+          );
+          if (previewErrorReported) return;
+          previewErrorReported = true;
+          status.textContent =
+            error === "meta_login_required"
+              ? labels.previewLogin || "Previews refused by MetaKavita"
+              : (labels.previewFail || "Preview unavailable") + " (" + error + ")";
+        };
         covers.forEach((cover) => {
           const card = document.createElement("button");
           card.type = "button";
@@ -425,8 +484,8 @@
             textAlign: "left",
           });
           const img = document.createElement("img");
-          img.src = cover.display_url || cover.url || "";
-          img.alt = cover.title || "";
+          img.alt = "";
+          img.title = cover.title || "";
           img.loading = "lazy";
           Object.assign(img.style, {
             width: "100%",
@@ -436,6 +495,12 @@
             display: "block",
             background: "#020617",
           });
+          setCoverImageSrc(
+            img,
+            cover.display_url || cover.url || "",
+            seriesId,
+            reportPreviewError
+          );
           const cap = document.createElement("div");
           Object.assign(cap.style, {
             marginTop: "6px",

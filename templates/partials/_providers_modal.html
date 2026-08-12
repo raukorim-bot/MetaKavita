@@ -2,12 +2,13 @@
     <div id="providersModal" class="modal-overlay" onclick="if(event.target===this) closeProvidersModal()">
         <div class="modal-content modal-large modal-shell">
             <div class="modal-header modal-header--providers">
-                <h3 class="m-0">{{ t.providers_modal_title }}</h3>
+                <h3 class="m-0"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-providers"></use></svg>{{ t.providers_modal_title }}</h3>
                 <button type="button" class="close-btn" onclick="closeProvidersModal()">&times;</button>
             </div>
             <form id="providersForm" class="modal-form" onsubmit="event.preventDefault(); saveProvidersConfig();">
                 <div class="modal-scroll-body">
                     <p class="field-hint" style="margin: 0 0 14px;">{{ t.providers_modal_desc }}</p>
+                    <p class="field-hint" style="margin: 0 0 14px;">{{ t.providers_completion_hint }}</p>
 
                     <div class="config-section config-section--cascade">
                         <div class="cascade-block cascade-block--manga">

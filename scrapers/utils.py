@@ -30,12 +30,100 @@ MATCH_ACCEPT_THRESHOLD = 0.60
 MATCH_THRESHOLD_MIN = 0.30
 MATCH_THRESHOLD_MAX = 1.00
 
+# Dedup (hygiène) — seuil plus strict que le match scraper (défaut 0.92).
+# TODO: aligner un jour les malus édition/spin-off dans score_candidate() ;
+# V1 : marqueurs + relation_title_penalty utilisés uniquement par score_duplicate_pair.
+DUP_ACCEPT_THRESHOLD = 0.92
+DUP_THRESHOLD_MIN = 0.70
+DUP_THRESHOLD_MAX = 1.00
+
+# Sous-chaînes normalisées (normalize_str) — spin-offs / éditions.
+SPINOFF_MARKERS = (
+    "gaiden",
+    "spin off",
+    "spinoff",
+    "side story",
+    "sidestory",
+    "外伝",
+    "番外",
+    "novel",
+    "light novel",
+    "anthology",
+)
+EDITION_MARKERS = (
+    "perfect edition",
+    "deluxe edition",
+    "ultimate edition",
+    "kanzenban",
+    "bunkoban",
+    "collector edition",
+    "collectors edition",
+    "omnibus",
+    "full color",
+    "color edition",
+    "edition deluxe",
+    "edition collector",
+)
+
 # Clé interne (préfixée par "_" comme "_provider_used"/"_fusion_providers") sous laquelle
 # chaque scraper attache le score de score_candidate() au dict qu'il retourne. Consommée
 # par metadata_fetcher.py pour le "Smart Scoring" : comparer objectivement les candidats
 # de plusieurs providers entre eux plutôt que de retenir aveuglément le premier de la
 # liste de fallback qui dépasse MATCH_ACCEPT_THRESHOLD (voir CODE_REVIEW.md / DEVELOPER.md).
 MATCH_SCORE_KEY = "_match_score"
+
+
+def find_title_relation_markers(norm_title: str) -> dict:
+    """Detect spin-off / edition marker substrings in an already-normalized title."""
+    t = norm_title or ""
+    spin = {m for m in SPINOFF_MARKERS if m in t}
+    edition = {m for m in EDITION_MARKERS if m in t}
+    return {"spinoff": spin, "edition": edition}
+
+
+def relation_title_penalty(markers_a: dict, markers_b: dict) -> tuple:
+    """
+    Malus when titles differ by unilateral spin-off/edition markers.
+    Returns (penalty 0..1, reasons[]). Dedup-only in V1 (not wired into score_candidate).
+    """
+    sa = set((markers_a or {}).get("spinoff") or ())
+    sb = set((markers_b or {}).get("spinoff") or ())
+    ea = set((markers_a or {}).get("edition") or ())
+    eb = set((markers_b or {}).get("edition") or ())
+    penalty = 0.0
+    reasons = []
+    if sa != sb and (sa or sb):
+        # One has spin-off marker the other lacks (or different markers)
+        if not (sa & sb) or sa.symmetric_difference(sb):
+            penalty += 0.35
+            reasons.append("spinoff_marker")
+    if ea and eb and ea != eb and not (ea & eb):
+        penalty += 0.40
+        reasons.append("different_edition")
+    elif (ea or eb) and ea != eb:
+        # Unilateral edition marker (Berserk vs Berserk Perfect Edition)
+        penalty += 0.40
+        reasons.append("edition_marker")
+    return min(1.0, penalty), reasons
+
+
+def get_dup_accept_threshold(config=None) -> float:
+    """Seuil d'acceptation doublons (hygiène). Défaut 0.92 si custom off."""
+    if config is None:
+        try:
+            from config_manager import load_config
+            config = load_config()
+        except Exception:
+            return DUP_ACCEPT_THRESHOLD
+    if not config.get("DUP_THRESHOLD_CUSTOM"):
+        return DUP_ACCEPT_THRESHOLD
+    try:
+        value = float(config.get("DUP_ACCEPT_THRESHOLD", DUP_ACCEPT_THRESHOLD))
+    except (TypeError, ValueError):
+        return DUP_ACCEPT_THRESHOLD
+    if value != value:  # NaN
+        return DUP_ACCEPT_THRESHOLD
+    return max(DUP_THRESHOLD_MIN, min(DUP_THRESHOLD_MAX, value))
 
 
 def get_match_accept_threshold(config=None) -> float:

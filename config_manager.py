@@ -123,6 +123,9 @@ def load_config():
             # Baromètre de fiabilité : seuil d'acceptation des matches (défaut 0.60)
             "MATCH_THRESHOLD_CUSTOM": False,
             "MATCH_ACCEPT_THRESHOLD": 0.60,
+            # Hygiène doublons : seuil (défaut 0.92 ; presets 0.97 / 0.92 / 0.85)
+            "DUP_THRESHOLD_CUSTOM": False,
+            "DUP_ACCEPT_THRESHOLD": 0.92,
             "AUTO_SYNC_INTERVAL": 0,
             # Dénylist d'IDs exclus du polling auto-sync uniquement (virgules). Vide = auto-sync toutes.
             # Dashboard, batch manuel et webhook ne sont pas filtrés.
@@ -133,6 +136,10 @@ def load_config():
             # Sync scrapers/ (image) → data/scrapers/ for is_core files on boot
             "AUTO_UPDATE_CORE_SCRAPERS": True,
             "AUTO_COVER": False,
+            # Écrase les couvertures marquées comme choix manuel (cover_manual en
+            # cache) au lieu de les épargner. Échappatoire de masse : un run
+            # complet réécrit toutes les couvertures sans clic série par série.
+            "COVER_FORCE_OVERWRITE": False,
             "AUTO_READING_DIR": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
             "RESET_CONTEXT_ON_FORCE": False,
@@ -144,6 +151,11 @@ def load_config():
             # C33 Companion: CSV d'origins HTTP(S) supplémentaires pour
             # frame-ancestors sur /companion/embed (chrome/moz-extension: toujours inclus).
             "COMPANION_FRAME_ANCESTORS": "",
+            # C66 — Inventaire (manquants / doublons / sans id). Activé par défaut
+            # pour ne rien changer aux installations existantes ; décoché, la
+            # barre d'outils, les cartouches et les routes disparaissent, et le
+            # dashboard économise deux lectures SQLite par rendu.
+            "LIBRARY_INVENTORY_ENABLED": True,
         }
 
         file_config = {}
@@ -314,11 +326,12 @@ def load_config():
         )
 
         for bool_key in [
-            "AUTO_COVER", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
+            "AUTO_COVER", "COVER_FORCE_OVERWRITE", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
             "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE", "ENABLE_PLAYFUL_STATS",
-            "MATCH_THRESHOLD_CUSTOM", "AUTO_UPDATE_CORE_SCRAPERS",
+            "MATCH_THRESHOLD_CUSTOM", "DUP_THRESHOLD_CUSTOM", "AUTO_UPDATE_CORE_SCRAPERS",
             "MANUAL_REVIEW_MODE", "MANUAL_REVIEW_EDIT", "MANUAL_REVIEW_SOUNDS",
             "MANUAL_REVIEW_SUPER", "CONFIRM_BEFORE_WRITE", "MANUAL_REVIEW_COVER_PICK",
+            "LIBRARY_INVENTORY_ENABLED",
         ]:
             config[bool_key] = _resolve_bool(
                 file_config, bool_key, default=bool(config.get(bool_key, False))
@@ -329,6 +342,15 @@ def load_config():
                 "MATCH_ACCEPT_THRESHOLD",
                 os.getenv("MATCH_ACCEPT_THRESHOLD", config.get("MATCH_ACCEPT_THRESHOLD", 0.60)),
             )
+        )
+        config["DUP_ACCEPT_THRESHOLD"] = _parse_match_threshold(
+            file_config.get(
+                "DUP_ACCEPT_THRESHOLD",
+                os.getenv("DUP_ACCEPT_THRESHOLD", config.get("DUP_ACCEPT_THRESHOLD", 0.92)),
+            ),
+            default=0.92,
+            minimum=0.70,
+            maximum=1.00,
         )
 
         # --- SECRETS ET PREMIÈRE PERSISTANCE -------------------------------
@@ -574,6 +596,15 @@ def save_config(data):
             )
         if "MATCH_THRESHOLD_CUSTOM" in data:
             data["MATCH_THRESHOLD_CUSTOM"] = bool(data.get("MATCH_THRESHOLD_CUSTOM"))
+        if "DUP_ACCEPT_THRESHOLD" in data:
+            data["DUP_ACCEPT_THRESHOLD"] = _parse_match_threshold(
+                data.get("DUP_ACCEPT_THRESHOLD"),
+                default=0.92,
+                minimum=0.70,
+                maximum=1.00,
+            )
+        if "DUP_THRESHOLD_CUSTOM" in data:
+            data["DUP_THRESHOLD_CUSTOM"] = bool(data.get("DUP_THRESHOLD_CUSTOM"))
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR, exist_ok=True)
 

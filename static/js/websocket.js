@@ -84,6 +84,14 @@ socket.on('log_update', function(msg) {
     }
 });
 
+function _handleHygieneProgress(payload) {
+    if (typeof window._onHygieneProgress === 'function') {
+        window._onHygieneProgress(payload || {});
+    }
+}
+socket.on('hygiene_progress', _handleHygieneProgress);
+socket.on('volume_hygiene_progress', _handleHygieneProgress);
+
 socket.on('series_status', function(payload) {
     if (!payload || payload.series_id == null) return;
     var sid = String(payload.series_id);

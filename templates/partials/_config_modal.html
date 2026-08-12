@@ -2,7 +2,7 @@
     <div id="configModal" class="modal-overlay" onclick="if(event.target===this) closeConfigModal()">
         <div class="modal-content modal-large modal-shell">
             <div class="modal-header modal-header--accent">
-                <h3 class="m-0">⚙️ {{ t.config_title }}</h3>
+                <h3 class="m-0"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-cog"></use></svg>{{ t.config_title }}</h3>
                 <button type="button" class="close-btn" onclick="closeConfigModal()">&times;</button>
             </div>
             <form id="configForm" class="modal-form" onsubmit="event.preventDefault(); saveConfig({ reload: true });">

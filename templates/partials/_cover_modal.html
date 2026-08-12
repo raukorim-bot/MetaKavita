@@ -1,9 +1,11 @@
     <!-- MODAL DE SÉLECTION DE COUVERTURE AVEC RECHERCHE MANUELLE INTÉGRÉE -->
     <div id="coverModal" class="modal-overlay" onclick="if(event.target===this) closeCoverModal()">
-        <div class="modal-content modal-shell">
+        {# `modal-large` : à 600 px la grille ne tenait que trois couvertures par
+           ligne, on comparait donc à l'aveugle en faisant défiler. #}
+        <div class="modal-content modal-shell modal-large">
             <div class="modal-header" style="flex-direction: column; align-items: stretch; gap: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; gap: 10px;">
-                    <h3 class="m-0">{{ t.modal_cover_title }}<span id="modalSeriesName" style="color: var(--primary);"></span></h3>
+                    <h3 class="m-0"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-cover"></use></svg>{{ t.modal_cover_title }}<span id="modalSeriesName" style="color: var(--primary);"></span></h3>
                     <button type="button" class="close-btn" onclick="closeCoverModal()">&times;</button>
                 </div>
                 <div class="modal-search-wrapper inline-field-row" style="margin-top: 2px;">

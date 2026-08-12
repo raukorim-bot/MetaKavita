@@ -108,6 +108,7 @@ Documented for users in [README.md](./README.md) (EN: *Mixed content*; FR: *Cont
 | `webhook` | `POST` Meta `/webhook` |
 | `embedToken` | Short-lived token for `/companion/embed` |
 | `fetchCovers` / `applyCover` | Cover pick APIs |
+| `fetchImageData` | Meta-origin image → inline `data:` URL (mixed-content bridge for cover previews) |
 
 ### Overlay / page bridge (`postMessage`)
 

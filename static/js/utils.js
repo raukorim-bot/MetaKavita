@@ -42,7 +42,15 @@ function toDisplayCoverUrl(url) {
         return !!dom && (host === dom || host.endsWith('.' + dom));
     });
     if (!needsProxy) return trimmed;
-    return getRootPath() + '/api/proxy-image?url=' + encodeURIComponent(trimmed);
+    let proxied = getRootPath() + '/api/proxy-image?url=' + encodeURIComponent(trimmed);
+    // Companion embed : un <img> ne peut pas porter le header X-Companion-Embed-Token
+    // que le shell injecte sur les fetch, donc le jeton voyage en query (l'allowlist
+    // de domaines et le plafond de taille du proxy s'appliquent de la même façon).
+    const embed = window.COMPANION_EMBED;
+    if (embed && embed.embedToken) {
+        proxied += '&embed_token=' + encodeURIComponent(embed.embedToken);
+    }
+    return proxied;
 }
 
 // --- CSRF : injecte X-CSRF-Token sur tous les fetch mutatifs ---

@@ -2,7 +2,7 @@
 	<div id="scrapingOptionsHelpModal" class="modal-overlay" onclick="if(event.target===this) closeScrapingOptionsHelpModal()" style="display: none;">
 		<div class="modal-content modal-shell scraping-help-modal">
 			<div class="modal-header modal-header--accent">
-				<h3 class="m-0">{{ t.scraping_options_help_title }}</h3>
+				<h3 class="m-0"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-help"></use></svg>{{ t.scraping_options_help_title }}</h3>
 				<button type="button" class="close-btn" onclick="closeScrapingOptionsHelpModal()">&times;</button>
 			</div>
 			<div class="modal-scroll-body scraping-help-body">
@@ -73,8 +73,16 @@
 						<p>{{ t.scraping_help_force_update }}</p>
 					</article>
 					<article class="scraping-help-item">
+						<h5>{{ t.cover_force_overwrite }}</h5>
+						<p>{{ t.scraping_help_cover_force_overwrite }}</p>
+					</article>
+					<article class="scraping-help-item">
 						<h5>{{ t.batch_targeted_fields }}</h5>
 						<p>{{ t.scraping_help_batch_fields }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.library_inventory_enabled }}</h5>
+						<p>{{ t.scraping_help_library_inventory }}</p>
 					</article>
 				</section>
 			</div>

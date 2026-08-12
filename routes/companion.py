@@ -173,10 +173,23 @@ def companion_embed():
             if origin not in extras:
                 extras.append(origin)
 
+    # The embed shell has no sidebar, so manual_review.js cannot read the review
+    # options from checkboxes like it does in the dashboard. Without these the
+    # cover phase was silently skipped on every Companion Super Review (BF107).
+    # manualMode / superReview are true by construction: this shell only exists
+    # because the Companion webhook forced a Super Review for that one run.
+    mr_options = {
+        "manualMode": True,
+        "superReview": True,
+        "edit": bool(config.get("MANUAL_REVIEW_EDIT", True)),
+        "coverPick": bool(config.get("MANUAL_REVIEW_COVER_PICK")),
+    }
+
     html = render_template(
         "companion_embed.html",
         t=t,
         config=config,
+        mr_options=mr_options,
         series_id=series_id,
         review_id=review_id or "",
         parent_origin=parent_origin,

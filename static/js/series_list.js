@@ -52,6 +52,22 @@
         return '<span class="badge badge-pending">' + esc(tr.filter_pending || 'Pending') + '</span>';
     }
 
+    /* Cartouche d'inventaire : même couleur et même infobulle que le rendu Jinja
+       (library_audit.js est la source unique, ce fichier ne fait que déléguer). */
+    function auditBadgeClass(s) {
+        if (typeof window.auditBadgeClass === 'function') {
+            return window.auditBadgeClass(s.completion_state, s.forced_expected);
+        }
+        return 'badge badge-audit';
+    }
+
+    function auditBadgeTitle(s) {
+        if (typeof window.auditBadgeTitle === 'function') {
+            return window.auditBadgeTitle(s.completion_state, s.forced_expected, s.audit_unit);
+        }
+        return (T().audit_badge_title || '');
+    }
+
     function buildRowHtml(s) {
         var tr = T();
         var sid = String(s.id);
@@ -79,15 +95,40 @@
             ' data-targeted-fields="' + escAttr(s.targeted_fields || 'ALL') + '"' +
             ' data-publisher-pref="' + escAttr(s.publisher_pref || 'GLOBAL') + '"' +
             ' data-alt-langs="' + escAttr(s.alt_title_langs || '') + '"' +
+            ' data-cover-manual="' + (s.cover_manual ? '1' : '0') + '"' +
+            ' data-has-external-id="' + (s.has_external_id ? '1' : (s.has_external_id === false ? '0' : '')) + '"' +
+            ' data-duplicate-group-id="' + escAttr(s.duplicate_group_id || '') + '"' +
+            ' data-audit-badge="' + escAttr(s.audit_badge || '') + '"' +
+            ' data-missing-count="' + escAttr(s.missing_count != null ? s.missing_count : 0) + '"' +
+            ' data-catalog-expected="' + escAttr(s.catalog_expected != null ? s.catalog_expected : '') + '"' +
+            ' data-publication-status="' + escAttr(s.publication_status || '') + '"' +
+            ' data-completion-state="' + escAttr(s.completion_state || '') + '"' +
+            ' data-forced-expected="' + (s.forced_expected ? '1' : '0') + '"' +
+            ' data-inventory-excluded="' + (s.inventory_excluded ? '1' : '0') + '"' +
             ' style="' + heightStyle + 'box-sizing:border-box;">' +
             '<div class="series-row">' +
             '<div class="series-title-line">' +
             '<input type="checkbox" name="selected_series" value="' + escAttr(sid) + '" class="series-cb"' + checked + '>' +
             '<a href="' + escAttr(href) + '" target="_blank" class="series-link"><span class="series-name">' + esc(name) + '</span></a>' +
             '</div>' +
-            '<div class="series-status">' + badgeHtml(s.status) + '</div>' +
+            '<div class="series-status">' + badgeHtml(s.status) +
+            (s.audit_badge
+                ? '<span class="' + auditBadgeClass(s) + '" title="' + escAttr(auditBadgeTitle(s)) + '">' +
+                  esc(s.audit_badge) + '</span>'
+                : '') +
+            (s.inventory_excluded
+                ? '<span class="badge badge-inventory-excluded" title="' +
+                  escAttr(tr.audit_excluded_badge_hint || '') + '">' +
+                  esc(tr.audit_excluded_badge || '') + '</span>'
+                : '') +
+            (s.cover_manual
+                ? '<button type="button" class="badge badge-cover-manual" data-action="release-cover" title="' +
+                  escAttr(tr.cover_manual_badge_hint || '') + '">🔒 ' + esc(tr.cover_manual_badge || '') + '</button>'
+                : '') +
+            '</div>' +
             '<div class="series-actions">' +
             '<button type="button" class="btn-icon" data-action="ignore" title="' + escAttr(ignTitle) + '">' + ignIcon + '</button>' +
+            '<button type="button" class="btn-icon btn-audit-report" data-action="audit" title="' + escAttr(tr.audit_volume_report || 'Volumes') + '">📑</button>' +
             '<button type="button" class="btn-icon" data-action="covers" title="' + escAttr(tr.manage_covers || 'Covers') + '">🖼️</button>' +
             '<button type="button" class="btn-opt" data-action="options">' + esc(tr.options || 'Options') + '</button>' +
             '<button type="button" class="btn-sync" data-action="sync">' + esc(tr.update || 'Update') + '</button>' +
@@ -102,12 +143,20 @@
         if (ignoreBtn) ignoreBtn.addEventListener('click', function () { toggleIgnore(sid, ignoreBtn); });
         var coversBtn = el.querySelector('[data-action="covers"]');
         if (coversBtn) coversBtn.addEventListener('click', function () { openCoverModal(sid, s.name || ''); });
+        var auditBtn = el.querySelector('[data-action="audit"]');
+        if (auditBtn) auditBtn.addEventListener('click', function () {
+            if (typeof openVolumeReportModal === 'function') openVolumeReportModal(sid, s.name || '');
+        });
         var optBtn = el.querySelector('[data-action="options"]');
         if (optBtn) optBtn.addEventListener('click', function () { toggleSeriesPanel(sid); });
         var syncBtn = el.querySelector('[data-action="sync"]');
         if (syncBtn) syncBtn.addEventListener('click', function () { syncSingle(sid, s.name || '', syncBtn); });
         var sealBtn = el.querySelector('[data-seal]');
         if (sealBtn) sealBtn.addEventListener('click', function () { sealSeriesLocks(sid, sealBtn); });
+        var releaseCoverBtn = el.querySelector('[data-action="release-cover"]');
+        if (releaseCoverBtn) releaseCoverBtn.addEventListener('click', function () {
+            if (typeof releaseSeriesCover === 'function') releaseSeriesCover(sid, releaseCoverBtn);
+        });
         // Re-attach cached open panel after virtual recycle (innerHTML wipe).
         if (pinnedPanelIds.has(sid) && typeof reattachOverridePanelIfAny === 'function') {
             var existing = reattachOverridePanelIfAny(sid, el);
@@ -214,6 +263,7 @@
         var hideIgnored = !!opts.hideIgnored;
         var searchQuery = opts.searchQuery || '';
         var searchInside = !!opts.searchInside;
+        var hygiene = (opts.hygieneFilter != null) ? opts.hygieneFilter : window.hygieneFilter;
 
         matchedIds = [];
         matchedSet = new Set();
@@ -226,6 +276,20 @@
                 show = !(hideIgnored && status === 'IGNORED');
             } else if (status === filter) {
                 show = true;
+            }
+            if (show && hygiene) {
+                if (hygiene === 'MISSING_VS_CATALOG') {
+                    show = (Number(s.missing_count) || 0) > 0;
+                } else if (hygiene === 'DUPLICATES') {
+                    show = !!s.duplicate_group_id;
+                } else if (hygiene === 'NO_EXTERNAL_ID') {
+                    show = s.has_external_id === false || s.has_external_id === 0;
+                } else if (hygiene === 'FINISHED') {
+                    show = String(s.publication_status || '').toUpperCase() === 'FINISHED';
+                } else if (hygiene === 'RELEASING') {
+                    var pub = String(s.publication_status || '').toUpperCase();
+                    show = pub === 'RELEASING' || pub === 'HIATUS' || pub === 'NOT_YET_RELEASED';
+                }
             }
             if (show && searchQuery) {
                 if (typeof titleMatchesSearch === 'function') {
@@ -264,6 +328,32 @@
         var s = byId[String(seriesId)];
         if (!s || !patch) return;
         Object.keys(patch).forEach(function (k) { s[k] = patch[k]; });
+    }
+
+    /** Apply audit flags from /duplicates (has_external_id + duplicate_group_id). */
+    function applyAuditFlags(flags) {
+        if (!flags) return;
+        Object.keys(byId).forEach(function (sid) {
+            if (byId[sid]) byId[sid].duplicate_group_id = '';
+        });
+        Object.keys(flags).forEach(function (sid) {
+            var s = byId[String(sid)];
+            if (!s) return;
+            var f = flags[sid] || {};
+            if (Object.prototype.hasOwnProperty.call(f, 'has_external_id')) {
+                s.has_external_id = !!f.has_external_id;
+            }
+            s.duplicate_group_id = f.duplicate_group_id || '';
+        });
+    }
+
+    function applyAuditBadges(map) {
+        if (!map) return;
+        Object.keys(map).forEach(function (sid) {
+            var s = byId[String(sid)];
+            if (s) s.audit_badge = map[sid] || '';
+        });
+        renderWindow();
     }
 
     function pinOpenPanel(seriesId) {
@@ -321,6 +411,8 @@
             refreshMountedChecks: refreshMountedChecks,
             updateStatus: updateStatus,
             patchOverride: patchOverride,
+            applyAuditFlags: applyAuditFlags,
+            applyAuditBadges: applyAuditBadges,
             pinOpenPanel: pinOpenPanel,
             pinOpenPanels: pinOpenPanels,
             unpinPanel: unpinPanel,

@@ -74,7 +74,8 @@
             parentOrigin: {{ parent_origin|tojson }},
             topOrigin: {{ top_origin|tojson }},
             embedToken: {{ embed_token|tojson }},
-            singleSeries: true
+            singleSeries: true,
+            options: {{ mr_options|default({})|tojson }}
         };
         // Inject embed token on every API call (session cookies are not sent in
         // a cross-origin Kavita iframe under SameSite=Lax).
@@ -121,6 +122,8 @@
         <h1>{{ companion_wait_title }}</h1>
         <p>{{ companion_wait_text }}</p>
     </div>
+
+    {% include "partials/_icons_sprite.html" %}
 
     {% include "partials/_manual_review_modal.html" %}
 

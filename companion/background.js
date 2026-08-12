@@ -14,6 +14,71 @@ function stripOrigin(origin) {
   return String(origin || "").replace(/\/+$/, "");
 }
 
+/**
+ * Cover picker runs as <img> on the Kavita page. Relative display_url
+ * (/api/proxy-image?…) would hit Kavita, not Meta — and cross-origin Meta
+ * needs ?embed_token= (no cookies / no custom headers on img).
+ */
+function resolveCompanionCoverDisplayUrl(displayUrl, rawUrl, metaBase, embedToken) {
+  let u = String(displayUrl || rawUrl || "").trim();
+  if (!u) return "";
+  const base = String(metaBase || "").replace(/\/+$/, "");
+  if (u.startsWith("/") && base) {
+    try {
+      const origin = new URL(base).origin;
+      const basePath = new URL(base + "/").pathname.replace(/\/+$/, "") || "";
+      if (basePath && (u === basePath || u.startsWith(basePath + "/"))) {
+        u = origin + u;
+      } else {
+        u = base + u;
+      }
+    } catch {
+      u = base + u;
+    }
+  }
+  if (!embedToken || u.indexOf("/api/proxy-image") === -1) return u;
+  try {
+    const parsed = new URL(u);
+    if (!parsed.searchParams.has("embed_token")) {
+      parsed.searchParams.set("embed_token", embedToken);
+    }
+    return parsed.toString();
+  } catch {
+    return u;
+  }
+}
+
+const IMAGE_BRIDGE_MAX_BYTES = 8 * 1024 * 1024;
+
+function bytesToBase64(bytes) {
+  let out = "";
+  const step = 0x8000;
+  for (let i = 0; i < bytes.length; i += step) {
+    out += String.fromCharCode.apply(null, bytes.subarray(i, i + step));
+  }
+  return btoa(out);
+}
+
+async function mintEmbedToken(base, webhookToken, seriesId) {
+  try {
+    const res = await fetch(`${base}/companion/embed-token`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Webhook-Token": webhookToken,
+      },
+      body: JSON.stringify({
+        seriesId,
+        parent_origin: chrome.runtime.getURL("").replace(/\/$/, ""),
+      }),
+    });
+    const body = await res.json().catch(() => ({}));
+    return res.ok && body.embed_token ? body.embed_token : "";
+  } catch {
+    return "";
+  }
+}
+
 let syncChain = Promise.resolve();
 
 function queueSync(fn) {
@@ -372,6 +437,76 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         }
         return;
       }
+      // An HTTPS Kavita page cannot render http://meta/api/proxy-image in an
+      // <img> (mixed content). Service worker fetches are exempt, so the bytes
+      // come back as a data: URL the page can always display.
+      if (msg.type === "fetchImageData") {
+        const settings = await loadSettings();
+        const base = normalizeBaseUrl(settings.metaBaseUrl);
+        if (!base || !settings.webhookToken) {
+          sendResponse({ ok: false, error: "not_configured" });
+          return;
+        }
+        let target;
+        try {
+          target = new URL(String(msg.url || "").trim(), base + "/");
+        } catch {
+          sendResponse({ ok: false, error: "bad_url" });
+          return;
+        }
+        const metaOrigin = originFromUrl(base);
+        if (!metaOrigin || originFromUrl(target.toString()) !== metaOrigin) {
+          sendResponse({ ok: false, error: "not_meta_url" });
+          return;
+        }
+        const headers = {};
+        const seriesId = Number(msg.seriesId);
+        if (Number.isFinite(seriesId) && seriesId > 0) {
+          const token = await mintEmbedToken(base, settings.webhookToken, seriesId);
+          if (token) {
+            headers["X-Companion-Embed-Token"] = token;
+            target.searchParams.delete("embed_token");
+          }
+        }
+        try {
+          const res = await fetch(target.toString(), {
+            headers,
+            credentials: "omit",
+          });
+          // A MetaKavita that predates the embed-token allowance on
+          // /api/proxy-image answers 302 → /login, which fetch follows into an
+          // HTML page. Name that failure instead of reporting "not an image".
+          if (/\/login\b/i.test(res.url || "")) {
+            sendResponse({ ok: false, error: "meta_login_required" });
+            return;
+          }
+          if (!res.ok) {
+            sendResponse({ ok: false, error: `HTTP ${res.status}` });
+            return;
+          }
+          const mime = (res.headers.get("Content-Type") || "")
+            .split(";")[0]
+            .trim()
+            .toLowerCase();
+          if (mime && !mime.startsWith("image/")) {
+            sendResponse({ ok: false, error: "not_an_image" });
+            return;
+          }
+          const buf = await res.arrayBuffer();
+          if (!buf.byteLength || buf.byteLength > IMAGE_BRIDGE_MAX_BYTES) {
+            sendResponse({ ok: false, error: "bad_size" });
+            return;
+          }
+          const b64 = bytesToBase64(new Uint8Array(buf));
+          sendResponse({
+            ok: true,
+            dataUrl: `data:${mime || "image/jpeg"};base64,${b64}`,
+          });
+        } catch (e) {
+          sendResponse({ ok: false, error: String(e && e.message ? e.message : e) });
+        }
+        return;
+      }
       if (msg.type === "fetchCovers" || msg.type === "applyCover") {
         const settings = await loadSettings();
         const base = normalizeBaseUrl(settings.metaBaseUrl);
@@ -419,7 +554,17 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               });
               return;
             }
-            sendResponse({ ok: true, covers: body.covers || [] });
+            const covers = (body.covers || []).map((c) => {
+              if (!c || typeof c !== "object") return c;
+              const display = resolveCompanionCoverDisplayUrl(
+                c.display_url,
+                c.url,
+                base,
+                embedToken
+              );
+              return { ...c, display_url: display || c.display_url || c.url || "" };
+            });
+            sendResponse({ ok: true, covers });
             return;
           }
           const res = await fetch(`${base}/api/series/${seriesId}/update-cover`, {

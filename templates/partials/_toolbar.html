@@ -53,5 +53,109 @@
                                     </label>
                                 </div>
                             </div>
+
+                            <div class="toolbar-group toolbar-group--hygiene" id="inventoryPanel">
+                                <div class="hygiene-head">
+                                    <span class="toolbar-group-label">{{ t.toolbar_group_duplicates }}</span>
+                                    <span class="hygiene-freshness" id="hygieneFreshness"
+                                          data-scanned-at="{{ hygiene_scanned_at|default('') }}"
+                                          title="{{ t.audit_freshness_hint }}">{% if not hygiene_meta %}{{ t.audit_never_scanned }}{% endif %}</span>
+                                    <div class="hygiene-actions">
+                                        <button type="button" class="btn-sync" id="btnHygieneAnalyse"
+                                                onclick="startHygieneScan()"
+                                                title="{{ t.audit_analyse_hint }}">
+                                            {{ t.audit_analyse }}
+                                        </button>
+                                        <button type="button" class="btn-opt" id="btnHygieneAnalyseQuick"
+                                                onclick="startHygieneScan({ mode: 'incremental' })"
+                                                title="{{ t.audit_analyse_quick_hint }}"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_analyse_quick }}
+                                        </button>
+                                        <button type="button" class="btn-danger" id="btnHygieneCancel"
+                                                onclick="cancelHygieneScan()"
+                                                title="{{ t.audit_cancel_hint }}"
+                                                style="display:none;">
+                                            {{ t.audit_cancel }}
+                                        </button>
+                                        <button type="button" class="btn-opt" id="btnAuditMissing"
+                                                onclick="openMissingVolumesModal()"
+                                                title="{{ t.audit_missing_detail_hint }}"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_missing_detail }}
+                                        </button>
+                                        <button type="button" class="btn-opt" id="btnAuditDuplicates"
+                                                onclick="openDuplicatesModal()"
+                                                title="{{ t.audit_duplicates_hint }}"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_dup_detail }}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {% set hy_series = hygiene_counts.get('series', 0) if hygiene_counts else 0 %}
+                                {% set hy_healthy = hygiene_counts.get('healthy') if hygiene_counts else none %}
+                                <div class="hygiene-health" id="hygieneHealth"
+                                     {% if not hygiene_meta or hy_healthy is none or not hy_series %}hidden{% endif %}>
+                                    {% set hy_incomplete = hygiene_counts.get('incomplete', 0) if hygiene_counts else 0 %}
+                                    {% set hy_unknown = hygiene_counts.get('unknown_expected', 0) if hygiene_counts else 0 %}
+                                    <div class="hygiene-health-bar" id="hygieneHealthBar"
+                                         role="img" aria-label="{{ t.audit_health_title }}">
+                                        <span class="hh-seg hh-seg--healthy" data-seg="healthy"
+                                              style="width: {{ (100 * (hy_healthy or 0) / hy_series) if hy_series else 0 }}%;"></span>
+                                        <span class="hh-seg hh-seg--incomplete" data-seg="incomplete"
+                                              style="width: {{ (100 * hy_incomplete / hy_series) if hy_series else 0 }}%;"></span>
+                                        <span class="hh-seg hh-seg--unknown" data-seg="unknown"
+                                              style="width: {{ (100 * hy_unknown / hy_series) if hy_series else 0 }}%;"></span>
+                                    </div>
+                                    <div class="hygiene-health-legend" id="hygieneHealthLegend">
+                                        <span class="hh-key hh-key--healthy"><b id="hygieneHealthHealthy">{{ hy_healthy or 0 }}</b> {{ t.audit_health_healthy }}</span>
+                                        <span class="hh-key hh-key--incomplete"><b id="hygieneHealthIncomplete">{{ hy_incomplete }}</b> {{ t.audit_health_incomplete }}</span>
+                                        <span class="hh-key hh-key--unknown"><b id="hygieneHealthUnknown">{{ hy_unknown }}</b> {{ t.audit_health_unknown }}</span>
+                                        <span class="hh-key hh-key--total"><b id="hygieneHealthSeries">{{ hy_series }}</b> {{ t.audit_health_series }}</span>
+                                    </div>
+                                </div>
+
+                                <div class="toolbar-group-controls hygiene-controls">
+                                    <div class="hygiene-chips" id="hygieneChips"
+                                         data-scanned="{{ '1' if hygiene_meta else '0' }}">
+                                        <button type="button" class="hygiene-chip" data-hygiene="MISSING_VS_CATALOG"
+                                                onclick="applyHygieneFilter('MISSING_VS_CATALOG')"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_chip_missing }}
+                                            <span class="hygiene-chip-count" id="hygieneCountMissing">{{ hygiene_counts.get('missing', 0) if hygiene_counts else 0 }}</span>
+                                        </button>
+                                        <button type="button" class="hygiene-chip" data-hygiene="DUPLICATES"
+                                                onclick="applyHygieneFilter('DUPLICATES')"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_chip_duplicates }}
+                                            <span class="hygiene-chip-count" id="hygieneCountDups">{{ hygiene_counts.get('duplicates', 0) if hygiene_counts else 0 }}</span>
+                                        </button>
+                                        <button type="button" class="hygiene-chip" data-hygiene="NO_EXTERNAL_ID"
+                                                onclick="applyHygieneFilter('NO_EXTERNAL_ID')"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_chip_no_id }}
+                                            <span class="hygiene-chip-count" id="hygieneCountNoId">{{ hygiene_counts.get('no_external_id', 0) if hygiene_counts else 0 }}</span>
+                                        </button>
+                                        <button type="button" class="hygiene-chip" data-hygiene="FINISHED"
+                                                onclick="applyHygieneFilter('FINISHED')"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_chip_finished }}
+                                        </button>
+                                        <button type="button" class="hygiene-chip" data-hygiene="RELEASING"
+                                                onclick="applyHygieneFilter('RELEASING')"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_chip_releasing }}
+                                        </button>
+                                        <button type="button" class="hygiene-chip hygiene-chip--clear"
+                                                onclick="applyHygieneFilter(null)"
+                                                title="{{ t.audit_chip_clear }}">{{ t.audit_chip_clear }}</button>
+                                    </div>
+                                </div>
+                                <div id="hygieneScanProgress" class="batch-progress-wrap hygiene-progress" style="display:none;" aria-hidden="true">
+                                    <div class="batch-progress-meta"><span id="hygieneScanLabel">0 / 0</span></div>
+                                    <div class="batch-progress-track"><div id="hygieneScanFill" class="batch-progress-fill" style="width:0%;"></div></div>
+                                </div>
+                            </div>
                         </div>
                     </div>

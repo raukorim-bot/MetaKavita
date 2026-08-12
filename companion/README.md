@@ -19,7 +19,7 @@ MV3 extension (**Chrome / Edge / Firefox**) that adds a floating MetaKavita menu
 
 Server prerequisites (MetaKavita **1.6.5+**): Companion webhook (`seriesId`, `auto`, `super_review`), routes `/companion/embed` and `/companion/embed-token`.
 
-Current extension version: **1.0.24** (see `manifest.json`).
+Current extension version: **1.0.26** (see `manifest.json`).
 
 Ready-made zips (no rebuild):
 - Chrome / Edge: [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)
@@ -34,9 +34,10 @@ Ready-made zips (no rebuild):
 | Kavita site activation | **Dev** | Origin remembered; content scripts registered dynamically |
 | Series-page FABs (icon arc) | **Dev** | Shadow DOM in Kavita; only `/library/…/series/{id}` |
 | In-page Super Review | **Dev** | `/companion/embed` iframe + embed token (same HTTP/HTTPS scheme) |
-| Mixed-content Super Review | **Dev** | HTTPS Kavita + HTTP Meta → new tab; auto-close when done |
+| Mixed-content Super Review | **Dev** | HTTPS Kavita + HTTP Meta → dedicated popup window (tab fallback); auto-close when done |
 | Auto (webhook) | **Dev** | `auto` + `force` |
 | Cover pick | **Dev** | Page overlay + cover APIs via background |
+| Mixed-content cover previews | **Dev** | HTTPS Kavita + HTTP Meta → service worker fetch, inline `data:` image |
 | Config / i18n FR·EN | **Dev** | |
 | Chrome / Firefox stores | **Not published** | Sideload distribution only for now |
 
@@ -85,7 +86,11 @@ The webhook token is in MetaKavita → Configuration (webhook / Auto-Sync sectio
 
 #### Mixed content (HTTPS Kavita + HTTP MetaKavita)
 
-Browsers block an HTTP iframe inside an HTTPS page. In that case Companion opens Super Review in a **new tab** (without `noopener`, so it can close itself). When the run finishes (standalone tab only), the tab closes and focus returns to Kavita.
+Browsers block an HTTP iframe inside an HTTPS page, and no extension trick lifts that: the mixed-content check looks at the **top** frame, so hosting the iframe in an extension frame injected into Kavita is blocked exactly the same way. Only a top-level document escapes it.
+
+So Companion opens Super Review in a **dedicated popup window** — chromeless, centered over Kavita, opened from the click itself (before any `await`) so the popup blocker leaves it alone. It keeps its `opener`, which is what lets the review focus Kavita and close its own window when it finishes. If the popup is blocked anyway, Companion falls back to a plain new tab.
+
+Cover previews hit the same wall: covers that need the MetaKavita proxy (MangaDex, Anime-Planet…) are `http://…/api/proxy-image` thumbnails, blocked as mixed content. The service worker fetches them instead (it is not subject to the block) and returns an inline `data:` image to the page, so previews render on an HTTPS Kavita. The bridge only accepts URLs on the configured MetaKavita origin, only image responses, and caps at 8 MB.
 
 #### Batch & MetaKavita config
 
@@ -117,7 +122,7 @@ Extension navigateur (**Chrome / Edge / Firefox**, Manifest V3) qui ajoute un me
 
 Prérequis côté serveur MetaKavita (**1.6.5**+) : webhook Companion (`seriesId`, `auto`, `super_review`), routes `/companion/embed` et `/companion/embed-token`.
 
-Version extension courante : **1.0.24** (voir `manifest.json`).
+Version extension courante : **1.0.26** (voir `manifest.json`).
 
 Zips prêts (sans rebuild) :
 - Chrome / Edge : [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)
@@ -132,9 +137,10 @@ Zips prêts (sans rebuild) :
 | Activation site Kavita | **Dev** | Origine mémorisée ; content scripts enregistrés dynamiquement |
 | FABs page série (arc icônes) | **Dev** | Shadow DOM dans Kavita ; uniquement `/library/…/series/{id}` |
 | Super Review in-page | **Dev** | Iframe `/companion/embed` + embed token (même schéma HTTP/HTTPS) |
-| Super Review contenu mixte | **Dev** | HTTPS Kavita + HTTP Meta → nouvel onglet ; fermeture auto en fin de parcours |
+| Super Review contenu mixte | **Dev** | HTTPS Kavita + HTTP Meta → fenêtre dédiée (repli onglet) ; fermeture auto en fin de parcours |
 | Auto (webhook) | **Dev** | `auto` + `force` |
 | Cover pick | **Dev** | Overlay page + APIs covers via background |
+| Previews cover contenu mixte | **Dev** | HTTPS Kavita + HTTP Meta → fetch service worker, image `data:` inline |
 | Config / i18n FR·EN | **Dev** | |
 | Stores Chrome / Firefox | **Non publié** | Distribution sideload uniquement pour l’instant |
 
@@ -183,7 +189,11 @@ Le jeton webhook se trouve dans MetaKavita → Configuration (section webhook / 
 
 #### Contenu mixte (HTTPS Kavita + HTTP MetaKavita)
 
-Les navigateurs bloquent l’iframe HTTP dans une page HTTPS. Dans ce cas Companion ouvre Super Review dans un **nouvel onglet** (sans `noopener`, pour pouvoir le fermer). En fin de parcours (standalone tab uniquement), l’onglet se ferme et le focus revient à Kavita.
+Les navigateurs bloquent l’iframe HTTP dans une page HTTPS, et aucune astuce d’extension n’y échappe : le contrôle mixed-content regarde la frame **top**, donc héberger l’iframe dans une frame d’extension injectée dans Kavita est bloqué à l’identique. Seul un document top-level y échappe.
+
+Companion ouvre donc Super Review dans une **fenêtre dédiée** — sans barre d’adresse, centrée sur Kavita, ouverte depuis le clic lui-même (avant tout `await`) pour que le bloqueur de popups la laisse passer. Elle conserve son `opener`, ce qui permet à la review de redonner le focus à Kavita et de fermer sa propre fenêtre en fin de parcours. Si la popup est bloquée malgré tout, Companion retombe sur un simple onglet.
+
+Les previews de couvertures se heurtent au même mur : les covers qui passent par le proxy MetaKavita (MangaDex, Anime-Planet…) sont des miniatures `http://…/api/proxy-image`, bloquées comme contenu mixte. C’est donc le service worker qui les récupère (il n’est pas soumis au blocage) et qui renvoie une image `data:` inline à la page — les previews s’affichent même sur un Kavita HTTPS. Le pont n’accepte que des URLs de l’origine MetaKavita configurée, uniquement des réponses image, et plafonne à 8 Mo.
 
 #### Batch & configuration MetaKavita
 

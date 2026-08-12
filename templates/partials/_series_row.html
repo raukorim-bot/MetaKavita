@@ -9,7 +9,17 @@
                                  data-forced-provider="{{ (series.forced_provider or 'AUTO')|e }}"
                                  data-targeted-fields="{{ (series.targeted_fields or 'ALL')|e }}"
                                  data-publisher-pref="{{ (series.publisher_pref or 'GLOBAL')|e }}"
-                                 data-alt-langs="{{ (series.alt_title_langs or '')|e }}">
+                                 data-alt-langs="{{ (series.alt_title_langs or '')|e }}"
+                                 data-cover-manual="{% if series.cover_manual %}1{% else %}0{% endif %}"
+                                 data-has-external-id="{% if series.has_external_id is none %}{% elif series.has_external_id %}1{% else %}0{% endif %}"
+                                 data-duplicate-group-id="{{ (series.duplicate_group_id or '')|e }}"
+                                 data-audit-badge="{{ (series.audit_badge or '')|e }}"
+                                 data-missing-count="{{ series.missing_count|default(0) }}"
+                                 data-catalog-expected="{{ series.catalog_expected if series.catalog_expected is not none else '' }}"
+                                 data-publication-status="{{ (series.publication_status or '')|e }}"
+                                 data-completion-state="{{ (series.completion_state or '')|e }}"
+                                 data-forced-expected="{% if series.forced_expected %}1{% else %}0{% endif %}"
+                                 data-inventory-excluded="{% if series.inventory_excluded %}1{% else %}0{% endif %}">
                                 <div class="series-row">
                                     <div class="series-title-line">
                                         <input type="checkbox" name="selected_series" value="{{ series.id }}" class="series-cb">
@@ -32,11 +42,22 @@
                                         {% else %}
                                             <span class="badge badge-pending">{{ t.filter_pending }}</span>
                                         {% endif %}
+                                        {% if series.audit_badge %}
+                                            <span class="badge badge-audit{% if series.completion_state %} badge-audit--{{ series.completion_state }}{% endif %}{% if series.forced_expected %} badge-audit--forced{% endif %}"
+                                                  title="{{ t.get('audit_state_' ~ (series.completion_state or ''), t.audit_badge_title) }}{% if series.forced_expected %} · {{ t.audit_forced_expected }}{% endif %}">{{ series.audit_badge }}</span>
+                                        {% endif %}
+                                        {% if series.inventory_excluded %}
+                                            <span class="badge badge-inventory-excluded" title="{{ t.audit_excluded_badge_hint }}">{{ t.audit_excluded_badge }}</span>
+                                        {% endif %}
+                                        {% if series.cover_manual %}
+                                            <button type="button" class="badge badge-cover-manual" data-action="release-cover" onclick="releaseSeriesCover('{{ series.id }}', this)" title="{{ t.cover_manual_badge_hint }}">🔒 {{ t.cover_manual_badge }}</button>
+                                        {% endif %}
                                     </div>
                                     <div class="series-actions">
                                         <button type="button" class="btn-icon" data-action="ignore" onclick="toggleIgnore('{{ series.id }}', this)" title="{% if series.status == 'IGNORED' %}{{ t.unignore_btn }}{% else %}{{ t.ignore_btn }}{% endif %}">
                                             {% if series.status == 'IGNORED' %}🔄{% else %}🚫{% endif %}
                                         </button>
+                                        <button type="button" class="btn-icon btn-audit-report" data-action="audit" onclick="openVolumeReportModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.audit_volume_report }}">📑</button>
                                         <button type="button" class="btn-icon" data-action="covers" onclick="openCoverModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.manage_covers }}">🖼️</button>
                                         <button type="button" class="btn-opt" data-action="options" onclick="toggleSeriesPanel('{{ series.id }}')">{{ t.options }}</button>
                                         <button type="button" class="btn-sync" data-action="sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>

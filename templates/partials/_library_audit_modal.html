@@ -1,0 +1,64 @@
+{# Library hygiene modals — volume report + duplicates #}
+{# Ces trois modales suivent le shell partagé (`modal-shell` / `modal-scroll-body`
+   / `modal-footer`) : un seul ascenseur, et les exports restent atteignables
+   sans faire défiler tout le tableau. #}
+<div id="volumeReportModal" class="modal-overlay" style="display:none;" aria-hidden="true"
+     onclick="if(event.target===this) closeVolumeReportModal()">
+    <div class="modal-content modal-shell modal-large audit-modal-content" role="dialog" aria-labelledby="volumeReportTitle">
+        <div class="modal-header">
+            <h3 id="volumeReportTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-inventory"></use></svg><span class="audit-modal-label">{{ t.audit_volume_report }}</span></h3>
+            <button type="button" class="close-btn" onclick="closeVolumeReportModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-scroll-body audit-modal-body">
+            <div id="volumeReportMeta" class="audit-meta"></div>
+            <div id="volumeReportBody" class="audit-body">{{ t.audit_loading }}</div>
+        </div>
+        <div class="modal-footer audit-footer">
+            <button type="button" class="btn-opt" id="volumeReportRefresh" onclick="refreshVolumeReport()">{{ t.audit_refresh }}</button>
+            <a id="volumeReportCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
+            <a id="volumeReportTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
+        </div>
+    </div>
+</div>
+
+<div id="duplicatesModal" class="modal-overlay" style="display:none;" aria-hidden="true"
+     onclick="if(event.target===this) closeDuplicatesModal()">
+    <div class="modal-content modal-shell modal-wide audit-modal-content" role="dialog" aria-labelledby="duplicatesModalTitle">
+        <div class="modal-header">
+            <h3 id="duplicatesModalTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-duplicates"></use></svg>{{ t.audit_duplicates }}</h3>
+            <button type="button" class="close-btn" onclick="closeDuplicatesModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-scroll-body audit-modal-body">
+            <p class="muted audit-hint">{{ t.audit_duplicates_hint }}</p>
+            <div id="duplicatesBody" class="audit-body">{{ t.audit_loading }}</div>
+        </div>
+        <div class="modal-footer audit-footer">
+            <a id="duplicatesCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
+            <a id="duplicatesTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
+        </div>
+    </div>
+</div>
+
+<div id="missingVolumesModal" class="modal-overlay" style="display:none;" aria-hidden="true"
+     onclick="if(event.target===this) closeMissingVolumesModal()">
+    <div class="modal-content modal-shell modal-wide audit-modal-content" role="dialog" aria-labelledby="missingVolumesModalTitle">
+        <div class="modal-header">
+            <h3 id="missingVolumesModalTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-missing"></use></svg>{{ t.audit_missing_detail }}</h3>
+            <button type="button" class="close-btn" onclick="closeMissingVolumesModal()" aria-label="Close">&times;</button>
+        </div>
+        <div class="modal-scroll-body audit-modal-body">
+            <div class="audit-toprow">
+                <p class="muted audit-hint">{{ t.audit_missing_detail_hint }}</p>
+                <label class="checkbox-label audit-inline-check">
+                    <input type="checkbox" id="missingIncludeUnknownCb" onchange="openMissingVolumesModal()">
+                    {{ t.audit_include_unknown }}
+                </label>
+            </div>
+            <div id="missingVolumesBody" class="audit-body">{{ t.audit_loading }}</div>
+        </div>
+        <div class="modal-footer audit-footer">
+            <a id="missingVolumesCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
+            <a id="missingVolumesTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
+        </div>
+    </div>
+</div>

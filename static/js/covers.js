@@ -248,10 +248,9 @@ function applyCover(seriesId, coverUrl) {
         })
         .then(function (data) {
             if (data.success) {
-                // Le backend (/update-cover) retire 'cover' de targeted_fields pour protéger
-                // ce choix manuel contre un futur scraping.
-                const coverCheckbox = document.getElementById("field-cover-" + seriesId);
-                if (coverCheckbox) coverCheckbox.checked = false;
+                // Le backend marque la provenance manuelle (cover_manual) sans toucher
+                // aux champs ciblés : la cartouche l'annonce, elle se relâche d'un clic.
+                if (typeof markSeriesCoverManual === "function") markSeriesCoverManual(seriesId);
 
                 closeCoverModal();
             } else {

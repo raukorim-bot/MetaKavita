@@ -286,6 +286,22 @@ function filterSeries() {
     if (!statusFilter) return;
 
     const filter = statusFilter.value;
+    const libSel = document.getElementById('lib_selector');
+    const lib = libSel && libSel.value ? libSel.value : '';
+
+    // Legacy status NO_EXTERNAL_ID → reset to ALL (chip hygiène instead)
+    if (filter === 'NO_EXTERNAL_ID' || filter === 'DUPLICATES') {
+        statusFilter.value = 'ALL';
+        try { localStorage.setItem('filter_status', 'ALL'); } catch (e) { /* ignore */ }
+    }
+    _filterSeriesApply();
+}
+
+function _filterSeriesApply() {
+    const statusFilter = document.getElementById('statusFilter');
+    if (!statusFilter) return;
+
+    const filter = statusFilter.value;
     const hideIgnoredCb = document.getElementById('hideIgnoredCb');
     const hideIgnored = hideIgnoredCb ? hideIgnoredCb.checked : false;
     const searchInsideCb = document.getElementById('searchInsideCb');
@@ -309,6 +325,7 @@ function filterSeries() {
             hideIgnored: hideIgnored,
             searchQuery: searchQuery,
             searchInside: searchInside,
+            hygieneFilter: window.hygieneFilter || null,
         });
         if (usedVirtual !== false) {
             const countElemV = document.getElementById('visibleCount');
@@ -338,6 +355,21 @@ function filterSeries() {
             }
         } else if (status === filter) {
             show = true;
+        }
+
+        if (show && window.hygieneFilter) {
+            if (window.hygieneFilter === 'MISSING_VS_CATALOG') {
+                show = Number(item.dataset.missingCount || 0) > 0;
+            } else if (window.hygieneFilter === 'DUPLICATES') {
+                show = !!item.dataset.duplicateGroupId;
+            } else if (window.hygieneFilter === 'NO_EXTERNAL_ID') {
+                show = item.dataset.hasExternalId === '0';
+            } else if (window.hygieneFilter === 'FINISHED') {
+                show = String(item.dataset.publicationStatus || '').toUpperCase() === 'FINISHED';
+            } else if (window.hygieneFilter === 'RELEASING') {
+                var pub = String(item.dataset.publicationStatus || '').toUpperCase();
+                show = pub === 'RELEASING' || pub === 'HIATUS' || pub === 'NOT_YET_RELEASED';
+            }
         }
 
         if (show && searchQuery !== '') {
@@ -523,6 +555,16 @@ async function launchBatch(event) {
 
     if (typeof mrPrepareForBatch === "function") {
         mrPrepareForBatch();
+    }
+
+    var hygieneWithBatch = document.getElementById('hygieneWithBatchCb');
+    if (hygieneWithBatch && hygieneWithBatch.checked) {
+        var startFn = typeof startHygieneScan === 'function'
+            ? startHygieneScan
+            : (typeof startVolumeHygieneScan === 'function' ? startVolumeHygieneScan : null);
+        if (startFn) {
+            try { startFn(ids.slice()); } catch (e) { /* non-blocking */ }
+        }
     }
 
     batchEnqueueAbort = false;
@@ -1088,5 +1130,59 @@ async function sealSeriesLocks(seriesId, btn) {
             btn.disabled = false;
             btn.textContent = '🔒';
         }
+    }
+}
+
+/** Pose la cartouche « couverture manuelle » sur une ligne après un choix explicite. */
+function markSeriesCoverManual(seriesId) {
+    var T = window.AppTranslations || {};
+    if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
+        window.SeriesList.patchOverride(seriesId, { cover_manual: true });
+    }
+    document.querySelectorAll('.series-item').forEach(function (el) {
+        if (String(el.dataset.seriesId) !== String(seriesId)) return;
+        el.dataset.coverManual = '1';
+        var status = el.querySelector('.series-status');
+        if (!status || status.querySelector('.badge-cover-manual')) return;
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'badge badge-cover-manual';
+        btn.dataset.action = 'release-cover';
+        btn.title = T.cover_manual_badge_hint || '';
+        btn.textContent = '🔒 ' + (T.cover_manual_badge || '');
+        btn.addEventListener('click', function () { releaseSeriesCover(seriesId, btn); });
+        status.appendChild(btn);
+    });
+}
+
+/**
+ * Rend une couverture manuelle à la gestion automatique (clic sur la cartouche).
+ * Cas ponctuel : pour tout un lot, l'interrupteur « Écraser les couvertures
+ * manuelles » de la sidebar évite d'avoir à cliquer série par série.
+ */
+async function releaseSeriesCover(seriesId, btn) {
+    if (!seriesId) return;
+    var T = window.AppTranslations || {};
+    var item = btn ? btn.closest('.series-item') : null;
+    if (btn) btn.disabled = true;
+    try {
+        var res = await fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/release-cover', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin'
+        });
+        var data = await res.json().catch(function () { return {}; });
+        if (!res.ok || !data.success) {
+            throw new Error(T.cover_release_fail || 'Release failed');
+        }
+        if (item) item.dataset.coverManual = '0';
+        if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
+            window.SeriesList.patchOverride(seriesId, { cover_manual: false });
+        }
+        if (btn) btn.remove();
+    } catch (e) {
+        console.error('[MetaKavita] release-cover', e);
+        alert((e && e.message) || T.cover_release_fail || 'Release failed');
+        if (btn) btn.disabled = false;
     }
 }
