@@ -71,17 +71,46 @@ def test_the_clicked_series_passes_in_front_of_a_running_batch(monkeypatch, isol
     assert [i["series_id"] for i in _drain(bg.sync_queue)] == [42, 1, 2]
 
 
-def test_a_pending_duplicate_of_the_same_series_is_replaced(monkeypatch, isolated_db):
+def test_the_click_doubles_a_pending_batch_job_instead_of_dropping_it(monkeypatch, isolated_db):
+    """Le clic ne retire pas le job batch de la même série : le lot garde sa
+    composition, et le second passage saute une série déjà à jour."""
     client = _client(monkeypatch)
     bg.sync_queue.put(bg.make_sync_item(42, "Doublon", False, is_batch=True))
     bg.sync_queue.put(bg.make_sync_item(7, "Autre", False, is_batch=True))
 
     res = client.post("/force-sync", data={"series_id": "42", "series_name": "Urgent"})
 
-    assert res.get_json()["replaced_pending"] == 1
+    assert res.status_code == 202
     items = _drain(bg.sync_queue)
-    assert [i["series_id"] for i in items] == [42, 7]
-    assert items[0]["force_update"] is True
+    assert [i["series_id"] for i in items] == [42, 42, 7], \
+        "le job cliqué passe devant, celui du lot reste à sa place"
+    assert items[0]["force_update"] is True and items[0]["is_batch"] is False
+    assert items[1]["is_batch"] is True, "le job du lot doit rester compté dans la barre"
+
+
+def test_a_paused_batch_keeps_the_series_it_had_queued(monkeypatch, isolated_db):
+    """Le clic « Mettre à jour » traite la série tout de suite, il n'annule pas
+    pour autant la file batch que l'utilisateur a constituée : une file en pause
+    ne vit qu'en base, une ligne annulée là ne revient jamais."""
+    from services import batch_queue as bq
+
+    client = _client(monkeypatch)
+    bq.enqueue_items([
+        {"series_id": 42, "series_name": "Urgent", "force_update": False,
+         "fields_override": None},
+        {"series_id": 7, "series_name": "Autre", "force_update": False,
+         "fields_override": None},
+    ])
+    bq.set_paused(True)
+
+    res = client.post("/force-sync", data={"series_id": "42", "series_name": "Urgent"})
+
+    assert res.status_code == 202
+    still_queued = [i["series_id"] for i in bq.list_queued_for_hydrate()]
+    assert still_queued == [42, 7], (
+        "la série cliquée a disparu de la file batch en pause : elle ne sera "
+        "jamais retraitée à la reprise"
+    )
 
 
 def test_missing_fields_are_refused_without_queueing(monkeypatch, isolated_db):

@@ -126,8 +126,8 @@ function openVolumeReportModal(seriesId, seriesName) {
     if (meta) meta.textContent = '';
     var csv = document.getElementById('volumeReportCsv');
     var txt = document.getElementById('volumeReportTxt');
-    if (csv) csv.href = '/api/series/' + seriesId + '/volume-report?format=csv&refresh=1';
-    if (txt) txt.href = '/api/series/' + seriesId + '/volume-report?format=txt&refresh=1';
+    if (csv) csv.href = getRootPath() + '/api/series/' + seriesId + '/volume-report?format=csv&refresh=1';
+    if (txt) txt.href = getRootPath() + '/api/series/' + seriesId + '/volume-report?format=txt&refresh=1';
     m.style.display = 'flex';
     m.setAttribute('aria-hidden', 'false');
     _loadVolumeReport(seriesId, false);
@@ -144,12 +144,12 @@ function _loadVolumeReport(seriesId, forceRefresh) {
     if (!body) return;
     body.innerHTML = _loadingHtml(tr);
     var url = forceRefresh
-        ? '/api/series/' + seriesId + '/volume-report?refresh=1'
-        : '/api/series/' + seriesId + '/volume-report/summary';
+        ? getRootPath() + '/api/series/' + seriesId + '/volume-report?refresh=1'
+        : getRootPath() + '/api/series/' + seriesId + '/volume-report/summary';
     fetch(url, { credentials: 'same-origin' })
         .then(function (r) {
             if (r.status === 404 && !forceRefresh) {
-                return fetch('/api/series/' + seriesId + '/volume-report?refresh=1', { credentials: 'same-origin' })
+                return fetch(getRootPath() + '/api/series/' + seriesId + '/volume-report?refresh=1', { credentials: 'same-origin' })
                     .then(function (r2) { return r2.json(); });
             }
             return r.json();
@@ -443,7 +443,7 @@ function _unitsColspan() {
 
 function _loadVolumeReportUnits(seriesId) {
     var tr = _auditT();
-    fetch('/api/series/' + encodeURIComponent(seriesId) + '/volume-report/units', {
+    fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/volume-report/units', {
         credentials: 'same-origin',
     })
         .then(function (r) { return r.json(); })
@@ -470,7 +470,7 @@ function _loadVolumeReportUnits(seriesId) {
 function setSeriesInventoryExcluded(seriesId, excluded) {
     var tr = _auditT();
     if (seriesId == null) return;
-    fetch('/api/series/' + encodeURIComponent(seriesId) + '/inventory-exclude', {
+    fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/inventory-exclude', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -497,7 +497,7 @@ function setSeriesInventoryExcluded(seriesId, excluded) {
 function saveCatalogExpected(expected) {
     var tr = _auditT();
     if (_volumeReportSeriesId == null) return;
-    fetch('/api/series/' + encodeURIComponent(_volumeReportSeriesId) + '/catalog-expected', {
+    fetch(getRootPath() + '/api/series/' + encodeURIComponent(_volumeReportSeriesId) + '/catalog-expected', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -661,7 +661,7 @@ function _refreshFreshnessLabel(iso) {
 function cancelHygieneScan() {
     var tr = _auditT();
     var label = document.getElementById('hygieneScanLabel');
-    fetch('/api/hygiene-scan/cancel', { method: 'POST', credentials: 'same-origin' })
+    fetch(getRootPath() + '/api/hygiene-scan/cancel', { method: 'POST', credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function () {
             if (label) label.textContent = tr.audit_cancelling || '…';
@@ -701,7 +701,7 @@ function _stopHygienePolling() {
 
 function _pollHygieneStatus(lib, attempt) {
     if (_hygienePollLib !== lib) return; // superseded by a newer scan/poll
-    fetch('/api/libraries/' + encodeURIComponent(lib) + '/hygiene-scan/status', { credentials: 'same-origin' })
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/hygiene-scan/status', { credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (data) {
             if (_hygienePollLib !== lib) return;
@@ -754,7 +754,7 @@ function startHygieneScan(arg) {
     if (fill) fill.style.width = '0%';
     _setScanRunningUi(true);
 
-    fetch('/api/libraries/' + encodeURIComponent(lib) + '/hygiene-scan', {
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/hygiene-scan', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -859,9 +859,9 @@ function openDuplicatesModal() {
     body.innerHTML = _loadingHtml(tr);
     var csv = document.getElementById('duplicatesCsv');
     var txt = document.getElementById('duplicatesTxt');
-    if (csv) csv.href = '/api/libraries/' + encodeURIComponent(lib) + '/duplicates?format=csv';
-    if (txt) txt.href = '/api/libraries/' + encodeURIComponent(lib) + '/duplicates?format=txt';
-    fetch('/api/libraries/' + encodeURIComponent(lib) + '/duplicates', { credentials: 'same-origin' })
+    if (csv) csv.href = getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates?format=csv';
+    if (txt) txt.href = getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates?format=txt';
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates', { credentials: 'same-origin' })
         .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
         .then(function (res) {
             if (res.status === 404 || !res.body || !res.body.success) {
@@ -896,14 +896,14 @@ function openMissingVolumesModal() {
     var csv = document.getElementById('missingVolumesCsv');
     var txt = document.getElementById('missingVolumesTxt');
     if (csv) {
-        csv.href = '/api/libraries/' + encodeURIComponent(lib) + '/missing-volumes?format=csv' +
+        csv.href = getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/missing-volumes?format=csv' +
             (includeUnknown ? '&include_unknown=1' : '');
     }
     if (txt) {
-        txt.href = '/api/libraries/' + encodeURIComponent(lib) + '/missing-volumes?format=txt' +
+        txt.href = getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/missing-volumes?format=txt' +
             (includeUnknown ? '&include_unknown=1' : '');
     }
-    fetch('/api/libraries/' + encodeURIComponent(lib) + '/missing-volumes' + q, {
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/missing-volumes' + q, {
         credentials: 'same-origin',
     })
         .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
@@ -995,7 +995,7 @@ function toggleForcedExpectedList() {
         return;
     }
     wrap.innerHTML = _loadingHtml(tr, true);
-    fetch('/api/hygiene/catalog-overrides', { credentials: 'same-origin' })
+    fetch(getRootPath() + '/api/hygiene/catalog-overrides', { credentials: 'same-origin' })
         .then(function (r) { return r.json(); })
         .then(function (data) {
             var rows = (data && data.rows) || [];
@@ -1024,7 +1024,7 @@ function toggleForcedExpectedList() {
                     var sid = row && row.getAttribute('data-series-id');
                     if (!sid) return;
                     btn.disabled = true;
-                    fetch('/api/series/' + encodeURIComponent(sid) + '/catalog-expected', {
+                    fetch(getRootPath() + '/api/series/' + encodeURIComponent(sid) + '/catalog-expected', {
                         method: 'POST',
                         credentials: 'same-origin',
                         headers: { 'Content-Type': 'application/json' },
@@ -1192,7 +1192,7 @@ function _dismissDupGroup(seriesIds, reason) {
     var lib = _selectedLibraryIdOrAll();
     var tr = _auditT();
     if (seriesIds.length < 2) return;
-    fetch('/api/libraries/' + encodeURIComponent(lib) + '/duplicates/dismiss', {
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/dismiss', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -1208,7 +1208,7 @@ function _deleteSeriesConfirm(seriesId) {
     var msg = tr.audit_delete_warning ||
         'Delete this series from Kavita? Recovery = library rescan if files remain. No Meta undo.';
     if (!window.confirm(msg)) return;
-    fetch('/api/series/' + encodeURIComponent(seriesId) + '/kavita-delete', {
+    fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/kavita-delete', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
@@ -1278,7 +1278,7 @@ window.ensureAuditFlags = function () {
         });
         if (!ids.length) return;
         var lib = _selectedLibraryIdOrAll();
-        fetch('/api/libraries/' + encodeURIComponent(lib) + '/audit-badges?ids=' + ids.slice(0, 80).join(','), {
+        fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/audit-badges?ids=' + ids.slice(0, 80).join(','), {
             credentials: 'same-origin',
         })
             .then(function (r) { return r.json(); })

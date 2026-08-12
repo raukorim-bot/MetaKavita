@@ -16,6 +16,7 @@ import time
 from config_manager import load_config, is_library_enabled
 from db_manager import get_all_cached_data, clean_orphaned_cache
 from kavita_api import KavitaAPI
+from secure_logging import safe_exc_str
 from translations import translations
 from services.enrichment_engine import enrich_series
 
@@ -115,12 +116,21 @@ def put_sync(item) -> None:
         sync_queue.put(item)
 
 
-def put_front(item) -> int:
+def put_front(item, *, replace_pending: bool = True) -> int:
     """Insert `item` at the head of the RAM queue (next job after in-flight).
 
-    Drops every pending item with the same ``series_id`` (batch, webhook, or
-    prior Companion) and cancels matching C63 ``queued`` rows so the Companion
-    one-shot replaces them. Does not preempt the job already taken by ``_worker``.
+    Does not preempt the job already taken by ``_worker``.
+
+    `replace_pending` (défaut, one-shot Companion) : retire aussi les jobs en
+    attente sur la même série — RAM et lignes C63 `queued` — pour que le job
+    Companion les remplace vraiment.
+
+    Le bouton « Mettre à jour » d'une ligne passe à False et se contente de
+    doubler la file : le lot en attente est constitué par l'utilisateur, et une
+    file en pause ne vit qu'en base — une ligne annulée là ne serait jamais
+    réhydratée, donc la série quitterait le lot sans un mot. Le second passage ne
+    coûte rien : une série déjà à jour est sautée, et si le lot était forcé,
+    c'est précisément ce qui avait été demandé.
 
     Returns the number of pending jobs removed.
     """
@@ -130,12 +140,15 @@ def put_front(item) -> int:
     dropped_batch = 0
     with _sync_queue_lock:
         rest = []
+        # La file est vidée dans tous les cas : « en tête » ne s'obtient qu'en la
+        # reconstruisant derrière le nouveau job.
         while True:
             try:
                 pending = sync_queue.get_nowait()
             except queue.Empty:
                 break
-            if isinstance(pending, dict) and int(pending.get("series_id", -1)) == sid:
+            is_dupe = isinstance(pending, dict) and int(pending.get("series_id", -1)) == sid
+            if is_dupe and replace_pending:
                 sync_queue.task_done()
                 dropped += 1
                 if pending.get("is_batch"):
@@ -148,13 +161,14 @@ def put_front(item) -> int:
             sync_queue.put(other)
             sync_queue.task_done()
 
-    # Always clear durable queued rows for this series (paused file, or RAM drop).
-    try:
-        from services import batch_queue as bq
+    if replace_pending:
+        # Clear durable queued rows for this series (paused file, or RAM drop).
+        try:
+            from services import batch_queue as bq
 
-        bq.cancel_queued_by_series(sid)
-    except Exception as exc:
-        logging.debug("cancel_queued_by_series skipped: %s", exc)
+            bq.cancel_queued_by_series(sid)
+        except Exception as exc:
+            logging.debug("cancel_queued_by_series skipped: %s", exc)
 
     if dropped_batch:
         with _batch_progress_lock:
@@ -217,6 +231,24 @@ def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=N
         socketio.emit("batch_progress", payload)
     except Exception as exc:
         logging.debug("batch_progress emit skipped: %s", exc)
+
+
+def broadcast_sync_settled(series_id, *, ok: bool) -> None:
+    """Fin d'un job unitaire (clic « Mettre à jour », webhook, auto-sync).
+
+    `enrich_series` ne diffuse un `series_status` que quand le statut de la série
+    change : Kavita injoignable, métadonnées absentes, série déjà en traitement
+    ailleurs ou erreur interne se terminent en silence. Le bouton de la ligne, qui
+    ne fait plus qu'enfiler, n'avait alors plus rien pour se rendre la main.
+    """
+    try:
+        from extensions import socketio
+
+        socketio.emit(
+            "sync_settled", {"series_id": int(series_id), "ok": bool(ok)}
+        )
+    except Exception as exc:
+        logging.debug("sync_settled emit skipped: %s", exc)
 
 
 def _detach_batch_from_ram_unlocked() -> int:
@@ -288,10 +320,47 @@ def hydrate_batch_queue_to_ram(*, new_batch: bool = True) -> int:
     return len(items)
 
 
+def _abandon_sync_item(series_id, is_batch: bool) -> None:
+    """Solde un job qui a échoué sur une erreur inattendue.
+
+    Un item batch doit quand même faire avancer la barre, sinon un batch de 200
+    séries reste bloqué à 199 et ne se termine jamais ; un job unitaire doit
+    rendre la main au bouton de sa ligne.
+    """
+    global _batch_done, _batch_real_sends
+    if series_id is None:
+        return
+    if not is_batch:
+        broadcast_sync_settled(series_id, ok=False)
+        return
+    try:
+        from services import batch_queue as bq
+
+        bq.mark_done(series_id)
+    except Exception as exc:
+        logging.debug("mark_done skipped for %s: %s", series_id, exc)
+    with _batch_progress_lock:
+        _batch_done = min(_batch_total, _batch_done + 1)
+        batch_finished = _batch_total > 0 and _batch_done >= _batch_total
+        real_sends = _batch_real_sends
+    if batch_finished:
+        broadcast_batch_progress(0, real_sends=real_sends)
+
+
 def _worker():
+    """Consommateur unique de `sync_queue` (batch, webhook, auto-sync, clic ligne).
+
+    Une seule instance tourne pour tout le process (voir `start_background_workers`) :
+    tout ce qui remonte jusqu'à `while True` tue la synchronisation jusqu'au
+    redémarrage du conteneur, sans un mot dans l'UI. Le corps de boucle est donc
+    borné par un `except Exception` — une série qui explose est une série perdue,
+    pas une file morte.
+    """
     global _batch_total, _batch_done, _batch_real_sends
     while True:
         item = sync_queue.get()
+        series_id = None
+        is_batch = False
         try:
             if item is None:
                 break
@@ -345,6 +414,17 @@ def _worker():
                 if batch_finished:
                     logging.info(t.get('log_batch_finished'))
                     broadcast_batch_progress(0, real_sends=real_sends)
+            else:
+                # Fin réelle du job : le bouton de la ligne ne peut pas compter sur
+                # `series_status`, qui n'est diffusé que si le statut change.
+                broadcast_sync_settled(series_id, ok=bool(_ok))
+        except Exception as exc:
+            logging.error(
+                "❌ [Sync] Série %s abandonnée sur erreur inattendue : %s",
+                series_id,
+                safe_exc_str(exc),
+            )
+            _abandon_sync_item(series_id, is_batch)
         finally:
             if item is not None:
                 sync_queue.task_done()
@@ -370,8 +450,15 @@ def select_auto_sync_candidates(all_series, cached, config=None):
 def _auto_sync_worker():
     last_run = 0
     while True:
-        config = load_config()
-        interval = config.get('AUTO_SYNC_INTERVAL', 0)
+        # Thread démon unique : une lecture de config qui explose (disque plein,
+        # JSON tronqué) arrêtait définitivement le polling automatique.
+        try:
+            config = load_config()
+            interval = config.get('AUTO_SYNC_INTERVAL', 0)
+        except Exception as exc:
+            logging.error("❌ [Auto-Sync] Configuration illisible : %s", safe_exc_str(exc))
+            time.sleep(30)
+            continue
 
         if interval > 0:
             current_time = time.time()

@@ -35,6 +35,41 @@ def test_quick_scan_reuses_a_known_expected_but_retries_the_unknown(monkeypatch)
     assert hs._reusable_catalog(99) is None
 
 
+def test_a_scan_without_providers_keeps_the_expected_it_already_knew(monkeypatch):
+    """`catalog=false` relit Kavita sans interroger les providers. Sans repli sur
+    le cache, chaque série était réécrite en « attendu inconnu » : des heures de
+    cascade AniList/MAL effacées, tous les badges retombés à `N/?`."""
+    from services.library_audit import hygiene_scan as hs
+
+    cache = {7: {"catalog": {"status": "ok", "expected": 24, "provider": "ANILIST"}}}
+    monkeypatch.setattr(hs, "get_volume_report_cache", lambda sid: cache.get(sid))
+
+    assert hs._cached_catalog(7) == {"status": "ok", "expected": 24, "provider": "ANILIST"}
+    assert hs._cached_catalog(99) is None, "aucun cache : rien à réutiliser"
+
+
+def test_a_shared_id_verdict_does_not_depend_on_iteration_order():
+    """Un id partagé qui concorde vaut plus qu'un id partagé qui diverge, et le
+    verdict doit être le même à chaque analyse."""
+    from services.library_audit.duplicates import score_duplicate_pair
+
+    a = {"ids": {"anilist": "100", "mal": "500"}, "name": "Berserk",
+         "raw_series": {}, "raw_metadata": {}}
+    b = {"ids": {"anilist": "100", "mal": "999"}, "name": "Berserk",
+         "raw_series": {}, "raw_metadata": {}}
+
+    verdicts = {repr(score_duplicate_pair(a, b)) for _ in range(20)}
+    assert len(verdicts) == 1, "verdict instable d'une analyse à l'autre"
+    res = score_duplicate_pair(a, b)
+    assert res["score"] == 1.0 and res["reasons"] == ["same_anilist_id"]
+
+    c = {"ids": {"anilist": "101", "mal": "999"}, "name": "Berserk",
+         "raw_series": {}, "raw_metadata": {}}
+    assert score_duplicate_pair(a, c) == {
+        "score": 0.0, "reasons": ["different_anilist_id"]
+    }
+
+
 def test_health_bar_does_not_call_an_overshoot_series_incomplete():
     """`overshoot` = plus d'unités que l'attendu : il ne manque rien, c'est le
     catalogue qui est en retard. Le compter parmi les incomplètes faisait mentir

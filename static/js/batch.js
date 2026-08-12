@@ -495,8 +495,8 @@ function syncSingle(id, name, btn) {
 
 // Séries dont on attend la fin d'un sync unitaire, par id : le serveur répond
 // désormais 202 dès la mise en file, la fin arrive par l'événement Socket.IO
-// `series_status` (voir websocket.js) ou, à défaut, par le filet de sécurité
-// ci-dessous.
+// `sync_settled` (voir websocket.js) ou, à défaut, par le filet de sécurité
+// ci-dessous — socket coupée, onglet réveillé après un redémarrage du serveur.
 const pendingSingleSyncs = new Map();
 const SINGLE_SYNC_WATCHDOG_MS = 10 * 60 * 1000;
 

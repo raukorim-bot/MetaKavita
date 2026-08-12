@@ -99,9 +99,10 @@ def force_sync():
         return jsonify(success=False, msg=t.get('err_missing')), 400
 
     # En tête de file : le clic vient d'un humain qui regarde sa série, il passe
-    # devant le reste d'un batch en cours. `put_front` retire au passage les jobs
-    # en attente sur la même série (doublons batch/webhook) et recale la barre.
-    replaced = put_front(make_sync_item(series_id_int, series_name, True))
+    # devant le reste d'un batch en cours. Sans toucher aux jobs déjà en attente
+    # (`replace_pending=False`) : le lot est constitué par l'utilisateur, et une
+    # ligne retirée d'une file en pause ne revient jamais.
+    put_front(make_sync_item(series_id_int, series_name, True), replace_pending=False)
     logging.info(
         t.get(
             "log_force_sync_queued",
@@ -112,7 +113,6 @@ def force_sync():
         success=True,
         queued=True,
         series_id=series_id_int,
-        replaced_pending=replaced,
         msg=t.get("msg_force_sync_queued", "Série mise en file."),
     ), 202
 

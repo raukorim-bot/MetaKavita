@@ -70,12 +70,19 @@ def score_duplicate_pair(a: dict, b: dict) -> Dict[str, Any]:
 
     ids_a = ia.get("ids") or {}
     ids_b = ib.get("ids") or {}
-    shared_providers = set(ids_a) & set(ids_b)
-    for prov in shared_providers:
-        if ids_a[prov] and ids_b[prov]:
-            if str(ids_a[prov]) == str(ids_b[prov]):
-                return {"score": 1.0, "reasons": [f"same_{prov}_id"]}
-            return {"score": 0.0, "reasons": [f"different_{prov}_id"]}
+    # Un identifiant partagé tranche, mais l'égalité passe avant la différence, et
+    # l'ordre des fournisseurs est fixé : deux séries portant le même id AniList et
+    # des id MAL divergents (un des deux mal renseigné) basculaient d'un verdict à
+    # l'autre d'une analyse à la suivante, au gré de l'itération sur un `set`.
+    same, different = [], []
+    for prov in sorted(set(ids_a) & set(ids_b)):
+        if not (ids_a[prov] and ids_b[prov]):
+            continue
+        (same if str(ids_a[prov]) == str(ids_b[prov]) else different).append(prov)
+    if same:
+        return {"score": 1.0, "reasons": [f"same_{same[0]}_id"]}
+    if different:
+        return {"score": 0.0, "reasons": [f"different_{different[0]}_id"]}
 
     def _isbn(x: Any) -> str:
         return "".join(c for c in str(x or "") if c.isdigit())

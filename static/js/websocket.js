@@ -116,10 +116,17 @@ socket.on('series_status', function(payload) {
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.updateStatus === 'function') {
         window.SeriesList.updateStatus(sid, status);
     }
-    // Sync unitaire : /force-sync ne fait plus qu'enfiler, c'est ce statut qui
-    // marque la fin réelle du traitement pour le bouton de la ligne.
+});
+
+// Sync unitaire : /force-sync ne fait plus qu'enfiler, c'est ce signal — émis par
+// le worker à la fin de CHAQUE job unitaire — qui rend la main au bouton de la
+// ligne. `series_status` ne suffirait pas : il ne part que si le statut change
+// (Kavita injoignable, série déjà en traitement ailleurs : rien n'est diffusé),
+// et une série garée en review manuelle n'est pas un échec.
+socket.on('sync_settled', function(payload) {
+    if (!payload || payload.series_id == null) return;
     if (typeof window.settleSingleSync === 'function') {
-        window.settleSingleSync(sid, status === 'COMPLETED' || status === 'NEEDS_RELOCK');
+        window.settleSingleSync(String(payload.series_id), !!payload.ok);
     }
 });
 

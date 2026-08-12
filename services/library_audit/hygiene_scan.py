@@ -67,12 +67,16 @@ def summarize_states(state_counts: Dict[str, int]) -> Dict[str, int]:
 
 
 def _emit(event: str, payload: dict) -> None:
+    # `extensions` et non `app` : importer le module applicatif depuis un thread de
+    # fond réexécute son chargement (et ses effets de bord) partout où il n'est pas
+    # déjà l'entrée du process — un échec ici ne coûterait qu'une barre de
+    # progression figée, sans trace.
     try:
-        from app import socketio
+        from extensions import socketio
 
         socketio.emit(event, payload)
-    except Exception:
-        pass
+    except Exception as exc:
+        logging.debug("[Inventaire] emit %s ignoré : %s", event, exc)
 
 
 def _emit_progress(payload: dict) -> None:
@@ -150,6 +154,21 @@ def _cancel_requested() -> bool:
 
 def _is_all_libraries(library_id) -> bool:
     return not library_id or str(library_id).strip().lower() == "all"
+
+
+def _cached_catalog(series_id: int):
+    """Attendu catalogue déjà en cache, quel qu'en soit l'état — ou None.
+
+    Sert au scan `catalog=false` : sans lui, reconstruire les rapports sans
+    interroger les providers réécrivait chaque série en « attendu inconnu » et
+    effaçait des heures de cascade.
+    """
+    try:
+        summary = get_volume_report_cache(series_id) or {}
+    except Exception:
+        return None
+    cat = summary.get("catalog") or {}
+    return dict(cat) if cat else None
 
 
 def _reusable_catalog(series_id: int):
@@ -289,7 +308,11 @@ def _run_scan(
                     if (probe.get("stats") or {}).get("primary_count") == cached_count:
                         catalog = cached_catalog
                         reused += 1
-                if catalog is None and with_catalog:
+                if catalog is None and not with_catalog:
+                    # Scan sans providers : on garde l'attendu déjà connu plutôt
+                    # que de réécrire la série en « inconnu ».
+                    catalog = _cached_catalog(sid)
+                elif catalog is None:
                     with _lock:
                         _state["phase"] = "catalog"
                     catalog = resolve_catalog_expected(
