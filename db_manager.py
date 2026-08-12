@@ -523,6 +523,23 @@ def park_pending_review(
     conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
+    # Une review de cette série est écrasée : c'est voulu sur un re-scrape forcé
+    # (l'appelant vient de reconstruire des candidats frais), mais l'utilisateur
+    # peut avoir la modale ouverte sur l'ancien identifiant. La perte ne doit pas
+    # être silencieuse — c'est le seul indice si un chemin non forcé y revenait.
+    c.execute(
+        "SELECT review_id, state FROM pending_reviews WHERE series_id = ?", (sid,)
+    )
+    replaced = c.fetchone()
+    if replaced and replaced[0] != review_id:
+        logging.warning(
+            "⚠️ [Review] Série %s : review %s (%s) remplacée par %s — "
+            "un examen en cours sur l'ancien identifiant est perdu.",
+            sid,
+            replaced[0],
+            replaced[1] or "awaiting_pick",
+            review_id,
+        )
     c.execute("DELETE FROM pending_reviews WHERE series_id = ?", (sid,))
     c.execute(
         '''INSERT INTO pending_reviews

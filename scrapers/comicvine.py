@@ -31,6 +31,12 @@ def calculate_similarity(s1, s2):
     token_ratio = len(intersection) / max(len(tokens1), len(tokens2))
     return 0.6 * seq_ratio + 0.4 * token_ratio
 
+def _year_from_date(value) -> Optional[int]:
+    """Année d'une date ComicVine (`cover_date` : "2011-11-01") — ou None."""
+    match = re.match(r"\s*(19\d{2}|20\d{2})", str(value or ""))
+    return int(match.group(1)) if match else None
+
+
 def clean_comicvine_html(soup):
     noisy_headers = ["publishers", "collected editions", "collected issues", "other collected editions", "collected hardcovers", "hardcover collections", "trade paperbacks", "issues in this volume", "creators", "non-u.s. editions", "translations"]
     for header in soup.find_all(["h2", "h3", "h4", "p", "div"]):
@@ -175,6 +181,51 @@ class ComicVineScraper(BaseScraper):
 
         return None
 
+    def _evaluate_issue_candidates(
+        self,
+        issue_results: list,
+        query_base: str,
+        year_hint: Optional[int] = None,
+    ) -> Optional[dict]:
+        """Retient l'issue la plus proche du titre — et du run — recherché.
+
+        Prendre `issue_results[0]` suffisait à écrire « Batman (1940) » sur un
+        « Batman (2011) » : le volume parent de l'issue devient le volume retenu,
+        et le score final ne rattrape rien puisqu'il compare des titres
+        identiques d'un run à l'autre. `cover_date` situe l'issue dans le temps,
+        à défaut l'année portée par le nom du volume parent.
+        """
+        best = None
+        best_score = None
+        for issue in issue_results or []:
+            if not isinstance(issue, dict):
+                continue
+            parent = issue.get("volume") if isinstance(issue.get("volume"), dict) else {}
+            titles = [issue.get("name") or "", parent.get("name") or ""]
+            score = max(
+                (calculate_similarity(t, query_base) for t in titles if t),
+                default=0.0,
+            ) * 100.0
+
+            if year_hint is not None:
+                issue_year = (
+                    _year_from_date(issue.get("cover_date"))
+                    or extract_year_from_title(parent.get("name") or "")
+                )
+                if issue_year is not None:
+                    delta = abs(issue_year - int(year_hint))
+                    if delta <= 1:
+                        score += 200.0
+                    elif delta > 5:
+                        score -= 150.0
+
+            # Comparaison stricte : à égalité, l'ordre de pertinence ComicVine
+            # reste celui qui décide.
+            if best_score is None or score > best_score:
+                best_score = score
+                best = issue
+        return best
+
     def fetch(self, query: str, library_type: str = "Comic", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         config = load_config()
         api_key = config.get("COMICVINE_API_KEY", "").strip()
@@ -283,7 +334,8 @@ class ComicVineScraper(BaseScraper):
                     "resources": "issue", 
                     "query": cleaned_query, 
                     "limit": 5,
-                    "field_list": "id,name,issue_number,description,deck,image,volume,person_credits"
+                    # cover_date : situe l'issue dans le run (voir _evaluate_issue_candidates).
+                    "field_list": "id,name,issue_number,cover_date,description,deck,image,volume,person_credits"
                 }
                 time.sleep(1.0)
                 try:
@@ -292,8 +344,10 @@ class ComicVineScraper(BaseScraper):
                         res_issue_json = res_issue.json()
                         if res_issue_json.get("status_code") == 1:
                             issue_results = res_issue_json.get("results", [])
-                            if issue_results:
-                                matched_issue = issue_results[0]
+                            matched_issue = self._evaluate_issue_candidates(
+                                issue_results, cleaned_query, year_hint=year_hint
+                            )
+                            if matched_issue:
                                 issue_id = matched_issue.get("id")
                                 issue_name = matched_issue.get("name") or f"Issue #{matched_issue.get('issue_number')}"
                                 parent_vol = matched_issue.get("volume")

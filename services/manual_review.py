@@ -247,6 +247,13 @@ def append_streaming_candidate(
     )
 
 
+def _payload_keeps_chosen_provider(payload: Any, base_provider: Optional[str]) -> bool:
+    """True si le fournisseur déjà choisi par l'utilisateur figure encore dans `payload`."""
+    if not base_provider:
+        return True
+    return base_provider in _cards_by_provider(payload if isinstance(payload, dict) else {})
+
+
 def finalize_streaming_review(
     review_id: str,
     series_id: int,
@@ -257,8 +264,28 @@ def finalize_streaming_review(
     """
     Replace the streaming payload with the final (translated) candidates and
     emit `manual_review_scrape_complete`.
+
+    La collecte tourne pendant que l'utilisateur peut déjà agir dans la modale
+    (le verrou série de `enrichment_engine` ne couvre ni `/skip` ni le pick
+    `choice_and_merge`). Ce finalize est donc un *rafraîchissement* de la liste
+    de candidats, jamais une reconstruction : il ne ressuscite pas une review
+    passée/purgée entre-temps, et ne fait pas régresser un état déjà avancé par
+    l'utilisateur (`awaiting_confirm` garde son état, son fournisseur et son
+    preview).
     """
     t = get_ui_translations()
+    row = get_pending_review(review_id)
+    if not row:
+        # Skip / purge pendant la collecte : re-parker recréerait la review ET
+        # remettrait la série en PENDING_REVIEW (park_pending_review est atomique).
+        logging.info(
+            t.get(
+                "log_mr_finalize_dropped",
+                "[manual_review] review {0} disparue pendant la collecte ({1}) — résultats abandonnés",
+            ).format(review_id, series_name or series_id)
+        )
+        return review_id
+
     payload = candidates_payload if isinstance(candidates_payload, dict) else {
         "above": [],
         "below": [],
@@ -282,32 +309,51 @@ def finalize_streaming_review(
         )
     if isinstance(payload, dict):
         payload.pop("streaming", None)
-    if get_pending_review(review_id):
-        update_pending_review(
-            review_id,
-            candidates_json=payload,
-            series_name=series_name or "",
-            library_id=library_id,
-            state="awaiting_pick",
-        )
+
+    state = row.get("state") or "awaiting_pick"
+    fields: Dict[str, Any] = {
+        "series_name": series_name or "",
+        "library_id": library_id,
+    }
+    if state == "awaiting_pick":
+        fields["candidates_json"] = payload
+        fields["state"] = "awaiting_pick"
+    elif _payload_keeps_chosen_provider(payload, row.get("base_provider")):
+        # État avancé : on rafraîchit la liste (résumés traduits, providers arrivés
+        # après le pick) sans toucher à state / preview_json / base_provider.
+        fields["candidates_json"] = payload
     else:
-        park_pending_review(
-            review_id=review_id,
-            series_id=int(series_id),
-            series_name=series_name or "",
-            candidates_json=payload,
-            state="awaiting_pick",
-            library_id=library_id,
+        # Le fournisseur choisi n'est plus dans la collecte finale : écraser la
+        # liste rendrait le confirm impossible (`choice_and_merge` ne le
+        # trouverait plus). On garde les cartes sur lesquelles l'utilisateur a
+        # travaillé.
+        logging.info(
+            t.get(
+                "log_mr_finalize_keeps_cards",
+                "[manual_review] review {0} : candidats conservés (fournisseur choisi absent du résultat final)",
+            ).format(review_id)
         )
+    update_pending_review(review_id, **fields)
+
+    # Compteurs annoncés à l'UI = ce qui est réellement en base après ce finalize.
+    stored = fields.get("candidates_json")
+    if stored is None:
+        try:
+            stored = json.loads(row.get("candidates_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            stored = {}
+    if not isinstance(stored, dict):
+        stored = {}
     _safe_emit(
         "manual_review_scrape_complete",
         {
             "review_id": review_id,
             "series_id": int(series_id),
             "series_name": series_name or "",
-            "above_count": len(payload.get("above") or []),
-            "below_count": len(payload.get("below") or []),
+            "above_count": len(stored.get("above") or []),
+            "below_count": len(stored.get("below") or []),
             "library_id": library_id,
+            "state": state,
         },
     )
     emit_pending_count()

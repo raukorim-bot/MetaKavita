@@ -268,6 +268,7 @@ def _run_scan(
             pub_status = "UNKNOWN"
             completion_state = "unknown"
             unit_mode = "volumes"
+            failed = False
             try:
                 ov = cached.get(sid) or {}
                 lib_type = (
@@ -356,45 +357,59 @@ def _run_scan(
                     badge,
                 )
             except Exception as e:
+                # Analyse sans conclusion : aucun flag, aucun verdict. Écrire
+                # `has_external_id = False` sur un simple 503 Kavita rangeait
+                # une série pourtant identifiée dans le filtre « sans id
+                # externe », en contradiction avec le compteur (incrémenté
+                # seulement quand l'analyse aboutit).
+                failed = True
                 logging.warning(
                     "[Inventaire] series %s failed: %s", sid, safe_exc_str(e)
                 )
-                ext_flags.setdefault(sid, False)
 
             with _lock:
                 _state["done"] = int(_state["done"]) + 1
                 done = _state["done"]
                 total = _state["total"]
-            _emit_progress(
-                {
-                    "running": True,
-                    "done": done,
-                    "total": total,
-                    "series_id": sid,
-                    "name": name,
-                    "library_id": library_id,
-                    "phase": "series",
-                    "badge": badge,
-                    "missing_count": missing_n,
-                    "has_external_id": has_ext,
-                    "publication_status": pub_status,
-                    "completion_state": completion_state,
-                    "unit_mode": unit_mode,
-                }
-            )
-
-        set_series_external_id_flags(ext_flags)
+            progress = {
+                "running": True,
+                "done": done,
+                "total": total,
+                "series_id": sid,
+                "name": name,
+                "library_id": library_id,
+                "phase": "series",
+            }
+            if failed:
+                # Le front réécrit la ligne dès qu'un badge arrive (« — » est
+                # truthy) : ne rien affirmer plutôt qu'afficher un verdict vide.
+                progress["failed"] = True
+            else:
+                progress.update(
+                    {
+                        "badge": badge,
+                        "missing_count": missing_n,
+                        "has_external_id": has_ext,
+                        "publication_status": pub_status,
+                        "completion_state": completion_state,
+                        "unit_mode": unit_mode,
+                    }
+                )
+            _emit_progress(progress)
 
         # Annulation : les rapports déjà écrits restent valides, mais les
-        # compteurs de bibliothèque et le regroupement de doublons seraient faux
-        # sur un parcours partiel — on garde donc les précédents intacts.
+        # compteurs de bibliothèque, les flags d'id externe et le regroupement
+        # de doublons seraient faux sur un parcours partiel — on garde donc les
+        # précédents intacts.
         if _cancel_requested():
             logging.info(
                 "[Inventaire] scan annulé après %s série(s) — compteurs de "
-                "bibliothèque et doublons inchangés",
+                "bibliothèque, flags et doublons inchangés",
                 _state.get("done"),
             )
             return
+
+        set_series_external_id_flags(ext_flags)
 
         with _lock:
             _state["phase"] = "cluster"

@@ -39,6 +39,8 @@ class MangaUpdatesScraper(BaseScraper):
             "search_title": "[MangaUpdates] Recherche par titre : '{0}'",
             "no_match": "⚠️ [MangaUpdates] Aucun résultat pertinent pour '{0}' (Score max: {1}%)",
             "matched": "🎯 [MangaUpdates] Match validé (ID: {0}, Score: {1}%)",
+            "detail_fallback": "⚠️ [MangaUpdates] Détail indisponible pour l'ID {0} (HTTP {1}) — données de recherche conservées.",
+            "detail_fallback_err": "⚠️ [MangaUpdates] Détail injoignable pour l'ID {0} ({1}) — données de recherche conservées.",
             "err": "[MangaUpdates] Erreur : {0}",
             "covers_err": "[Covers] Erreur MangaUpdates : {0}"
         },
@@ -47,6 +49,8 @@ class MangaUpdatesScraper(BaseScraper):
             "search_title": "[MangaUpdates] Title search: '{0}'",
             "no_match": "⚠️ [MangaUpdates] No relevant result for '{0}' (Max score: {1}%)",
             "matched": "🎯 [MangaUpdates] Match validated (ID: {0}, Score: {1}%)",
+            "detail_fallback": "⚠️ [MangaUpdates] Detail unavailable for ID {0} (HTTP {1}) — keeping search data.",
+            "detail_fallback_err": "⚠️ [MangaUpdates] Detail unreachable for ID {0} ({1}) — keeping search data.",
             "err": "[MangaUpdates] Error: {0}",
             "covers_err": "[Covers] MangaUpdates error: {0}"
         }
@@ -203,6 +207,7 @@ class MangaUpdatesScraper(BaseScraper):
 
             best_match_id = None
             best_score = -1.0
+            best_candidate = None
 
             for item in results:
                 record = item.get("record", {}) or {}
@@ -228,6 +233,7 @@ class MangaUpdatesScraper(BaseScraper):
                 if score > best_score:
                     best_score = score
                     best_match_id = record.get("series_id")
+                    best_candidate = candidate
 
             if not best_match_id or best_score < get_match_accept_threshold():
                 logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
@@ -235,12 +241,22 @@ class MangaUpdatesScraper(BaseScraper):
 
             logging.info(self.t("matched").format(best_match_id, int(best_score*100)))
 
-            # Ajout de impersonate="chrome110" pour passer Cloudflare
-            detail_res = requests.get(f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12, impersonate="chrome110")
-            if detail_res.status_code == 200:
-                return attach_match_score(self._parse_series_record(detail_res.json(), pub_pref), best_score)
+            # Le détail est plus riche (résumé complet, titres associés) et reste
+            # donc prioritaire — mais il repasse par Cloudflare : un 403/429/5xx
+            # ne doit pas jeter un match déjà validé, le candidat construit
+            # depuis le record de recherche a exactement la même forme.
+            detail = None
+            try:
+                # Ajout de impersonate="chrome110" pour passer Cloudflare
+                detail_res = requests.get(f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12, impersonate="chrome110")
+                if detail_res.status_code == 200:
+                    detail = self._parse_series_record(detail_res.json(), pub_pref)
+                else:
+                    logging.warning(self.t("detail_fallback").format(best_match_id, detail_res.status_code))
+            except Exception as e:
+                logging.warning(self.t("detail_fallback_err").format(best_match_id, e))
 
-            return None
+            return attach_match_score(detail or best_candidate, best_score)
 
         except Exception as e:
             logging.error(self.t("err").format(e))

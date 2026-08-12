@@ -1,9 +1,14 @@
+import contextvars
 import logging
 import re
-import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from contextlib import ExitStack
 from scrapers import ScraperRegistry
-from scrapers.utils import get_match_accept_threshold, MATCH_SCORE_KEY
+from scrapers.utils import (
+    get_match_accept_threshold,
+    match_accept_threshold_scope,
+    MATCH_SCORE_KEY,
+)
 from config_manager import load_config
 from translations import translations
 
@@ -459,54 +464,18 @@ def candidate_card_for_ui(card):
     }
 
 
-def _install_zero_match_threshold():
+def _submit_in_context(executor, fn, *args):
     """
-    Force `get_match_accept_threshold()` → 0.0 pendant la collect manuelle.
+    Soumet `fn` au pool en lui transmettant le contexte du thread appelant.
 
-    Les scrapers font `from .utils import get_match_accept_threshold` : patcher
-    uniquement `scrapers.utils` ne suffit pas. On rebind aussi chaque module
-    `scrapers*` déjà chargé qui tient encore la référence d'origine, plus ce module.
+    `ThreadPoolExecutor.submit()` exécute la tâche dans un contexte vierge : sans
+    ce relais, un worker de la vague 2 ne verrait pas le seuil abaissé par
+    `match_accept_threshold_scope()` (collecte de review manuelle) et rejetterait
+    les correspondances faibles que l'utilisateur doit justement pouvoir arbitrer.
+    Une COPIE distincte par tâche est obligatoire : un même objet `Context` ne
+    peut pas être entré par deux threads simultanément.
     """
-    import scrapers.utils as utils_mod
-
-    original = utils_mod.get_match_accept_threshold
-
-    def _zero(config=None):
-        return 0.0
-
-    patched = []
-
-    def _bind(mod):
-        if getattr(mod, "get_match_accept_threshold", None) is original:
-            setattr(mod, "get_match_accept_threshold", _zero)
-            patched.append(mod)
-
-    utils_mod.get_match_accept_threshold = _zero
-    patched.append(utils_mod)
-
-    this_mod = sys.modules.get(__name__)
-    if this_mod is not None:
-        _bind(this_mod)
-
-    for name, mod in list(sys.modules.items()):
-        if mod is None or mod is utils_mod or mod is this_mod:
-            continue
-        if (
-            name == "scrapers"
-            or name.startswith("scrapers.")
-            or name == "custom_scrapers"
-            or name.startswith("custom_scrapers.")
-        ):
-            _bind(mod)
-
-    def restore():
-        for mod in patched:
-            try:
-                setattr(mod, "get_match_accept_threshold", original)
-            except Exception:
-                pass
-
-    return restore
+    return executor.submit(contextvars.copy_context().run, fn, *args)
 
 
 def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO", existing_metadata=None, smart_scoring=None, return_candidates=False, on_candidate=None):
@@ -531,7 +500,8 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     `smart_scoring=None` lit la valeur depuis `config.json` (`SMART_SCORING`).
 
     `return_candidates=True` (mode manuel) : ne construit pas de master_data.
-    Collecte tous les candidats utiles (seuil scrapers temporairement à 0.0),
+    Collecte tous les candidats utiles (seuil scrapers abaissé à 0.0 pour CE
+    contexte d'exécution seulement, voir `match_accept_threshold_scope`),
     partitionne above/below selon le vrai seuil UI, retourne
     `({"above": [...], "below": [...], "query": query}, used_providers)`.
 
@@ -544,6 +514,12 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     t = translations.get(ui_lang, translations['fr'])
     if smart_scoring is None:
         smart_scoring = bool(config.get('SMART_SCORING', True))
+
+    # Vrai seuil UI, capturé AVANT d'entrer dans le contexte de collecte manuelle :
+    # c'est lui — et jamais le 0.0 de la collecte — qui décide de la bande
+    # above/below d'une carte, y compris pour les cartes envoyées en streaming
+    # (dont le `below_threshold` est persisté en base et relu par bulk-accept).
+    ui_threshold = get_match_accept_threshold(config)
 
     master_data = {}
     used_providers = []
@@ -646,7 +622,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         try:
             # Use the real UI threshold for band (scrapers ran at 0.0).
             score = _safe_match_score(data)
-            is_below = score < get_match_accept_threshold()
+            is_below = score < ui_threshold
             card = build_candidate_card(p, data, below_threshold=is_below)
             on_candidate(card, "below" if is_below else "above")
         except Exception as exc:
@@ -745,7 +721,9 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
             context_snapshot = dict(current_existing)
             with ThreadPoolExecutor(max_workers=len(rest)) as executor:
                 future_to_meta = {
-                    executor.submit(call_provider, p, current_query, is_id_search_forced, context_snapshot): (idx, p)
+                    _submit_in_context(
+                        executor, call_provider, p, current_query, is_id_search_forced, context_snapshot
+                    ): (idx, p)
                     for idx, p in enumerate(rest, start=1)
                 }
                 for future in as_completed(future_to_meta):
@@ -823,11 +801,10 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 accepted,
                 key=lambda entry: (-_safe_match_score(entry[2]), entry[0]),
             )
-            real_threshold = get_match_accept_threshold()
             above, below = [], []
             for _, p, data in display:
                 score = _safe_match_score(data)
-                is_below = score < real_threshold
+                is_below = score < ui_threshold
                 card = build_candidate_card(p, data, below_threshold=is_below)
                 if is_below:
                     below.append(card)
@@ -839,11 +816,12 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 "query": current_query,
             }
 
-    restore_threshold = None
-    if return_candidates:
-        restore_threshold = _install_zero_match_threshold()
+    with ExitStack() as stack:
+        if return_candidates:
+            # Collecte manuelle : seuil scrapers à 0.0 pour CE contexte d'exécution
+            # uniquement (un enrichissement automatique parallèle garde le vrai seuil).
+            stack.enter_context(match_accept_threshold_scope(0.0))
 
-    try:
         # --- 1ER PASSAGE CLASSIQUE ---
         run_cascade(query, is_forced_id)
 
@@ -884,20 +862,16 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                 # Si on a trouvé, on ajoute une petite mention au provider pour que ça se voie dans les logs
                 if (not return_candidates) and base_provider_set and '_provider_used' in master_data:
                     master_data['_provider_used'] += " (Titre Traduit)"
-    finally:
-        if restore_threshold is not None:
-            restore_threshold()
 
     if return_candidates:
         collected.sort(key=lambda entry: (-_safe_match_score(entry[2]), entry[0]))
-        real_threshold = get_match_accept_threshold()
         above = []
         below = []
         used = []
         for _, p, data in collected:
             used.append(p)
             score = _safe_match_score(data)
-            is_below = score < real_threshold
+            is_below = score < ui_threshold
             card = build_candidate_card(p, data, below_threshold=is_below)
             if is_below:
                 below.append(card)

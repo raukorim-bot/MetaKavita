@@ -1137,6 +1137,20 @@
         return true;
     }
 
+    // showCurrentReview() est le seul endroit qui restaure le panneau d'édition
+    // d'une review déjà pointée (awaiting_confirm / auto-confirm) et ses sources
+    // de fusion : y passer dans les deux sens évite d'afficher une liste de
+    // candidats pour une série dont le fournisseur est déjà choisi.
+    function goToNextReview() {
+        if (currentIndex >= queue.length - 1) return false;
+        currentIndex += 1;
+        selectedProvider = null;
+        includeProviders = [];
+        baselinePreview = null;
+        showCurrentReview();
+        return true;
+    }
+
     function kbdKeyHtml(label, wide) {
         return '<kbd class="mr-kbd-key' + (wide ? " is-wide" : "") + '">' +
             escapeHtml(label) + "</kbd>";
@@ -2451,13 +2465,7 @@
         }
         if (phase === "pick" && e.key === "ArrowRight") {
             e.preventDefault();
-            if (currentIndex < queue.length - 1) {
-                currentIndex += 1;
-                selectedProvider = null;
-                includeProviders = [];
-                setPhase("pick");
-                renderCandidates();
-            }
+            goToNextReview();
             return;
         }
         if (phase === "pick" && e.key === "ArrowLeft") {

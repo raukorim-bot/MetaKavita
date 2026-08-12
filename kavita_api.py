@@ -730,6 +730,15 @@ class KavitaAPI:
         champs sont absents (même bug que celui corrigé dans `update_series_general`).
         On snapshot GET /api/Series/{id} et on réinjecte name / sortName / localizedName /
         verrous + IDs externes existants avant d'écraser uniquement les IDs fournis.
+
+        BF122 — `coverImageLocked` / `dontMatch` appartiennent à la même famille et
+        doivent être réinjectés ici EXACTEMENT comme dans `update_series_general`
+        (voir le commentaire BF106 là-bas) : un verrou de couverture qui passe de
+        `true` à `false` fait effacer `CoverImage` à Kavita et replanifier une
+        génération depuis les fichiers. Cet appel part en premier dans
+        `apply_kavita_payload()`, avant l'étape couverture — elle-même sautée quand
+        la couverture est un choix manuel — donc l'oubli détruisait la couverture
+        choisie à la main sans rien remettre à la place.
         """
         if not self.token and not self.authenticate():
             return False, self.t.get("msg_not_authenticated", "Non authentifié")
@@ -765,6 +774,8 @@ class KavitaAPI:
             "nameLocked": bool(current.get("nameLocked", False)),
             "sortNameLocked": bool(current.get("sortNameLocked", False)),
             "localizedNameLocked": bool(current.get("localizedNameLocked", False)),
+            "coverImageLocked": bool(current.get("coverImageLocked", False)),
+            "dontMatch": bool(current.get("dontMatch", False)),
             "aniListId": current.get("aniListId"),
             "malId": current.get("malId"),
             "mangaBakaId": current.get("mangaBakaId"),

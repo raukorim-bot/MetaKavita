@@ -197,7 +197,7 @@ def _candidates_have_a_strong_hit(payload):
     """True si au moins un candidat dépasse le VRAI seuil d'acceptation.
 
     En mode manuel, la cascade Comic tourne avec le seuil scrapers mis à 0.0
-    (`_install_zero_match_threshold`) pour que l'utilisateur puisse voir les
+    (`scrapers.utils.match_accept_threshold_scope`) pour que l'utilisateur voie les
     correspondances faibles au lieu de les perdre — elles finissent dans
     `below`, pas rejetées. `above` reste donc le seul signal comparable au
     critère Auto (`_has_useful_provider_data`, qui lui tourne avec le seuil
@@ -591,12 +591,18 @@ def enrich_series(
             cache_data.get('targeted_fields', 'ALL'),
             override=targeted_fields_override,
         )
+        # Série garée en review manuelle : un run non forcé (batch avec sélection
+        # explicite, webhook Kavita) ne doit pas la re-scraper. Le mode manuel
+        # parke une review vide AVANT de scraper, et park_pending_review supprime
+        # la review existante : la modale ouverte perdrait son identifiant et le
+        # travail en cours. Le résumé Kavita n'est pas un critère — une série est
+        # justement en review parce qu'elle n'en a pas. Le re-scrape volontaire
+        # (bouton de la série, force=true, Companion) passe par force_update.
+        if cache_data.get('status') == 'PENDING_REVIEW' and not force_update:
+            logging.info(t.get("log_pending_review_skip", "[{0}] ⏭️ Déjà en review manuelle — skip (relancer en mode forcé pour re-scraper).").format(series_name))
+            return True, "PENDING_REVIEW", []
+
         if metadata.get('summary') and not force_update:
-            # Ne pas clobber une série garée en review manuelle (sinon COMPLETED +
-            # ligne pending_reviews orpheline).
-            if cache_data.get('status') == 'PENDING_REVIEW':
-                logging.info(t.get("log_pending_review_skip", "[{0}] ⏭️ Déjà en PENDING_REVIEW — skip (résumé Kavita présent).").format(series_name))
-                return True, "PENDING_REVIEW", []
             # Données présentes mais verrous en attente → tenter seal seul.
             if cache_data.get('status') == 'NEEDS_RELOCK':
                 ok_seal, seal_msg = kavita.seal_series_locks(series_id)

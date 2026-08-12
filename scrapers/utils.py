@@ -1,6 +1,8 @@
+import contextvars
 import re
 import unicodedata
 import difflib
+from contextlib import contextmanager
 from typing import Optional
 
 ROMAN_MAP = {
@@ -126,12 +128,49 @@ def get_dup_accept_threshold(config=None) -> float:
     return max(DUP_THRESHOLD_MIN, min(DUP_THRESHOLD_MAX, value))
 
 
+# --- SEUIL ABAISSÉ À PORTÉE DE CONTEXTE (collecte de review manuelle) ---
+# La Manual Review a besoin que les scrapers rendent AUSSI leurs correspondances
+# faibles (l'utilisateur tranche ensuite dans la modale), donc d'un seuil à 0.0.
+# Cet abaissement était historiquement fait en remplaçant l'attribut de module
+# `get_match_accept_threshold` dans scrapers.utils / metadata_fetcher / tous les
+# modules `scrapers*` chargés : un état de PROCESS. Un enrichissement automatique
+# tournant en parallèle sur une autre série voyait donc 0.0 lui aussi et écrivait
+# dans Kavita le premier candidat venu ; et deux collectes imbriquées laissaient
+# le seuil à 0.0 jusqu'au redémarrage (la 2de capturait la fonction déjà patchée
+# comme « original »). Un ContextVar rend l'abaissement local au contexte
+# d'exécution (thread/greenlet) et son imbrication sûre : chaque `set()` rend un
+# token restauré en LIFO à la sortie du `with`.
+#
+# ⚠️ `ThreadPoolExecutor.submit()` ne propage PAS le contexte : tout code qui
+# déporte un appel de scraper dans un pool doit soumettre via
+# `contextvars.copy_context().run(...)` (voir metadata_fetcher._submit_in_context),
+# sinon les workers retombent sur le seuil réel et la collecte manuelle perd ses
+# candidats faibles.
+_match_accept_threshold_override: contextvars.ContextVar = contextvars.ContextVar(
+    "metakavita_match_accept_threshold_override", default=None
+)
+
+
+@contextmanager
+def match_accept_threshold_scope(value: float):
+    """Abaisse `get_match_accept_threshold()` pour CE contexte d'exécution seulement."""
+    token = _match_accept_threshold_override.set(float(value))
+    try:
+        yield
+    finally:
+        _match_accept_threshold_override.reset(token)
+
+
 def get_match_accept_threshold(config=None) -> float:
     """Seuil d'acceptation effectif (Baromètre de fiabilité).
 
-    - `MATCH_THRESHOLD_CUSTOM` faux (défaut) → toujours 0.60 (valeur validée).
+    - contexte de collecte manuelle actif (`match_accept_threshold_scope`) → sa valeur ;
+    - `MATCH_THRESHOLD_CUSTOM` faux (défaut) → toujours 0.60 (valeur validée) ;
     - sinon → `MATCH_ACCEPT_THRESHOLD` clampé dans [0.30, 1.00].
     """
+    override = _match_accept_threshold_override.get()
+    if override is not None:
+        return override
     if config is None:
         try:
             from config_manager import load_config

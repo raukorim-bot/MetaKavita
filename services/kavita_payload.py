@@ -565,10 +565,19 @@ def apply_kavita_payload(
 
     logging.info(t.get("log_sending").format(series_name))
 
+    ids_ok = True
+    ids_msg = ""
     if "weblinks" in active:
         a_id, m_id, mb_id = ext.get("anilist"), ext.get("mal"), ext.get("mangabaka")
         if a_id or m_id or mb_id:
-            kavita.update_series_external_ids(series_id, a_id, m_id, mb_id)
+            ids_ok, ids_msg = kavita.update_series_external_ids(series_id, a_id, m_id, mb_id)
+            if not ids_ok:
+                logging.error(
+                    t.get(
+                        "log_kavita_refused",
+                        "[{0}] ❌ Kavita a refusé la mise à jour : {1}",
+                    ).format(series_name, t.get("log_external_ids_label", "IDs externes: {0}").format(ids_msg))
+                )
 
     success, msg, meta_sealed = kavita.update_series_metadata(meta)
 
@@ -644,6 +653,15 @@ def apply_kavita_payload(
                     )
         elif "cover" in active and cover_url and cover_protected:
             logging.info(t.get("log_cover_manual_protected", "[{0}] ⏭️ Couverture ignorée : choix manuel protégé.").format(series_name))
+
+        # BF124 : IDs externes refusés = écriture incomplète. Tout ce qui a réussi
+        # (metadata, généraux, couverture) reste écrit, mais on ne pose AUCUN statut
+        # terminal : COMPLETED afficherait du vert avec des champs AniList/MAL vides
+        # côté Kavita, et NEEDS_RELOCK serait auto-scellé en COMPLETED au passage
+        # suivant sans jamais rejouer l'écriture des IDs. Même contrat que l'échec
+        # des champs généraux (plus bas) : la série garde son statut précédent.
+        if not ids_ok:
+            return False, t.get("msg_external_ids_error", "Erreur IDs externes: {0}").format(ids_msg), used
 
         update_status(series_id, final_status)
         _emit_series_status(series_id, final_status, series_name)
