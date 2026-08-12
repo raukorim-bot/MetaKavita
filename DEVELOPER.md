@@ -476,6 +476,8 @@ node companion/scripts/pack.mjs
 
 Writes `companion/dist/metakavita-companion-chrome.zip` and `…-firefox.zip`. Bump **both** `manifest.json` and `manifest.firefox.json` `version` when shipping a user-visible change. Do not commit unpacked `dist/_chrome/` / `dist/_firefox/` staging folders (gitignored).
 
+Those zips are what users sideload, so repack in the same commit as the source change: the `companion` job in `tests.yml` runs `node --check` on every script plus three self-checks (`selfcheck-url-match.mjs`, `selfcheck-i18n.mjs`, `verify-dist.mjs`), and `verify-dist.mjs` fails when a zip lags behind its sources. See [companion/DEVELOPER.md](./companion/DEVELOPER.md).
+
 <br><br>
 
 ---
@@ -890,3 +892,5 @@ node companion/scripts/pack.mjs
 ```
 
 Produit `companion/dist/metakavita-companion-chrome.zip` et `…-firefox.zip`. Incrémenter **les deux** `version` (`manifest.json` et `manifest.firefox.json`) pour un changement visible. Ne pas committer les dossiers de staging `dist/_chrome/` / `dist/_firefox/` (gitignorés).
+
+Ces zips sont ce que les utilisateurs installent : repacker dans le même commit que la modification des sources. Le job `companion` de `tests.yml` passe `node --check` sur chaque script et lance trois self-checks (`selfcheck-url-match.mjs`, `selfcheck-i18n.mjs`, `verify-dist.mjs`), et `verify-dist.mjs` échoue dès qu'un zip est en retard sur ses sources. Voir [companion/DEVELOPER.md](./companion/DEVELOPER.md).

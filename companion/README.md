@@ -1,4 +1,4 @@
-# MetaKavita Companion
+﻿# MetaKavita Companion
 
 Browser extension for MetaKavita · Extension navigateur pour MetaKavita
 
@@ -19,7 +19,7 @@ MV3 extension (**Chrome / Edge / Firefox**) that adds a floating MetaKavita menu
 
 Server prerequisites (MetaKavita **1.6.5+**): Companion webhook (`seriesId`, `auto`, `super_review`), routes `/companion/embed` and `/companion/embed-token`.
 
-Current extension version: **1.0.26** (see `manifest.json`).
+Current extension version: **1.0.27** (see `manifest.json`).
 
 Ready-made zips (no rebuild):
 - Chrome / Edge: [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)
@@ -122,7 +122,7 @@ Extension navigateur (**Chrome / Edge / Firefox**, Manifest V3) qui ajoute un me
 
 Prérequis côté serveur MetaKavita (**1.6.5**+) : webhook Companion (`seriesId`, `auto`, `super_review`), routes `/companion/embed` et `/companion/embed-token`.
 
-Version extension courante : **1.0.26** (voir `manifest.json`).
+Version extension courante : **1.0.27** (voir `manifest.json`).
 
 Zips prêts (sans rebuild) :
 - Chrome / Edge : [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)

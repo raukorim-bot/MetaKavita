@@ -13,13 +13,21 @@ const DEFAULTS = {
 export function normalizeBaseUrl(url) {
   let u = String(url || "").trim();
   if (!u) return "";
-  // U9: accept host:port without scheme (LAN → http)
-  if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(u)) {
-    const host = u.split("/")[0];
+  // U9: accept host:port without scheme (LAN → http).
+  // Only http(s):// counts as a scheme here. Testing for "letters followed by
+  // a colon" made "localhost:5011" and "nas:5011" parse as the schemes
+  // "localhost:" and "nas:" — origin null, and the LAN fallback below never
+  // reached the very hosts it was written for.
+  if (!/^https?:\/\//i.test(u)) {
+    const host = u.replace(/^\/+/, "").split("/")[0];
+    const hostname = host.replace(/:\d+$/, "");
     const isLocal =
-      /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(host) ||
-      /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/i.test(host);
-    u = (isLocal ? "http://" : "https://") + u;
+      /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(hostname) ||
+      /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) ||
+      // A bare name with no dot is a LAN host (nas, metakavita), never a
+      // public domain — and those are served over plain http far more often.
+      !hostname.includes(".");
+    u = (isLocal ? "http://" : "https://") + u.replace(/^\/+/, "");
   }
   u = u.replace(/\/+$/, "");
   return u;

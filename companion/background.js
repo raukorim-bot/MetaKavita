@@ -15,11 +15,15 @@ function stripOrigin(origin) {
 }
 
 /**
- * Cover picker runs as <img> on the Kavita page. Relative display_url
- * (/api/proxy-image?…) would hit Kavita, not Meta — and cross-origin Meta
- * needs ?embed_token= (no cookies / no custom headers on img).
+ * Cover picker runs as <img> on the Kavita page. A relative display_url
+ * (/api/proxy-image?…) would hit Kavita, not Meta, so make it absolute.
+ *
+ * The embed token deliberately stays out of the URL: an <img src> is plain DOM
+ * that any script on the Kavita page can read, and that token unlocks every
+ * review route of its series. Proxied previews go through fetchImageData
+ * instead, which sends the token as a request header.
  */
-function resolveCompanionCoverDisplayUrl(displayUrl, rawUrl, metaBase, embedToken) {
+function resolveCompanionCoverDisplayUrl(displayUrl, rawUrl, metaBase) {
   let u = String(displayUrl || rawUrl || "").trim();
   if (!u) return "";
   const base = String(metaBase || "").replace(/\/+$/, "");
@@ -36,16 +40,16 @@ function resolveCompanionCoverDisplayUrl(displayUrl, rawUrl, metaBase, embedToke
       u = base + u;
     }
   }
-  if (!embedToken || u.indexOf("/api/proxy-image") === -1) return u;
   try {
     const parsed = new URL(u);
-    if (!parsed.searchParams.has("embed_token")) {
-      parsed.searchParams.set("embed_token", embedToken);
+    if (parsed.searchParams.has("embed_token")) {
+      parsed.searchParams.delete("embed_token");
+      return parsed.toString();
     }
-    return parsed.toString();
   } catch {
-    return u;
+    /* not absolute: nothing to strip */
   }
+  return u;
 }
 
 const IMAGE_BRIDGE_MAX_BYTES = 8 * 1024 * 1024;
@@ -77,6 +81,32 @@ async function mintEmbedToken(base, webhookToken, seriesId) {
   } catch {
     return "";
   }
+}
+
+// Server tokens live 15 min; expire ours early so a request never leaves with
+// one that dies in flight.
+const EMBED_TOKEN_REUSE_MS = 10 * 60 * 1000;
+const embedTokenCache = new Map();
+
+/**
+ * One token per series, reused while it lasts. Opening the cover picker means
+ * one call for the list then one per preview: minting a token each time asked
+ * MetaKavita for twenty-odd tokens to display one grid, and left as many live
+ * credentials behind.
+ */
+async function getEmbedToken(base, webhookToken, seriesId) {
+  const key = `${base}|${seriesId}`;
+  const cached = embedTokenCache.get(key);
+  if (cached && cached.expires > Date.now()) return cached.token;
+  const token = await mintEmbedToken(base, webhookToken, seriesId);
+  if (token) {
+    embedTokenCache.set(key, { token, expires: Date.now() + EMBED_TOKEN_REUSE_MS });
+  }
+  return token;
+}
+
+function forgetEmbedTokens() {
+  embedTokenCache.clear();
 }
 
 let syncChain = Promise.resolve();
@@ -282,6 +312,8 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       if (msg.type === "saveSettings") {
         // Persist first so popup death after permission grant doesn't lose values (C1).
         const next = await saveSettings(msg.settings || {});
+        // A new address or a new webhook token invalidates what we hold.
+        forgetEmbedTokens();
         const metaOrigin = originFromUrl(next.metaBaseUrl);
         let permissionOk = true;
         if (metaOrigin) {
@@ -462,12 +494,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
         const headers = {};
         const seriesId = Number(msg.seriesId);
         if (Number.isFinite(seriesId) && seriesId > 0) {
-          const token = await mintEmbedToken(base, settings.webhookToken, seriesId);
-          if (token) {
-            headers["X-Companion-Embed-Token"] = token;
-            target.searchParams.delete("embed_token");
-          }
+          const token = await getEmbedToken(base, settings.webhookToken, seriesId);
+          if (token) headers["X-Companion-Embed-Token"] = token;
         }
+        // Never carried in the URL — it would end up in an <img src> the page
+        // can read. It travels as a header, above.
+        target.searchParams.delete("embed_token");
         try {
           const res = await fetch(target.toString(), {
             headers,
@@ -519,22 +551,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
           sendResponse({ ok: false, error: "missing_series_id" });
           return;
         }
-        const parentOrigin = chrome.runtime.getURL("").replace(/\/$/, "");
-        let embedToken = "";
-        try {
-          const tokRes = await fetch(`${base}/companion/embed-token`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "X-Webhook-Token": settings.webhookToken,
-            },
-            body: JSON.stringify({ seriesId, parent_origin: parentOrigin }),
-          });
-          const tokBody = await tokRes.json().catch(() => ({}));
-          if (tokRes.ok && tokBody.embed_token) embedToken = tokBody.embed_token;
-        } catch {
-          /* ignore */
-        }
+        const embedToken = await getEmbedToken(base, settings.webhookToken, seriesId);
         if (!embedToken) {
           sendResponse({ ok: false, error: "embed_token_failed" });
           return;
@@ -556,12 +573,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
             }
             const covers = (body.covers || []).map((c) => {
               if (!c || typeof c !== "object") return c;
-              const display = resolveCompanionCoverDisplayUrl(
-                c.display_url,
-                c.url,
-                base,
-                embedToken
-              );
+              const display = resolveCompanionCoverDisplayUrl(c.display_url, c.url, base);
               return { ...c, display_url: display || c.display_url || c.url || "" };
             });
             sendResponse({ ok: true, covers });

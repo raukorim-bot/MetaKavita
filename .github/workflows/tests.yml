@@ -30,6 +30,35 @@ jobs:
       - name: Run ruff
         run: ruff check .
 
+  companion:
+    # L'extension est du JavaScript livré en zip, hors du périmètre de ruff et
+    # de pytest : sans ce job, une clé de traduction non déclarée ou un zip
+    # oublié partent chez les utilisateurs sans que rien ne s'y oppose.
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Syntax check every extension script
+        run: |
+          find companion -name '*.js' -not -path 'companion/dist/*' -print0 \
+            | xargs -0 -n1 node --check
+
+      - name: Self-check URL handling
+        run: node companion/scripts/selfcheck-url-match.mjs
+
+      - name: Self-check translations
+        run: node companion/scripts/selfcheck-i18n.mjs
+
+      - name: Check the shipped zips match the sources
+        run: node companion/scripts/verify-dist.mjs
+
   pytest:
     runs-on: ubuntu-latest
 

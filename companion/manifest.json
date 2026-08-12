@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "__MSG_extName__",
-  "version": "1.0.26",
+  "version": "1.0.27",
   "default_locale": "en",
   "description": "__MSG_extDescription__",
   "icons": {
@@ -29,7 +29,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["overlay/overlay.html", "overlay/*", "lib/*", "_locales/*", "icons/*"],
+      "resources": ["icons/logo.png"],
       "matches": ["*://*/*"]
     }
   ]

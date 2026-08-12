@@ -30,7 +30,6 @@ const INCLUDE = [
   "options.js",
   "options.css",
   "content",
-  "overlay",
   "lib",
   "_locales",
   "icons",

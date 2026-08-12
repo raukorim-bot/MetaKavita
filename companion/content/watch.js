@@ -277,12 +277,20 @@
   }
 
   /**
-   * Cover previews: an http:// MetaKavita preview is blocked as mixed content on
-   * an https:// Kavita page. The service worker can still fetch it, so we ask it
-   * for an inline data: URL instead of pointing <img> at MetaKavita directly.
+   * Cover previews go through the service worker in two cases.
+   *
+   * A proxied preview needs MetaKavita credentials, and an <img> carries
+   * neither cookies (cross-site) nor headers. Putting the embed token in the
+   * URL did work, and handed a token good for every review route of the series
+   * to any script reading the src attribute. The worker sends it as a header
+   * and returns the bytes inline.
+   *
+   * And an http:// preview is blocked outright as mixed content on an https://
+   * Kavita page; worker fetches are exempt.
    */
   function coverNeedsImageBridge(url) {
     if (!url || /^data:/i.test(url)) return false;
+    if (url.indexOf("/api/proxy-image") !== -1) return true;
     return location.protocol === "https:" && /^http:\/\//i.test(url);
   }
 
@@ -567,29 +575,10 @@
     const data = ev.data;
     if (!data) return;
 
-    // Legacy overlay iframe → Kavita page bridge.
-    if (data.source === "metakavita-companion-overlay") {
-      if (data.type === "mk:open-mr-tab" && data.url) {
-        window.open(String(data.url), "_blank");
-        return;
-      }
-      if (data.type === "mk:open-mr" && data.url) {
-        openMrOverlay({
-          url: data.url,
-          metaOrigin: data.metaOrigin || "",
-          seriesId: data.seriesId,
-          cacheBust: data.cacheBust !== false,
-          labels: data.labels || {},
-        });
-        return;
-      }
-      if (data.type === "mk:page-toast") {
-        showPageToast(data.message || "", !!data.error);
-        return;
-      }
-      return;
-    }
-
+    // Only the MetaKavita embed talks to this page. The extension UI is a
+    // shadow root in this same document, not an iframe, so there is no second
+    // sender to accept — the old overlay bridge took orders from any window
+    // and opened the URL it was handed.
     if (data.source !== "metakavita-companion") return;
 
     // Super Review opened as a top-level tab (mixed content) posts mk:mr-done

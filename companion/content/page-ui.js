@@ -29,6 +29,10 @@
     '<path d="M8 7h8a3 3 0 0 1 0 6h-1"/><path d="M7 7v8a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-1"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h.5"/><path d="M7 21h8"/>'
   );
 
+  // Kept byte-for-byte identical to lib/i18n.js: a content script registered
+  // through chrome.scripting is a classic script and cannot import that module,
+  // so the table is duplicated. scripts/selfcheck-i18n.mjs fails the build when
+  // the two copies drift — which is how three keys ended up rendering raw.
   const FR = {
     fabSuper: "Super Review",
     fabAuto: "Auto",
@@ -40,7 +44,15 @@
     configMetaUrl: "URL MetaKavita",
     configToken: "Jeton webhook",
     configShowFabs: "Afficher les boutons Super / Auto / Cover",
-    configCacheBust: "Rafraîchir la couverture après confirm",
+    coverTitle: "Choisir une couverture",
+    coverSearch: "Rechercher",
+    coverSearching: "Recherche des couvertures…",
+    coverEmpty: "Aucune couverture trouvée",
+    coverApplied: "Couverture appliquée",
+    coverApplyFail: "Échec de l’application de la couverture",
+    coverPreviewFail: "Aperçu indisponible",
+    coverPreviewLogin: "Aperçus refusés par MetaKavita (connexion requise) — instance à jour ?",
+    configCacheBust: "Rafraîchir la couverture après confirm (anti-cache)",
     configLang: "Langue",
     configLangAuto: "Auto (navigateur)",
     configLangFr: "Français",
@@ -50,7 +62,8 @@
     configEnableSite: "Activer sur ce site Kavita",
     toastSaved: "Réglages enregistrés",
     toastSavedNeedPermission: "Enregistré — autorisez l’accès au site MetaKavita",
-    toastSiteEnabled: "Site Kavita mémorisé",
+    toastSiteEnabled: "Site Kavita mémorisé — valable pour toutes les fenêtres",
+    toastSiteEnabledHintSeries: "Site mémorisé — ouvrez une fiche /library/…/series/…",
     toastNeedConfig: "Configurez d’abord le Companion",
     toastQueued: "Ajouté à la file d’enrichissement",
     toastError: "Erreur : $1$",
@@ -59,26 +72,22 @@
     toastTestFailToken: "Jeton webhook invalide",
     toastTestFailHealth: "MetaKavita injoignable (/healthz)",
     toastTestFailNetwork: "Erreur réseau vers MetaKavita",
-    toastNeedSeriesPage: "Ouvrez une fiche série Kavita",
-    toastMetaIsNotKavita: "Ceci est MetaKavita — ouvrez votre site Kavita",
+    toastNeedHosts: "Ouvrez d’abord un onglet Kavita, puis réessayez",
+    toastNeedSeriesPage: "Ouvrez une fiche série Kavita (/library/…/series/…)",
+    toastMetaIsNotKavita: "Ceci est MetaKavita — ouvrez votre site Kavita puis activez",
     toastPermissionDenied: "Permission refusée",
     toastSiteAlreadyEnabled: "Ce site Kavita est déjà activé",
     toastUsePopupForPermission: "Ouvrez le popup Companion (icône) pour autoriser MetaKavita",
     toastEnableFail: "Activation impossible — réessayez depuis le popup Companion",
-    toastNeedMetaLogin: "Connectez-vous à MetaKavita dans un onglet",
+    toastNeedMetaLogin: "Connectez-vous à MetaKavita dans un onglet, puis réessayez Super Review",
     toastKavitaUnreachable: "Kavita injoignable depuis MetaKavita",
     toastSeriesNotFound: "Série introuvable dans Kavita",
     toastMrTimeout: "Super Review : délai dépassé",
-    toastExtensionReloaded: "Extension rechargée — rechargez la page",
-    toastMixedContentTab: "Kavita HTTPS + MetaKavita HTTP — ouverture dans un onglet",
-    mrEmbedBlocked: "Super Review bloqué ici. Ouvrez-le dans un onglet.",
+    toastExtensionReloaded: "Extension rechargée — rechargez la page Kavita",
+    mrEmbedBlocked: "Super Review n’a pas pu s’afficher ici (navigateur/sécurité). Ouvrez-le dans un onglet.",
     mrOpenInTab: "Ouvrir dans un onglet",
-    coverTitle: "Choisir une couverture",
-    coverSearch: "Rechercher",
-    coverSearching: "Recherche des couvertures…",
-    coverEmpty: "Aucune couverture trouvée",
-    coverApplied: "Couverture appliquée",
-    coverApplyFail: "Échec de l’application de la couverture",
+    toastMixedContentTab: "Kavita est en HTTPS et MetaKavita en HTTP — Super Review s’ouvre dans un onglet",
+    toastMixedContentWindow: "Kavita est en HTTPS et MetaKavita en HTTP — Super Review s’ouvre dans une fenêtre dédiée",
     close: "Fermer",
   };
 
@@ -93,7 +102,15 @@
     configMetaUrl: "MetaKavita URL",
     configToken: "Webhook token",
     configShowFabs: "Show Super / Auto / Cover buttons",
-    configCacheBust: "Refresh cover after confirm",
+    coverTitle: "Pick a cover",
+    coverSearch: "Search",
+    coverSearching: "Searching covers…",
+    coverEmpty: "No covers found",
+    coverApplied: "Cover applied",
+    coverApplyFail: "Failed to apply cover",
+    coverPreviewFail: "Preview unavailable",
+    coverPreviewLogin: "MetaKavita refused the previews (login required) — instance up to date?",
+    configCacheBust: "Refresh cover after confirm (cache bust)",
     configLang: "Language",
     configLangAuto: "Auto (browser)",
     configLangFr: "Français",
@@ -102,8 +119,9 @@
     configTest: "Test connection",
     configEnableSite: "Enable on this Kavita site",
     toastSaved: "Settings saved",
-    toastSavedNeedPermission: "Saved — allow access to MetaKavita",
-    toastSiteEnabled: "Kavita site saved",
+    toastSavedNeedPermission: "Saved — allow access to the MetaKavita site",
+    toastSiteEnabled: "Kavita site saved — applies to all windows",
+    toastSiteEnabledHintSeries: "Site saved — open a /library/…/series/… page",
     toastNeedConfig: "Configure Companion first",
     toastQueued: "Queued for enrichment",
     toastError: "Error: $1$",
@@ -112,26 +130,22 @@
     toastTestFailToken: "Invalid webhook token",
     toastTestFailHealth: "MetaKavita unreachable (/healthz)",
     toastTestFailNetwork: "Network error reaching MetaKavita",
-    toastNeedSeriesPage: "Open a Kavita series page",
-    toastMetaIsNotKavita: "This is MetaKavita — open your Kavita site",
+    toastNeedHosts: "Open a Kavita tab first, then try again",
+    toastNeedSeriesPage: "Open a Kavita series page (/library/…/series/…)",
+    toastMetaIsNotKavita: "This is MetaKavita — open your Kavita site, then enable",
     toastPermissionDenied: "Permission denied",
     toastSiteAlreadyEnabled: "This Kavita site is already enabled",
     toastUsePopupForPermission: "Open the Companion popup (toolbar icon) to allow MetaKavita",
     toastEnableFail: "Could not enable — retry from the Companion popup",
-    toastNeedMetaLogin: "Log into MetaKavita in a tab",
+    toastNeedMetaLogin: "Log into MetaKavita in a tab, then retry Super Review",
     toastKavitaUnreachable: "Kavita unreachable from MetaKavita",
     toastSeriesNotFound: "Series not found in Kavita",
     toastMrTimeout: "Super Review timed out",
-    toastExtensionReloaded: "Extension reloaded — refresh the page",
-    toastMixedContentTab: "Kavita HTTPS + MetaKavita HTTP — opening in a tab",
-    mrEmbedBlocked: "Super Review blocked here. Open it in a tab.",
+    toastExtensionReloaded: "Extension reloaded — refresh the Kavita page",
+    mrEmbedBlocked: "Super Review couldn’t load here (browser/security). Open it in a tab.",
     mrOpenInTab: "Open in a new tab",
-    coverTitle: "Pick a cover",
-    coverSearch: "Search",
-    coverSearching: "Searching covers…",
-    coverEmpty: "No covers found",
-    coverApplied: "Cover applied",
-    coverApplyFail: "Failed to apply cover",
+    toastMixedContentTab: "Kavita is HTTPS and MetaKavita is HTTP — opening Super Review in a tab",
+    toastMixedContentWindow: "Kavita is HTTPS and MetaKavita is HTTP — opening Super Review in a dedicated window",
     close: "Close",
   };
 
@@ -377,19 +391,27 @@
   function openConfig() {
     if (!uiAlive()) return;
     setMenuOpen(false);
-    fillForm();
+    fillForm({ includeToken: true });
     els.configPanel.classList.add("is-open");
   }
 
   function closeConfig() {
     if (!els.configPanel) return;
     els.configPanel.classList.remove("is-open");
+    if (els.token) els.token.value = "";
   }
 
-  function fillForm() {
+  /**
+   * The webhook token only lands in the DOM while the panel is open. It grants
+   * embed tokens for any series, and this UI lives inside the Kavita page: the
+   * isolated world keeps our variables out of reach, not the nodes we insert.
+   */
+  function fillForm(opts) {
     if (!els.metaUrl || !els.token || !els.showFabs || !els.cacheBust || !els.uiLang) return;
     els.metaUrl.value = (settings && settings.metaBaseUrl) || "";
-    els.token.value = (settings && settings.webhookToken) || "";
+    if (opts && opts.includeToken) {
+      els.token.value = (settings && settings.webhookToken) || "";
+    }
     els.showFabs.checked = !settings || settings.showActionFabs !== false;
     els.cacheBust.checked = !settings || settings.cacheBustOnConfirm !== false;
     els.uiLang.value = (settings && settings.uiLang) || "auto";
@@ -419,19 +441,24 @@
     settings = (res && res.settings) || {};
     lang = resolveLang(settings.uiLang);
     applyLabels();
-    fillForm();
+    fillForm({
+      includeToken: !!(els.configPanel && els.configPanel.classList.contains("is-open")),
+    });
     refreshFabVisibility();
   }
 
+  // Mirror of lib/storage.js normalizeBaseUrl (classic script, no imports).
   function normalizeBaseUrl(url) {
     let u = String(url || "").trim();
     if (!u) return "";
-    if (!/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(u)) {
-      const host = u.split("/")[0];
+    if (!/^https?:\/\//i.test(u)) {
+      const host = u.replace(/^\/+/, "").split("/")[0];
+      const hostname = host.replace(/:\d+$/, "");
       const isLocal =
-        /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(host) ||
-        /^\d{1,3}(\.\d{1,3}){3}(:\d+)?$/i.test(host);
-      u = (isLocal ? "http://" : "https://") + u;
+        /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(hostname) ||
+        /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) ||
+        !hostname.includes(".");
+      u = (isLocal ? "http://" : "https://") + u.replace(/^\/+/, "");
     }
     return u.replace(/\/+$/, "");
   }
@@ -679,7 +706,10 @@
   function buildDom() {
     root = document.createElement("div");
     root.id = HOST_ID;
-    shadow = root.attachShadow({ mode: "open" });
+    // Closed: an open shadow root is reachable from the page through
+    // host.shadowRoot, which would hand the settings panel — token field
+    // included — to any script running on Kavita.
+    shadow = root.attachShadow({ mode: "closed" });
     const style = document.createElement("style");
     style.textContent = CSS;
     shadow.appendChild(style);
