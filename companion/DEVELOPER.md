@@ -160,6 +160,7 @@ node companion/scripts/pack.mjs
   - `dist/metakavita-companion-firefox.zip`
 - Deletes staging folders after zip.
 - Zip entries always use `/` (pure Node writer). Do **not** use PowerShell `Compress-Archive` — it stores `\` and breaks unzip on Linux/macOS.
+- Text entries are written with LF (`scripts/zip-bytes.mjs`), so the artifact does not depend on whether git checked the sources out with CRLF on the machine that packed them.
 
 Bump **both** `manifest.json` and `manifest.firefox.json` `version` fields when shipping a user-visible change, and the version quoted in `README.md` (a test checks the three agree).
 

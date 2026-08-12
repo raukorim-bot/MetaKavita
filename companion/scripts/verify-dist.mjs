@@ -10,6 +10,7 @@ import { existsSync, readFileSync, readdirSync, statSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join, relative, sep } from "path";
 import { inflateRawSync } from "zlib";
+import { zipBytes } from "./zip-bytes.mjs";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DIST = join(ROOT, "dist");
@@ -135,7 +136,7 @@ for (const [zipName, firefox] of [
       continue;
     }
     check(
-      packed.equals(readFileSync(abs)),
+      packed.equals(zipBytes(name, readFileSync(abs))),
       `${zipName} : ${name} diffère de la source — repacker`,
     );
   }

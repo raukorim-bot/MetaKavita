@@ -82,6 +82,24 @@ def test_web_accessible_resources_expose_only_the_icon():
         )
 
 
+def test_the_zips_carry_lf_whatever_the_machine_that_packed_them():
+    """Les zips sont packés à la main, le plus souvent sous Windows, où git
+    sort les fichiers texte en CRLF ; le runner CI, lui, les sort en LF. Une
+    comparaison octet à octet échouait alors sur les fichiers packés depuis une
+    copie CRLF — et aurait continué jusqu'à un repack sous Linux."""
+    import zipfile
+
+    for name in ("metakavita-companion-chrome.zip", "metakavita-companion-firefox.zip"):
+        with zipfile.ZipFile(COMPANION / "dist" / name) as zf:
+            for entry in zf.namelist():
+                if not entry.endswith((".js", ".json", ".html", ".css")):
+                    continue
+                assert b"\r\n" not in zf.read(entry), (
+                    f"{name} : {entry} packé en CRLF — l'artefact dépend de la "
+                    "machine qui l'a construit"
+                )
+
+
 def test_both_manifests_agree_on_the_version():
     chrome = json.loads(_read("manifest.json"))["version"]
     firefox = json.loads(_read("manifest.firefox.json"))["version"]

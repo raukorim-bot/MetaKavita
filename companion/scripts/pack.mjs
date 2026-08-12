@@ -19,6 +19,7 @@ import {
 import { join, dirname, relative, sep } from "path";
 import { fileURLToPath } from "url";
 import { deflateRawSync } from "zlib";
+import { zipBytes } from "./zip-bytes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -88,7 +89,7 @@ function zipDir(srcDir, outZip) {
   for (const abs of files) {
     const name = relative(srcDir, abs).split(sep).join("/");
     const nameBuf = Buffer.from(name, "utf8");
-    const data = readFileSync(abs);
+    const data = zipBytes(name, readFileSync(abs));
     const compressed = deflateRawSync(data);
     const crc = crc32(data);
     const method = 8; // deflate
