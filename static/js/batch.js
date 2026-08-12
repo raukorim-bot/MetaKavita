@@ -297,6 +297,19 @@ function filterSeries() {
     _filterSeriesApply();
 }
 
+/** Raccourci des lignes de l'encart statistiques vers le filtre de la liste. */
+function filterSeriesByStatus(status) {
+    const statusFilter = document.getElementById('statusFilter');
+    if (!statusFilter) return;
+    statusFilter.value = status;
+    // Les ignorées sont masquées par défaut : sans cela le filtre ne montrerait rien.
+    if (status === 'IGNORED') {
+        const hideIgnoredCb = document.getElementById('hideIgnoredCb');
+        if (hideIgnoredCb) hideIgnoredCb.checked = false;
+    }
+    filterSeries();
+}
+
 function _filterSeriesApply() {
     const statusFilter = document.getElementById('statusFilter');
     if (!statusFilter) return;

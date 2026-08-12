@@ -93,6 +93,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
         'pending': sum(1 for v in cached_info.values() if v.get('status') == 'PENDING'),
         'pending_review': sum(1 for v in cached_info.values() if v.get('status') == 'PENDING_REVIEW'),
         'not_found': sum(1 for v in cached_info.values() if v.get('status') == 'NOT_FOUND'),
+        'needs_relock': sum(1 for v in cached_info.values() if v.get('status') == 'NEEDS_RELOCK'),
         'ignored': sum(1 for v in cached_info.values() if v.get('status') == 'IGNORED')
     }
 

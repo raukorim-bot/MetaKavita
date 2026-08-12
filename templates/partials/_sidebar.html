@@ -1,39 +1,50 @@
 ﻿            <aside class="sidebar">
                 
                 <!-- BLOC 1: STATISTIQUES -->
+                {# Une seule liste décrit les états : la barre et la légende en découlent,
+                   donc elles ne peuvent pas diverger. `NEEDS_RELOCK` en fait partie, sans
+                   quoi la somme des lignes ne retombait pas sur le total affiché. #}
+                {% set stat_total = stats.total or 0 %}
+                {% set stat_rows = [
+                    ('COMPLETED', stats.completed, t.stats_enriched, 'var(--success)'),
+                    ('NOT_FOUND', stats.not_found, t.stats_errors, 'var(--danger)'),
+                    ('NEEDS_RELOCK', stats.needs_relock|default(0), t.stats_needs_relock, 'var(--sky)'),
+                    ('PENDING', stats.pending, t.stats_pending, 'var(--warning)'),
+                    ('PENDING_REVIEW', stats.pending_review|default(0), t.stats_pending_review, 'var(--stat-review)'),
+                    ('IGNORED', stats.ignored, t.stats_ignored, 'var(--secondary)')
+                ] %}
                 <div class="card sidebar-stats-card card-tint-teal">
                     <h3 class="section-title">{{ t.stats_title }}</h3>
-                    <div class="sidebar-stats">
-                        <div class="sidebar-stat">
-                            <span class="sidebar-stat-val" style="color: var(--success);">{{ stats.completed }}</span>
-                            <span class="sidebar-stat-label">{{ t.stats_enriched }}</span>
-                        </div>
-                        <div class="sidebar-stat">
-                            <span class="sidebar-stat-val" style="color: var(--danger);">{{ stats.not_found }}</span>
-                            <span class="sidebar-stat-label">{{ t.stats_errors }}</span>
-                        </div>
-                        <div class="sidebar-stat">
-                            <span class="sidebar-stat-val" style="color: var(--warning);">{{ stats.pending }}</span>
-                            <span class="sidebar-stat-label">{{ t.stats_pending }}</span>
-                        </div>
-                        <div class="sidebar-stat">
-                            <span class="sidebar-stat-val" style="color: #f472b6;">{{ stats.pending_review|default(0) }}</span>
-                            <span class="sidebar-stat-label">{{ t.stats_pending_review }}</span>
-                        </div>
-                        <div class="sidebar-stat">
-                            <span class="sidebar-stat-val" style="color: var(--text-muted);">{{ stats.ignored }}</span>
-                            <span class="sidebar-stat-label">{{ t.stats_ignored }}</span>
-                        </div>
+
+                    <div class="stats-head">
+                        <span class="stats-total">{{ stat_total }}</span>
+                        <span class="stats-total-label">{{ t.stats_total_label }}</span>
                     </div>
-                    <div class="sidebar-stats-bar">
-                        {% if stats.total > 0 %}
-                        <div style="width: {{ (stats.completed / stats.total) * 100 }}%; background: var(--success);"></div>
-                        <div style="width: {{ (stats.not_found / stats.total) * 100 }}%; background: var(--danger);"></div>
-                        <div style="width: {{ (stats.pending / stats.total) * 100 }}%; background: var(--warning);"></div>
-                        <div style="width: {{ (stats.ignored / stats.total) * 100 }}%; background: var(--secondary);"></div>
+
+                    <div class="stats-bar" aria-hidden="true">
+                        {% for code, value, label, color in stat_rows %}
+                        {% if value and stat_total %}
+                        <span class="stats-bar-seg" style="--seg: {{ color }}; width: {{ (value * 100.0 / stat_total)|round(2) }}%;" title="{{ label }} : {{ value }}"></span>
                         {% endif %}
+                        {% endfor %}
                     </div>
-                    <a href="{{ url_for('pages.stats') }}" class="btn-secondary block-link w-100 text-center mt-3 btn-open-stats">{{ t.open_stats }}</a>
+
+                    <div class="stats-legend">
+                        {% for code, value, label, color in stat_rows %}
+                        {% set pct = (value * 100.0 / stat_total) if stat_total else 0 %}
+                        <button type="button" class="stats-legend-row{% if not value %} is-zero{% endif %}"
+                                style="--seg: {{ color }};"
+                                title="{{ t.stats_filter_hint }}"
+                                onclick="filterSeriesByStatus('{{ code }}')">
+                            <span class="stats-dot" aria-hidden="true"></span>
+                            <span class="stats-legend-label">{{ label }}</span>
+                            <span class="stats-legend-val">{{ value }}</span>
+                            <span class="stats-legend-pct">{% if value %}{{ '<1' if pct < 1 else pct|round|int }}%{% endif %}</span>
+                        </button>
+                        {% endfor %}
+                    </div>
+
+                    <a href="{{ url_for('pages.stats') }}" class="btn-secondary block-link w-100 text-center btn-open-stats">{{ t.open_stats }}</a>
                 </div>
 
                 <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
