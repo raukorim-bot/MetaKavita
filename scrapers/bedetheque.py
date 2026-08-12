@@ -54,7 +54,8 @@ class BedethequeScraper(BaseScraper):
             "covers_err": "❌ [Covers] Erreur Bédéthèque pour '{0}' : {1}",
             "unknown": "Inconnu",
             "direct_url": "🎯 [Bédéthèque] Court-circuit activé : Scraping direct de l'URL '{0}'",
-            "invalid_url": "⚠️ [Bédéthèque] L'URL fournie n'est ni un album ni une série reconnue : {0}"
+            "invalid_url": "⚠️ [Bédéthèque] L'URL fournie n'est ni un album ni une série reconnue : {0}",
+            "http_err": "⚠️ [Bédéthèque] HTTP {0} sur {1} — page ignorée."
         },
         "en": {
             "display_name": "Bedetheque (Franco-Belgian)",
@@ -65,7 +66,8 @@ class BedethequeScraper(BaseScraper):
             "covers_err": "❌ [Covers] Bédéthèque error for '{0}': {1}",
             "unknown": "Unknown",
             "direct_url": "🎯 [Bédéthèque] Direct URL override active for '{0}'",
-            "invalid_url": "⚠️ [Bédéthèque] Provided URL is not a recognized album or series: {0}"
+            "invalid_url": "⚠️ [Bédéthèque] Provided URL is not a recognized album or series: {0}",
+            "http_err": "⚠️ [Bédéthèque] HTTP {0} on {1} — page skipped."
         }
     }
 
@@ -82,6 +84,20 @@ class BedethequeScraper(BaseScraper):
             return tag['value'] if tag else ""
         except Exception:
             return ""
+
+    def _get_page(self, session, url, headers):
+        """Soupe de la page, ou None si Bédéthèque n'a pas répondu 200.
+
+        Sans ce contrôle, une page 404 / 503 / de maintenance était analysée comme
+        une fiche : son `<h1>` devenait le titre récupéré, son message d'attente le
+        résumé, et le statut de publication gardait son défaut `FINISHED`. La seule
+        chose qui manquait dans les journaux était la vraie cause.
+        """
+        res = session.get(url, headers=headers, timeout=15)
+        if res.status_code != 200:
+            logging.warning(self.t("http_err").format(res.status_code, url))
+            return None
+        return BeautifulSoup(res.text, 'html.parser')
 
     def _extract_summary(self, soup):
         for css_class in ['synopsis', 'histoire', 'story']:
@@ -224,8 +240,12 @@ class BedethequeScraper(BaseScraper):
             
             if album_url:
                 time.sleep(1.0)
-                res_album = session.get(album_url, headers=headers, timeout=15)
-                soup_album = BeautifulSoup(res_album.text, 'html.parser')
+                soup_album = self._get_page(session, album_url, headers)
+                if soup_album is None and not serie_url:
+                    # Ni fiche album lisible, ni série à parcourir : rien à scraper.
+                    return None
+
+            if soup_album is not None:
                 album_summary = self._extract_summary(soup_album)
                 staff, publisher = self._extract_staff_and_publisher(soup_album, staff, publisher)
 
@@ -246,6 +266,7 @@ class BedethequeScraper(BaseScraper):
             cover_url = None
             fetched_title = ""
             
+            soup_serie = None
             if serie_url:
                 if not serie_url.startswith('http'): 
                     serie_url = f"https://www.bedetheque.com{serie_url}"
@@ -253,9 +274,11 @@ class BedethequeScraper(BaseScraper):
                 time.sleep(self.rate_limit)
                 logging.info(self.t("scraping_serie").format(serie_url))
                 
-                res_serie = session.get(serie_url, headers=headers, timeout=15)
-                soup_serie = BeautifulSoup(res_serie.text, 'html.parser')
+                soup_serie = self._get_page(session, serie_url, headers)
 
+            # Fiche série illisible (HTTP en erreur) : on retombe sur la page album
+            # quand elle a répondu, au lieu de prendre le titre d'une page d'erreur.
+            if soup_serie is not None:
                 h1_title = soup_serie.find('h1')
                 if h1_title:
                     fetched_title = h1_title.get_text(strip=True)

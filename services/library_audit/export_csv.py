@@ -6,6 +6,29 @@ import csv
 import io
 from typing import Any, Dict, List
 
+# Excel et LibreOffice évaluent toute cellule ouvrant sur l'un de ces caractères :
+# une série nommée « =cmd|' /C calc'!A0 » devient un appel système à l'ouverture du
+# fichier. La tabulation et le retour chariot servent à sortir de la cellule pour
+# en réamorcer une, même protection donc.
+_FORMULA_TRIGGERS = ("=", "+", "-", "@", "\t", "\r")
+
+
+def _defused(value: Any) -> Any:
+    """Neutralise une valeur textuelle susceptible d'être lue comme une formule.
+
+    L'apostrophe de tête est la convention des tableurs : la cellule s'affiche
+    telle quelle et le contenu reste lisible. Les nombres ne sont pas touchés —
+    un `-3` numérique n'a jamais été une formule.
+    """
+    if isinstance(value, str) and value.startswith(_FORMULA_TRIGGERS):
+        return "'" + value
+    return value
+
+
+def _write_row(writer, values) -> None:
+    """Seule porte d'écriture des exports CSV : aucune colonne ne peut être oubliée."""
+    writer.writerow([_defused(v) for v in values])
+
 
 def volume_report_to_csv(report: Dict[str, Any]) -> str:
     buf = io.StringIO()
@@ -18,7 +41,8 @@ def volume_report_to_csv(report: Dict[str, Any]) -> str:
     # Les colonnes `unit` / `primary_*` datent de l'inventaire en chapitres : sans
     # elles, une série comptée en chapitres s'exportait avec `kavita_count` à 0 et
     # un attendu vide, alors que l'écran affichait 8/32 ch.
-    w.writerow(
+    _write_row(
+        w,
         [
             "series_id",
             "series_name",
@@ -62,7 +86,8 @@ def volume_report_to_csv(report: Dict[str, Any]) -> str:
         completion.get("state") or "",
     ]
     for u in report.get("units") or []:
-        w.writerow(
+        _write_row(
+            w,
             [
                 sid,
                 sname,
@@ -84,7 +109,8 @@ def volume_report_to_csv(report: Dict[str, Any]) -> str:
             ]
         )
     for g in primary.get("missing") or missing:
-        w.writerow(
+        _write_row(
+            w,
             [
                 sid,
                 sname,
@@ -154,14 +180,15 @@ def volume_report_to_txt(report: Dict[str, Any]) -> str:
 def duplicates_to_csv(groups: List[Dict[str, Any]], *, library_id: Any = "") -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(["library_id", "group_id", "group_key", "score", "reasons", "series_id", "name"])
+    _write_row(w, ["library_id", "group_id", "group_key", "score", "reasons", "series_id", "name"])
     for g in groups or []:
         reasons = "|".join(g.get("reasons") or [])
         ids = g.get("series_ids") or []
         names = g.get("names") or []
         for i, sid in enumerate(ids):
             name = names[i] if i < len(names) else ""
-            w.writerow(
+            _write_row(
+                w,
                 [
                     library_id,
                     g.get("group_id"),
@@ -178,7 +205,8 @@ def duplicates_to_csv(groups: List[Dict[str, Any]], *, library_id: Any = "") -> 
 def missing_volumes_to_csv(rows: List[Dict[str, Any]], *, library_id: Any = "") -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
-    w.writerow(
+    _write_row(
+        w,
         [
             "library_id",
             "series_id",
@@ -200,7 +228,8 @@ def missing_volumes_to_csv(rows: List[Dict[str, Any]], *, library_id: Any = "") 
     )
     for r in rows or []:
         missing = r.get("missing_volumes") or []
-        w.writerow(
+        _write_row(
+            w,
             [
                 library_id,
                 r.get("series_id"),

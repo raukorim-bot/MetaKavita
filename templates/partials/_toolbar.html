@@ -99,6 +99,9 @@
                                      {% if not hygiene_meta or hy_healthy is none or not hy_series %}hidden{% endif %}>
                                     {% set hy_incomplete = hygiene_counts.get('incomplete', 0) if hygiene_counts else 0 %}
                                     {% set hy_unknown = hygiene_counts.get('unknown_expected', 0) if hygiene_counts else 0 %}
+                                    {# Séries dont l'analyse a échoué : segment à part, sinon les compteurs
+                                       ne totalisent plus les séries annoncées par la barre. #}
+                                    {% set hy_failed = hygiene_counts.get('failed', 0) if hygiene_counts else 0 %}
                                     <div class="hygiene-health-bar" id="hygieneHealthBar"
                                          role="img" aria-label="{{ t.audit_health_title }}">
                                         <span class="hh-seg hh-seg--healthy" data-seg="healthy"
@@ -107,11 +110,16 @@
                                               style="width: {{ (100 * hy_incomplete / hy_series) if hy_series else 0 }}%;"></span>
                                         <span class="hh-seg hh-seg--unknown" data-seg="unknown"
                                               style="width: {{ (100 * hy_unknown / hy_series) if hy_series else 0 }}%;"></span>
+                                        <span class="hh-seg hh-seg--failed" data-seg="failed"
+                                              style="width: {{ (100 * hy_failed / hy_series) if hy_series else 0 }}%;"></span>
                                     </div>
                                     <div class="hygiene-health-legend" id="hygieneHealthLegend">
                                         <span class="hh-key hh-key--healthy"><b id="hygieneHealthHealthy">{{ hy_healthy or 0 }}</b> {{ t.audit_health_healthy }}</span>
                                         <span class="hh-key hh-key--incomplete"><b id="hygieneHealthIncomplete">{{ hy_incomplete }}</b> {{ t.audit_health_incomplete }}</span>
                                         <span class="hh-key hh-key--unknown"><b id="hygieneHealthUnknown">{{ hy_unknown }}</b> {{ t.audit_health_unknown }}</span>
+                                        <span class="hh-key hh-key--failed" id="hygieneHealthFailedKey"
+                                              title="{{ t.audit_health_failed_hint }}"
+                                              {% if not hy_failed %}style="display:none;"{% endif %}><b id="hygieneHealthFailed">{{ hy_failed }}</b> {{ t.audit_health_failed }}</span>
                                         <span class="hh-key hh-key--total"><b id="hygieneHealthSeries">{{ hy_series }}</b> {{ t.audit_health_series }}</span>
                                     </div>
                                 </div>

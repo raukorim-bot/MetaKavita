@@ -82,7 +82,7 @@ class KitsuScraper(BaseScraper):
         tags = []
         for item in (included or []):
             if item.get('type') == 'categories':
-                title = item.get('attributes', {}).get('title')
+                title = (item.get('attributes') or {}).get('title')
                 if title:
                     tags.append(title)
 
@@ -194,10 +194,11 @@ class KitsuScraper(BaseScraper):
             if res.status_code == 200:
                 results = res.json().get('data', [])
                 for m in results:
-                    attrs = m.get('attributes', {})
-                    cover_url = attrs.get('posterImage', {}).get('original') or attrs.get('posterImage', {}).get('large')
+                    attrs = m.get('attributes') or {}
+                    poster = attrs.get('posterImage') or {}
+                    cover_url = poster.get('original') or poster.get('large')
                     if cover_url:
-                        title = attrs.get('canonicalTitle', 'Inconnu')
+                        title = attrs.get('canonicalTitle') or 'Inconnu'
                         covers.append({"provider": "Kitsu", "title": title, "url": cover_url})
         except Exception as e:
             logging.error(self.t("covers_err").format(e))

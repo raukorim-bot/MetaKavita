@@ -37,6 +37,9 @@
             <div id="mrListPanel" class="modal-scroll-body mr-list-panel" style="display:none;">
                 <div class="mr-list-toolbar">
                     <p class="mr-list-hint">{{ t.mr_list_hint }}</p>
+                    {# Affiché par renderListPanel() quand la file dépasse la page chargée :
+                       la pastille compte toute la file, la liste n'en montre qu'une page. #}
+                    <p id="mrListTruncated" class="field-hint m-0" style="display:none;" aria-live="polite"></p>
                     <div class="mr-list-bulk-row">
                         <label class="mr-list-threshold-label" for="mrListThreshold">
                             {{ t.mr_list_threshold_label }}

@@ -29,6 +29,14 @@
     var previouslyFocused = null;
     var listViewOpen = false;
     var bulkAcceptInFlight = false;
+    // La file est chargée par page : chaque review transporte ses cartes candidates
+    // (résumés compris), tout demander d'un coup ferait payer l'ouverture de la
+    // modale à une grosse bibliothèque. La page est donc demandée explicitement, sa
+    // troncature est dite à l'écran, et son épuisement charge la suivante.
+    var QUEUE_PAGE_SIZE = 200;
+    var queueTotal = 0;
+    var queueTruncated = false;
+    var queueRefillInFlight = false;
     var SHOW_BELOW_PREF_KEY = "mk_mr_show_below";
     var showBelowThreshold = loadShowBelowPref();
     /** review_id → true after scrape_complete (blocks re-arming streaming). */
@@ -726,7 +734,7 @@
 
     function loadQueue() {
         var seq = ++loadQueueSeq;
-        return api("/api/manual-reviews").then(function (data) {
+        return api("/api/manual-reviews?limit=" + QUEUE_PAGE_SIZE).then(function (data) {
             if (seq !== loadQueueSeq) {
                 return { data: data, prevEmpty: false, stale: true };
             }
@@ -749,11 +757,13 @@
                     r.streaming = true;
                 }
             });
-            updateBadge(
-                companionOnlySeriesId != null
-                    ? queue.length
-                    : (data.count != null ? data.count : queue.length)
-            );
+            queueTotal = companionOnlySeriesId != null
+                ? queue.length
+                : (data.count != null ? data.count : queue.length);
+            // `queue.length > 0` est la garde qui empêche la boucle de rechargement :
+            // une page revenue vide met fin à la pagination, quoi que dise le total.
+            queueTruncated = queue.length > 0 && queueTotal > queue.length;
+            updateBadge(queueTotal);
             reanchorIndex();
             return { data: data, prevEmpty: prevEmpty, stale: false };
         });
@@ -1629,6 +1639,23 @@
 
     function showRecapIfEmpty() {
         if (queue.length) return false;
+        // Page épuisée alors que la file en contient encore : aller chercher la
+        // suivante. Sans ça, la 201e review et les suivantes n'étaient jamais
+        // servies et le récap annonçait « tout est fait » à leur place.
+        if (queueTruncated && !queueRefillInFlight) {
+            queueRefillInFlight = true;
+            loadQueue().then(function () {
+                queueRefillInFlight = false;
+                if (queue.length) showCurrentReview();
+                else showRecapIfEmpty();
+            }).catch(function () {
+                // Page suivante inaccessible : ne pas laisser la modale en plan.
+                queueRefillInFlight = false;
+                queueTruncated = false;
+                showRecapIfEmpty();
+            });
+            return true;
+        }
         // Batch encore actif (barre de progression visible, `batch.js`) : la file
         // vidée n'est qu'un creux temporaire entre deux séries, pas la vraie fin —
         // sans ce garde-fou le récap s'affichait puis basculait sur la review
@@ -1728,6 +1755,18 @@
     function renderListPanel() {
         var body = document.getElementById("mrListBody");
         var emptyEl = document.getElementById("mrListEmpty");
+        var truncatedEl = document.getElementById("mrListTruncated");
+        if (truncatedEl) {
+            if (queueTruncated) {
+                truncatedEl.textContent = t(
+                    "mr_list_truncated",
+                    "Les {0} plus anciennes sur {1} — traitez-les, la suite se chargera ensuite."
+                ).replace("{0}", String(queue.length)).replace("{1}", String(queueTotal));
+                truncatedEl.style.display = "";
+            } else {
+                truncatedEl.style.display = "none";
+            }
+        }
         if (!body) return;
         body.innerHTML = "";
         if (!queue.length) {
@@ -1853,6 +1892,13 @@
                     var msg = t("mr_list_bulk_done", "{0} accepté(s), {1} laissée(s) en file.")
                         .replace("{0}", String(data.accepted || 0))
                         .replace("{1}", String(data.skipped || 0));
+                    // Le seuil demandé peut descendre sous le seuil de match : dire
+                    // combien de correspondances faibles ont été acceptées, plutôt
+                    // que de les fondre dans le total.
+                    if (data.accepted_weak) {
+                        msg += " " + t("mr_list_bulk_weak", "Dont {0} correspondance(s) faible(s) — à vérifier.")
+                            .replace("{0}", String(data.accepted_weak));
+                    }
                     // `data.failed` (backend) ne portait que des review_id bruts — sans
                     // ça les échecs individuels (ex: écriture Kavita refusée pendant le
                     // bulk-accept) disparaissaient silencieusement derrière le seul

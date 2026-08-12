@@ -77,7 +77,7 @@ class AnilistScraper(BaseScraper):
             try:
                 response = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': variables}, timeout=10)
                 if response.status_code == 200:
-                    data = response.json().get('data', {}).get('Media')
+                    data = (response.json().get('data') or {}).get('Media')
                     if data and self._library_allows(data, library_type):
                         return attach_match_score(self._build_candidate(data), 1.0)
             except Exception as e:
@@ -104,7 +104,7 @@ class AnilistScraper(BaseScraper):
             try:
                 response = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': {'search': clean}}, timeout=10)
                 if response.status_code == 200:
-                    media_list = response.json().get('data', {}).get('Page', {}).get('media', [])
+                    media_list = ((response.json().get('data') or {}).get('Page') or {}).get('media') or []
                     if not media_list: return None
 
                     best_match = None
@@ -166,17 +166,21 @@ class AnilistScraper(BaseScraper):
             'alternative_titles': alt_titles,
             'titles': titles,
             'summary': data.get('description', '') or '',
-            'cover_url': data.get('coverImage', {}).get('extraLarge'),
+            # `or {}` et non le défaut de `get` : AniList déclare ces champs
+            # nullables et renvoie bel et bien `null` sur les fiches pauvres —
+            # la clé est alors présente, le défaut ne s'applique pas, et le
+            # chaînage écartait la série du fournisseur sur un AttributeError.
+            'cover_url': (data.get('coverImage') or {}).get('extraLarge'),
             'genres': (data.get('genres') or [])[:get_max_genres()],
             'tags': [
                 t['name']
-                for t in data.get('tags', [])
+                for t in (data.get('tags') or [])
                 if isinstance(t, dict) and t.get('name')
             ][:get_max_tags()],
-            'year': data.get('startDate', {}).get('year'),
+            'year': (data.get('startDate') or {}).get('year'),
             'status': data.get('status'),
-            'staff': data.get('staff', {}).get('edges', []),
-            'characters': data.get('characters', {}).get('edges', []),
+            'staff': (data.get('staff') or {}).get('edges') or [],
+            'characters': (data.get('characters') or {}).get('edges') or [],
             # BF56: isAdult=False n'implique pas Everyone — omettre plutôt qu'inventer safe.
             'age_rating': 'pornographic' if data.get('isAdult') else '',
             'format': format_type,
@@ -202,12 +206,12 @@ class AnilistScraper(BaseScraper):
             '''
             res = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': {'search': clean}}, timeout=10)
             if res.status_code == 200:
-                results = res.json().get('data', {}).get('Page', {}).get('media', [])
+                results = ((res.json().get('data') or {}).get('Page') or {}).get('media') or []
                 for m in results:
-                    if m.get('coverImage', {}).get('extraLarge'):
+                    if (m.get('coverImage') or {}).get('extraLarge'):
                         covers.append({
                             "provider": "AniList", 
-                            "title": m.get('title', {}).get('romaji', 'Inconnu'),
+                            "title": (m.get('title') or {}).get('romaji') or 'Inconnu',
                             "url": m['coverImage']['extraLarge']
                         })
         except Exception as e:

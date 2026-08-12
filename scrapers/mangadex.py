@@ -102,8 +102,8 @@ class MangaDexScraper(BaseScraper):
         if orig_lang in ["ko", "zh"]: format_type = "webtoon"
 
         tags = ["MangaDex"]
-        for tag_obj in attrs.get("tags", []):
-            t_name = tag_obj.get("attributes", {}).get("name", {})
+        for tag_obj in attrs.get("tags") or []:
+            t_name = (tag_obj.get("attributes") or {}).get("name") or {}
             tag_str = t_name.get("en") or t_name.get(target_lang)
             if tag_str and tag_str not in tags:
                 tags.append(tag_str)
@@ -195,9 +195,12 @@ class MangaDexScraper(BaseScraper):
                 # au titre identique à la série mère) ne doit pas remplacer la série multi-tomes
                 # réellement recherchée, sauf si l'utilisateur cherche explicitement un oneshot.
                 # Ce signal n'existe pas dans score_candidate(), il reste donc un ajustement local.
-                attrs = item.get("attributes", {})
-                tag_names = [str(t.get("attributes", {}).get("name", {}).get("en", "")).lower() for t in attrs.get("tags", [])]
-                main_titles = list(attrs.get("title", {}).values())
+                attrs = item.get("attributes") or {}
+                tag_names = [
+                    str(((t.get("attributes") or {}).get("name") or {}).get("en") or "").lower()
+                    for t in attrs.get("tags") or []
+                ]
+                main_titles = list((attrs.get("title") or {}).values())
                 is_oneshot = "oneshot" in tag_names or any("oneshot" in str(t).lower() for t in main_titles)
                 if is_oneshot and "oneshot" not in cleaned.lower():
                     score -= 0.20
@@ -236,12 +239,12 @@ class MangaDexScraper(BaseScraper):
                 
                 for manga in manga_list:
                     m_id = manga.get("id")
-                    title_dict = manga.get("attributes", {}).get("title", {})
+                    title_dict = (manga.get("attributes") or {}).get("title") or {}
                     title = list(title_dict.values())[0] if title_dict else "Inconnu"
                     
-                    for rel in manga.get("relationships", []):
-                        if rel.get("type") == "cover_art" and rel.get("attributes", {}).get("fileName"):
-                            fn = rel.get("attributes", {}).get("fileName")
+                    for rel in manga.get("relationships") or []:
+                        fn = (rel.get("attributes") or {}).get("fileName")
+                        if rel.get("type") == "cover_art" and fn:
                             covers.append({
                                 "provider": "MangaDex",
                                 "title": title,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import re
 
 from config_manager import get_max_tags, get_max_genres
 from db_manager import (
@@ -22,6 +23,45 @@ from translator import translate_text
 from scrapers.utils import MATCH_SCORE_KEY
 from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kavita_format_enum
 from translations import get_ui_translations
+
+
+# Rôles de staff. Les fournisseurs écrivent des rôles composés — « Story & Art »
+# est le cas le plus courant d'un manga, AniList émet aussi « Cover Illustration »,
+# « Art (Ch. 1-45) », « Story, Art »... Une chaîne de `elif` sur des sous-chaînes ne
+# peut pas les traiter : le premier test gagne, donc « Story & Art » n'alimentait que
+# les scénaristes (la moitié des mangas arrivaient sans dessinateur) et
+# « Cover Illustration » passait pour du dessin intérieur. Le rôle est donc découpé,
+# et chaque partie classée du plus spécifique au plus générique — `cover` avant
+# `art`, `color` avant `art`, sinon « Cover Art » retomberait dans le dessin.
+_ROLE_SEPARATORS = re.compile(r"[&,;/+]|\band\b|\bet\b")
+
+_ROLE_RULES = (
+    ("cover_artists", ("cover", "couverture")),
+    ("colorists", ("color", "colour", "couleur")),
+    ("translators", ("translat", "traduct")),
+    ("letterers", ("letter", "lettrage")),
+    ("inkers", ("ink", "encrage")),
+    ("editors", ("edit", "éditeur", "editeur")),
+    ("writers", ("story", "original", "scénar", "scenar", "script")),
+    ("pencillers", ("art", "illustration", "dessin", "pencill")),
+)
+
+
+def staff_role_buckets(role) -> set:
+    """Métiers Kavita auxquels un rôle de fournisseur contribue.
+
+    Un rôle peut en alimenter plusieurs (« Story & Art ») ou aucun
+    (« Assistant » : mieux vaut ne rien affirmer que de l'inventer dessinateur).
+    """
+    buckets = set()
+    for part in _ROLE_SEPARATORS.split(str(role or "").lower()):
+        if not part.strip():
+            continue
+        for bucket, needles in _ROLE_RULES:
+            if any(needle in part for needle in needles):
+                buckets.add(bucket)
+                break
+    return buckets
 
 
 def mark_cover_manual(series_id):
@@ -335,28 +375,30 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
         writers, pencillers, colorists, translators, cover_artists, editors, letterers, inkers = (
             [], [], [], [], [], [], [], [],
         )
-        for edge in pd.get("staff", []):
-            role = edge.get("role", "").lower()
-            name = edge.get("node", {}).get("name", {}).get("full", "")
+        buckets = {
+            "writers": writers,
+            "pencillers": pencillers,
+            "colorists": colorists,
+            "translators": translators,
+            "cover_artists": cover_artists,
+            "editors": editors,
+            "letterers": letterers,
+            "inkers": inkers,
+        }
+        seen_per_bucket = {name: set() for name in buckets}
+        for edge in pd.get("staff") or []:
+            node = edge.get("node") or {}
+            node_name = node.get("name") or {}
+            name = node_name.get("full") or ""
             if not name:
                 continue
-            entry = {"id": 0, "name": name}
-            if "story" in role or "original" in role or "scénar" in role:
-                writers.append(entry)
-            elif "art" in role or "illustration" in role or "dessin" in role or "pencill" in role:
-                pencillers.append(entry)
-            elif "color" in role or "couleur" in role:
-                colorists.append(entry)
-            elif "translat" in role or "traduct" in role:
-                translators.append(entry)
-            elif "cover" in role or "couverture" in role:
-                cover_artists.append(entry)
-            elif "edit" in role or "éditeur" in role or "editeur" in role:
-                editors.append(entry)
-            elif "letter" in role or "lettrage" in role:
-                letterers.append(entry)
-            elif "ink" in role or "encrage" in role:
-                inkers.append(entry)
+            for bucket in staff_role_buckets(edge.get("role")):
+                # Deux rôles du même métier pour la même personne (« Story & Art »
+                # puis « Art ») : Kavita n'a que faire du doublon.
+                if name in seen_per_bucket[bucket]:
+                    continue
+                seen_per_bucket[bucket].add(name)
+                buckets[bucket].append({"id": 0, "name": name})
 
         if writers:
             meta["writers"] = writers

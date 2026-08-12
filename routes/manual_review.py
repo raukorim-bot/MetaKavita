@@ -27,6 +27,11 @@ from translations import translations
 
 manual_review_bp = Blueprint("manual_review", __name__)
 
+# Plancher du curseur « Tout accepter ≥ seuil » (`mrListThreshold`, min 0.30).
+# Le respecter côté serveur aussi : un `threshold: 0` posté à la main viderait la
+# file en acceptant le premier candidat de chaque série, quel que soit son score.
+_BULK_ACCEPT_MIN_THRESHOLD = 0.30
+
 
 def _parse_json():
     return request.get_json(silent=True) or {}
@@ -231,6 +236,17 @@ def api_manual_reviews_bulk_accept():
     l'utilisateur (choix de fournisseur, édition de champs...) que ce bouton
     ne doit pas écraser silencieusement.
 
+    Le seuil demandé s'applique aux deux bandes. Ne lire que `above` (les
+    candidats au-dessus du seuil de match réel) contredisait le curseur, qui
+    promet « tout ce qui dépasse ce score » et descend jusqu'à 30 % justement
+    pour rattraper les correspondances faibles : une review dont le seul candidat
+    était à 0,50 était comptée en « laissée en file » sans un mot. Deux
+    garde-fous pour que l'acceptation en masse d'un match faible ne devienne pas
+    un piège : le plancher du curseur vaut aussi ici (un `threshold: 0` posté à
+    la main n'accepte pas la file entière), et l'acceptation d'un candidat de la
+    bande basse est tracée comme un choix faible (`weak_pick`) puis comptée à
+    part dans la réponse.
+
     Corps JSON optionnel : `{"threshold": 0.6, "review_ids": [...]}`. Sans
     `review_ids`, s'applique à toute la file `awaiting_pick`.
     """
@@ -239,7 +255,7 @@ def api_manual_reviews_bulk_accept():
         threshold = float(data.get("threshold", get_match_accept_threshold()))
     except (TypeError, ValueError):
         threshold = get_match_accept_threshold()
-    threshold = max(0.0, min(1.0, threshold))
+    threshold = max(_BULK_ACCEPT_MIN_THRESHOLD, min(1.0, threshold))
 
     wanted_ids = data.get("review_ids")
     if wanted_ids is not None and not isinstance(wanted_ids, list):
@@ -248,7 +264,7 @@ def api_manual_reviews_bulk_accept():
 
     rows = list_pending_reviews(state="awaiting_pick", limit=2000)
 
-    accepted, skipped, failed = [], [], []
+    accepted, skipped, failed, weak = [], [], [], []
     for r in rows:
         review_id = r["review_id"]
         if wanted_ids is not None and str(review_id) not in wanted_ids:
@@ -258,9 +274,14 @@ def api_manual_reviews_bulk_accept():
             cands = json.loads(r.get("candidates_json") or "{}")
         except (TypeError, ValueError, json.JSONDecodeError):
             cands = {}
-        above = cands.get("above") if isinstance(cands, dict) else None
+        above = (cands.get("above") if isinstance(cands, dict) else None) or []
+        below = (cands.get("below") if isinstance(cands, dict) else None) or []
 
-        top = above[0] if above else None
+        # Les deux bandes sont déjà triées par score et toute la bande haute
+        # domine la bande basse : les concaténer suffit à retrouver le meilleur.
+        ranked = list(above) + list(below)
+        top = ranked[0] if ranked else None
+        is_weak = bool(top) and not above
         provider = (top or {}).get("provider")
         try:
             score = float((top or {}).get("score", 0.0))
@@ -272,18 +293,32 @@ def api_manual_reviews_bulk_accept():
             continue
 
         try:
-            ok, msg, _detail = apply_manual_review(review_id, provider, include_providers=[])
+            ok, msg, _detail = apply_manual_review(
+                review_id, provider, include_providers=[], weak_pick=is_weak
+            )
         except Exception as exc:
             logging.error("[manual_review] bulk-accept crash sur %s : %s", review_id, exc)
             ok, msg = False, str(exc)
         if ok:
             accepted.append(review_id)
+            if is_weak:
+                weak.append(review_id)
         else:
             failed.append({"review_id": review_id, "error": msg})
+
+    if weak:
+        logging.warning(
+            "[manual_review] bulk-accept : %s correspondance(s) faible(s) acceptée(s) "
+            "au seuil demandé de %.2f — %s",
+            len(weak),
+            threshold,
+            ", ".join(str(rid) for rid in weak),
+        )
 
     return jsonify(
         success=True,
         accepted=len(accepted),
+        accepted_weak=len(weak),
         skipped=len(skipped),
         failed=failed,
         threshold=threshold,

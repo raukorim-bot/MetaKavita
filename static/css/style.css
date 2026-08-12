@@ -1807,6 +1807,14 @@ body[data-inventory="0"] .btn-audit-report {
 .hh-seg--healthy { background: var(--success); }
 .hh-seg--incomplete { background: var(--warning); }
 .hh-seg--unknown { background: color-mix(in srgb, var(--secondary) 70%, transparent); }
+/* Non analysées : hachures — ce n'est pas un verdict, c'est une absence de verdict. */
+.hh-seg--failed {
+    background: repeating-linear-gradient(
+        45deg,
+        var(--danger) 0 3px,
+        color-mix(in srgb, var(--danger) 35%, transparent) 3px 6px
+    );
+}
 .hygiene-health-legend {
     display: flex;
     flex-wrap: wrap;
@@ -1825,6 +1833,7 @@ body[data-inventory="0"] .btn-audit-report {
 .hh-key--healthy::before { background: var(--success); }
 .hh-key--incomplete::before { background: var(--warning); }
 .hh-key--unknown::before { background: color-mix(in srgb, var(--secondary) 70%, transparent); }
+.hh-key--failed::before { background: var(--danger); }
 .hh-key--total::before { display: none; }
 .hygiene-controls {
     display: flex;

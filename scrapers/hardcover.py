@@ -97,7 +97,7 @@ class HardcoverScraper(BaseScraper):
                 res_isbn = session.post(graphql_url, json={"query": gql_search_isbn, "variables": {"isbn": existing_isbn}}, headers=headers, timeout=12)
                 if res_isbn.status_code == 200:
                     s_data = res_isbn.json()
-                    s_node = s_data.get("data", {}).get("search", {})
+                    s_node = (s_data.get("data") or {}).get("search") or {}
                     r_node = s_node.get("results", {}) if isinstance(s_node, dict) else {}
                     hits = r_node.get("hits", []) if isinstance(r_node, dict) else []
                     if hits and isinstance(hits, list):
@@ -139,7 +139,7 @@ class HardcoverScraper(BaseScraper):
                     
                 res = session.post(graphql_url, json={"query": gql_query, "variables": variables}, headers=headers, timeout=12)
                 if res.status_code == 200 and "data" in res.json():
-                    books = res.json().get("data", {}).get("books", [])
+                    books = (res.json().get("data") or {}).get("books") or []
                     if books and isinstance(books, list):
                         return attach_match_score(self._build_candidate(books[0]), 1.0)
                 return None
@@ -167,7 +167,7 @@ class HardcoverScraper(BaseScraper):
                 if res_search.status_code == 200:
                     search_data = res_search.json()
                     if "errors" not in search_data:
-                        search_node = search_data.get("data", {}).get("search", {})
+                        search_node = (search_data.get("data") or {}).get("search") or {}
                         results_node = search_node.get("results", {}) if isinstance(search_node, dict) else {}
                         hits = results_node.get("hits", []) if isinstance(results_node, dict) else []
                         if hits and isinstance(hits, list):
@@ -241,9 +241,9 @@ class HardcoverScraper(BaseScraper):
                 if isinstance(a_name, str):
                     staff.append({"role": "Story", "node": {"name": {"full": a_name.strip()}}})
         elif "contributions" in b:
-            for contrib in b.get("contributions", []):
+            for contrib in b.get("contributions") or []:
                 if isinstance(contrib, dict):
-                    author_name = contrib.get("author", {}).get("name")
+                    author_name = (contrib.get("author") or {}).get("name")
                     if author_name and isinstance(author_name, str):
                         staff.append({"role": "Story", "node": {"name": {"full": author_name.strip()}}})
 
@@ -313,7 +313,7 @@ class HardcoverScraper(BaseScraper):
             
             if res_search.status_code == 200:
                 search_data = res_search.json()
-                search_node = search_data.get("data", {}).get("search", {})
+                search_node = (search_data.get("data") or {}).get("search") or {}
                 
                 results_node = search_node.get("results", {}) if isinstance(search_node, dict) else {}
                 hits = results_node.get("hits", []) if isinstance(results_node, dict) else []

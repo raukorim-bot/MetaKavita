@@ -615,6 +615,9 @@ function _updateHygieneHealth(counts) {
     var healthy = Number(counts.healthy || 0);
     var incomplete = Number(counts.incomplete || 0);
     var unknown = Number(counts.unknown_expected || 0);
+    // Séries dont l'analyse a échoué : sans segment dédié, les quatre chiffres
+    // ne totalisaient plus les séries annoncées et le reliquat restait muet.
+    var failed = Number(counts.failed || 0);
     var pct = function (n) { return series ? (100 * n) / series : 0; };
     var seg = function (name, value) {
         var el = wrap.querySelector('.hh-seg[data-seg="' + name + '"]');
@@ -623,6 +626,7 @@ function _updateHygieneHealth(counts) {
     seg('healthy', healthy);
     seg('incomplete', incomplete);
     seg('unknown', unknown);
+    seg('failed', failed);
     var setText = function (id, value) {
         var el = document.getElementById(id);
         if (el) el.textContent = String(value);
@@ -630,7 +634,11 @@ function _updateHygieneHealth(counts) {
     setText('hygieneHealthHealthy', healthy);
     setText('hygieneHealthIncomplete', incomplete);
     setText('hygieneHealthUnknown', unknown);
+    setText('hygieneHealthFailed', failed);
     setText('hygieneHealthSeries', series);
+    // Rien à signaler dans le cas normal (aucun échec) : la légende reste courte.
+    var failedKey = document.getElementById('hygieneHealthFailedKey');
+    if (failedKey) failedKey.style.display = failed ? '' : 'none';
     wrap.hidden = false;
 }
 

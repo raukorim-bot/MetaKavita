@@ -564,16 +564,27 @@ def enrich_series(
     """
     sid = int(series_id)
     with _processing_lock:
-        if sid in _processing_series_ids:
-            config = load_config()
-            t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
-            logging.warning(t.get("log_already_processing_detail", "⏭️ [{0}] Traitement déjà en cours pour cette série ailleurs (Sync manuel / file d'attente / webhook) : requête ignorée pour éviter une écriture concurrente vers Kavita.").format(series_name))
-            return False, t.get("msg_already_processing", "Déjà en cours de traitement."), []
-        _processing_series_ids.add(sid)
+        already_running = sid in _processing_series_ids
+        if not already_running:
+            _processing_series_ids.add(sid)
 
-    config = load_config()
-    t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
+    if already_running:
+        try:
+            t = translations.get(load_config().get("UI_LANG", "fr"), translations["fr"])
+        except Exception:
+            t = translations["fr"]
+        logging.warning(t.get("log_already_processing_detail", "⏭️ [{0}] Traitement déjà en cours pour cette série ailleurs (Sync manuel / file d'attente / webhook) : requête ignorée pour éviter une écriture concurrente vers Kavita.").format(series_name))
+        return False, t.get("msg_already_processing", "Déjà en cours de traitement."), []
+
+    # Verrou posé : plus rien ne s'exécute hors du try/finally qui le relâche. La
+    # lecture de la configuration se faisait dans l'intervalle et peut lever
+    # (config.json valide mais qui n'est pas un objet — restauration de sauvegarde
+    # interrompue, montage tronqué) : la série restait alors marquée « en cours de
+    # traitement » jusqu'au redémarrage, et tout sync suivant la refusait.
+    t = translations["fr"]
     try:
+        config = load_config()
+        t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
         kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
 
         if not kavita.authenticate():

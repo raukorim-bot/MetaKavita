@@ -48,7 +48,7 @@ def fetch_real_cover_from_google(title: str, headers: dict, error_message: str =
         if gb_res.status_code == 200:
             items = gb_res.json().get("items", [])
             if items:
-                img_links = items[0].get("volumeInfo", {}).get("imageLinks", {})
+                img_links = (items[0].get("volumeInfo") or {}).get("imageLinks") or {}
                 c_url = img_links.get("extraLarge") or img_links.get("large") or img_links.get("medium") or img_links.get("thumbnail")
                 if c_url:
                     if c_url.startswith("http://"): c_url = c_url.replace("http://", "https://")

@@ -203,6 +203,7 @@ def _run_scan(
     ext_flags: Dict[int, bool] = {}
     missing_count_total = 0
     no_id_count = 0
+    failed_count = 0
     incremental = mode == "incremental"
     state_counts: Dict[str, int] = {}
     reused = 0
@@ -363,6 +364,7 @@ def _run_scan(
                 # externe », en contradiction avec le compteur (incrémenté
                 # seulement quand l'analyse aboutit).
                 failed = True
+                failed_count += 1
                 logging.warning(
                     "[Inventaire] series %s failed: %s", sid, safe_exc_str(e)
                 )
@@ -431,6 +433,10 @@ def _run_scan(
             "series": len(targets),
             # Répartition pour la barre de santé de la bibliothèque.
             **summarize_states(state_counts),
+            # Séries dont l'analyse n'a rien conclu (Kavita indisponible le temps
+            # d'une série) : sans ce compteur, elles n'entraient dans aucun
+            # segment et la barre affichait moins de séries qu'elle n'en annonçait.
+            "failed": failed_count,
             "excluded": len(excluded_ids),
             "states": dict(state_counts),
             "mode": mode,
@@ -440,12 +446,13 @@ def _run_scan(
             _state["counts"] = counts
 
         logging.info(
-            "[Inventaire] done lib=%s missing=%s dups=%s no_id=%s sains=%s%s",
+            "[Inventaire] done lib=%s missing=%s dups=%s no_id=%s sains=%s echecs=%s%s",
             library_id,
             counts["missing"],
             counts["duplicates"],
             counts["no_external_id"],
             counts["healthy"],  # sains = rien ne manque (catalogue en retard inclus)
+            counts["failed"],
             f" (incrémental, {reused} attendus réutilisés)" if incremental else "",
         )
     except Exception as e:
