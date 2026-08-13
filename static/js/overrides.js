@@ -2,9 +2,12 @@
 // Dépend de utils.js (getRootPath).
 // BF96 / #30 : panneau Options construit à la demande (template unique).
 
+// Miroir de ALL_TARGETED_FIELDS (services/enrichment_engine.py). « format »
+// (Sens lecture) en a été retiré : Kavita n'accepte aucun sens de lecture par
+// série, la case ne pilotait donc aucune écriture.
 const TARGETED_FIELD_KEYS = [
     'summary', 'cover', 'staff', 'genres', 'tags', 'year',
-    'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles', 'language'
+    'status', 'publisher', 'age', 'weblinks', 'alt_titles', 'language'
 ];
 
 let allPanelsExpanded = false;
@@ -288,10 +291,12 @@ function saveOverride(seriesId, btn) {
     const altLangsInput = _panelField(panel, sid, 'alt-langs-');
     const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
 
+    // Aucune case cochée : 'NONE' explicite, jamais la chaîne vide — le serveur
+    // relit une chaîne vide comme « tous les champs ».
     const activeFields = TARGETED_FIELD_KEYS.filter(f => {
         const cb = _panelField(panel, sid, 'field-' + f + '-');
         return cb && cb.checked;
-    }).join(',');
+    }).join(',') || 'NONE';
 
     const item = findSeriesItemById(sid);
     if (item) {
@@ -300,7 +305,7 @@ function saveOverride(seriesId, btn) {
         item.dataset.forcedProvider = forcedProvider;
         item.dataset.publisherPref = publisherPref;
         item.dataset.altLangs = altTitleLangs;
-        item.dataset.targetedFields = activeFields || 'NONE';
+        item.dataset.targetedFields = activeFields;
     }
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
         window.SeriesList.patchOverride(sid, {
@@ -309,7 +314,7 @@ function saveOverride(seriesId, btn) {
             forced_provider: forcedProvider,
             publisher_pref: publisherPref,
             alt_title_langs: altTitleLangs,
-            targeted_fields: activeFields || 'NONE',
+            targeted_fields: activeFields,
         });
     }
 

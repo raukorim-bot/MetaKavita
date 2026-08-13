@@ -1,8 +1,27 @@
+"""⚠️ SCRIPT À USAGE MANUEL — INTERROGE TOUS LES FOURNISSEURS POUR DE VRAI.
+
+Un `fetch()` par scraper installé, Bédéthèque et Planète BD compris, soit
+plusieurs centaines de pages HTML chez des sites sans API qui bannissent l'IP.
+La « pause de courtoisie » d'une seconde entre deux fournisseurs ne protège
+pas : elle sépare les fournisseurs, pas les requêtes internes à un `fetch()`.
+"""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
+
+# Avant même `from scrapers import ...` : cet import déclenche la synchro du
+# catalogue core depuis raw.githubusercontent.com. Ce n'est pas un fournisseur,
+# mais rien ne doit sortir avant que quelqu'un ait dit oui.
+confirm_live_network(
+    "debug_all.py",
+    "tous les fournisseurs installés, Bédéthèque et Planète BD compris",
+    details="1 fetch() chacun, soit plusieurs centaines de pages au total.",
+)
 
 import logging
 import time

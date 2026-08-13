@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import logging
+import threading
 
 from models import SeriesOverride
 from secure_logging import safe_exc_str
@@ -17,6 +18,61 @@ DATA_DIR = _resolve_data_dir()
 DB_FILE = os.path.join(DATA_DIR, "cache.db")
 
 
+#: Connexion oisive qui ne sert à AUCUNE requête. Quand la dernière connexion à
+#: une base WAL se ferme, SQLite recopie le journal dans le fichier principal et
+#: supprime les fichiers `-wal`/`-shm` : le cycle « ouvrir, écrire, fermer » que
+#: fait chaque fonction de ce module payait donc un checkpoint complet à chaque
+#: appel — 19 ms par tome écrit, mesurés sur disque local, contre 1 ms avec ce
+#: lecteur maintenu ouvert. Et comme aucun appel SQLite n'a de point de bascule
+#: eventlet, ces 19 ms figeaient tout le serveur, Live Logs et Socket.IO compris.
+#: La connexion ne prend aucune transaction de lecture, donc elle ne retient
+#: jamais le checkpoint automatique.
+_wal_keeper = None
+_wal_keeper_file = None
+_wal_keeper_lock = threading.Lock()
+
+
+def _hold_wal_open():
+    global _wal_keeper, _wal_keeper_file
+    if _wal_keeper is not None and _wal_keeper_file == DB_FILE:
+        return
+    with _wal_keeper_lock:
+        if _wal_keeper is not None and _wal_keeper_file == DB_FILE:
+            return
+        stale, _wal_keeper, _wal_keeper_file = _wal_keeper, None, None
+        if stale is not None:
+            try:
+                stale.close()
+            except Exception:
+                pass
+        try:
+            # `check_same_thread=False` : la connexion n'exécute rien, mais elle
+            # peut être refermée par un autre thread que celui qui l'a ouverte
+            # (bascule de base en test, arrêt du process).
+            keeper = sqlite3.connect(DB_FILE, timeout=30.0, check_same_thread=False)
+            keeper.execute("PRAGMA journal_mode=WAL")
+        except sqlite3.Error as exc:
+            logging.debug("[DB] journal WAL non maintenu ouvert : %s", safe_exc_str(exc))
+            return
+        _wal_keeper, _wal_keeper_file = keeper, DB_FILE
+
+
+def release_wal_keeper():
+    """Referme le lecteur oisif — le fichier de base redevient supprimable.
+
+    Utile aux tests et aux outils qui déplacent ou effacent `cache.db` : sous
+    Windows, un fichier tenu ouvert par SQLite ne peut pas être supprimé.
+    """
+    global _wal_keeper, _wal_keeper_file
+    with _wal_keeper_lock:
+        stale, _wal_keeper, _wal_keeper_file = _wal_keeper, None, None
+    if stale is not None:
+        try:
+            stale.close()
+        except Exception:
+            pass
+
+
 def _connect():
     """Ouvre une connexion SQLite avec WAL + busy_timeout (anti « database is locked »)."""
     if not os.path.exists(DATA_DIR):
@@ -25,13 +81,62 @@ def _connect():
     try:
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA busy_timeout=30000")
+        # `synchronous=FULL` (le défaut) impose un fsync par commit, et
+        # l'enrichissement par tome commite une fois par tome : 4,1 ms par unité
+        # mesurées contre 0,95 ms en `NORMAL`. En WAL, `NORMAL` ne risque que la
+        # perte des toutes dernières transactions sur coupure brutale, jamais la
+        # corruption de la base : c'est un cache reconstructible depuis Kavita,
+        # le compromis est bon.
+        conn.execute("PRAGMA synchronous=NORMAL")
     except sqlite3.Error:
         pass
+    # Après les PRAGMA, jamais avant : un lecteur ouvert sur un fichier encore
+    # vide reste attaché au mode journal de ce fichier vide et ne retient alors
+    # rien du tout. La base doit déjà être en WAL quand il arrive.
+    _hold_wal_open()
     return conn
 
 
+#: Migrations déjà jouées dans ce process, par (fichier de base, clé). Elles
+#: étaient rejouées à chaque appel de fonction : `save_volume_unit_state` payait
+#: deux DDL par tome écrit, `should_skip_batch_item` deux connexions et six
+#: requêtes pour un seul SELECT. `init_db()` vide ce mémo — une base neuve ou
+#: restaurée doit tout rejouer.
+_schema_ready = set()
+
+
+def _schema_pending(key) -> bool:
+    """True si la migration `key` reste à jouer pour la base courante."""
+    return (DB_FILE, key) not in _schema_ready
+
+
+def _schema_done(key) -> None:
+    """À appeler seulement après une migration réussie : un échec (base en
+    lecture seule, disque plein) doit être rejoué, et revu, au prochain appel."""
+    _schema_ready.add((DB_FILE, key))
+
+
+def _table_columns(c, table) -> set:
+    try:
+        return {row[1] for row in c.execute(f"PRAGMA table_info({table})").fetchall()}
+    except sqlite3.Error:
+        return set()
+
+
 def _ensure_schema(c):
-    """Vérifie et ajoute les colonnes manquantes une par une de manière sécurisée."""
+    """Ajoute les colonnes manquantes de `series_cache`, une par une.
+
+    L'ancienne version enveloppait chaque `ALTER` dans un `except
+    sqlite3.OperationalError: pass` en affirmant en commentaire que la colonne
+    existait déjà. Or cette exception couvre aussi « no such table », « database
+    is locked », « attempt to write a readonly database » et le disque plein :
+    sur un volume monté en lecture seule (PUID/PGID mal posés), les six
+    migrations passaient en silence, puis le tableau de bord rendait un 500
+    `no such column: cover_manual` sans une ligne de journal. On lit donc le
+    schéma avant d'écrire, et ce qui échoue quand même remonte.
+    """
+    if not _schema_pending("series_cache_columns"):
+        return
     columns = [
         ("forced_provider", "TEXT DEFAULT 'AUTO'"),
         ("targeted_fields", "TEXT DEFAULT 'ALL'"),
@@ -47,16 +152,26 @@ def _ensure_schema(c):
         # manquants à vie, et le seul recours serait de couper l'inventaire.
         ("inventory_excluded", "INTEGER DEFAULT 0"),
     ]
+    existing = _table_columns(c, "series_cache")
+    if not existing:
+        # Table pas encore créée (appel hors `init_db`) : rien à migrer, et
+        # surtout rien à mémoriser.
+        return
     for col_name, col_type in columns:
-        try:
-            c.execute(f"ALTER TABLE series_cache ADD COLUMN {col_name} {col_type}")
-        except sqlite3.OperationalError:
-            pass # La colonne existe déjà, on passe à la suivante en silence
+        if col_name in existing:
+            continue
+        c.execute(f"ALTER TABLE series_cache ADD COLUMN {col_name} {col_type}")
+    _schema_done("series_cache_columns")
+
 
 def init_db():
     if not os.path.exists(DATA_DIR):
         os.makedirs(DATA_DIR)
-        
+
+    # Base neuve, restaurée ou effacée : toutes les migrations se rejouent, quel
+    # que soit ce que ce process avait déjà vu sur ce chemin.
+    _schema_ready.clear()
+
     conn = _connect()
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS series_cache
@@ -74,12 +189,15 @@ def init_db():
     _ensure_pending_reviews_table(c)
     _ensure_batch_queue_tables(c)
     _ensure_library_audit_tables(c)
+    _ensure_volume_unit_tables(c)
     conn.commit()
     conn.close()
 
 
 def _ensure_library_audit_tables(c):
     """Caches for library hygiene reports (volume gaps / duplicate groups)."""
+    if not _schema_pending("library_audit_tables"):
+        return
     c.execute(
         '''CREATE TABLE IF NOT EXISTS volume_report_cache (
              series_id INTEGER PRIMARY KEY,
@@ -137,22 +255,62 @@ def _ensure_library_audit_tables(c):
              updated_at TEXT NOT NULL
            )'''
     )
+    _schema_done("library_audit_tables")
+
+
+def _ensure_volume_unit_tables(c):
+    """État d'enrichissement par unité (tome ou chapitre) — issue #27.
+
+    Une ligne par chapitre Kavita, parce que c'est là que vivent les
+    métadonnées : un tome n'en est que le conteneur. C'est cette table qui rend
+    la passe de bibliothèque reprenable après un redémarrage et qui évite de
+    réinterroger un fournisseur pour une unité déjà traitée.
+    """
+    if not _schema_pending("volume_unit_tables"):
+        return
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS volume_unit_cache (
+             series_id INTEGER NOT NULL,
+             chapter_id INTEGER NOT NULL,
+             volume_id INTEGER,
+             volume_number TEXT,
+             chapter_number TEXT,
+             status TEXT NOT NULL,
+             provider TEXT,
+             written_fields TEXT,
+             updated_at TEXT NOT NULL,
+             PRIMARY KEY (series_id, chapter_id)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_unit_series "
+        "ON volume_unit_cache(series_id)"
+    )
+    _schema_done("volume_unit_tables")
 
 
 def _ensure_lifetime_stats_table(c):
+    if not _schema_pending("lifetime_stats"):
+        return
     c.execute('''CREATE TABLE IF NOT EXISTS lifetime_stats
                  (stat_key TEXT PRIMARY KEY,
                   value INTEGER NOT NULL DEFAULT 0)''')
+    _schema_done("lifetime_stats")
 
 
 def _ensure_provider_stats_table(c):
+    if not _schema_pending("provider_stats"):
+        return
     c.execute('''CREATE TABLE IF NOT EXISTS provider_stats
                  (provider_id TEXT PRIMARY KEY,
                   wins INTEGER NOT NULL DEFAULT 0)''')
+    _schema_done("provider_stats")
 
 
 def _ensure_batch_queue_tables(c):
     """File batch persistante (C63) — survie au redémarrage du conteneur."""
+    if not _schema_pending("batch_queue_tables"):
+        return
     c.execute(
         '''CREATE TABLE IF NOT EXISTS batch_queue (
              id TEXT PRIMARY KEY,
@@ -180,9 +338,12 @@ def _ensure_batch_queue_tables(c):
     c.execute(
         "INSERT OR IGNORE INTO batch_queue_meta(key, value) VALUES ('paused', '0')"
     )
+    _schema_done("batch_queue_tables")
 
 
 def _ensure_pending_reviews_table(c):
+    if not _schema_pending("pending_reviews_tables"):
+        return
     c.execute('''CREATE TABLE IF NOT EXISTS pending_reviews
                  (review_id TEXT PRIMARY KEY,
                   series_id INTEGER NOT NULL,
@@ -196,16 +357,18 @@ def _ensure_pending_reviews_table(c):
     # Lien de vérification Kavita dans le pick UI (voir templates manual_review.js) :
     # ID de bibliothèque Kavita de la série, absent des lignes créées avant cette
     # migration (reste NULL, le lien est alors simplement omis côté UI).
-    try:
+    # Colonne testée plutôt que `except OperationalError: pass` : cette exception
+    # couvre aussi la base en lecture seule et le disque plein (voir
+    # `_ensure_schema`).
+    if "library_id" not in _table_columns(c, "pending_reviews"):
         c.execute("ALTER TABLE pending_reviews ADD COLUMN library_id INTEGER")
-    except sqlite3.OperationalError:
-        pass
     # Migration one-shot : index non-unique → UNIQUE (une review par série).
     c.execute(
         "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_pending_reviews_series_id'"
     )
     idx_row = c.fetchone()
     idx_sql = (idx_row[0] or "") if idx_row else ""
+    migrated_index = False
     if "UNIQUE" not in idx_sql.upper():
         try:
             c.execute(
@@ -220,9 +383,24 @@ def _ensure_pending_reviews_table(c):
             "CREATE UNIQUE INDEX IF NOT EXISTS idx_pending_reviews_series_id "
             "ON pending_reviews(series_id)"
         )
+        migrated_index = True
     c.execute(
         "CREATE INDEX IF NOT EXISTS idx_pending_reviews_state ON pending_reviews(state)"
     )
+    if migrated_index:
+        # Le `DELETE` ci-dessus ouvre une transaction qui absorbe le DDL qui
+        # suit : appelée depuis un chemin de LECTURE (`clean_orphaned_cache`,
+        # une liste de reviews), la migration était annulée par le `close()`
+        # sans `commit()`, puis rejouée à chaque appel — en prenant un verrou
+        # d'écriture depuis une lecture.
+        try:
+            c.connection.commit()
+        except sqlite3.Error as exc:
+            logging.warning(
+                "[DB] migration d'index pending_reviews non validée : %s",
+                safe_exc_str(exc),
+            )
+    _schema_done("pending_reviews_tables")
 
 
 def record_enrichment_telemetry(used_providers):
@@ -325,6 +503,7 @@ def get_lifetime_stats():
         "manual_skips": _as_int("manual_skips"),
         "manual_top1_accepts": _as_int("manual_top1_accepts"),
         "manual_score_sum": _as_float("manual_score_sum"),
+        "manual_score_n": _as_int("manual_score_n"),
         "manual_field_edits": _as_int("manual_field_edits"),
         "manual_fusions": _as_int("manual_fusions"),
         "manual_weak_picks": _as_int("manual_weak_picks"),
@@ -386,6 +565,11 @@ def record_manual_review_telemetry(
     _ensure_lifetime_stats_table(c)
     _bump_lifetime_stat(c, "manual_reviews", 1)
     _bump_lifetime_stat(c, "manual_score_sum", score_val)
+    # Dénominateur distinct du nombre de reviews : une confirmation dont le
+    # candidat n'a pas de score (scraper communautaire qui n'appelle pas
+    # attach_match_score) entrerait à 0,00 et diluerait la moyenne des autres.
+    if score_val > 0:
+        _bump_lifetime_stat(c, "manual_score_n", 1)
     if top1:
         _bump_lifetime_stat(c, "manual_top1_accepts", 1)
     if edits:
@@ -403,6 +587,7 @@ def record_manual_review_telemetry(
         "manual_skips_delta": 0,
         "manual_top1_accepts_delta": top1,
         "manual_score_sum_delta": score_val,
+        "manual_score_n_delta": 1 if score_val > 0 else 0,
         "manual_field_edits_delta": edits,
         "manual_fusions_delta": fusion_delta,
         "manual_weak_picks_delta": weak_delta,
@@ -645,8 +830,18 @@ def list_pending_reviews(state=None, limit=200):
     return [_pending_review_row_to_dict(r) for r in rows]
 
 
-def update_pending_review(review_id, **fields):
-    """Met à jour les colonnes fournies d'une pending review. Retourne True si une ligne touchée."""
+def update_pending_review(review_id, *, expected_state=None, **fields):
+    """
+    Met à jour les colonnes fournies d'une pending review. Retourne True si une ligne touchée.
+
+    `expected_state` transforme l'écriture en compare-and-swap : l'UPDATE ne
+    s'applique que si la ligne est encore dans cet état. Indispensable dès que
+    l'appelant a décidé quoi écrire d'après une lecture antérieure — un état
+    relu puis écrit en deux temps peut changer entre les deux (l'utilisateur
+    choisit un fournisseur pendant qu'un scrape se termine) et l'appelant
+    imposerait alors une décision périmée. Un retour False signifie « rien
+    écrit » : à l'appelant de relire et de recalculer.
+    """
     import json
 
     allowed = {
@@ -669,7 +864,13 @@ def update_pending_review(review_id, **fields):
     _ensure_pending_reviews_table(c)
     cols = ", ".join(f"{k}=?" for k in updates)
     values = list(updates.values()) + [review_id]
-    c.execute(f"UPDATE pending_reviews SET {cols} WHERE review_id = ?", values)
+    if expected_state is None:
+        c.execute(f"UPDATE pending_reviews SET {cols} WHERE review_id = ?", values)
+    else:
+        c.execute(
+            f"UPDATE pending_reviews SET {cols} WHERE review_id = ? AND state = ?",
+            values + [expected_state],
+        )
     touched = c.rowcount > 0
     conn.commit()
     conn.close()
@@ -884,6 +1085,28 @@ def get_all_cached_data():
         'inventory_excluded': bool(row[9]) if len(row) > 9 else False,
     } for row in rows}
 
+#: Tables portant une ligne par série, à purger avec elle. `series_cache` et
+#: `pending_reviews` étaient les deux seules nettoyées : une série supprimée dans
+#: Kavita laissait derrière elle son rapport de tomes, ses flags d'audit, son
+#: attendu forcé et l'état de chacun de ses tomes. Conséquences visibles :
+#: `count_volume_units_by_status()` gonflait la progression avec des tomes
+#: disparus, et `get_volume_report_hygiene_map()` désérialisait le JSON de ces
+#: lignes mortes à chaque rendu du tableau de bord.
+_SERIES_SCOPED_TABLES = (
+    "series_cache",
+    "pending_reviews",
+    "volume_report_cache",
+    "series_audit_flags",
+    "hygiene_catalog_overrides",
+    "volume_unit_cache",
+)
+
+#: SQLite plafonne le nombre de paramètres liés (999 sur les builds anciens) :
+#: une bibliothèque qui perd un millier de séries d'un coup ferait exploser un
+#: `IN (...)` d'un seul tenant.
+_DELETE_CHUNK = 400
+
+
 def clean_orphaned_cache(active_ids):
     """Retire du cache les séries absentes de `active_ids`.
 
@@ -902,17 +1125,21 @@ def clean_orphaned_cache(active_ids):
     conn = _connect()
     c = conn.cursor()
     _ensure_pending_reviews_table(c)
+    _ensure_library_audit_tables(c)
+    _ensure_volume_unit_tables(c)
     c.execute("SELECT series_id FROM series_cache")
     cached_ids = {row[0] for row in c.fetchall()}
     orphans = cached_ids - active_ids
     if orphans:
         orphan_list = list(orphans)
-        c.executemany("DELETE FROM series_cache WHERE series_id = ?", [(o,) for o in orphan_list])
-        placeholders = ",".join("?" for _ in orphan_list)
-        c.execute(
-            f"DELETE FROM pending_reviews WHERE series_id IN ({placeholders})",
-            orphan_list,
-        )
+        for start in range(0, len(orphan_list), _DELETE_CHUNK):
+            chunk = orphan_list[start:start + _DELETE_CHUNK]
+            placeholders = ",".join("?" for _ in chunk)
+            for table in _SERIES_SCOPED_TABLES:
+                c.execute(
+                    f"DELETE FROM {table} WHERE series_id IN ({placeholders})",
+                    chunk,
+                )
         conn.commit()
     conn.close()
     return len(orphans)
@@ -1459,6 +1686,179 @@ def purge_series_hygiene_cache(series_id: int, *, keep_overrides: bool = False):
     c.execute("DELETE FROM series_audit_flags WHERE series_id = ?", (sid,))
     if not keep_overrides:
         c.execute("DELETE FROM hygiene_catalog_overrides WHERE series_id = ?", (sid,))
+        # Série réellement partie : son état par tome n'a plus d'objet. Une
+        # série seulement exclue de l'inventaire, elle, le garde.
+        _ensure_volume_unit_tables(c)
+        c.execute("DELETE FROM volume_unit_cache WHERE series_id = ?", (sid,))
+    conn.commit()
+    conn.close()
+
+
+# ===== Enrichissement par tome / album (issue #27) =====
+
+VOLUME_UNIT_STATES = ("DONE", "NOTHING_FOUND", "FAILED", "SKIPPED")
+
+
+def save_volume_unit_state(
+    series_id: int,
+    chapter_id: int,
+    status: str,
+    *,
+    volume_id=None,
+    volume_number=None,
+    chapter_number=None,
+    provider=None,
+    written_fields=None,
+):
+    """Marque une unité traitée. C'est ce qui rend la passe de masse reprenable."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    c.execute(
+        """INSERT OR REPLACE INTO volume_unit_cache
+           (series_id, chapter_id, volume_id, volume_number, chapter_number,
+            status, provider, written_fields, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (
+            int(series_id),
+            int(chapter_id),
+            int(volume_id) if volume_id not in (None, "") else None,
+            str(volume_number) if volume_number not in (None, "") else None,
+            str(chapter_number) if chapter_number not in (None, "") else None,
+            str(status or "FAILED"),
+            str(provider or "") or None,
+            json.dumps(list(written_fields or []), ensure_ascii=False),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+#: Ligne sentinelle : la série entière a été parcourue jusqu'au bout. Kavita ne
+#: donne jamais l'identifiant 0 à un chapitre, la place est donc libre. Sans
+#: elle, la reprise se ferait à la maille « au moins une unité écrite », et une
+#: passe annulée au tome 3 sur 40 ferait passer les 37 autres pour traités.
+SERIES_PASS_CHAPTER_ID = 0
+SERIES_PASS_STATUS = "SERIES_DONE"
+
+
+def mark_series_pass_done(series_id: int, provider: str = "") -> None:
+    """Marque une série comme parcourue en entier, pour la reprise."""
+    save_volume_unit_state(
+        series_id,
+        SERIES_PASS_CHAPTER_ID,
+        SERIES_PASS_STATUS,
+        provider=provider,
+    )
+
+
+def get_volume_unit_states(series_id: int) -> dict:
+    """chapter_id -> {status, provider, written_fields, updated_at} pour une série."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return {}
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    c.execute(
+        """SELECT chapter_id, status, provider, written_fields, updated_at
+           FROM volume_unit_cache WHERE series_id = ? AND chapter_id != ?""",
+        (int(series_id), SERIES_PASS_CHAPTER_ID),
+    )
+    out = {}
+    for chapter_id, status, provider, fields, updated in c.fetchall():
+        try:
+            written = json.loads(fields or "[]")
+        except (TypeError, ValueError):
+            written = []
+        out[int(chapter_id)] = {
+            "status": status,
+            "provider": provider or "",
+            "written_fields": written,
+            "updated_at": updated,
+        }
+    conn.close()
+    return out
+
+
+def count_volume_units_by_status(series_ids=None) -> dict:
+    """Compte global par état, pour la barre de progression et le résumé."""
+    if not os.path.exists(DB_FILE):
+        return {}
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    if series_ids:
+        ids = [int(x) for x in series_ids]
+        ph = ",".join("?" for _ in ids)
+        c.execute(
+            f"SELECT status, COUNT(*) FROM volume_unit_cache "
+            f"WHERE series_id IN ({ph}) AND chapter_id != ? GROUP BY status",
+            ids + [SERIES_PASS_CHAPTER_ID],
+        )
+    else:
+        c.execute(
+            "SELECT status, COUNT(*) FROM volume_unit_cache "
+            "WHERE chapter_id != ? GROUP BY status",
+            (SERIES_PASS_CHAPTER_ID,),
+        )
+    out = {row[0]: row[1] for row in c.fetchall()}
+    conn.close()
+    return out
+
+
+def list_enriched_series_ids() -> set:
+    """Séries parcourues **en entier** : la reprise repart après elles.
+
+    Le critère est la ligne sentinelle, pas la présence d'unités écrites. Une
+    série interrompue en cours de route garde ses unités déjà faites — la passe
+    relit `get_volume_unit_states` et ne replanifie que les unités en attente,
+    donc ni le travail ni le coût fournisseur ne sont payés deux fois — mais la
+    série revient dans les cibles pour que ses tomes restants soient traités.
+
+    Une série qui porte au moins une unité `FAILED` est rendue à la reprise même
+    si elle a sa sentinelle : c'est le cas des séries traversées pendant une
+    indisponibilité de Kavita, que la passe fermait quand même et qui restaient
+    exclues pour toujours. La condition est ici, et non seulement à la pose de la
+    sentinelle, pour que les bases déjà marquées se rouvrent d'elles-mêmes.
+    """
+    if not os.path.exists(DB_FILE):
+        return set()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    c.execute(
+        "SELECT DISTINCT series_id FROM volume_unit_cache "
+        "WHERE chapter_id = ? AND status = ?",
+        (SERIES_PASS_CHAPTER_ID, SERIES_PASS_STATUS),
+    )
+    out = {int(row[0]) for row in c.fetchall()}
+    c.execute(
+        "SELECT DISTINCT series_id FROM volume_unit_cache WHERE status = 'FAILED'"
+    )
+    out -= {int(row[0]) for row in c.fetchall()}
+    conn.close()
+    return out
+
+
+def clear_volume_unit_states(series_id=None):
+    """Efface l'état d'une série, ou de tout le monde quand on repart de zéro."""
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    if series_id is None:
+        c.execute("DELETE FROM volume_unit_cache")
+    else:
+        c.execute("DELETE FROM volume_unit_cache WHERE series_id = ?", (int(series_id),))
     conn.commit()
     conn.close()
 

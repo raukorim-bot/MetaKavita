@@ -10,12 +10,16 @@ import routes.manual_review as mr_routes
 from routes.manual_review import manual_review_bp
 
 
-def _seed_review(isolated_db, review_id, series_id, series_name, above, state="awaiting_pick"):
+def _seed_review(
+    isolated_db, review_id, series_id, series_name, above,
+    state="awaiting_pick", preview=None,
+):
     isolated_db.park_pending_review(
         review_id,
         series_id,
         series_name,
         candidates_json={"above": above, "below": [], "query": series_name},
+        preview_json=preview,
         state=state,
     )
 
@@ -63,20 +67,24 @@ def test_bulk_accept_defaults_to_the_configured_threshold(mocker, isolated_db):
 
 
 def test_bulk_accept_never_touches_a_review_already_being_edited(mocker, isolated_db):
-    """awaiting_confirm = un preview déjà en cours de personnalisation par
-    l'utilisateur — le bulk-accept ne doit jamais l'écraser silencieusement."""
+    """Un preview signe une personnalisation en cours (fournisseur choisi, champs
+    retouchés, ou park auto-confirm en attente de relecture) — le bulk-accept ne
+    doit jamais l'écraser silencieusement. C'est le preview qui fait foi, pas le
+    seul état `awaiting_confirm`, qu'une écriture Kavita ratée pose aussi."""
     fake_apply = mocker.patch.object(mr_routes, "apply_manual_review")
 
     _seed_review(
         isolated_db, "r1", 1, "In Progress",
         [{"provider": "ANILIST", "score": 0.9}],
         state="awaiting_confirm",
+        preview={"title": "En cours d'édition", "_provider_used": "ANILIST"},
     )
 
     res = _client().post("/api/manual-reviews/bulk-accept", json={"threshold": 0.6})
     body = res.get_json()
 
     assert body["accepted"] == 0
+    assert body["skipped"] == 1, "une review en édition reste en file : elle doit y être comptée"
     fake_apply.assert_not_called()
 
 

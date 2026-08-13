@@ -34,6 +34,11 @@ _KEYS_READ_BY_JS = [
     "action_fail",
     "seal_locks_fail",
     "cover_release_fail",
+    # Bandeau de collecte et compteur « sous le seuil » : traduits dans les deux
+    # langues mais jamais injectés, donc toujours rendus par leur repli — et les
+    # deux replis ne sont même pas écrits dans la même langue.
+    "mr_streaming",
+    "mr_hidden_below",
 ]
 
 
@@ -49,6 +54,34 @@ def test_the_dashboard_injects_every_key_the_js_reads():
         assert re.search(rf"^\s*{key}:", index, re.M), (
             f"'{key}' est lue par le JS mais absente de window.AppTranslations : "
             "l'UI affichera la valeur de repli, dans la mauvaise langue"
+        )
+
+
+def test_the_diagnostics_page_translates_its_cover_count():
+    """`${result.covers.count} cover(s)` était le seul libellé du fichier écrit en
+    dur : « 3 cover(s) » au milieu d'une interface française."""
+    diag = _read("static/js/diagnostics.js")
+
+    assert not re.search(r"\$\{[^}]*covers\.count[^}]*\}\s*cover\(s\)", diag), (
+        "libellé de couverture toujours écrit en dur"
+    )
+    for lang in ("fr", "en"):
+        assert translations[lang].get("diag_covers_count"), f"clé manquante en {lang}"
+
+
+def test_the_diagnostics_page_injects_every_key_its_js_reads():
+    """`diagnostics.js` a son propre dictionnaire, `window.DIAG_I18N`, monté clé
+    par clé par son gabarit. Une clé absente du gabarit ne lève rien : `t()` rend
+    son repli, écrit en anglais dans un fichier par ailleurs traduit — passer un
+    libellé par `t()` sans l'injecter ne le traduit donc pas."""
+    keys = set(re.findall(r"\bt\(\s*\"([a-z0-9_]+)\"", _read("static/js/diagnostics.js")))
+    template = _read("templates/diagnostics.html")
+
+    assert keys, "aucune clé lue : le motif de recherche a dû changer"
+    for key in sorted(keys):
+        assert f"'{key}':" in template, (
+            f"diagnostics.js lit DIAG_I18N.{key}, que le gabarit n'injecte pas : "
+            "le repli en dur restera affiché"
         )
 
 

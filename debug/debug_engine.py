@@ -1,8 +1,23 @@
+"""⚠️ SCRIPT À USAGE MANUEL — CASCADE RÉELLE PUIS COUVERTURES EN PARALLÈLE.
+
+Tout s'exécute au chargement du module. Le second test lance quatre
+`fetch_covers()` SIMULTANÉS : c'est le profil de trafic le plus agressif du
+dossier après les scripts « quality ».
+"""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
+
+confirm_live_network(
+    "debug_engine.py",
+    "MangaBaka, Kitsu, AniList, puis 4 fournisseurs Manga en parallèle",
+    details="Le test 2 émet des recherches de couvertures simultanées.",
+)
 
 import logging
 import time

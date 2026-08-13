@@ -1,8 +1,21 @@
+"""⚠️ SCRIPT À USAGE MANUEL — INTERROGE DIRECTEMENT L'API COMICVINE.
+
+Consomme le quota de la clé configurée (200 requêtes/heure côté ComicVine).
+"""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
+
+confirm_live_network(
+    "debug_comicvine.py",
+    "l'API ComicVine, avec la clé de data/config.json",
+    details="Consomme le quota horaire de la clé.",
+)
 
 import json
 import logging

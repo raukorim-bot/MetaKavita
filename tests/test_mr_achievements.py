@@ -13,6 +13,29 @@ def test_lifetime_bag_from_stats_defaults():
     assert bag["super_used"] is False
 
 
+def test_the_average_score_denominator_follows_the_scored_confirmations():
+    """
+    Le dénominateur de la moyenne est le nombre de confirmations *scorées*.
+
+    Piège : il était câblé sur le nombre de confirmations. Un candidat sans
+    `_match_score` (scraper communautaire) entre à 0,00 pendant la collecte
+    manuelle, où le seuil est abaissé à zéro : compté au dénominateur sans rien
+    apporter au numérateur, il tire la KPI vers le bas et peut rendre `gourmet`
+    inatteignable. `manual_score_n` attend son compteur côté db_manager ; tant
+    qu'il n'existe pas, on retombe sur le nombre de reviews.
+    """
+    assert lifetime_bag_from_stats({"manual_reviews": 5})["score_n"] == 5
+    assert lifetime_bag_from_stats({"manual_reviews": 5, "manual_score_n": 3})["score_n"] == 3
+
+    playful = compute_playful_stats(
+        {},
+        {},
+        {"manual_reviews": 5, "manual_score_sum": 2.7, "manual_score_n": 3},
+        translations_dict=translations["fr"],
+    )
+    assert playful["manual_avg_score"] == 0.9
+
+
 def test_evaluate_unlocks_oracle_sculptor_alchemist():
     bag = {
         "done": 5,
@@ -85,4 +108,9 @@ def test_compute_playful_stats_includes_mr_achievements():
     unlocked_ids = {c["id"] for c in playful["mr_achievements"]["unlocked"]}
     assert "oracle" in unlocked_ids
     assert "alchemist" in unlocked_ids
-    assert "lightning" in unlocked_ids
+    # `lightning` (3 confirms sans aucune retouche) a quitté le lifetime : la
+    # condition se re-verrouillerait à la première retouche, et les compteurs à
+    # vie ne savent pas dire combien de confirmations l'ont précédée. Il reste
+    # au catalogue session, côté JS.
+    assert "lightning" not in unlocked_ids
+    assert "lightning" not in {c["id"] for c in playful["mr_achievements"]["locked"]}

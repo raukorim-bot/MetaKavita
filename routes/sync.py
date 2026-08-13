@@ -27,7 +27,7 @@ from services.background_tasks import (
     hydrate_batch_queue_to_ram,
     make_sync_item,
     register_batch_enqueue,
-    is_batch_active,
+    register_batch_enqueue_if_first,
     put_sync,
     put_front,
 )
@@ -126,7 +126,6 @@ def batch_sync():
     is_first_chunk = request.form.get('resume_enqueue') == 'true'
     if is_first_chunk:
         set_batch_enqueue_enabled(True)
-        new_batch = not is_batch_active()
     else:
         if not is_batch_enqueue_enabled():
             return jsonify(
@@ -134,7 +133,6 @@ def batch_sync():
                 rejected=True,
                 msg=t.get('batch_stopped', "Batch arrêté."),
             ), 409
-        new_batch = False
 
     library_id = request.form.get('library_id')
     force_update = request.form.get('force_update') == 'true'
@@ -199,10 +197,18 @@ def batch_sync():
     if was_paused:
         batch_queue_svc.set_paused(False)
         set_batch_enqueue_enabled(True)
-        hydrated = hydrate_batch_queue_to_ram(new_batch=not is_batch_active())
+        hydrated = hydrate_batch_queue_to_ram()
         resumed = True
     elif added:
-        register_batch_enqueue(added, new_batch=new_batch)
+        # « Ce paquet ouvre-t-il un nouveau lot ? » se décide au moment
+        # d'incrémenter les compteurs, pas ici : entre la lecture de l'état et
+        # cette ligne, le handler a rendu la main quatre fois (authentification
+        # Kavita, inventaire, cache, file SQLite), le temps qu'un second
+        # /batch-sync passe et remette la barre à zéro à mi-parcours du premier.
+        if is_first_chunk:
+            register_batch_enqueue_if_first(added)
+        else:
+            register_batch_enqueue(added, new_batch=False)
         for item in result.get("items") or []:
             put_sync(
                 make_sync_item(
@@ -267,7 +273,7 @@ def api_batch_queue_pause():
 def api_batch_queue_resume():
     batch_queue_svc.set_paused(False)
     set_batch_enqueue_enabled(True)
-    n = hydrate_batch_queue_to_ram(new_batch=not is_batch_active())
+    n = hydrate_batch_queue_to_ram()
     return jsonify(success=True, hydrated=n, **batch_queue_svc.snapshot_status())
 
 

@@ -1,8 +1,23 @@
+"""⚠️ SCRIPT À USAGE MANUEL — INTERROGE POUR DE VRAI TOUS LES SCRAPERS MANGA.
+
+Produit cas de test × fournisseurs : quelques centaines d'appels sortants.
+"""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
+
+# Avant `from scrapers import ...`, qui synchronise déjà le catalogue core
+# depuis GitHub : rien ne sort tant que personne n'a confirmé.
+confirm_live_network(
+    "debug_manga_quality.py",
+    "tous les fournisseurs Manga installés",
+    details="Produit cas de test × fournisseurs.",
+)
 
 import logging
 import time

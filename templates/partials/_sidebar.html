@@ -1,4 +1,4 @@
-﻿            <aside class="sidebar">
+            <aside class="sidebar">
                 
                 <!-- BLOC 1: STATISTIQUES -->
                 {# Une seule liste décrit les états : la barre et la légende en découlent,
@@ -188,11 +188,6 @@
                                         <span class="so-switch-text">{{ t.auto_cover }}</span>
                                     </label>
                                     <label class="so-switch">
-                                        <input type="checkbox" id="sidebar_auto_reading_dir" value="true" {% if config.get('AUTO_READING_DIR') %}checked{% endif %} onchange="saveConfig()">
-                                        <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
-                                        <span class="so-switch-text">{{ t.auto_reading_dir }}</span>
-                                    </label>
-                                    <label class="so-switch">
                                         <input type="checkbox" id="sidebar_reset_context" value="true" {% if config.get('RESET_CONTEXT_ON_FORCE') %}checked{% endif %} onchange="saveConfig()">
                                         <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
                                         <span class="so-switch-text">{{ t.reset_context_on_force }}</span>
@@ -212,6 +207,21 @@
                                             <span class="so-switch-text"><strong>{{ t.cover_force_overwrite }}</strong></span>
                                         </label>
                                         <p class="so-alert-text">{{ t.cover_force_overwrite_warn }}</p>
+                                        {# Même famille que l'écrasement des couvertures : ne
+                                           s'affiche que si l'enrichissement par tome est allumé,
+                                           sinon l'interrupteur ne commanderait rien. La condition
+                                           est portée par le CSS (`.so-needs-volumes`) et non par
+                                           un `{% raw %}{% if %}{% endraw %}` : la barre latérale
+                                           enregistre sans recharger, donc un test côté serveur ne
+                                           révélait ce réglage qu'au chargement suivant. #}
+                                        <label class="so-switch so-switch--danger so-needs-volumes">
+                                            <input type="checkbox" id="sidebar_volume_force_overwrite" value="true"
+                                                   {% if config.get('VOLUME_FORCE_OVERWRITE') %}checked{% endif %}
+                                                   onchange="saveConfig()">
+                                            <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                            <span class="so-switch-text"><strong>{{ t.volume_force_overwrite }}</strong></span>
+                                        </label>
+                                        <p class="so-alert-text so-needs-volumes">{{ t.volume_force_overwrite_hint }}</p>
                                     </div>
                                     <details class="targeted-scraping-details batch-fields-details so-batch-fields">
                                         <summary>{{ t.batch_targeted_fields }}</summary>
@@ -229,7 +239,6 @@
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-status" value="status" checked> {{ t.field_status }}</label>
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-publisher" value="publisher" checked> {{ t.field_publisher }}</label>
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-age" value="age" checked> {{ t.field_age }}</label>
-                                            <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-format" value="format" checked> {{ t.field_format }}</label>
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-weblinks" value="weblinks" checked> {{ t.field_weblinks }}</label>
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-alt_titles" value="alt_titles" checked> {{ t.field_alt_titles }}</label>
                                             <label class="checkbox-label"><input type="checkbox" class="batch-field-cb" id="batch-field-language" value="language" checked> {{ t.field_language }}</label>
@@ -243,10 +252,11 @@
                             <summary class="so-cat-summary">
                                 <span class="so-chevron" aria-hidden="true"></span>
                                 <span class="so-cat-title">{{ t.scraping_cat_inventory }}</span>
+                                <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
                             </summary>
                             <div class="so-cat-body so-anim-body">
                                 <div class="so-anim-inner so-cat-panel">
-                                    <label class="so-switch">
+                                    <label class="so-switch so-switch--inventory">
                                         <input type="checkbox" id="sidebar_library_inventory" value="true"
                                                {% if config.get('LIBRARY_INVENTORY_ENABLED', True) %}checked{% endif %}
                                                onchange="onInventoryToggle(this)">
@@ -255,6 +265,100 @@
                                         <span class="so-switch-text">{{ t.library_inventory_enabled }}</span>
                                     </label>
                                     <p class="so-hint">{{ t.library_inventory_enabled_hint }}</p>
+                                </div>
+                            </div>
+                        </details>
+
+                        <details class="so-cat" id="scrapingCatVolumes" data-so-cat="volumes">
+                            <summary class="so-cat-summary">
+                                <span class="so-chevron" aria-hidden="true"></span>
+                                <span class="so-cat-title">{{ t.scraping_cat_volumes }}</span>
+                                <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
+                            </summary>
+                            <div class="so-cat-body so-anim-body">
+                                <div class="so-anim-inner so-cat-panel">
+                                    {# Le maître de la catégorie : il commande l'affichage
+                                       du groupe de la barre d'outils (`data-volumes`) et,
+                                       par le CSS, l'état du bloc dépendant ci-dessous. #}
+                                    <label class="so-switch so-switch--volumes">
+                                        <input type="checkbox" id="sidebar_volume_enrichment" value="true"
+                                               {% if config.get('VOLUME_ENRICHMENT_ENABLED') %}checked{% endif %}
+                                               onchange="onVolumeEnrichmentToggle(this)">
+                                        <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                        <span class="so-switch-icon" aria-hidden="true">📚</span>
+                                        <span class="so-switch-text">{{ t.volume_enrichment_enabled }}</span>
+                                    </label>
+                                    <p class="so-hint">{{ t.volume_enrichment_enabled_hint }}</p>
+                                    <div class="so-sub so-sub--volumes">
+                                        <p class="so-sub-note">{{ t.volume_sub_locked }}</p>
+                                        <label class="so-switch so-switch--volumes">
+                                            <input type="checkbox" id="sidebar_volume_enrich_credits" value="true"
+                                                   {% if config.get('VOLUME_ENRICH_CREDITS') %}checked{% endif %}
+                                                   onchange="saveConfig()">
+                                            <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                            <span class="so-switch-icon" aria-hidden="true">✍️</span>
+                                            <span class="so-switch-text">{{ t.volume_enrich_credits }}</span>
+                                        </label>
+                                        <p class="so-hint">{{ t.volume_enrich_credits_hint }}</p>
+                                        <label class="so-switch so-switch--volumes">
+                                            <input type="checkbox" id="sidebar_volume_no_manga_fallback" value="true"
+                                                   {% if config.get('VOLUME_NO_MANGA_FALLBACK') %}checked{% endif %}
+                                                   onchange="saveConfig()">
+                                            <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                            <span class="so-switch-icon" aria-hidden="true">🚫</span>
+                                            <span class="so-switch-text">{{ t.volume_no_manga_fallback }}</span>
+                                        </label>
+                                        <p class="so-hint">{{ t.volume_no_manga_fallback_hint }}</p>
+                                        {# Le fournisseur imposé prime sur la cascade, mais
+                                           seulement là où il sait servir la bibliothèque :
+                                           voir `volume_providers`.
+
+                                           Deux groupes, parce qu'ils ne rendent pas la même
+                                           chose : les premiers listent les albums d'une série,
+                                           les seconds identifient un tome par son ISBN — sans
+                                           ISBN dans Kavita, ils ne rendront rien. #}
+                                        {% set vol_index_group = (volume_provider_choices or []) | selectattr('kind', 'equalto', 'index') | list %}
+                                        {% set vol_unit_group = (volume_provider_choices or []) | selectattr('kind', 'equalto', 'unit') | list %}
+                                        <div class="form-group so-cat-select">
+                                            <label for="sidebar_volume_provider">{{ t.volume_provider_forced }}</label>
+                                            <select id="sidebar_volume_provider" onchange="saveConfig()">
+                                                <option value="AUTO" {% if not config.get('VOLUME_PROVIDER') %}selected{% endif %}>{{ t.volume_provider_auto }}</option>
+                                                {% if vol_index_group %}
+                                                <optgroup label="{{ t.volume_provider_group_index }}">
+                                                    {% for p in vol_index_group %}
+                                                    <option value="{{ p.id }}" {% if config.get('VOLUME_PROVIDER') == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                                    {% endfor %}
+                                                </optgroup>
+                                                {% endif %}
+                                                {% if vol_unit_group %}
+                                                <optgroup label="{{ t.volume_provider_group_unit }}">
+                                                    {% for p in vol_unit_group %}
+                                                    <option value="{{ p.id }}" {% if config.get('VOLUME_PROVIDER') == p.id %}selected{% endif %}>{{ p.display_name }}</option>
+                                                    {% endfor %}
+                                                </optgroup>
+                                                {% endif %}
+                                            </select>
+                                        </div>
+                                        <p class="so-hint">{{ t.volume_provider_forced_hint }}</p>
+                                        {# Ambre et non vert : c'est le seul chemin du module
+                                           sans le moindre identifiant pour se vérifier. #}
+                                        <label class="so-switch so-switch--lab">
+                                            <input type="checkbox" id="sidebar_volume_enrich_experimental" value="true"
+                                                   {% if config.get('VOLUME_ENRICH_EXPERIMENTAL') %}checked{% endif %}
+                                                   onchange="saveConfig()">
+                                            <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                            <span class="so-switch-icon" aria-hidden="true">🧪</span>
+                                            <span class="so-switch-text">{{ t.volume_enrich_experimental }}</span>
+                                        </label>
+                                        <p class="so-hint">{{ t.volume_enrich_experimental_hint }}</p>
+                                    </div>
+                                    {# Hors du bloc dépendant : la cascade Fournisseurs sert
+                                       aussi l'enrichissement par série, donc ce bouton reste
+                                       utile quand l'enrichissement par tome est éteint. #}
+                                    <p class="so-hint">{{ t.volume_provider_order_hint }}</p>
+                                    <button type="button" class="btn-primary w-100 so-btn so-btn-providers" onclick="openProvidersModal()">
+                                        {{ t.open_providers_modal }}
+                                    </button>
                                 </div>
                             </div>
                         </details>

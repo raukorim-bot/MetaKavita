@@ -16,6 +16,8 @@ from scrapers.utils import (
     score_candidate,
 )
 
+from services.cooperative import yield_to_worker
+
 from .series_identity import (
     build_score_candidate_from_identity,
     merge_series_identity,
@@ -59,6 +61,10 @@ def _as_identity(series: dict) -> dict:
     )
 
 
+def _isbn_digits(raw: Any) -> str:
+    return "".join(c for c in str(raw or "") if c.isdigit())
+
+
 def score_duplicate_pair(a: dict, b: dict) -> Dict[str, Any]:
     """
     Score two series identities for dedup.
@@ -84,10 +90,7 @@ def score_duplicate_pair(a: dict, b: dict) -> Dict[str, Any]:
     if different:
         return {"score": 0.0, "reasons": [f"different_{different[0]}_id"]}
 
-    def _isbn(x: Any) -> str:
-        return "".join(c for c in str(x or "") if c.isdigit())
-
-    ia_isbn, ib_isbn = _isbn(ia.get("isbn")), _isbn(ib.get("isbn"))
+    ia_isbn, ib_isbn = _isbn_digits(ia.get("isbn")), _isbn_digits(ib.get("isbn"))
     if ia_isbn and ib_isbn and ia_isbn == ib_isbn and len(ia_isbn) >= 10:
         return {"score": 1.0, "reasons": ["same_isbn"]}
 
@@ -128,6 +131,38 @@ def score_duplicate_pair(a: dict, b: dict) -> Dict[str, Any]:
 def _bucket_key(name: str) -> str:
     words = sorted(extract_distinctive_words(name or ""))
     return words[0] if words else (normalize_str(name or "")[:8] or "_")
+
+
+def _word_set_key(name: str) -> str:
+    """Seau formé sur **tous** les mots distinctifs, et non sur le premier.
+
+    Le seau au premier mot redevenait quadratique dès qu'une partie de la
+    bibliothèque le partageait — une collection, un éditeur, un univers étendu.
+    Mesuré sous eventlet : 33,5 s pour 1 500 séries dont la moitié partagent
+    leur premier mot, 152,8 s quand toutes le partagent, sans un seul point de
+    bascule pendant lequel l'application aurait pu répondre.
+
+    Au seuil par défaut, resserrer la clé ne perd aucune paire : `score_candidate`
+    retire 0,35 dès qu'un mot-clé majeur manque d'un côté, et le meilleur bonus
+    qu'il puisse rendre vaut 0,25. Deux titres dont les mots distinctifs
+    diffèrent plafonnent donc à 0,90 — en dessous du seuil de 0,92 — et le
+    verdict `min(s_ab, s_ba)` suffit à ce qu'il tienne dans les deux sens. La
+    règle d'or de `score_candidate` (ISBN identique) est le seul chemin qui
+    l'ignore : ces paires-là sont réunies par leur propre seau.
+    """
+    words = sorted(extract_distinctive_words(name or ""))
+    return " ".join(words) if words else (normalize_str(name or "")[:8] or "_")
+
+
+#: En dessous de ce seuil, la démonstration ci-dessus ne tient plus : on
+#: retombe sur le seau large du premier mot, dont l'utilisateur a explicitement
+#: demandé la largeur en abaissant son seuil.
+WORD_SET_KEY_MIN_THRESHOLD = 0.90
+
+#: Paires examinées entre deux points de bascule. Assez pour que le coût du
+#: `sleep(0)` reste invisible, assez peu pour qu'une requête HTTP n'attende
+#: jamais plus de quelques millisecondes.
+_YIELD_EVERY_PAIRS = 2_000
 
 
 def cluster_duplicate_series(
@@ -181,10 +216,23 @@ def cluster_duplicate_series(
 
     edge_meta: Dict[Tuple[int, int], Tuple[float, List[str]]] = {}
 
-    # Bucket by first distinctive word (always when n large; also used to cut pairs)
+    # Seau de comparaison : l'ensemble des mots distinctifs au seuil par défaut
+    # (voir `_word_set_key`), le premier mot seulement quand l'utilisateur a
+    # abaissé son seuil sous 0,90.
+    strict = float(threshold) > WORD_SET_KEY_MIN_THRESHOLD
+    key_of = _word_set_key if strict else _bucket_key
     buckets: Dict[str, List[int]] = {}
     for i, it in enumerate(items):
-        buckets.setdefault(_bucket_key(it.get("name") or ""), []).append(i)
+        buckets.setdefault(key_of(it.get("name") or ""), []).append(i)
+
+    if strict:
+        # Un ISBN partagé vaut identité quels que soient les titres : c'est la
+        # règle d'or de `score_candidate`, et le seul verdict que les mots
+        # distinctifs ne bornent pas. Ces paires-là ont donc leur propre seau.
+        for i, it in enumerate(items):
+            digits = _isbn_digits(it.get("isbn"))
+            if digits:
+                buckets.setdefault(f"isbn:{digits}", []).append(i)
 
     # Also union hard same-id across buckets
     by_ext: Dict[Tuple[str, str], List[int]] = {}
@@ -200,49 +248,58 @@ def cluster_duplicate_series(
             key = (min(idxs[0], a), max(idxs[0], a))
             edge_meta[key] = (1.0, ["same_external_id"])
 
-    pair_iters: List[Tuple[int, int]] = []
+    examined = 0
     for idxs in buckets.values():
         if len(idxs) < 2:
             continue
         for ii in range(len(idxs)):
             for jj in range(ii + 1, len(idxs)):
-                pair_iters.append((idxs[ii], idxs[jj]))
-
-    # If small library, also compare across buckets for near-identical titles
-    if n <= 2000:
-        # Extra: pairs already covered in same bucket; skip cross-bucket unless
-        # identical normalized short names — handled via score in-bucket only for perf.
-        pass
-
-    for i, j in pair_iters:
-        result = score_duplicate_pair(items[i], items[j])
-        score = float(result["score"])
-        if score < threshold:
-            continue
-        union(i, j)
-        key = (min(i, j), max(i, j))
-        prev = edge_meta.get(key)
-        if not prev or score > prev[0]:
-            edge_meta[key] = (score, list(result.get("reasons") or []))
+                i, j = idxs[ii], idxs[jj]
+                examined += 1
+                if examined % _YIELD_EVERY_PAIRS == 0:
+                    # Calcul pur : sans ce point de bascule, l'application
+                    # entière est muette jusqu'à la fin du regroupement, à la
+                    # fin de chaque scan.
+                    yield_to_worker()
+                if find(i) == find(j):
+                    # Déjà réunies par une autre paire : les comparer ne peut
+                    # plus rien changer au regroupement, et c'est exactement ce
+                    # que payait le pire cas — 1,1 million de comparaisons pour
+                    # un seul groupe. Le score affiché est alors celui du lien
+                    # qui les a réunies, pas le meilleur du groupe.
+                    continue
+                result = score_duplicate_pair(items[i], items[j])
+                score = float(result["score"])
+                if score < threshold:
+                    continue
+                union(i, j)
+                key = (min(i, j), max(i, j))
+                prev = edge_meta.get(key)
+                if not prev or score > prev[0]:
+                    edge_meta[key] = (score, list(result.get("reasons") or []))
 
     groups_map: Dict[int, List[int]] = {}
     for i in range(n):
         groups_map.setdefault(find(i), []).append(i)
 
+    # Le meilleur lien de chaque groupe, lu une fois par arête plutôt qu'une
+    # fois par paire de membres : un groupe de 1 500 séries faisait à lui seul
+    # un million de recherches dans `edge_meta`.
+    best_by_root: Dict[int, float] = {}
+    reasons_by_root: Dict[int, Set[str]] = {}
+    for (a, _b), (score, edge_reasons) in edge_meta.items():
+        root = find(a)
+        if score > best_by_root.get(root, 0.0):
+            best_by_root[root] = score
+        reasons_by_root.setdefault(root, set()).update(edge_reasons)
+
     groups: List[Dict[str, Any]] = []
     gid = 0
-    for members in groups_map.values():
+    for root, members in groups_map.items():
         if len(members) < 2:
             continue
-        best = 0.0
-        reasons: Set[str] = set()
-        for a_i, a in enumerate(members):
-            for b in members[a_i + 1 :]:
-                key = (min(a, b), max(a, b))
-                meta = edge_meta.get(key)
-                if meta:
-                    best = max(best, meta[0])
-                    reasons.update(meta[1])
+        best = best_by_root.get(root, 0.0)
+        reasons: Set[str] = set(reasons_by_root.get(root) or ())
         if best <= 0 and not reasons:
             best = 1.0
             reasons.add("same_external_id")

@@ -140,7 +140,31 @@ def load_config():
             # cache) au lieu de les épargner. Échappatoire de masse : un run
             # complet réécrit toutes les couvertures sans clic série par série.
             "COVER_FORCE_OVERWRITE": False,
-            "AUTO_READING_DIR": False,
+            # Enrichissement par tome / album (issue #27). Éteint par défaut :
+            # la fonctionnalité écrit dans Kavita unité par unité, elle ne doit
+            # pas s'activer toute seule à la mise à jour.
+            "VOLUME_ENRICHMENT_ENABLED": False,
+            # Écrase les champs déjà remplis ou verrouillés d'un tome, au lieu
+            # de ne combler que les vides. Échappatoire de masse, sur le modèle
+            # de COVER_FORCE_OVERWRITE.
+            "VOLUME_FORCE_OVERWRITE": False,
+            # Crédits nominatifs par album : un appel réseau par tome, là où
+            # tout le reste tient en un appel par série. D'où l'interrupteur.
+            "VOLUME_ENRICH_CREDITS": False,
+            # Recherche d'un tome par titre de série et numéro, quand il n'y a
+            # ni index de tomes ni ISBN — le cas de la plupart des mangas
+            # scannés. Aucun identifiant ne garantit le résultat : c'est une
+            # recherche, elle est vérifiée deux fois, et elle reste optionnelle.
+            "VOLUME_ENRICH_EXPERIMENTAL": False,
+            # Fournisseur imposé pour les tomes, ou vide pour laisser la cascade
+            # décider. Il n'est retenu que là où il sait servir la bibliothèque :
+            # imposer ComicVine ne doit pas priver une bibliothèque manga de tout
+            # fournisseur.
+            "VOLUME_PROVIDER": "",
+            # Une bibliothèque « Comic (Flexible) » enchaîne les fournisseurs
+            # comics puis les manga en repli. À qui n'y range que de la bande
+            # dessinée, ce repli ne rend rien et coûte une cadence complète.
+            "VOLUME_NO_MANGA_FALLBACK": False,
             "TITLE_FALLBACK_TRANSLATION": False, # <-- NOUVEAU
             "RESET_CONTEXT_ON_FORCE": False,
             # C7 — stats ludiques sur /stats (ON par défaut, désactivable)
@@ -156,6 +180,13 @@ def load_config():
             # barre d'outils, les cartouches et les routes disparaissent, et le
             # dashboard économise deux lectures SQLite par rendu.
             "LIBRARY_INVENTORY_ENABLED": True,
+            # C80 — Mode léger. Trois familles de réglages que tout le monde n'a
+            # pas à voir : décochées, leur catégorie quitte la barre latérale et
+            # leur fonctionnalité s'éteint (voir `apply_light_mode`). Toutes
+            # affichées par défaut, pour ne rien retirer à personne au passage.
+            "UI_SHOW_MANUAL_REVIEW": True,
+            "UI_SHOW_INVENTORY": True,
+            "UI_SHOW_VOLUMES": True,
         }
 
         file_config = {}
@@ -326,16 +357,21 @@ def load_config():
         )
 
         for bool_key in [
-            "AUTO_COVER", "COVER_FORCE_OVERWRITE", "AUTO_READING_DIR", "SMART_COMPLETION", "SMART_SCORING",
+            "AUTO_COVER", "COVER_FORCE_OVERWRITE", "SMART_COMPLETION", "SMART_SCORING",
             "TITLE_FALLBACK_TRANSLATION", "RESET_CONTEXT_ON_FORCE", "ENABLE_PLAYFUL_STATS",
             "MATCH_THRESHOLD_CUSTOM", "DUP_THRESHOLD_CUSTOM", "AUTO_UPDATE_CORE_SCRAPERS",
             "MANUAL_REVIEW_MODE", "MANUAL_REVIEW_EDIT", "MANUAL_REVIEW_SOUNDS",
             "MANUAL_REVIEW_SUPER", "CONFIRM_BEFORE_WRITE", "MANUAL_REVIEW_COVER_PICK",
             "LIBRARY_INVENTORY_ENABLED",
+            "VOLUME_ENRICHMENT_ENABLED", "VOLUME_FORCE_OVERWRITE", "VOLUME_ENRICH_CREDITS",
+            "VOLUME_ENRICH_EXPERIMENTAL",
+            "UI_SHOW_MANUAL_REVIEW", "UI_SHOW_INVENTORY", "UI_SHOW_VOLUMES",
         ]:
             config[bool_key] = _resolve_bool(
                 file_config, bool_key, default=bool(config.get(bool_key, False))
             )
+
+        apply_light_mode(config)
 
         config["MATCH_ACCEPT_THRESHOLD"] = _parse_match_threshold(
             file_config.get(
@@ -389,6 +425,48 @@ def load_config():
             _logged_config_path = True
 
         return config
+
+
+#: Ce qu'une section masquée éteint avec elle (C80). Une catégorie retirée de la
+#: barre latérale ne commande plus rien : sa fonctionnalité laissée allumée
+#: produirait des effets sans plus rien pour les arrêter — une file de relecture
+#: qui se remplit sans rien pour la relire, un bouton d'écriture des tomes dans
+#: la barre d'outils dont le fournisseur ne se règle plus.
+#:
+#: Les réglages *dépendants* de la relecture manuelle sont éteints eux aussi,
+#: parce que tous ne se lisent pas à travers leur maître : `routes/companion.py`
+#: lit `MANUAL_REVIEW_COVER_PICK` seul. Ceux des tomes n'ont pas besoin de
+#: l'être — ils ne servent qu'à l'intérieur d'une passe, qui ne part plus — et
+#: les garder rend ses choix à qui réaffiche la section.
+LIGHT_MODE_FEATURES = {
+    "UI_SHOW_MANUAL_REVIEW": (
+        "MANUAL_REVIEW_MODE",
+        "MANUAL_REVIEW_SUPER",
+        "MANUAL_REVIEW_COVER_PICK",
+        "MANUAL_REVIEW_SOUNDS",
+    ),
+    "UI_SHOW_INVENTORY": ("LIBRARY_INVENTORY_ENABLED",),
+    "UI_SHOW_VOLUMES": ("VOLUME_ENRICHMENT_ENABLED",),
+}
+
+
+def apply_light_mode(config: dict) -> dict:
+    """Une section masquée est une fonctionnalité éteinte. Modifie `config`.
+
+    Appliqué à la **lecture** et non seulement à l'enregistrement, pour que la
+    règle tienne quelle que soit la provenance de l'état : l'interface éteint
+    déjà la fonctionnalité au moment où l'on décoche, mais une variable
+    d'environnement ou un `config.json` retouché à la main peuvent très bien
+    annoncer une section masquée et sa fonctionnalité allumée. C'est le seul cas
+    qu'il faut absolument fermer, puisque c'est celui où l'utilisateur n'a aucun
+    interrupteur sous la main pour se sortir de là.
+    """
+    for show_key, feature_keys in LIGHT_MODE_FEATURES.items():
+        if config.get(show_key, True):
+            continue
+        for key in feature_keys:
+            config[key] = False
+    return config
 
 
 def _resolve_bool(file_config: dict, key: str, default: bool = False) -> bool:

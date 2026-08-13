@@ -154,12 +154,17 @@ def test_candidate_card_for_ui_reads_nested_data_for_legacy_queue_rows():
 
 def test_translate_candidate_summaries_before_pick(monkeypatch):
     calls = []
+    requetes = []
 
-    def fake_translate(text, *a, **k):
-        calls.append(text)
-        return f"FR:{text}"
+    def fake_translate(texts, *a, **k):
+        # Toute la file part en une requête : la cadence qui protège d'un blocage
+        # d'adresse se compte en requêtes, et un appel par carte ajoutait cinq
+        # secondes par candidat avant l'affichage du pick.
+        requetes.append(list(texts))
+        calls.extend(texts)
+        return [f"FR:{text}" for text in texts]
 
-    monkeypatch.setattr("translator.translate_text", fake_translate)
+    monkeypatch.setattr("translator.translate_texts", fake_translate)
     monkeypatch.setattr(
         "config_manager.load_config",
         lambda: {"TARGET_LANG": "FR", "TRANSLATION_PROVIDER": "GOOGLE"},
@@ -199,6 +204,8 @@ def test_translate_candidate_summaries_before_pick(monkeypatch):
     assert out["above"][1]["summary"] == "FR:Hello world"
     assert out["below"][0]["summary"] == "FR:Other"
 
+    assert requetes == [["Hello world", "Other"]], "une requête pour toute la file"
+
     out2, n2 = mr.translate_candidate_summaries(out)
     assert n2 == 0
     assert len(calls) == 2
@@ -206,8 +213,8 @@ def test_translate_candidate_summaries_before_pick(monkeypatch):
 
 def test_create_review_translates_summaries(isolated_db, monkeypatch):
     monkeypatch.setattr(
-        "translator.translate_text",
-        lambda text, *a, **k: f"TR[{text}]",
+        "translator.translate_texts",
+        lambda texts, *a, **k: [f"TR[{text}]" for text in texts],
     )
     payload = {
         "above": [
@@ -576,6 +583,37 @@ def test_record_manual_review_telemetry_avg_via_score_sum(isolated_db):
     assert playful["manual_reviews"] == 2
     assert playful["manual_skips"] == 0
     assert playful["manual_field_edits"] == 2
+
+
+def test_une_confirmation_sans_score_ne_dilue_pas_la_moyenne(isolated_db):
+    """Piège : un candidat sans `_match_score` entre à 0,00 au dénominateur.
+
+    Cela arrive avec un scraper communautaire qui n'appelle pas
+    `attach_match_score()`, pendant la collecte manuelle où le seuil est abaissé
+    à zéro. Compté comme une confirmation scorée, il ferait tomber une moyenne
+    de 0,90 à 0,45 et rendrait le haut-fait `gourmet` (moyenne >= 0,85)
+    inatteignable alors que tous les candidats réellement scorés l'atteignent.
+    """
+    isolated_db.record_manual_review_telemetry(0.90, is_top1=True)
+    isolated_db.record_manual_review_telemetry(0.0, is_top1=False)
+
+    life = isolated_db.get_lifetime_stats()
+    assert life["manual_reviews"] == 2
+    assert life["manual_score_n"] == 1
+
+    from services.mr_achievements import lifetime_bag_from_stats
+    from services.stats_service import compute_playful_stats
+
+    assert compute_playful_stats({}, {}, life)["manual_avg_score"] == pytest.approx(0.90)
+    assert lifetime_bag_from_stats(life)["score_n"] == 1
+
+
+def test_une_base_anterieure_au_compteur_retombe_sur_le_nombre_de_reviews(isolated_db):
+    """La clé est absente des bases remplies avant l'ajout du compteur."""
+    from services.stats_service import compute_playful_stats
+
+    ancienne = {"manual_reviews": 4, "manual_score_sum": 3.2}
+    assert compute_playful_stats({}, {}, ancienne)["manual_avg_score"] == pytest.approx(0.80)
 
 
 def test_pending_crud_and_create_review(isolated_db):

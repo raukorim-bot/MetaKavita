@@ -102,6 +102,71 @@ def test_hydrate_puts_to_ram(bq, monkeypatch):
     assert all(p.get("is_batch") for p in puts)
 
 
+def test_terminal_rows_do_not_pile_up_forever(bq, monkeypatch):
+    """Le module ne contenait AUCUN `DELETE FROM batch_queue` : les lignes
+    passaient en `done`/`cancelled` et y restaient à vie. Rien ne les lit —
+    `snapshot_status` et `should_skip_batch_item` ne regardent que
+    `queued`/`running` — mais après quelques milliers d'enrichissements,
+    `_next_position` balayait toute la table à chaque ajout."""
+    monkeypatch.setattr(bq, "_TERMINAL_KEEP", 3)
+    for sid in range(1, 11):
+        bq.enqueue_items([{"series_id": sid, "series_name": f"S{sid}"}])
+        bq.mark_done(sid)
+
+    bq.enqueue_items([{"series_id": 99, "series_name": "Dernière"}])
+
+    conn = bq.db_manager._connect()
+    try:
+        total = conn.execute("SELECT COUNT(*) FROM batch_queue").fetchone()[0]
+    finally:
+        conn.close()
+    assert total == 4, "trois lignes d'historique gardées, plus la ligne active"
+
+
+def test_a_series_whose_history_was_pruned_is_still_skipped_by_the_worker(bq, monkeypatch):
+    """C'est l'ABSENCE de ligne active qui fait sauter un item resté en RAM :
+    effacer l'historique ne change donc rien à cette décision."""
+    monkeypatch.setattr(bq, "_TERMINAL_KEEP", 0)
+    bq.enqueue_items([{"series_id": 7, "series_name": "S7"}])
+    bq.mark_done(7)
+
+    bq.enqueue_items([{"series_id": 8, "series_name": "S8"}])
+
+    assert bq.should_skip_batch_item(7) is True
+    assert bq.should_skip_batch_item(8) is False
+
+
+def test_a_packet_keeps_its_order_in_the_queue(bq):
+    """Les positions ordonnent l'hydratation : elles doivent rester distinctes
+    et croissantes, maintenant qu'elles ne sont plus relues par série."""
+    bq.enqueue_items([{"series_id": sid, "series_name": f"S{sid}"} for sid in (5, 6, 7)])
+    bq.enqueue_items([{"series_id": 8, "series_name": "S8"}])
+
+    positions = [item["position"] for item in bq.list_active()]
+    assert positions == sorted(set(positions))
+    assert [s["series_id"] for s in bq.list_queued_for_hydrate()] == [5, 6, 7, 8]
+
+
+def test_the_tables_are_only_created_once_per_process(bq, monkeypatch):
+    """Les treize fonctions du module ouvraient une connexion neuve et deux DDL
+    avant leur propre requête : `should_skip_batch_item` faisait deux connexions
+    et six requêtes pour un seul SELECT."""
+    original = bq.db_manager._connect
+    opened = []
+
+    def counted():
+        opened.append(1)
+        return original()
+
+    monkeypatch.setattr(bq.db_manager, "_connect", counted)
+
+    bq.ensure_tables()
+    bq.ensure_tables()
+    monkeypatch.undo()
+
+    assert opened == [], "aucune connexion pour des tables déjà créées"
+
+
 def test_reset_running_to_queued(bq):
     bq.enqueue_items([{"series_id": 9, "series_name": "R"}])
     bq.mark_running(9)

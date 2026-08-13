@@ -57,6 +57,7 @@
                             <div class="toolbar-group toolbar-group--hygiene" id="inventoryPanel">
                                 <div class="hygiene-head">
                                     <span class="toolbar-group-label">{{ t.toolbar_group_duplicates }}</span>
+                                    <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
                                     <span class="hygiene-freshness" id="hygieneFreshness"
                                           data-scanned-at="{{ hygiene_scanned_at|default('') }}"
                                           title="{{ t.audit_freshness_hint }}">{% if not hygiene_meta %}{{ t.audit_never_scanned }}{% endif %}</span>
@@ -163,6 +164,44 @@
                                 <div id="hygieneScanProgress" class="batch-progress-wrap hygiene-progress" style="display:none;" aria-hidden="true">
                                     <div class="batch-progress-meta"><span id="hygieneScanLabel">0 / 0</span></div>
                                     <div class="batch-progress-track"><div id="hygieneScanFill" class="batch-progress-fill" style="width:0%;"></div></div>
+                                </div>
+                            </div>
+
+                            {# Groupe à part, et non un coin du bloc Inventaire : la passe par
+                               tome a ses propres routes, son propre thread et son propre
+                               interrupteur. Tant qu'elle logeait chez l'Inventaire, décocher
+                               celui-ci masquait toute la fonctionnalité avec lui — trois
+                               interrupteurs de la sidebar ne commandaient plus rien. #}
+                            {# Rendu sans condition, et masqué par le CSS sur
+                               `data-volumes` — exactement comme `#inventoryPanel`. Une
+                               condition de gabarit ne se réévalue qu'au chargement
+                               suivant, alors que la barre latérale enregistre sans
+                               recharger : le groupe ne partait donc jamais quand on
+                               éteignait la fonctionnalité, et ne revenait jamais quand on
+                               la rallumait. #}
+                            <div class="toolbar-group toolbar-group--volumes" id="volumeEnrichPanel">
+                                <div class="hygiene-head">
+                                    <span class="toolbar-group-label">{{ t.toolbar_group_volumes }}</span>
+                                    <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
+                                    <div class="hygiene-actions">
+                                        <button type="button" class="btn-opt" id="btnVolumeEnrich"
+                                                onclick="startVolumeEnrich()"
+                                                title="{{ t.vol_library_title }}">
+                                            {{ t.vol_library_btn }}
+                                        </button>
+                                        <button type="button" class="btn-danger" id="btnVolumeEnrichCancel"
+                                                onclick="cancelVolumeEnrich()"
+                                                title="{{ t.audit_cancel_hint }}"
+                                                style="display:none;">
+                                            {{ t.audit_cancel }}
+                                        </button>
+                                    </div>
+                                </div>
+                                {# Barre distincte de celle de l'analyse : les deux passes ne
+                                   sont pas la même chose, et l'une peut suivre l'autre. #}
+                                <div id="volumeEnrichProgress" class="batch-progress-wrap hygiene-progress" style="display:none;" aria-hidden="true">
+                                    <div class="batch-progress-meta"><span id="volumeEnrichLabel">0 / 0</span></div>
+                                    <div class="batch-progress-track"><div id="volumeEnrichFill" class="batch-progress-fill" style="width:0%;"></div></div>
                                 </div>
                             </div>
                         </div>

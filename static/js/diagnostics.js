@@ -92,7 +92,7 @@
             bits.push(result.metadata.sample_title);
         }
         if (result.covers && result.covers.count > 0) {
-            bits.push(`${result.covers.count} cover(s)`);
+            bits.push(t("covers_count", "{0} cover(s)").replace("{0}", String(result.covers.count)));
         }
         if (result.detail && result.detail !== "ok") {
             bits.push(result.detail);

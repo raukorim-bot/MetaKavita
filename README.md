@@ -1,6 +1,6 @@
 # MetaKavita
 
-MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Comic Flexible, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, age ratings, and reading directions from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance. 
+MetaKavita is an automated metadata enricher and manager for [Kavita](https://kavitareader.com/). It automatically detects library types (Manga, Comic, Comic Flexible, Book), scrapes summaries, release years, publication status, genres, tags, staff members, publishers, and age ratings from public sources, translates summaries with Azure Translator or DeepL, and pushes them directly into your Kavita instance. 
 
 MetaKavita also features a **Plug & Play Community Scraper** architecture, allowing you to load custom Python scrapers on the fly without rebuilding the Docker image!
 
@@ -52,7 +52,7 @@ The interface uses a 100% AJAX layout with zero page reloads. The left sidebar h
 
 #### 2. Clean, Dual-Form Architecture (Modal + Sidebar)
 Technical infrastructure fields are isolated inside the **Global Configuration Modal** (accessible via the ⚙️ Config button in the topbar), preserving your workspace from configuration clutter. API Keys for metadata providers are neatly grouped in a dedicated section directly under the Kavita connection settings.
-The left sidebar contains the **Scraping Options** card (click the title to collapse/expand; open by default) with Smart Scoring, Smart Completion, **Manual Review Mode** (park candidates for pick/edit/confirm instead of auto-writing Kavita), **Reliability barometer** (optional match threshold `0.30`–`1.00`), Auto-Covers, Auto-Reading Direction, Force Update, Context Reset, a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
+The left sidebar contains the **Scraping Options** card (click the title to collapse/expand; open by default) with Smart Scoring, Smart Completion, **Manual Review Mode** (park candidates for pick/edit/confirm instead of auto-writing Kavita), **Reliability barometer** (optional match threshold `0.30`–`1.00`), Auto-Covers, Force Update, Context Reset, a collapsible **Targeted fields (batch)** mask for ephemeral write filters on the next batch, and the download button for your error reports.
 
 #### 3. Unified Filtering & Central Toolbar
 The Library Selector, Search bar, and Status Filter are consolidated into a single horizontal toolbar. This puts all target controls on one cohesive line.
@@ -82,8 +82,20 @@ If Kavita metadata write succeeds but field re-locking fails, the series gets an
 #### 9. Playful Statistics (`/stats`)
 Optional fun dashboard (enabled by default via `ENABLE_PLAYFUL_STATS`): Chart.js donuts/bars, lifetime hit-rate, ~24 playful cards, and a Manual Review achievements chapter (stable even if series leave Kavita). Occasional discrete **Buy Me a Coffee** tips may appear after a strong batch or rich Manual Review recap (never a paywall).
 
-#### 10. Library Inventory (v1.6.6, `LIBRARY_INVENTORY_ENABLED`)
+#### 10. Per-volume and per-album metadata (v1.7.0, `VOLUME_ENRICHMENT_ENABLED`)
+Where the Inventory tells you what is missing, this fills in what is there. Open a series' volume report and **Enrich volumes** previews what would be written, volume by volume, with a tick box on every row — nothing is sent until you press the button. Written in this first version: **album title, summary, release date, ISBN and cover**, and only into fields that are empty; a field you filled by hand, or locked in Kavita, is left alone and says why in the preview. A pass over the series you tick sits next to Analyze, with the same progress bar and Cancel — the same selection the scraping batch uses, so **Select all** covers the library on screen and nothing runs on thousands of volumes by accident. Data comes from ComicVine (a hundred issues per request), Bédéthèque and Planète BD (album by album), and, for volumes that already carry an ISBN, Google Books then Open Library then Hardcover. Author credits are a separate switch, off by default, since they cost one extra request per album. **The feature is off by default** and its API answers 403 while it is; `VOLUME_FORCE_OVERWRITE` lifts the fill-the-blanks rule for a run, for instance after switching provider.
+
+**One-shots.** A one-shot is a single file, and Kavita gives it no volume number — there is nothing for a provider's album list to line up with. When the file carries its **ISBN**, that is what identifies it, and MetaKavita goes straight to the ISBN providers rather than asking for an album list that cannot help. When it carries no ISBN either, the series is set aside without a single request, and the preview says so instead of blaming the provider: fill the ISBN in Kavita, or let series enrichment handle the work itself. What sets a series aside is having no volume number *and* no ISBN, never being short of volumes — a series you own only volume 1 of is still enriched.
+
+**Manga.** No provider lists a manga's volumes, and most scanned manga carry no ISBN, so the paths above would leave a manga library untouched. MangaDex fills the gap with the real cover of every volume — one request for the whole series, in your reading language when that edition exists — and those covers do not cancel the ISBN cascade: a series can take its covers from MangaDex and its titles and summaries from Google Books. For volumes with no ISBN at all, `VOLUME_ENRICH_EXPERIMENTAL` searches Google Books by series title plus volume number. It stays a search: each candidate's title must contain the series name *and* announce the volume number before anything is written, and you should read the preview before applying.
+
+#### 11. Library Inventory (v1.7.0, `LIBRARY_INVENTORY_ENABLED`)
 An **Inventory** panel above the series list tells you which series are incomplete. **Analyze library** runs in the background: it counts the volumes (or chapters) you own in Kavita, asks the provider cascade how many there should be, and clusters look-alike series. You get a health bar, **Missing / Duplicates / No id** chips, an `N/M` badge on each row coloured by completion, a per-series report with the missing numbers folded into ranges, CSV / TXT exports, and duplicate groups you can dismiss or delete from Kavita. Expected counts can be forced by hand, and a series no catalogue will ever know can be excluded from the counters while still being scraped. Inventory only reads — it never writes volume metadata and never merges series. Switch it off from the sidebar (**Inventory** category) and the panel, badges and API all go away.
+
+#### 12. Light mode (v1.7.0, `UI_SHOW_MANUAL_REVIEW`, `UI_SHOW_INVENTORY`, `UI_SHOW_VOLUMES`)
+Three families of settings are of no use to a good half of installations: manual review, the Inventory, and volume enrichment. The **Light mode** section of the configuration modal removes any of the three from the sidebar options, for a dashboard that only carries what you use.
+
+Hiding a section **switches its feature off** in the same move, and that is on purpose: a feature whose settings have left the screen is a feature nothing commands any more, and two of these three write to Kavita. So hiding volume enrichment also removes its toolbar block, hiding the Inventory removes its panel and its row badges, and hiding manual review switches the mode off *and* empties the review queue — the same thing unticking the mode itself has always done, so that no series stays frozen waiting for a review you can no longer reach. Tick a section back and it returns as it left, switched off; you decide from there. A pass already running is the one exception: it keeps its block on screen until it ends, since its **Cancel** button lives there.
 
 ---
 
@@ -108,8 +120,7 @@ MetaKavita adapts its scraping strategy depending on Kavita's library types (`Ma
 | | Cover Artists | Original cover artists |
 | | Editors, Letterers, Inkers | Extended staff roles mapping |
 | | Publisher | Official licensing publisher OR Original Publisher (based on user preference) |
-| **Classifications** | Reading Direction (Format) | Automatically set to Left-to-Right, Right-to-Left, or Vertical |
-| | Age Rating | Maps to native ratings: Safe, Suggestive, Erotica, Pornographic |
+| **Classifications** | Age Rating | Maps to native ratings: Safe, Suggestive, Erotica, Pornographic |
 | **External IDs** | External Platform IDs | Saves `AniListId`, `MalId`, and `MangaBakaId` |
 | | Web Links | Builds active clickable direct URLs to official series pages |
 
@@ -144,7 +155,7 @@ To fully join **Smart Scoring**, set `uses_unified_scoring = True` and return ca
 *   **Configurable Tag & Genre Caps (v1.6+)**: `MAX_TAGS` (default 15) and `MAX_GENRES` (default 5) via env / `config.json` — applied in official scrapers and as a safety net in `enrichment_engine`. No UI (power-user).
 *   **Application Audit Hardening (v1.6+)**: Cover/proxy SSRF allowlists (incl. private IPs + safe re-validated redirects), cover-modal XSS hardening, CSRF on mutating POSTs, forced-ID `fallback_query` retry, external-IDs GET-merge, Help/About with Kavita+ support links, and related Critical/High/Medium fixes (see `CHANGELOG.md` BF20–BF45 + C50–C53).
 *   **Localized Titles Policy (v1.6+, issue #12)**: Config modal + env for `LOCALIZED_TITLE_MODE`/`LANGS`; per-series `alt_title_langs`; AniList/MangaDex/Kitsu structured `titles[]`. Controls Kavita `localizedName` only — never rewrites `name`.
-*   **Comic Flexible (v1.6.1, C35)**: Kavita library type ID 5 uses Comic providers first, then Manga providers if no useful hit; cover search unions both families.
+*   **Comic Flexible (v1.6.1, C35 — mapping corrected in v1.7.0)**: the hybrid cascade uses Comic providers first, then Manga providers if no useful hit; cover search unions both families. ⚠️ It applies to Kavita library type **ID 1**, which Kavita labels *Comic (Flexible)* — not ID 5, which Kavita labels *Comic* and which follows the strict Comic cascade. MetaKavita had the two the wrong way round until v1.7.0 (and filed `Image` with Book, `LightNovel` with Manga); `kavita_constants.LIBRARY_TYPE_BY_ENUM` is now the single source of truth. Type 1 and type 5 libraries therefore change cascade on upgrade — see `CHANGELOG.md` 1.7.0.
 *   **MyAnimeList official API (v1.6.1):** Provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Replaces Jikan. Manga + light novels (Book).
 *   **BDTheque.com (v1.6.1):** Provider `BDTHEQUE` for https://www.bdtheque.com/ Franco-Belgian comics (distinct from Bédéthèque / `BEDETHEQUE`).
 *   **Kavita library sync filter (v1.6.1):** Config → Planning checkboxes; `DISABLED_LIBRARIES` denylist for **auto-sync polling only** (dashboard, manual batch, and webhook always see every library).
@@ -178,7 +189,7 @@ No cloning required. Create a `docker-compose.yml` file anywhere on your server 
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.6.6 / :1.6 after a v* release tag
+    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.7.0 / :1.7 after a v* release tag
     container_name: metakavita
     restart: unless-stopped
     ports:
@@ -274,15 +285,24 @@ docker compose up -d --build
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
 | `COVER_FORCE_OVERWRITE` | Let automatic scrapes overwrite covers you picked by hand (the 🔒 chip). Leave off to keep manual picks. | `false` |
 | `LIBRARY_INVENTORY_ENABLED` | Show the Inventory panel (missing volumes / chapters, duplicates, series without external id). | `true` |
-| `AUTO_READING_DIR` | Auto-detect and set Manga/Webtoon reading direction. | `false` |
-
+| `VOLUME_ENRICHMENT_ENABLED` | Write metadata onto each volume / album (title, summary, release date, ISBN, cover). Off means the buttons are hidden and the API answers 403. | `false` |
+| `VOLUME_FORCE_OVERWRITE` | Let volume enrichment overwrite fields that are already filled or locked in Kavita. Leave off to only fill the blanks. | `false` |
+| `VOLUME_ENRICH_CREDITS` | Also fetch author credits per album — one extra provider request per volume. | `false` |
+| `VOLUME_ENRICH_EXPERIMENTAL` | For manga with neither a provider volume list nor an ISBN: look each volume up on Google Books by series title plus number. The result's title and number are re-checked before writing, but no identifier proves it is the right volume. | `false` |
+| `VOLUME_PROVIDER` | Ask one provider only for volumes, cascade dropped. Honoured only where that provider can serve the library, so forcing a comic provider does not leave your manga libraries without one. Empty = let the cascade decide. | _(empty)_ |
+| `VOLUME_NO_MANGA_FALLBACK` | On a **Comic (Flexible)** library, stop falling back to the manga providers after the comic ones. Useful when you only keep comics there; no effect on other library types. | `false` |
+| `UI_SHOW_MANUAL_REVIEW` | Show the manual review settings in the sidebar. Off hides the category **and** switches the mode off, queue emptied. | `true` |
+| `UI_SHOW_INVENTORY` | Show the Inventory settings in the sidebar. Off hides the category **and** switches the Inventory off. | `true` |
+| `UI_SHOW_VOLUMES` | Show the volume enrichment settings in the sidebar. Off hides the category **and** switches the pass off. | `true` |
 ---
 
 ### 🌍 Translation APIs & Quotas
 
 If you want to keep scraped descriptions in their original language without modification, select **Disabled (Keep original)** (`NONE`) as your Translation Provider.
 
-If translation is enabled, keep in mind that the **DeepL Free API** is strictly limited to a **lifetime total of 1,000,000 characters**. MetaKavita integrates **Google Translate** out of the box for a free, zero-config experience. For maximum stability, we recommend setting up **Microsoft Azure Translator** (Free Tier F0 with **2,000,000 characters per month**) as your primary engine, with DeepL or Google as fallbacks.
+If translation is enabled, keep in mind what DeepL's free key actually gives you: the current **DeepL API Developer** plan is **1,000,000 characters in total, once and for all** — it does not reset, and DeepL answers HTTP 456 when it is spent. Older **API Free** keys, no longer sold, work on 500,000 characters *per month* instead. Either way, count roughly 700 characters per summary. MetaKavita integrates **Google Translate** out of the box for a free, zero-config experience. For maximum stability, we recommend setting up **Microsoft Azure Translator** (Free Tier F0 with **2,000,000 characters per month**) as your primary engine, with DeepL or Google as fallbacks.
+
+Whichever engine you pick, MetaKavita paces itself. Google's free engine is not an API under contract but the site's own internal entry point: it has no published limit and blocks an address that queries it too quickly, and a blocked translation lands in Kavita as a summary left in its original language — locked, on the per-volume path. So all the summaries of a series leave in a single request (Google takes twenty at a time, DeepL fifty, Azure a thousand), identical texts are sent once, and a minimum delay separates two requests. If an engine answers *too many requests*, it is set aside for a while and the log says so, rather than being asked again once per album.
 
 ---
 
@@ -342,15 +362,17 @@ In the **Config Modal** (Planning section) you get the base webhook URL (`/webho
 
 #### 3. MetaKavita Companion (browser extension) — *beta*
 
-Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.26**, MetaKavita **1.6.6**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
+Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.27**, MetaKavita **1.7.0**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
 
 Floating icon menu on Kavita **series** pages — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review embeds `/companion/embed` when schemes match; an HTTPS Kavita with an HTTP MetaKavita cannot embed it (mixed content), so the review opens in a small **dedicated window** centred over Kavita and closes itself when it finishes. Cover previews that travel through MetaKavita are fetched by the extension itself, so they render in both cases. Companion one-shots **override** MR/Super toggles, jump ahead of a running batch queue (after the in-flight job), and **replace** any pending job for the same series.
 
 **Install (sideload):** Chrome/Edge → download [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extract → `chrome://extensions` → Developer mode → Load unpacked. Firefox → download [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extract → `about:debugging` → Load Temporary Add-on → `manifest.json`. Pair with MetaKavita URL + webhook token in Companion → Config. Full guide: [`companion/README.md`](https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md) (also Help menu). Pack: `node companion/scripts/pack.mjs`.
 
+Both archives are also offered by the **card under the top bar**, with the install guide next to them. Its cross hides it for good on that browser; **Help → Download Companion** brings it back.
+
 #### 4. Health Endpoint
 
-`GET /healthz` → `{"status": "ok", "version": "1.6.6"}`
+`GET /healthz` → `{"status": "ok", "version": "1.7.0"}`
 
 A liveness probe for orchestrators — it is what the Docker `HEALTHCHECK` targets, and it works with Kubernetes, Portainer, Uptime Kuma and the like. Unauthenticated by design, so it keeps answering once a password is set. It touches no configuration, no database and never contacts Kavita: it reports only that the application is running and routing, not that its dependencies are up. That is deliberate — a Kavita outage should not make a healthy MetaKavita container restart in a loop.
 
@@ -409,7 +431,7 @@ L'interface utilise une structure 100% AJAX. La barre latérale gauche gère la 
 
 #### 2. Architecture Double-Formulaire (Modal + Sidebar)
 Les champs d'infrastructure technique sont isolés dans la **Configuration Globale** (accessible via le bouton ⚙️ Config dans la barre supérieure), protégeant ton espace de travail de l'encombrement. Les clés d'API des fournisseurs sont proprement regroupées dans un bloc dédié sous la connexion Kavita.
-La barre latérale contient la carte **Options de Scraping** (clic sur le titre pour plier/déplier ; ouverte par défaut) avec Smart Scoring, Complétion intelligente, **Mode Review Manuelle** (gare les candidats pour pick/édition/confirm au lieu d’écrire automatiquement dans Kavita), **Baromètre de fiabilité** (seuil de match optionnel `0.30`–`1.00`), Auto-Covers, Sens de lecture auto, Mise à jour forcée, Purge du contexte, un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
+La barre latérale contient la carte **Options de Scraping** (clic sur le titre pour plier/déplier ; ouverte par défaut) avec Smart Scoring, Complétion intelligente, **Mode Review Manuelle** (gare les candidats pour pick/édition/confirm au lieu d’écrire automatiquement dans Kavita), **Baromètre de fiabilité** (seuil de match optionnel `0.30`–`1.00`), Auto-Covers, Mise à jour forcée, Purge du contexte, un sous-menu pliable **Champs ciblés (batch)** pour un masque d’écriture éphémère sur le prochain lot, et l'export des erreurs.
 
 #### 3. Filtrage Unifié & Toolbar Centrale
 Le sélecteur de bibliothèque, la barre de recherche et le filtre de statut sont regroupés dans une seule barre d'outils centrale. Toutes les commandes de ciblage se situent ainsi sur une même ligne horizontale cohérente.
@@ -440,8 +462,22 @@ Si l’écriture des métadonnées Kavita réussit mais que le re-verrouillage d
 #### 9. Statistiques ludiques (`/stats`)
 Tableau de bord optionnel (activé par défaut via `ENABLE_PLAYFUL_STATS`) : donuts/barres Chart.js, taux de hit lifetime, ~24 cartes fun, et un chapitre hauts-faits Manual Review (stables même si des séries quittent Kavita). Des tips discrets **Buy Me a Coffee** peuvent apparaître après un bon batch ou un récap Review Manuelle riche (jamais de paywall).
 
-#### 10. Inventaire de la bibliothèque (v1.6.6, `LIBRARY_INVENTORY_ENABLED`)
+#### 10. Métadonnées par tome et par album (v1.7.0, `VOLUME_ENRICHMENT_ENABLED`)
+Là où l'Inventaire vous dit ce qui manque, ceci remplit ce qui est là. Ouvrez le rapport de tomes d'une série : **Enrichir les tomes** montre ce qui serait écrit, tome par tome, avec une case à cocher sur chaque ligne — rien ne part tant que vous n'avez pas cliqué. Sont écrits dans cette première version le **titre d'album, le résumé, la date de parution, l'ISBN et la couverture**, et uniquement dans les champs vides ; un champ rempli à la main, ou verrouillé dans Kavita, n'est pas touché et dit pourquoi dans l'aperçu. Une passe de bibliothèque prend place à côté d'Analyser, avec la même barre de progression et le même bouton Annuler, et reprend après un redémarrage là où elle s'était arrêtée. Les données viennent de ComicVine (cent numéros par requête), de Bédéthèque et Planète BD (album par album), et, pour les tomes qui portent déjà un ISBN, de Google Books puis Open Library puis Hardcover. Les crédits d'auteurs sont un interrupteur à part, éteint par défaut, puisqu'ils coûtent une requête de plus par album. **La fonctionnalité est éteinte par défaut** et son API répond 403 tant qu'elle l'est ; `VOLUME_FORCE_OVERWRITE` lève la règle de comblement le temps d'un run, par exemple après un changement de fournisseur.
+
+**One-shots.** Un one-shot tient dans un fichier unique, auquel Kavita ne donne aucun numéro de tome : la liste d'albums d'un fournisseur n'a rien à quoi s'aligner. Quand le fichier porte son **ISBN**, c'est lui qui l'identifie, et MetaKavita part directement chez les fournisseurs d'ISBN au lieu de demander une liste d'albums qui ne peut pas servir. Quand il ne porte pas d'ISBN non plus, la série est écartée sans un seul appel, et l'aperçu le dit au lieu d'accuser le fournisseur : renseignez l'ISBN dans Kavita, ou laissez l'enrichissement par série s'en charger. Ce qui écarte une série, c'est de n'avoir ni numéro de tome *ni* ISBN, jamais d'être courte en tomes — une série dont vous n'avez que le tome 1 est bel et bien enrichie.
+
+**Mangas.** Aucun fournisseur ne liste les tomes d'un manga, et la plupart des mangas scannés n'ont pas d'ISBN : les chemins ci-dessus laisseraient une bibliothèque de mangas inchangée. MangaDex comble le manque avec la vraie couverture de chaque tome — un appel pour toute la série, dans votre langue de lecture quand cette édition existe — et ces couvertures n'annulent pas la cascade ISBN : une série peut prendre ses couvertures chez MangaDex et ses titres et résumés chez Google Books. Pour les tomes sans le moindre ISBN, `VOLUME_ENRICH_EXPERIMENTAL` cherche sur Google Books par titre de série et numéro de tome. Cela reste une recherche : le titre de chaque candidat doit contenir le nom de la série *et* annoncer le numéro du tome avant que quoi que ce soit ne s'écrive, et mieux vaut relire l'aperçu avant d'appliquer.
+
+**Fournisseur imposé** (`VOLUME_PROVIDER`, catégorie **Tomes et albums**). Le menu distingue deux familles, parce qu'elles ne rendent pas la même chose. Ceux qui *listent les albums d'une série* les ramènent tous en un appel, titres et résumés compris : c'est le chemin de la BD et des comics. Ceux qui *identifient un tome par son ISBN* — Google Books, Open Library, Hardcover — travaillent tome par tome à partir de l'ISBN que Kavita détient : c'est le chemin des mangas, mais un tome sans ISBN ne leur dit rien. Imposer l'un d'eux supprime la liste d'albums au lieu de la demander à quelqu'un d'autre, et n'interroge que lui ; quand il n'a aucune prise, le journal le dit et désigne le réglage.
+
+#### 11. Inventaire de la bibliothèque (v1.7.0, `LIBRARY_INVENTORY_ENABLED`)
 Un panneau **Inventaire**, au-dessus de la liste des séries, vous dit lesquelles sont incomplètes. **Analyser la bibliothèque** travaille en arrière-plan : il compte les tomes (ou les chapitres) que vous possédez dans Kavita, demande à la cascade de providers combien il devrait y en avoir, et regroupe les séries qui se ressemblent. Vous obtenez une barre de santé, des chips **Manquants / Doublons / Sans id**, une cartouche `N/M` colorée selon la complétion sur chaque ligne, un rapport par série avec les numéros manquants pliés en intervalles, des exports CSV / TXT, et des groupes de doublons à ignorer ou à supprimer de Kavita. L'attendu peut être forcé à la main, et une série qu'aucun catalogue ne connaîtra jamais peut être exclue des compteurs tout en restant scrapée. L'Inventaire ne fait que lire : il n'écrit aucune métadonnée de volume et ne fusionne jamais de séries. Désactivez-le depuis la sidebar (catégorie **Inventaire**) et le panneau, les cartouches et l'API disparaissent.
+
+#### 12. Mode léger (v1.7.0, `UI_SHOW_MANUAL_REVIEW`, `UI_SHOW_INVENTORY`, `UI_SHOW_VOLUMES`)
+Trois familles de réglages ne servent à rien pour une bonne moitié des installations : la relecture manuelle, l'Inventaire et l'enrichissement par tome. La section **Mode léger** de la modale de configuration retire n'importe laquelle des trois des options de la barre latérale, pour un tableau de bord qui ne porte que ce dont vous vous servez.
+
+Masquer une section **éteint sa fonctionnalité** dans le même geste, et c'est voulu : une fonctionnalité dont les réglages ont quitté l'écran est une fonctionnalité que plus rien ne commande, et deux de ces trois-là écrivent dans Kavita. Masquer l'enrichissement par tome retire donc aussi son cartouche de la barre d'outils, masquer l'Inventaire retire son panneau et les pastilles des lignes, et masquer la relecture manuelle éteint le mode *et* vide la file d'attente — exactement ce que fait déjà décocher le mode lui-même, pour qu'aucune série ne reste gelée en attente d'une relecture devenue injoignable. Recochez une section et elle revient telle qu'elle est partie, éteinte ; c'est à vous de reprendre la main ensuite. Une passe en cours est la seule exception : elle garde son cartouche à l'écran jusqu'à la fin, puisque son bouton **Annuler** y vit.
 
 ---
 
@@ -466,8 +502,7 @@ MetaKavita traite et verrouille automatiquement les champs de métadonnées suiv
 | | Dessinateurs de couverture | Artistes des couvertures originales |
 | | Éditeurs, Encreurs, Lettreurs | Rôles avancés extraits selon disponibilité des sources |
 | | Éditeur (Publisher) | Maison d'édition licenciée VF/VA OU Maison d'origine japonaise (selon le choix utilisateur) |
-| **Classifications** | Sens de lecture (Format) | Configuré automatiquement en Gauche-à-Droite, Droite-à-Gauche ou Vertical |
-| | Classification d'Âge | Mappage natif : Sûr (Safe), Suggestif, Érotique, Pornographique |
+| **Classifications** | Classification d'Âge | Mappage natif : Sûr (Safe), Suggestif, Érotique, Pornographique |
 | **ID & Liens** | Identifiants Plateformes | Renseigne directement `AniListId`, `MalId` et `MangaBakaId` |
 | | Liens Web (WebLinks) | Génère des URL directes pour afficher les icônes cliquables dans Kavita |
 
@@ -502,7 +537,7 @@ Pour participer pleinement au **Smart Scoring**, déclarez `uses_unified_scoring
 *   **Plafonds Tags & Genres configurables (v1.6+)** : `MAX_TAGS` (défaut 15) et `MAX_GENRES` (défaut 5) via env / `config.json` — appliqués dans les scrapers officiels et en filet dans `enrichment_engine`. Pas d'UI (power-user).
 *   **Durcissement suite audit applicatif (v1.6+)** : allowlists SSRF couverture/proxy (IPs privées + redirects re-validés), XSS modal couvertures, CSRF sur POST mutatifs, retry `fallback_query` après ID forcé, GET-merge des IDs externes, menu Aide / À propos avec liens Kavita+, et correctifs Critical/High/Medium associés (voir `CHANGELOG.md` BF20–BF45 + C50–C53).
 *   **Politique des titres localisés (v1.6+, issue #12)** : modal Config + env `LOCALIZED_TITLE_MODE`/`LANGS` ; override `alt_title_langs` par série ; `titles[]` structurés AniList/MangaDex/Kitsu. Contrôle uniquement `localizedName` — jamais de réécriture de `name`.
-*   **Comic Flexible (v1.6.1, C35)** : l’ID Kavita 5 utilise d’abord les providers Comic, puis Manga si aucun hit utile ; recherche de couvertures = union des deux familles.
+*   **Comic Flexible (v1.6.1, C35 — correspondance corrigée en v1.7.0)** : la cascade hybride utilise d’abord les providers Comic, puis Manga si aucun hit utile ; recherche de couvertures = union des deux familles. ⚠️ Elle s’applique au type de bibliothèque Kavita **ID 1**, que Kavita nomme « Comic (Flexible) » — et non à l’ID 5, que Kavita nomme « Comic » et qui suit la cascade Comic stricte. MetaKavita prenait les deux à l’envers jusqu’à la v1.7.0 (et rangeait `Image` avec les livres, `LightNovel` avec les mangas) ; `kavita_constants.LIBRARY_TYPE_BY_ENUM` est désormais la seule référence. Les bibliothèques de type 1 et 5 changent donc de cascade à la mise à jour — voir `CHANGELOG.md` 1.7.0.
 *   **MyAnimeList API officielle (v1.6.1)** : provider `MAL` via API v2 + Client ID (`MAL_API_KEY` → `X-MAL-CLIENT-ID`). Remplace Jikan. Manga + light novels (Book).
 *   **BDTheque.com (v1.6.1)** : provider `BDTHEQUE` pour les BD franco-belges sur https://www.bdtheque.com/ (distinct de Bédéthèque / `BEDETHEQUE`).
 *   **Filtre bibliothèques Kavita (v1.6.1)** : cases Config → Planification ; dénylist `DISABLED_LIBRARIES` pour le **polling auto-sync uniquement** (dashboard, batch manuel et webhook voient toutes les biblios).
@@ -536,7 +571,7 @@ Aucun clonage de dépôt n'est requis. Crée simplement un fichier `docker-compo
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest   # ou pin :1.6.6 / :1.6 après un tag v*
+    image: ghcr.io/raukorim-bot/metakavita:latest   # ou pin :1.7.0 / :1.7 après un tag v*
     container_name: metakavita
     restart: unless-stopped
     ports:
@@ -632,15 +667,24 @@ docker compose up -d --build
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
 | `COVER_FORCE_OVERWRITE` | Autoriser les scrapes automatiques à écraser les couvertures choisies à la main (cartouche 🔒). Laissez décoché pour les conserver. | `false` |
 | `LIBRARY_INVENTORY_ENABLED` | Afficher le panneau Inventaire (tomes / chapitres manquants, doublons, séries sans id externe). | `true` |
-| `AUTO_READING_DIR` | Configurer automatiquement le sens de lecture. | `false` |
-
+| `VOLUME_ENRICHMENT_ENABLED` | Écrire les métadonnées de chaque tome / album (titre, résumé, date, ISBN, couverture). Éteint, les boutons disparaissent et l'API répond 403. | `false` |
+| `VOLUME_FORCE_OVERWRITE` | Autoriser l'enrichissement par tome à écraser les champs déjà remplis ou verrouillés dans Kavita. Laissez décoché pour ne combler que les vides. | `false` |
+| `VOLUME_ENRICH_CREDITS` | Récupérer aussi les crédits d'auteurs par album — une requête fournisseur de plus par tome. | `false` |
+| `VOLUME_ENRICH_EXPERIMENTAL` | Pour les mangas sans liste de tomes chez un fournisseur ni ISBN : chercher chaque tome sur Google Books par titre de série et numéro. Le titre et le numéro du résultat sont revérifiés avant écriture, mais aucun identifiant ne garantit qu'il s'agit du bon tome. | `false` |
+| `VOLUME_PROVIDER` | N'interroger qu'un seul fournisseur pour les tomes, cascade écartée. Retenu seulement là où ce fournisseur sait servir la bibliothèque : imposer un fournisseur de comics ne prive pas vos bibliothèques manga de fournisseur. Vide = laisser la cascade décider. | _(vide)_ |
+| `VOLUME_NO_MANGA_FALLBACK` | Sur une bibliothèque **Comic (Flexible)**, ne plus retomber sur les fournisseurs manga après les fournisseurs comics. Utile quand vous n'y rangez que de la bande dessinée ; sans effet sur les autres types. | `false` |
+| `UI_SHOW_MANUAL_REVIEW` | Afficher les réglages de la relecture manuelle dans la barre latérale. Décoché, la catégorie disparaît **et** le mode s'éteint, file d'attente vidée. | `true` |
+| `UI_SHOW_INVENTORY` | Afficher les réglages de l'Inventaire dans la barre latérale. Décoché, la catégorie disparaît **et** l'Inventaire s'éteint. | `true` |
+| `UI_SHOW_VOLUMES` | Afficher les réglages de l'enrichissement par tome dans la barre latérale. Décoché, la catégorie disparaît **et** la passe s'éteint. | `true` |
 ---
 
 ### 🌍 APIs de Traduction & Quotas
 
 Si vous souhaitez conserver les résumés d'origine sans aucune modification ni traduction, choisissez **Désactivé (Conserver l'original)** (`NONE`) dans les paramètres de traduction.
 
-Si la traduction est activée, gardez à l'esprit que l'**API gratuite de DeepL** est strictly limited à **1 000 000 de caractères à vie**. MetaKavita intègre nativement **Google Translate** pour une expérience 100% gratuite et sans configuration. Pour une stabilité maximale, nous vous recommandons de configurer **Microsoft Azure Translator** (généreux niveau gratuit F0 offrant **2 000 000 de caractères par mois**) en traducteur principal, et de garder DeepL ou Google en secours.
+Si la traduction est activée, gardez à l'esprit ce que la clé gratuite de DeepL donne réellement : l'offre actuelle **DeepL API Developer**, c'est **1 000 000 de caractères une fois pour toutes** — le crédit ne se renouvelle pas, et DeepL répond HTTP 456 quand il est épuisé. Les anciennes clés **API Free**, qui ne sont plus vendues, fonctionnent sur 500 000 caractères *par mois*. Dans les deux cas, comptez environ 700 caractères par résumé. MetaKavita intègre nativement **Google Translate** pour une expérience 100% gratuite et sans configuration. Pour une stabilité maximale, nous vous recommandons de configurer **Microsoft Azure Translator** (généreux niveau gratuit F0 offrant **2 000 000 de caractères par mois**) en traducteur principal, et de garder DeepL ou Google en secours.
+
+Quel que soit le moteur choisi, MetaKavita se cadence. Le moteur gratuit de Google n'est pas une API sous contrat mais le point d'entrée interne du site : il n'a aucune limite publiée et bloque une adresse qui l'interroge trop vite, et une traduction bloquée arrive dans Kavita sous la forme d'un résumé resté dans sa langue d'origine — verrouillé, sur le chemin par tome. Tous les résumés d'une série partent donc en une seule requête (Google en prend vingt à la fois, DeepL cinquante, Azure mille), les textes identiques ne partent qu'une fois, et un délai minimum sépare deux requêtes. Si un moteur répond « trop de requêtes », il est mis de côté un moment et le journal le dit, au lieu d'être redemandé une fois par album.
 
 ---
 
@@ -700,15 +744,17 @@ Dans la **Modal Config** (section Planification) vous avez l'URL de base (`/webh
 
 #### 3. MetaKavita Companion (extension navigateur) — *bêta*
 
-Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.26**, MetaKavita **1.6.6**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
+Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.27**, MetaKavita **1.7.0**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
 
 Menu flottant sur les **fiches série** Kavita — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review via `/companion/embed` si les schémas matchent ; un Kavita en HTTPS avec un MetaKavita en HTTP ne peut pas l'embarquer (contenu mixte), la review s'ouvre alors dans une petite **fenêtre dédiée** centrée sur Kavita et se ferme en fin de parcours. Les aperçus de couverture qui transitent par MetaKavita sont récupérés par l'extension elle-même, donc ils s'affichent dans les deux cas. Les one-shots Companion **passent outre** les toggles MR/Super, passent devant la file batch (après le job en cours) et **remplacent** tout job pending pour la même série.
 
 **Install (sideload) :** Chrome/Edge → télécharger [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extraire → `chrome://extensions` → Mode développeur → Charger non empaquetée. Firefox → télécharger [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extraire → `about:debugging` → Charger un module temporaire → `manifest.json`. Brancher avec URL MetaKavita + jeton webhook dans Companion → Config. Guide : [`companion/README.md`](https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md) (aussi menu Aide). Pack : `node companion/scripts/pack.mjs`.
 
+Les deux archives sont aussi proposées par l'**encart sous la barre du haut**, avec le guide d'installation à côté. Sa croix le masque pour de bon sur ce navigateur ; **Aide → Télécharger le Companion** le fait revenir.
+
 #### 4. Endpoint de santé
 
-`GET /healthz` → `{"status": "ok", "version": "1.6.6"}`
+`GET /healthz` → `{"status": "ok", "version": "1.7.0"}`
 
 Sonde de liveness pour les orchestrateurs — c'est la cible du `HEALTHCHECK` Docker, et elle fonctionne aussi avec Kubernetes, Portainer, Uptime Kuma, etc. Non authentifiée par conception, afin de continuer à répondre une fois un mot de passe défini. Elle ne lit aucune configuration, n'ouvre aucune base et ne contacte jamais Kavita : elle indique seulement que l'application tourne et route, pas que ses dépendances sont disponibles. C'est délibéré — une panne de Kavita ne doit pas faire redémarrer en boucle un conteneur MetaKavita parfaitement sain.
 

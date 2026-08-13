@@ -14,7 +14,6 @@ FIELD_KEYS = [
     "field_status",
     "field_publisher",
     "field_age",
-    "field_format",
     "field_weblinks",
     "field_alt_titles",
     "field_language",

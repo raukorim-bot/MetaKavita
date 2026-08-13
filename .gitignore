@@ -21,6 +21,10 @@ metakavita.log
 nautiljon_dump.html
 debug/build_wikidata_subset.py
 
+# Mesures écrites par les scripts de mise en charge : des résultats de machine,
+# refaits à chaque relance (les scripts, eux, sont suivis).
+debug/stress/results/
+
 # Environnements virtuels (si dev local hors docker)
 venv/
 .venv/

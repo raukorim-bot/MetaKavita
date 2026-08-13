@@ -28,7 +28,16 @@ def save_override():
     forced_id = request.form.get('forced_id', '').strip()
     alt_title = request.form.get('alternative_title', '').strip()
     forced_provider = request.form.get('forced_provider', 'AUTO').strip()
-    targeted_fields = request.form.get('targeted_fields', 'ALL').strip()
+    # Masque de champs ciblés : absent = « tout » (appelants qui ne gèrent pas
+    # le granulaire), mais présent et vide = « aucun ». Sans cette distinction,
+    # décocher toutes les cases et enregistrer stockait une chaîne vide, que
+    # `resolve_active_fields` relit comme « ALL » : la série se remettait à tout
+    # écrire alors que l'utilisateur venait de tout décocher. Le piège devient
+    # atteignable sans le moindre clic sur les cases depuis le retrait du champ
+    # « Sens lecture » — un panneau dont le masque enregistré ne contenait que
+    # lui s'ouvre désormais entièrement décoché.
+    raw_targeted_fields = request.form.get('targeted_fields')
+    targeted_fields = 'ALL' if raw_targeted_fields is None else (raw_targeted_fields.strip() or 'NONE')
     publisher_pref = request.form.get('publisher_pref', 'GLOBAL').strip()
     alt_title_langs = request.form.get('alt_title_langs', '').strip()
 
@@ -130,7 +139,19 @@ def release_series_cover(series_id):
 
 @series_bp.route('/api/series/<int:series_id>/seal-locks', methods=['POST'])
 def seal_series_locks(series_id):
-    """Rescelle les verrous Kavita (après NEEDS_RELOCK) sans re-scraper."""
+    """Rescelle les verrous Kavita (après NEEDS_RELOCK) sans re-scraper.
+
+    Aucune liste de verrous n'est transmise, à dessein : le bouton 🔒 est une
+    action manuelle qui arrive après coup, souvent bien après la passe soft-fail
+    (voire après un redémarrage), et rien ne mémorise ce que cette passe avait
+    écrit. `targeted_fields` du cache ne peut pas tenir ce rôle : c'est le masque
+    souhaité par l'utilisateur, pas la trace d'une écriture — une passe où le
+    fournisseur n'a rendu aucun éditeur laisse `publisherLocked` intact alors que
+    « publisher » est dans le masque, et s'en servir comme liste de verrous
+    refermerait justement des champs jamais écrits. Le repli de
+    `seal_series_locks` (« scelle ce qui porte du contenu, ne rouvre rien »)
+    correspond exactement à ce que le bouton promet.
+    """
     config = load_config()
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
@@ -153,7 +174,14 @@ def seal_series_locks(series_id):
 
 @series_bp.route('/api/series/seal-locks-pending', methods=['POST'])
 def seal_all_needs_relock():
-    """Rescelle toutes les séries en statut NEEDS_RELOCK."""
+    """Rescelle toutes les séries en statut NEEDS_RELOCK.
+
+    Même repli que l'action unitaire ci-dessus, et pour la même raison : la liste
+    des verrous posés n'est mémorisée nulle part. Une série dont toutes les
+    métadonnées sont vides ne verra donc aucun verrou se fermer, et passera
+    malgré tout en COMPLETED — c'est voulu : le statut dit que Kavita a accepté
+    les deux POST, pas qu'un verrou de plus a été fermé.
+    """
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))

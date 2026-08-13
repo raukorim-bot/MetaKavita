@@ -53,6 +53,47 @@
                             <p class="field-hint">{{ t.no_api_keys_needed }}</p>
                             {% endfor %}
                         </div>
+
+                        {# Mode léger (C80) : trois catégories de la barre latérale que
+                           tout le monde n'a pas à voir. Décocher masque la catégorie et
+                           éteint la fonctionnalité — l'un ne va pas sans l'autre, une
+                           fonctionnalité sans ses réglages tournerait sans commande. Le
+                           masquage est instantané (attribut `data-ui-hidden` + CSS), et
+                           `onUiSectionToggle()` enregistre : pas de rechargement, donc
+                           pas de champ clé API vide réécrit au passage. #}
+                        <div class="config-section config-section--light">
+                            <h4 class="config-section-title">{{ t.ui_light_title }}</h4>
+                            <p class="field-hint">{{ t.ui_light_desc }}</p>
+                            <div class="config-option-card config-option-card--primary">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="config_ui_show_manual_review" value="true"
+                                           {% if config.get('UI_SHOW_MANUAL_REVIEW', True) %}checked{% endif %}
+                                           onchange="onUiSectionToggle(this, 'manual')">
+                                    <strong>{{ t.ui_show_manual_review }}</strong>
+                                </label>
+                                <p class="field-hint m-0">{{ t.ui_show_manual_review_desc }}</p>
+                            </div>
+                            <div class="config-option-card config-option-card--primary">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="config_ui_show_inventory" value="true"
+                                           {% if config.get('UI_SHOW_INVENTORY', True) %}checked{% endif %}
+                                           onchange="onUiSectionToggle(this, 'inventory')">
+                                    <strong>{{ t.ui_show_inventory }}</strong>
+                                    <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
+                                </label>
+                                <p class="field-hint m-0">{{ t.ui_show_inventory_desc }}</p>
+                            </div>
+                            <div class="config-option-card config-option-card--primary m-0">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="config_ui_show_volumes" value="true"
+                                           {% if config.get('UI_SHOW_VOLUMES', True) %}checked{% endif %}
+                                           onchange="onUiSectionToggle(this, 'volumes')">
+                                    <strong>{{ t.ui_show_volumes }}</strong>
+                                    <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
+                                </label>
+                                <p class="field-hint m-0">{{ t.ui_show_volumes_desc }}</p>
+                            </div>
+                        </div>
                     </div>
 
                     <!-- COLONNE DROITE : Traduction & Planification -->

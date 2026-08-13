@@ -44,6 +44,56 @@ def candidate_summaries_need_translation(candidates_payload: Any) -> bool:
     return False
 
 
+def _card_raw_summary(card: dict, data: Optional[dict]) -> Optional[str]:
+    """Le résumé d'une carte dans sa langue d'origine, s'il y en a un."""
+    if data and isinstance(data.get("summary"), str) and data.get("summary").strip():
+        return data["summary"]
+    if isinstance(card.get("summary"), str) and card.get("summary").strip():
+        return card["summary"]
+    return None
+
+
+def _translate_in_one_go(candidates_payload: Dict[str, Any], target_lang: str) -> Dict[str, str]:
+    """Traduit d'un bloc les résumés de la file, et rend texte source -> traduit.
+
+    Rend un dictionnaire vide si quoi que ce soit se passe mal : l'appelant sait
+    encore traduire carte par carte, ce qui est lent mais juste. Un décalage entre
+    textes envoyés et traductions reçues, en revanche, ne serait pas rattrapable —
+    le résumé d'un candidat s'afficherait sous un autre.
+    """
+    from translator import translate_texts
+
+    sources = []
+    for band in ("above", "below"):
+        cards = candidates_payload.get(band) or []
+        if not isinstance(cards, list):
+            continue
+        for card in cards:
+            if not isinstance(card, dict):
+                continue
+            data = card.get("data") if isinstance(card.get("data"), dict) else None
+            if (data and data.get(SUMMARY_TRANSLATED_KEY)) or card.get(SUMMARY_TRANSLATED_KEY):
+                continue
+            raw = _card_raw_summary(card, data)
+            if raw:
+                sources.append(raw)
+
+    sources = list(dict.fromkeys(sources))
+    if not sources:
+        return {}
+    try:
+        results = translate_texts(sources, target_lang=target_lang)
+    except Exception as exc:
+        logging.warning("[Review] résumés non traduits en lot : %s", safe_exc_str(exc))
+        return {}
+    if not isinstance(results, list) or len(results) != len(sources):
+        return {}
+    return {
+        source: (translated if isinstance(translated, str) and translated else source)
+        for source, translated in zip(sources, results)
+    }
+
+
 def translate_candidate_summaries(
     candidates_payload: Dict[str, Any],
     config: Optional[dict] = None,
@@ -68,6 +118,14 @@ def translate_candidate_summaries(
     deepl_key = cfg.get("DEEPL_API_KEY")
     cache: Dict[str, str] = {}
     translated_calls = 0
+
+    # Toute la file de candidats en une requête. Les moteurs acceptent plusieurs
+    # textes par appel, et la cadence qui protège d'un blocage d'adresse se
+    # compte en requêtes : un texte par requête ajoutait cinq secondes par
+    # candidat avant que le pick ne s'affiche. Si le lot échoue, la boucle
+    # ci-dessous retombe sur un appel par carte.
+    cache.update(_translate_in_one_go(candidates_payload, target_lang))
+    translated_calls = len(cache)
 
     for band in ("above", "below"):
         cards = candidates_payload.get(band) or []
@@ -96,11 +154,7 @@ def translate_candidate_summaries(
                 card[SUMMARY_TRANSLATED_KEY] = True
                 continue
 
-            raw = None
-            if data and isinstance(data.get("summary"), str) and data.get("summary").strip():
-                raw = data["summary"]
-            elif isinstance(card.get("summary"), str) and card.get("summary").strip():
-                raw = card["summary"]
+            raw = _card_raw_summary(card, data)
 
             if not raw:
                 if data is not None:
@@ -125,6 +179,69 @@ def translate_candidate_summaries(
             card[SUMMARY_TRANSLATED_KEY] = True
 
     return candidates_payload, translated_calls
+
+
+def persist_translated_summaries(review_id: str, translated_payload: Any) -> bool:
+    """
+    Reporte des résumés traduits sur une review, sans réécrire le blob entier (BF142).
+
+    L'appelant a traduit une *copie* du payload, lue avant des appels DeepL qui
+    rendent la main sous eventlet : entre-temps un scraper a pu ajouter une carte
+    (`append_streaming_candidate`) dans la même colonne. Réécrire le blob tel
+    qu'il a été traduit effacerait ce candidat, qui resterait pourtant affiché
+    dans la modale — l'utilisateur le cliquerait et `choice_and_merge`, ne le
+    trouvant plus en base, refuserait la fusion. On relit donc la ligne et on ne
+    recopie que les résumés, fournisseur par fournisseur : une carte inconnue de
+    la traduction est laissée telle quelle plutôt que supprimée.
+
+    Retourne True si une écriture a eu lieu.
+    """
+    if not review_id or not isinstance(translated_payload, dict):
+        return False
+    row = get_pending_review(review_id)
+    if not row:
+        return False
+    try:
+        current = json.loads(row.get("candidates_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return False
+    if not isinstance(current, dict):
+        return False
+
+    translated = _cards_by_provider(translated_payload)
+    if not translated:
+        return False
+
+    changed = False
+    for band in ("above", "below"):
+        for card in current.get(band) or []:
+            if not isinstance(card, dict):
+                continue
+            source = translated.get(card.get("provider"))
+            if not isinstance(source, dict) or not source.get(SUMMARY_TRANSLATED_KEY):
+                continue
+            summary = source.get("summary")
+            if not isinstance(summary, str) or not summary:
+                continue
+            data = card.get("data") if isinstance(card.get("data"), dict) else None
+            already = (
+                card.get("summary") == summary
+                and card.get(SUMMARY_TRANSLATED_KEY)
+                and (data is None or data.get(SUMMARY_TRANSLATED_KEY))
+            )
+            if already:
+                continue
+            card["summary"] = summary
+            card["summary_excerpt"] = summary[:280]
+            card[SUMMARY_TRANSLATED_KEY] = True
+            if data is not None:
+                data["summary"] = summary
+                data[SUMMARY_TRANSLATED_KEY] = True
+            changed = True
+
+    if not changed:
+        return False
+    return bool(update_pending_review(review_id, candidates_json=current))
 
 
 def _safe_emit(event: str, payload: dict) -> None:
@@ -254,6 +371,46 @@ def _payload_keeps_chosen_provider(payload: Any, base_provider: Optional[str]) -
     return base_provider in _cards_by_provider(payload if isinstance(payload, dict) else {})
 
 
+def _finalize_write_plan(
+    row: Dict[str, Any],
+    payload: Dict[str, Any],
+    series_name: str,
+    library_id: Optional[int],
+    review_id: str,
+    t: dict,
+) -> tuple:
+    """
+    Décide ce que le finalize a le droit d'écrire, d'après l'état *relu* de la ligne.
+
+    Retourne (state, fields, expected_state) — `expected_state` non nul demande
+    une écriture conditionnelle (voir `update_pending_review`).
+    """
+    state = row.get("state") or "awaiting_pick"
+    fields: Dict[str, Any] = {
+        "series_name": series_name or "",
+        "library_id": library_id,
+    }
+    if state == "awaiting_pick":
+        fields["candidates_json"] = payload
+        fields["state"] = "awaiting_pick"
+        return state, fields, "awaiting_pick"
+    if _payload_keeps_chosen_provider(payload, row.get("base_provider")):
+        # État avancé : on rafraîchit la liste (résumés traduits, providers arrivés
+        # après le pick) sans toucher à state / preview_json / base_provider.
+        fields["candidates_json"] = payload
+        return state, fields, None
+    # Le fournisseur choisi n'est plus dans la collecte finale : écraser la liste
+    # rendrait le confirm impossible (`choice_and_merge` ne le trouverait plus).
+    # On garde les cartes sur lesquelles l'utilisateur a travaillé.
+    logging.info(
+        t.get(
+            "log_mr_finalize_keeps_cards",
+            "[manual_review] review {0} : candidats conservés (fournisseur choisi absent du résultat final)",
+        ).format(review_id)
+    )
+    return state, fields, None
+
+
 def finalize_streaming_review(
     review_id: str,
     series_id: int,
@@ -310,30 +467,45 @@ def finalize_streaming_review(
     if isinstance(payload, dict):
         payload.pop("streaming", None)
 
-    state = row.get("state") or "awaiting_pick"
-    fields: Dict[str, Any] = {
-        "series_name": series_name or "",
-        "library_id": library_id,
-    }
-    if state == "awaiting_pick":
-        fields["candidates_json"] = payload
-        fields["state"] = "awaiting_pick"
-    elif _payload_keeps_chosen_provider(payload, row.get("base_provider")):
-        # État avancé : on rafraîchit la liste (résumés traduits, providers arrivés
-        # après le pick) sans toucher à state / preview_json / base_provider.
-        fields["candidates_json"] = payload
-    else:
-        # Le fournisseur choisi n'est plus dans la collecte finale : écraser la
-        # liste rendrait le confirm impossible (`choice_and_merge` ne le
-        # trouverait plus). On garde les cartes sur lesquelles l'utilisateur a
-        # travaillé.
+    # BF141 : la traduction ci-dessus part sur le réseau (DeepL) et rend donc la
+    # main sous eventlet. L'utilisateur a pu, pendant ces appels, choisir un
+    # fournisseur (`choice_and_merge`) ou passer la review : l'instantané `row`
+    # lu avant la traduction ne dit plus dans quel état est la ligne, et décider
+    # d'après lui ramène l'utilisateur à l'écran de choix en perdant son édition.
+    # On relit donc juste avant d'écrire, et l'UPDATE reste conditionné à cet
+    # état — c'est la base, pas l'ordonnancement des greenlets, qui garantit
+    # qu'un `awaiting_confirm` ne peut pas être ramené à `awaiting_pick`.
+    row = get_pending_review(review_id)
+    if not row:
         logging.info(
             t.get(
-                "log_mr_finalize_keeps_cards",
-                "[manual_review] review {0} : candidats conservés (fournisseur choisi absent du résultat final)",
-            ).format(review_id)
+                "log_mr_finalize_dropped",
+                "[manual_review] review {0} disparue pendant la collecte ({1}) — résultats abandonnés",
+            ).format(review_id, series_name or series_id)
         )
-    update_pending_review(review_id, **fields)
+        return review_id
+
+    state, fields, expected_state = _finalize_write_plan(
+        row, payload, series_name, library_id, review_id, t
+    )
+    if not update_pending_review(review_id, expected_state=expected_state, **fields):
+        # Compare-and-swap perdu : la ligne a bougé (ou disparu) entre la
+        # relecture et l'écriture. On recalcule sur l'état réel plutôt que
+        # d'imposer une décision périmée ; une seule reprise suffit, la collecte
+        # est terminée et rien ne repassera cette review en `awaiting_pick`.
+        row = get_pending_review(review_id)
+        if not row:
+            logging.info(
+                t.get(
+                    "log_mr_finalize_dropped",
+                    "[manual_review] review {0} disparue pendant la collecte ({1}) — résultats abandonnés",
+                ).format(review_id, series_name or series_id)
+            )
+            return review_id
+        state, fields, expected_state = _finalize_write_plan(
+            row, payload, series_name, library_id, review_id, t
+        )
+        update_pending_review(review_id, expected_state=expected_state, **fields)
 
     # Compteurs annoncés à l'UI = ce qui est réellement en base après ce finalize.
     stored = fields.get("candidates_json")
@@ -571,6 +743,37 @@ def choice_and_merge(
         chosen_score=chosen_score,
     )
     return master
+
+
+def revert_pick_after_failed_write(review_id: str) -> bool:
+    """
+    Ramène à l'écran de choix un pick dont l'écriture Kavita a échoué (BF144).
+
+    `choice_and_merge` fait passer la review en `awaiting_confirm` avant même
+    d'avoir tenté d'écrire : si Kavita refuse (redémarrage, auth expirée), la
+    ligne reste dans un état avancé qu'elle n'a jamais atteint. Or « Tout
+    accepter ≥ seuil » ne balaie que `awaiting_pick` : sans ce retour en
+    arrière, la série reste affichée dans la file mais devient invisible au
+    bouton, sans même figurer dans le décompte des laissées en file.
+
+    Ne touche qu'à une ligne encore `awaiting_confirm` et sans preview : un
+    preview signifie que l'utilisateur est en train de personnaliser cette
+    review, son travail ne doit pas être renvoyé à l'écran de choix. Le
+    compare-and-swap ferme la fenêtre entre la relecture et l'écriture.
+    """
+    row = get_pending_review(review_id)
+    if not row or row.get("state") != "awaiting_confirm":
+        return False
+    preview = row.get("preview_json")
+    if isinstance(preview, str):
+        preview = preview.strip()
+    if preview:
+        return False
+    return bool(
+        update_pending_review(
+            review_id, expected_state="awaiting_confirm", state="awaiting_pick"
+        )
+    )
 
 
 def skip_pending_review(review_id: str, new_status: str = "PENDING") -> bool:

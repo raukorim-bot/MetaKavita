@@ -54,9 +54,17 @@ from services.magic_input import detect_provider_from_url
 _processing_lock = threading.Lock()
 _processing_series_ids = set()
 
+# Le champ « format » (sens de lecture) a été retiré de cette liste : il ne
+# correspondait à aucune écriture. `build_kavita_payload` n'a jamais eu de
+# branche `"format" in active`, parce que `UpdateSeriesDto` ne porte ni `Format`
+# ni `FormatLocked` — le sens de lecture est une préférence par lecteur
+# (`AppUserPreferences.ReadingDirection`), pas une propriété de série. La notion
+# reste dans `kavita_constants.resolve_kavita_format_enum` et l'aperçu de review
+# manuelle continue d'AFFICHER le format renvoyé par un fournisseur ; c'est de
+# la lecture, jamais de l'écriture.
 ALL_TARGETED_FIELDS = [
     "summary", "cover", "staff", "genres", "tags", "year",
-    "status", "publisher", "age", "format", "weblinks", "alt_titles", "language",
+    "status", "publisher", "age", "weblinks", "alt_titles", "language",
 ]
 
 
@@ -64,6 +72,12 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     """
     Résout la liste des champs Kavita à écrire.
     `override` (masque batch éphémère) prime sur `targeted_fields_raw` (cache série).
+
+    Les masques déjà enregistrés en base ne sont ni migrés ni filtrés : un jeton
+    inconnu (« format », d'anciennes cases retirées) traverse la résolution et
+    n'active aucune écriture, faute de branche qui le lise. Le nettoyer serait
+    au mieux inutile, au pire dangereux — un masque réduit à « format » seul
+    deviendrait une liste vide, que la ligne ci-dessous confond avec « ALL ».
     """
     raw = override if override is not None else targeted_fields_raw
     if raw is None or raw == "" or raw == "ALL":
@@ -1039,7 +1053,11 @@ def apply_manual_review(
 
     Retourne (success: bool, message: str, detail: dict|None).
     """
-    from services.manual_review import choice_and_merge, confirm_pending_review
+    from services.manual_review import (
+        choice_and_merge,
+        confirm_pending_review,
+        revert_pick_after_failed_write,
+    )
 
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
@@ -1068,6 +1086,7 @@ def apply_manual_review(
             force_cover_upload=force_cover_upload,
             choice_and_merge=choice_and_merge,
             confirm_pending_review=confirm_pending_review,
+            revert_pick_after_failed_write=revert_pick_after_failed_write,
         )
     finally:
         with _processing_lock:
@@ -1089,9 +1108,13 @@ def _apply_manual_review_locked(
     force_cover_upload,
     choice_and_merge,
     confirm_pending_review,
+    revert_pick_after_failed_write,
 ):
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+    # État avant le pick : lui seul dit si l'avancement vers `awaiting_confirm`
+    # a été décidé par cet appel (donc annulable) ou par l'utilisateur avant lui.
+    prior_state = review.get("state") or "awaiting_pick"
     # Mode manuel : les cases « Fusionner » pilotent seules le comblement des trous.
     # Indépendant du toggle sidebar SMART_COMPLETION (batch auto).
     # include_providers is None → client omitted the key → restore from preview.
@@ -1186,30 +1209,52 @@ def _apply_manual_review_locked(
         kavita, series_id, series_name, built, active_fields, config, used_providers, t
     )
     if not ok:
+        # `choice_and_merge` a déjà avancé la review alors que rien n'a été écrit :
+        # la remettre à l'écran de choix, sans quoi elle sort du périmètre de
+        # « Tout accepter ≥ seuil » et n'y rentre plus jamais (BF144).
+        if prior_state == "awaiting_pick":
+            try:
+                revert_pick_after_failed_write(review_id)
+            except Exception as exc:
+                logging.debug("manual review state revert failed: %s", safe_exc_str(exc))
         return False, msg, {"preview": built.get("preview_fields")}
 
     write_status = "NEEDS_RELOCK" if msg == "NEEDS_RELOCK" else "COMPLETED"
 
+    # Kavita a écrit : clôturer AVANT de mesurer (BF144). La télémétrie et le
+    # broadcast touchent SQLite, qui peut refuser (base verrouillée par un batch,
+    # partage réseau momentanément absent) ; laisser la review en attente après
+    # une écriture réussie amène l'utilisateur à reconfirmer, et la série part
+    # une deuxième fois chez Kavita — couverture ré-uploadée, compteurs doublés.
+    confirm_pending_review(review_id, new_status=write_status)
+
     # Auto-confirm : pas de télémétrie Manual Review (pick/top1) — enrichissement déjà
     # compté par apply_kavita_payload.
     if not is_auto_confirm:
-        deltas = record_manual_review_telemetry(
-            chosen_score,
-            is_top1,
-            field_edits=field_edits,
-            fused=fused,
-            weak_pick=bool(weak_pick),
-            super_review=bool(super_review),
-        )
-        # Lifetime déjà mis à jour par apply (enrichment) + manual ; rebroadcast avec extras
-        _broadcast_enrichment_stats({
-            **(deltas or {}),
-            "series_enriched_delta": 0,
-            "matches_won_delta": 0,
-            "series_missed_delta": 0,
-            "lifetime": get_lifetime_stats(),
-        })
-    confirm_pending_review(review_id, new_status=write_status)
+        try:
+            deltas = record_manual_review_telemetry(
+                chosen_score,
+                is_top1,
+                field_edits=field_edits,
+                fused=fused,
+                weak_pick=bool(weak_pick),
+                super_review=bool(super_review),
+            )
+            # Lifetime déjà mis à jour par apply (enrichment) + manual ; rebroadcast avec extras
+            _broadcast_enrichment_stats({
+                **(deltas or {}),
+                "series_enriched_delta": 0,
+                "matches_won_delta": 0,
+                "series_missed_delta": 0,
+                "lifetime": get_lifetime_stats(),
+            })
+        except Exception as exc:
+            logging.warning(
+                t.get(
+                    "log_mr_telemetry_failed",
+                    "[manual_review] télémétrie non enregistrée pour {0} : {1}",
+                ).format(series_name, safe_exc_str(exc))
+            )
     return True, ("NEEDS_RELOCK" if write_status == "NEEDS_RELOCK" else t.get("msg_success", "Succès")), {
         "preview": built.get("preview_fields"),
         "is_top1": is_top1,

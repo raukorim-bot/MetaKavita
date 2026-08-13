@@ -9,7 +9,7 @@ from flask import Blueprint, request, jsonify
 
 from auth_manager import companion_embed_scope, is_authenticated
 from config_manager import load_config
-from db_manager import list_pending_reviews, get_pending_review, count_pending_reviews, update_pending_review
+from db_manager import list_pending_reviews, get_pending_review, count_pending_reviews
 from metadata_fetcher import candidate_card_for_ui
 from scrapers.utils import get_match_accept_threshold
 from secure_logging import safe_exc_str
@@ -21,6 +21,7 @@ from services.enrichment_engine import (
 )
 from services.manual_review import (
     candidate_summaries_need_translation,
+    persist_translated_summaries,
     translate_candidate_summaries,
 )
 from translations import translations
@@ -37,6 +38,31 @@ def _parse_json():
     return request.get_json(silent=True) or {}
 
 
+def _t():
+    """Traductions de l'UI courante — les erreurs de ces routes finissent en `alert()`."""
+    return translations.get(load_config().get("UI_LANG", "fr"), translations["fr"])
+
+
+def _is_bulk_acceptable(row) -> bool:
+    """True si « Tout accepter ≥ seuil » a le droit de rejouer cette review.
+
+    Un `awaiting_confirm` porteur d'un preview appartient à l'utilisateur : il
+    l'a ouvert dans le panneau d'édition, ou c'est un park `auto_confirm` qui
+    attend sa relecture. Sans preview, l'état avancé ne vient de personne — un
+    pick dont l'écriture Kavita a échoué l'a laissé là (BF144) — et la review
+    est rejouable telle quelle.
+    """
+    state = (row.get("state") or "").strip()
+    if state == "awaiting_pick":
+        return True
+    if state != "awaiting_confirm":
+        return False
+    preview = row.get("preview_json")
+    if isinstance(preview, str):
+        preview = preview.strip()
+    return not preview
+
+
 @manual_review_bp.route("/api/manual-reviews", methods=["GET"])
 def api_list_manual_reviews():
     state = request.args.get("state") or None
@@ -45,6 +71,10 @@ def api_list_manual_reviews():
         limit = int(limit)
     except (TypeError, ValueError):
         limit = 200
+    # `limit` vient de l'URL : SQLite lit `LIMIT -1` comme « aucune limite », et
+    # chaque review transporte ses cartes candidates (résumés compris) — la file
+    # entière dans une seule réponse est justement ce que la pagination évite.
+    limit = max(1, min(500, limit))
     rows = list_pending_reviews(state=state, limit=limit)
     # Companion sans session : le jeton d'embed est émis pour une série précise,
     # depuis sa page Kavita. La file complète (noms des autres séries, volumétrie)
@@ -63,10 +93,18 @@ def api_list_manual_reviews():
         except (TypeError, ValueError, json.JSONDecodeError):
             cands = {"above": [], "below": []}
         # File déjà en attente avant la trad. au park : rattrapage one-shot.
-        if candidate_summaries_need_translation(cands):
+        # Jamais pendant le streaming (BF142) : les scrapers ajoutent encore des
+        # cartes à cette même colonne pendant que DeepL rend la main, et ces
+        # cartes ne portent jamais le marqueur de traduction — la route serait
+        # donc entrée ici à chaque événement socket pour réécrire, à partir d'un
+        # instantané périmé, un blob amputé du candidat qui vient d'arriver. Le
+        # `finalize` traduit de toute façon toute la collecte avant le pick.
+        if candidate_summaries_need_translation(cands) and not cands.get("streaming"):
             try:
                 cands, _n = translate_candidate_summaries(cands, config=config)
-                update_pending_review(r["review_id"], candidates_json=cands)
+                # Écriture ciblée par fournisseur : la ligne a pu bouger pendant
+                # la traduction, on n'y reporte que les résumés.
+                persist_translated_summaries(r["review_id"], cands)
             except Exception as e:
                 logging.debug("pending list summary translation failed: %s", safe_exc_str(e))
         preview = None
@@ -107,15 +145,16 @@ def api_list_manual_reviews():
 @manual_review_bp.route("/api/manual-reviews/<review_id>/choice", methods=["POST"])
 def api_manual_review_choice(review_id):
     data = _parse_json()
+    t = _t()
     base_provider = (data.get("base_provider") or "").strip()
     include_providers = data.get("include_providers") or []
     if not base_provider:
-        return jsonify(success=False, error="base_provider requis"), 400
+        return jsonify(success=False, error=t.get("err_base_provider_required", "base_provider requis")), 400
     if not isinstance(include_providers, list):
         include_providers = [include_providers]
 
     if not get_pending_review(review_id):
-        return jsonify(success=False, error="Review introuvable"), 404
+        return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
 
     config = load_config()
     # Préférence UI (évite le décalage si saveConfig n'a pas encore flush)
@@ -156,9 +195,10 @@ def api_manual_review_choice(review_id):
 @manual_review_bp.route("/api/manual-reviews/<review_id>/confirm", methods=["POST"])
 def api_manual_review_confirm(review_id):
     data = _parse_json()
+    t = _t()
     review = get_pending_review(review_id)
     if not review:
-        return jsonify(success=False, error="Review introuvable"), 404
+        return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
 
     base_provider = (data.get("base_provider") or review.get("base_provider") or "").strip()
     # Missing key → None (restore Sources from preview). Present [] → clear.
@@ -169,7 +209,7 @@ def api_manual_review_confirm(review_id):
     else:
         include_providers = None
     if not base_provider:
-        return jsonify(success=False, error="base_provider requis"), 400
+        return jsonify(success=False, error=t.get("err_base_provider_required", "base_provider requis")), 400
 
     edited_fields = data.get("edited_fields") or data.get("edited_preview") or None
     try:
@@ -197,11 +237,12 @@ def api_manual_review_confirm(review_id):
 def api_manual_review_research(review_id):
     """Re-scrape avec un nouveau titre (écrase les candidats de cette review)."""
     data = _parse_json()
+    t = _t()
     query = (data.get("query") or data.get("title") or data.get("alternative_title") or "").strip()
     if not query:
-        return jsonify(success=False, error="query requis"), 400
+        return jsonify(success=False, error=t.get("err_query_required", "Titre de recherche requis")), 400
     if not get_pending_review(review_id):
-        return jsonify(success=False, error="Review introuvable"), 404
+        return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
 
     ok, msg, detail = research_manual_review(review_id, query)
     if not ok:
@@ -211,7 +252,7 @@ def api_manual_review_research(review_id):
 
 @manual_review_bp.route("/api/manual-reviews/<review_id>/skip", methods=["POST"])
 def api_manual_review_skip(review_id):
-    t = translations.get(load_config().get("UI_LANG", "fr"), translations["fr"])
+    t = _t()
     if not get_pending_review(review_id):
         return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
     ok = skip_manual_review(review_id)
@@ -231,10 +272,14 @@ def api_manual_reviews_bulk_accept():
     le seul endroit qui scrape automatiquement ; ceci ne fait qu'appliquer des
     résultats déjà scrapés et déjà en attente d'un geste humain.
 
-    Ne touche qu'aux reviews encore `awaiting_pick` : une review déjà en
-    `awaiting_confirm` a un preview en cours de personnalisation par
-    l'utilisateur (choix de fournisseur, édition de champs...) que ce bouton
-    ne doit pas écraser silencieusement.
+    Ne touche pas aux reviews en cours de personnalisation par l'utilisateur —
+    un `awaiting_confirm` **avec** preview : choix de fournisseur, édition de
+    champs. Un `awaiting_confirm` **sans** preview n'est en revanche pas un
+    travail humain mais un pick dont l'écriture Kavita a échoué (BF144) : le
+    laisser hors périmètre condamnait ces séries à la confirmation une par une,
+    puisqu'elles restaient affichées dans la file sans jamais y revenir. Les
+    unes comme les autres comptent dans les « laissées en file », ce que le
+    message de fin promet depuis toujours sans le faire.
 
     Le seuil demandé s'applique aux deux bandes. Ne lire que `above` (les
     candidats au-dessus du seuil de match réel) contredisait le curseur, qui
@@ -262,12 +307,15 @@ def api_manual_reviews_bulk_accept():
         wanted_ids = [wanted_ids]
     wanted_ids = set(str(rid) for rid in wanted_ids) if wanted_ids else None
 
-    rows = list_pending_reviews(state="awaiting_pick", limit=2000)
+    rows = list_pending_reviews(limit=2000)
 
     accepted, skipped, failed, weak = [], [], [], []
     for r in rows:
         review_id = r["review_id"]
         if wanted_ids is not None and str(review_id) not in wanted_ids:
+            continue
+        if not _is_bulk_acceptable(r):
+            skipped.append(review_id)
             continue
 
         try:

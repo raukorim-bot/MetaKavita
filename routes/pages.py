@@ -32,6 +32,9 @@ from services.changelog_service import get_current_version
 from services.mr_achievements import evaluate_from_lifetime
 from services.stats_service import compute_playful_stats
 from services.scraper_diagnostics import list_scrapers_inventory
+from services.volume_enrichment.providers import (
+    volume_provider_choices as list_volume_provider_choices,
+)
 
 pages_bp = Blueprint('pages', __name__)
 
@@ -174,6 +177,11 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     manga_providers = [{"id": s.id, "display_name": s.localized_display_name} for s in ScraperRegistry.get_by_type("Manga")]
     comic_providers = [{"id": s.id, "display_name": s.localized_display_name} for s in ScraperRegistry.get_by_type("Comic")]
     book_providers = [{"id": s.id, "display_name": s.localized_display_name} for s in ScraperRegistry.get_by_type("Book")]
+    # Deux familles, celles que le module sait piloter : ceux qui listent les
+    # albums d'une série, et ceux qui identifient un tome à la fois par son ISBN.
+    # La règle vit dans le module et non ici, pour qu'un menu ne puisse pas
+    # proposer un réglage que la cascade ignorerait.
+    volume_provider_choices = list_volume_provider_choices()
 
     magic_scrapers = [
         {"id": s.id, "display_name": s.localized_display_name, "supported_types": list(s.supported_types)}
@@ -231,6 +239,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            manga_providers=manga_providers,
                            comic_providers=comic_providers,
                            book_providers=book_providers,
+                           volume_provider_choices=volume_provider_choices,
                            magic_scrapers=magic_scrapers,
                            scrapers_with_keys=scrapers_with_keys,
                            has_kavita_api_key=has_kavita_api_key,

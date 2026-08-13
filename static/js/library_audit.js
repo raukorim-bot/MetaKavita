@@ -103,6 +103,14 @@ document.addEventListener('keydown', function (e) {
     closeMissingVolumesModal();
 });
 
+/** L'Inventaire est-il éteint ? Le rapport de tomes reste alors joignable pour
+ * l'enrichissement par tome, mais amputé : les attendus de catalogue et les
+ * exports appartiennent à l'Inventaire, et leurs routes répondent 403. On
+ * n'affiche donc que le détail tome par tome, reconstruit depuis Kavita seul. */
+function _inventoryOff() {
+    return !!document.body && document.body.getAttribute('data-inventory') === '0';
+}
+
 function openVolumeReportModal(seriesId, seriesName) {
     var m = document.getElementById('volumeReportModal');
     var body = document.getElementById('volumeReportBody');
@@ -126,16 +134,27 @@ function openVolumeReportModal(seriesId, seriesName) {
     if (meta) meta.textContent = '';
     var csv = document.getElementById('volumeReportCsv');
     var txt = document.getElementById('volumeReportTxt');
-    if (csv) csv.href = getRootPath() + '/api/series/' + seriesId + '/volume-report?format=csv&refresh=1';
-    if (txt) txt.href = getRootPath() + '/api/series/' + seriesId + '/volume-report?format=txt&refresh=1';
+    var refresh = document.getElementById('volumeReportRefresh');
+    var reduced = _inventoryOff();
+    if (csv) {
+        csv.href = getRootPath() + '/api/series/' + seriesId + '/volume-report?format=csv&refresh=1';
+        csv.hidden = reduced;
+    }
+    if (txt) {
+        txt.href = getRootPath() + '/api/series/' + seriesId + '/volume-report?format=txt&refresh=1';
+        txt.hidden = reduced;
+    }
+    if (refresh) refresh.hidden = reduced;
     m.style.display = 'flex';
     m.setAttribute('aria-hidden', 'false');
-    _loadVolumeReport(seriesId, false);
+    if (reduced) _loadVolumeReportUnits(seriesId);
+    else _loadVolumeReport(seriesId, false);
 }
 
 function refreshVolumeReport() {
     if (_volumeReportSeriesId == null) return;
-    _loadVolumeReport(_volumeReportSeriesId, true);
+    if (_inventoryOff()) _loadVolumeReportUnits(_volumeReportSeriesId);
+    else _loadVolumeReport(_volumeReportSeriesId, true);
 }
 
 function _loadVolumeReport(seriesId, forceRefresh) {
@@ -443,27 +462,34 @@ function _unitsColspan() {
 
 function _loadVolumeReportUnits(seriesId) {
     var tr = _auditT();
+    // Le tableau des unités n'existe qu'une fois le rapport rendu. Sans
+    // Inventaire, cet appel est le premier : l'état vide et l'erreur doivent
+    // alors remplacer le chargement dans le corps de la modale, sinon elle
+    // tourne indéfiniment.
+    var showState = function (kind, message, extra) {
+        var tbody = document.getElementById('volumeReportUnits');
+        if (tbody) {
+            tbody.innerHTML = '<tr><td colspan="' + _unitsColspan() + '" class="audit-cell-state">' +
+                _stateHtml(kind, message, '', extra) + '</td></tr>';
+            return;
+        }
+        var body = document.getElementById('volumeReportBody');
+        if (body) body.innerHTML = _stateHtml(kind, message, '', extra.replace(' inline', ''));
+    };
     fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/volume-report/units', {
         credentials: 'same-origin',
     })
         .then(function (r) { return r.json(); })
         .then(function (data) {
             if (String(_volumeReportSeriesId) !== String(seriesId)) return;
-            var tbody = document.getElementById('volumeReportUnits');
-            if (!tbody) return;
             if (!data || !data.success || !(data.units || []).length) {
-                tbody.innerHTML = '<tr><td colspan="' + _unitsColspan() + '" class="audit-cell-state">' +
-                    _stateHtml('empty', tr.audit_units_empty || '—', '', 'inline') + '</td></tr>';
+                showState('empty', (data && data.error) || tr.audit_units_empty || '—', 'inline');
                 return;
             }
             _renderVolumeReport(data);
         })
         .catch(function () {
-            var tbody = document.getElementById('volumeReportUnits');
-            if (tbody) {
-                tbody.innerHTML = '<tr><td colspan="' + _unitsColspan() + '" class="audit-cell-state">' +
-                    _stateHtml('alert', tr.audit_err_generic || 'Error', '', 'error inline') + '</td></tr>';
-            }
+            showState('alert', tr.audit_err_generic || 'Error', 'error inline');
         });
 }
 
@@ -853,6 +879,17 @@ function _onHygieneProgress(payload) {
 function onInventoryToggle(input) {
     var on = !!(input && input.checked);
     document.body.setAttribute('data-inventory', on ? '1' : '0');
+    if (typeof saveConfig === 'function') saveConfig();
+}
+
+// Même rôle que ci-dessus pour l'enrichissement par tome : c'est `data-volumes`
+// qui décide du groupe « Tomes » dans la barre d'outils et du bouton de rapport.
+// L'attribut était posé par le gabarit seul, donc allumer la fonctionnalité ne
+// faisait apparaître ses boutons qu'au rechargement suivant — alors que la barre
+// latérale, elle, enregistre sans recharger.
+function onVolumeEnrichmentToggle(input) {
+    var on = !!(input && input.checked);
+    document.body.setAttribute('data-volumes', on ? '1' : '0');
     if (typeof saveConfig === 'function') saveConfig();
 }
 
@@ -1273,6 +1310,517 @@ window.setSeriesInventoryExcluded = setSeriesInventoryExcluded;
 window.ensureAuditFlags = function () {
     return Promise.resolve({ success: true, groups: [], flags: {} });
 };
+
+/* ===== Enrichissement par tome et par album (issue #27) =====
+ *
+ * L'aperçu remplace le tableau des unités dans la modale du rapport : une ligne
+ * par tome, une colonne par champ. La valeur actuelle est montrée barrée quand
+ * elle serait comblée, et grisée avec son motif quand elle ne le sera pas
+ * (verrouillée, déjà remplie, ISBN invalide) — sans quoi l'utilisateur ne
+ * comprendrait pas pourquoi la case est absente. */
+
+var _volumePlan = null;
+
+var _VOL_FIELDS = ['title', 'summary', 'release_date', 'isbn', 'cover_url'];
+
+function _volFieldLabel(field, tr) {
+    return tr['vol_field_' + field] || field;
+}
+
+function _volReason(reason, tr) {
+    return reason ? (tr['vol_reason_' + reason] || reason) : '';
+}
+
+/** Valeur affichée dans une cellule : compacte, la modale a cinq colonnes. */
+function _volShort(value) {
+    var text = String(value == null ? '' : value);
+    if (/^\d{4}-\d{2}-\d{2}T/.test(text)) return text.slice(0, 10);
+    if (/^https?:/i.test(text)) return '🖼';
+    return text.length > 60 ? text.slice(0, 57) + '…' : text;
+}
+
+/**
+ * Vignette de la couverture proposée.
+ *
+ * L'aperçu affichait « 🖼 » : l'utilisateur devait cocher une couverture sans
+ * l'avoir vue, alors que c'est précisément le champ où l'erreur se repère d'un
+ * coup d'œil — et le seul que MangaDex apporte aux mangas. Le proxy est
+ * indispensable ici : MangaDex et ComicVine refusent le hotlink.
+ */
+function _volCoverCell(url) {
+    var display = typeof toDisplayCoverUrl === 'function' ? toDisplayCoverUrl(url) : url;
+    if (!display) return '🖼';
+    return '<img class="vol-cover-thumb" src="' + _escHtml(display) + '" alt="" ' +
+        'loading="lazy" title="' + _escHtml(url) + '">';
+}
+
+/**
+ * Libellé d'une ligne : le numéro sur lequel l'appariement s'est fait.
+ *
+ * Ce n'est pas toujours celui du tome. Kavita range souvent tout un run de
+ * comics sous le volume 1 et fait de chaque numéro un chapitre : afficher le
+ * tome donnerait cinquante lignes intitulées « 1 », impossibles à départager.
+ */
+function _volUnitLabel(entry, tr) {
+    var num = entry.matched_on != null
+        ? entry.matched_on
+        : (entry.volume_number != null ? entry.volume_number : entry.chapter_number);
+    var label = num == null ? (entry.name || '—') : String(num);
+    if (entry.name && num != null) label += ' — ' + entry.name;
+    return label;
+}
+
+/**
+ * Marque une unité que la passe précédente n'a pas réussi à écrire.
+ *
+ * Les autres états ne valent pas d'être montrés : une unité déjà écrite a vu
+ * ses champs verrouillés, donc sa ligne a disparu de l'aperçu d'elle-même. Un
+ * échec, lui, revient à l'identique — le dire évite de le retenter à l'aveugle.
+ */
+function _volPreviousFailure(entry, states, tr) {
+    if (!states || states[String(entry.chapter_id)] !== 'FAILED') return '';
+    return ' <span class="vol-retry" title="' +
+        _escHtml(tr.vol_state_failed_hint || '') + '">⚠</span>';
+}
+
+/**
+ * Marque une unité qui partage son album avec une autre.
+ *
+ * Le cas se rencontre pour de vrai : une bibliothèque peut détenir deux fichiers
+ * du même album, l'un rattaché à son tome, l'autre resté « hors tome » faute
+ * d'avoir été reconnu par le scanner. Les deux reçoivent alors les mêmes
+ * métadonnées, couverture téléchargée et téléversée deux fois.
+ *
+ * Les deux fichiers *sont* cet album : la ligne reste cochée, parce que les
+ * priver de métadonnées serait pire que la redite. Mais l'utilisateur est le seul
+ * à savoir si son doublon est voulu, et sans ce marqueur la duplication ne se
+ * voyait qu'en repérant deux fois le même numéro dans une longue liste.
+ */
+function _volDuplicate(entry, tr) {
+    if (entry.duplicate_of == null) return '';
+    var hint = (tr.vol_duplicate_hint || '')
+        .replace('{0}', String(entry.duplicate_of))
+        .replace('{1}', String(entry.duplicate_count || 2));
+    return ' <span class="vol-dup" title="' + _escHtml(hint) + '">' +
+        _escHtml(tr.vol_duplicate_badge || '⧉') + '</span>';
+}
+
+function openVolumeEnrichPreview() {
+    var body = document.getElementById('volumeReportBody');
+    var tr = _auditT();
+    if (!body || _volumeReportSeriesId == null) return;
+    body.innerHTML = _stateHtml('spinner', tr.vol_preview_loading || '…',
+        tr.vol_preview_loading_hint || '');
+
+    fetch(getRootPath() + '/api/series/' + encodeURIComponent(_volumeReportSeriesId) + '/volume-enrich/preview', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+    })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data || !data.success) {
+                body.innerHTML = _stateHtml('alert',
+                    tr.vol_preview_error || 'Error',
+                    (data && data.error) || '', 'error');
+                return;
+            }
+            _volumePlan = data.plan || {};
+            _renderVolumeEnrichPreview(_volumePlan);
+        })
+        .catch(function () {
+            body.innerHTML = _stateHtml('alert', tr.vol_preview_error || 'Error', '', 'error');
+        });
+}
+
+function _renderVolumeEnrichPreview(plan) {
+    var body = document.getElementById('volumeReportBody');
+    var tr = _auditT();
+    if (!body) return;
+    var entries = (plan.units || []).filter(function (e) { return e.write_count > 0; });
+
+    if (!entries.length) {
+        // Trois vides très différents, qui appelaient le même message : « aucun
+        // fournisseur ne connaît cette série » s'affichait aussi quand le
+        // fournisseur connaissait parfaitement la série mais que pas un de ses
+        // numéros d'albums ne recoupait les vôtres — édition différente,
+        // numérotation décalée. Le message envoyait alors vérifier une clé d'API
+        // qui marchait très bien.
+        var matched = ((plan.counts || {}).matched) || 0;
+        var state = 'empty';
+        // Écartée avant toute recherche : ce n'est ni un échec du fournisseur ni
+        // un travail déjà fait, et le dire évite qu'on aille chercher une panne.
+        if (plan.skipped_reason) state = plan.skipped_reason === 'specials' ? 'specials' : 'oneshot';
+        else if (!plan.provider) state = 'none';
+        else if (!matched) state = 'unmatched';
+        var copy = {
+            none: ['alert', tr.vol_preview_none, tr.vol_preview_none_hint, 'error'],
+            unmatched: ['alert', tr.vol_preview_unmatched, tr.vol_preview_unmatched_hint, 'error'],
+            oneshot: ['empty', tr.vol_preview_oneshot, tr.vol_preview_oneshot_hint, ''],
+            specials: ['empty', tr.vol_preview_specials, tr.vol_preview_specials_hint, ''],
+            empty: ['complete', tr.vol_preview_empty, tr.vol_preview_empty_hint, '']
+        }[state];
+        var hint = copy[2] || '';
+        if (state === 'unmatched') {
+            hint = hint.replace('{0}', plan.provider || '?');
+        }
+        body.innerHTML = _stateHtml(copy[0], copy[1] || '—', hint, copy[3]);
+        return;
+    }
+
+    // Colonnes réduites à ce que le fournisseur propose vraiment : afficher
+    // cinq colonnes de tirets pour un index qui ne rend que des résumés
+    // donnerait l'impression que quatre champs ont échoué.
+    var cols = _VOL_FIELDS.filter(function (f) {
+        return entries.some(function (e) { return (e.changes || {})[f]; });
+    });
+
+    var head = '<th class="audit-cell-num"><input type="checkbox" id="volPickAll" checked ' +
+        'title="' + _escHtml(tr.vol_select_all || '') + '"></th>' +
+        '<th>' + _escHtml(tr.vol_col_unit || 'Vol') + '</th>' +
+        cols.map(function (f) { return '<th>' + _escHtml(_volFieldLabel(f, tr)) + '</th>'; }).join('');
+
+    var rows = entries.map(function (entry) {
+        var cells = cols.map(function (field) {
+            var change = (entry.changes || {})[field];
+            if (!change) return _cell('—', _volFieldLabel(field, tr));
+            var html;
+            if (change.write && field === 'cover_url') {
+                html = '<ins class="vol-new">' + _volCoverCell(change.proposed) + '</ins>';
+            } else if (change.write) {
+                html = (change.current
+                    ? '<del class="vol-old">' + _escHtml(_volShort(change.current)) + '</del> '
+                    : '') + '<ins class="vol-new">' + _escHtml(_volShort(change.proposed)) + '</ins>';
+            } else {
+                html = '<span class="vol-kept" title="' + _escHtml(_volShort(change.proposed)) + '">' +
+                    _escHtml(_volShort(change.current) || '—') +
+                    ' <em>(' + _escHtml(_volReason(change.reason, tr)) + ')</em></span>';
+            }
+            return _cell(html, _volFieldLabel(field, tr), '', true);
+        }).join('');
+        var unit = _escHtml(_volUnitLabel(entry, tr)) +
+            _volPreviousFailure(entry, plan.states, tr) +
+            _volDuplicate(entry, tr);
+        return '<tr data-chapter="' + _escHtml(entry.chapter_id) + '">' +
+            _cell('<input type="checkbox" class="vol-pick" checked>', tr.vol_col_pick || '', 'audit-cell-num', true) +
+            _cell(unit, tr.vol_col_unit || 'Vol', '', true) +
+            cells + '</tr>';
+    }).join('');
+
+    var unmatched = (plan.unmatched || []).length;
+    body.innerHTML =
+        '<div class="audit-override-row vol-preview-head">' +
+        '<span class="audit-override-label">' +
+        _escHtml((tr.vol_provider_label || 'Source: {0}').replace('{0}', plan.provider || '—')) +
+        '</span>' +
+        (unmatched
+            ? '<span class="audit-hint">' +
+              _escHtml((tr.vol_unmatched || '{0}').replace('{0}', unmatched)) + '</span>'
+            : '') +
+        '<button type="button" class="btn-sync" id="volApplyBtn">' +
+        _escHtml(tr.vol_apply_btn || 'Write') + '</button>' +
+        '</div>' +
+        '<div id="volApplyResult" class="audit-hint"></div>' +
+        '<div class="audit-table-wrap"><table class="audit-table vol-preview-table">' +
+        '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
+
+    var pickAll = document.getElementById('volPickAll');
+    if (pickAll) {
+        pickAll.addEventListener('change', function () {
+            document.querySelectorAll('#volumeReportBody .vol-pick').forEach(function (cb) {
+                cb.checked = pickAll.checked;
+            });
+        });
+    }
+    var applyBtn = document.getElementById('volApplyBtn');
+    if (applyBtn) applyBtn.addEventListener('click', applyVolumeEnrich);
+    // L'écriture tourne en tâche de fond : la modale peut être rouverte pendant
+    // qu'elle travaille, et le bouton fraîchement rendu ne doit pas proposer un
+    // clic que le serveur refuserait par un 409.
+    if (_volumeEnrichRunning) _setVolumeEnrichRunningUi(true);
+}
+
+/** `{chapter_id: null}` = tous les champs autorisés de cette unité. */
+function _volSelection() {
+    var selection = {};
+    document.querySelectorAll('#volumeReportBody tr[data-chapter]').forEach(function (row) {
+        var cb = row.querySelector('.vol-pick');
+        if (cb && cb.checked) selection[row.getAttribute('data-chapter')] = null;
+    });
+    return selection;
+}
+
+/** Rend son état cliquable au bouton d'écriture de la modale, s'il est là. */
+function _resetVolApplyBtn() {
+    var btn = document.getElementById('volApplyBtn');
+    if (!btn) return;
+    btn.disabled = false;
+    btn.textContent = _auditT().vol_apply_btn || 'Write';
+}
+
+/**
+ * Lance l'écriture de la série en tâche de fond.
+ *
+ * La route rendait le résultat : elle écrivait tome par tome dans le greenlet de
+ * la requête, et le bouton restait sur « Écriture en cours… » pendant des
+ * minutes, sans progression ni moyen d'arrêter. Elle rend maintenant le
+ * démarrage ; le verdict arrive par `volume_enrich_progress`, ce qui a une
+ * conséquence voulue : fermer la modale ne perd plus l'écriture en cours, la
+ * barre de la barre d'outils continue de la montrer et le bouton Annuler
+ * l'arrête.
+ */
+function applyVolumeEnrich() {
+    var tr = _auditT();
+    var out = document.getElementById('volApplyResult');
+    var btn = document.getElementById('volApplyBtn');
+    if (_volumeReportSeriesId == null) return;
+    var selection = _volSelection();
+    if (!Object.keys(selection).length) {
+        if (out) out.textContent = tr.vol_nothing_selected || '—';
+        return;
+    }
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = tr.vol_applying || '…';
+    }
+    if (out) out.textContent = tr.vol_apply_started || '…';
+
+    fetch(getRootPath() + '/api/series/' + encodeURIComponent(_volumeReportSeriesId) + '/volume-enrich/apply', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ selection: selection }),
+    })
+        .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+        .then(function (res) {
+            var body = res.body || {};
+            if (!body.success) {
+                // Refus (409 : une passe tourne déjà, ou cette série est déjà en
+                // cours d'écriture) : rien n'a démarré, le bouton doit revenir.
+                _resetVolApplyBtn();
+                if (out) out.textContent = body.error || (tr.audit_err_generic || 'Error');
+            }
+        })
+        .catch(function () {
+            _resetVolApplyBtn();
+            if (out) out.textContent = tr.audit_err_generic || 'Error';
+        });
+}
+
+/* ===== Progression, commune à la passe de bibliothèque et à une série ===== */
+
+/* L'état de progression est global côté serveur : une seule passe à la fois,
+ * qu'elle porte sur une bibliothèque ou sur une série. Retenu ici pour qu'un
+ * aperçu rouvert pendant une écriture n'affiche pas un bouton actif. */
+var _volumeEnrichRunning = false;
+
+function _setVolumeEnrichRunningUi(running) {
+    var tr = _auditT();
+    var start = document.getElementById('btnVolumeEnrich');
+    var cancel = document.getElementById('btnVolumeEnrichCancel');
+    var apply = document.getElementById('volApplyBtn');
+    _volumeEnrichRunning = !!running;
+    if (start) start.disabled = !!running;
+    if (cancel) cancel.style.display = running ? '' : 'none';
+    // Une passe démarrée continue de tourner quoi qu'on décoche dans la barre
+    // latérale : l'interrupteur ne commande que le départ. Le groupe qui porte
+    // Annuler doit donc survivre à son extinction, sinon on éteint et l'écriture
+    // continue sans plus rien pour l'arrêter. Le CSS lit cet attribut.
+    if (document.body) {
+        if (running) document.body.setAttribute('data-volume-pass', 'running');
+        else document.body.removeAttribute('data-volume-pass');
+    }
+    // Le bouton de la modale et celui de la barre d'outils commandent la même
+    // tâche de fond : l'un ne peut pas rester cliquable pendant que l'autre
+    // tourne, sinon le second clic part pour se faire refuser.
+    if (apply) {
+        apply.disabled = !!running;
+        apply.textContent = running
+            ? (tr.vol_applying || '…')
+            : (tr.vol_apply_btn || 'Write');
+    }
+}
+
+/**
+ * Verdict d'une écriture terminée, tel qu'il s'affiche dans la modale.
+ *
+ * Un tome peut réussir son texte et se faire refuser sa couverture : le compte
+ * de réussites seul laisserait croire que tout est passé.
+ */
+function _volumeEnrichVerdict(payload, tr) {
+    var counts = payload.counts || {};
+    var written = counts.done || 0;
+    var message = payload.was_cancelled
+        ? (tr.vol_apply_cancelled || '{0}').replace('{0}', written)
+        : (tr.vol_applied || '{0}').replace('{0}', written);
+    if (counts.failed) {
+        message += ' — ' + (tr.vol_apply_failed || '{0}').replace('{0}', counts.failed);
+    }
+    var warnings = payload.errors || [];
+    if (warnings.length) {
+        message += ' — ' + (tr.vol_apply_warning || '{0}').replace('{0}', warnings[0]);
+    }
+    return message;
+}
+
+/** Écrit dans la modale, mais seulement si elle est ouverte sur cette série. */
+function _volumeEnrichSayInModal(payload, message) {
+    if (payload.series_id == null) return;
+    if (String(payload.series_id) !== String(_volumeReportSeriesId)) return;
+    var out = document.getElementById('volApplyResult');
+    if (out) out.textContent = message;
+}
+
+/* ===== Passe sur les séries cochées ===== */
+
+/**
+ * Message éphémère sur le bouton, puis retour au libellé.
+ *
+ * Même geste que `launchBatch` pour une sélection vide : un bouton qui se répond
+ * à lui-même vaut mieux qu'une alerte à congédier, et cette passe se lance
+ * depuis la même barre d'outils que le lot.
+ */
+function _flashVolumeEnrichBtn(message) {
+    var btn = document.getElementById('btnVolumeEnrich');
+    if (!btn) return;
+    var label = btn.dataset.label || btn.textContent;
+    btn.dataset.label = label;
+    btn.textContent = message;
+    window.setTimeout(function () {
+        // Une passe démarrée entre-temps a repris la main sur le bouton : on ne
+        // lui réécrit pas son libellé par-dessus.
+        if (!_volumeEnrichRunning) btn.textContent = btn.dataset.label || label;
+    }, 2000);
+}
+
+function startVolumeEnrich() {
+    var tr = _auditT();
+    var lib = _selectedLibraryIdOrAll();
+    // La passe porte sur les séries cochées, et sur elles seules — la même
+    // sélection que le lot de scraping, avec la même case « Tout sélectionner »
+    // pour couvrir une bibliothèque entière. Elle partait auparavant sur toutes
+    // les séries de la bibliothèque affichée, ce qui est un engagement de
+    // plusieurs heures d'écriture pour un clic, sans moyen de le restreindre.
+    var ids = (typeof getFilteredSelectedIds === 'function') ? getFilteredSelectedIds() : [];
+    if (!ids.length) {
+        _flashVolumeEnrichBtn(tr.batch_empty || '—');
+        return;
+    }
+    // Une passe d'écriture se confirme : elle touche autant de tomes que les
+    // séries cochées en comptent, et ne se défait pas d'un clic.
+    if (!window.confirm((tr.vol_library_confirm || 'Continue?').replace('{0}', ids.length))) return;
+
+    var wrap = document.getElementById('volumeEnrichProgress');
+    var label = document.getElementById('volumeEnrichLabel');
+    var fill = document.getElementById('volumeEnrichFill');
+    if (wrap) {
+        wrap.style.display = 'block';
+        wrap.setAttribute('aria-hidden', 'false');
+    }
+    if (fill) fill.style.width = '0%';
+    if (label) label.textContent = tr.audit_scan_started || '…';
+    _setVolumeEnrichRunningUi(true);
+
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/volume-enrich', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ series_ids: ids }),
+    })
+        .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+        .then(function (res) {
+            if (res.status === 409) {
+                if (label) label.textContent = tr.vol_err_busy || 'Busy';
+                return;
+            }
+            if (!res.body || !res.body.success) {
+                if (label) label.textContent = (res.body && res.body.error) || (tr.audit_err_generic || 'Error');
+                _setVolumeEnrichRunningUi(false);
+            }
+        })
+        .catch(function () {
+            if (label) label.textContent = tr.audit_err_generic || 'Error';
+            _setVolumeEnrichRunningUi(false);
+        });
+}
+
+function cancelVolumeEnrich() {
+    var tr = _auditT();
+    var label = document.getElementById('volumeEnrichLabel');
+    fetch(getRootPath() + '/api/volume-enrich/cancel', { method: 'POST', credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function () {
+            if (label) label.textContent = tr.audit_cancelling || '…';
+        })
+        .catch(function () { /* ignore */ });
+}
+
+/**
+ * Progression d'une écriture en cours, quelle qu'en soit la portée.
+ *
+ * `payload.series_id` distingue les deux : renseigné, la passe porte sur une
+ * seule série et la progression compte des tomes ; absent, elle porte sur une
+ * bibliothèque et compte des séries. La barre de la barre d'outils sert dans les
+ * deux cas — c'est elle qui permet de fermer la modale sans perdre de vue une
+ * écriture lancée depuis l'aperçu.
+ */
+function _onVolumeEnrichProgress(payload) {
+    var tr = _auditT();
+    var wrap = document.getElementById('volumeEnrichProgress');
+    var label = document.getElementById('volumeEnrichLabel');
+    var fill = document.getElementById('volumeEnrichFill');
+    if (!payload) return;
+    if (wrap) {
+        wrap.style.display = 'block';
+        wrap.setAttribute('aria-hidden', 'false');
+    }
+    var done = payload.done || 0;
+    var total = payload.total || 0;
+    var oneSeries = payload.series_id != null;
+    if (fill) fill.style.width = (total ? Math.round((100 * done) / total) : 0) + '%';
+    _setVolumeEnrichRunningUi(!!payload.running);
+
+    var message;
+    if (payload.running) {
+        message = ((oneSeries ? tr.vol_apply_progress : tr.vol_library_running) || '{0} / {1}')
+            .replace('{0}', done).replace('{1}', total);
+        if (!oneSeries && payload.current_name) message += ' — ' + payload.current_name;
+        if (label) label.textContent = message;
+        _volumeEnrichSayInModal(payload, message);
+        return;
+    }
+
+    if (oneSeries) {
+        message = _volumeEnrichVerdict(payload, tr);
+    } else {
+        message = (tr.vol_library_done || '{0}').replace('{0}', (payload.counts || {}).done || 0);
+        if (payload.skipped) {
+            message += ' ' + (tr.vol_library_resumed || '{0}').replace('{0}', payload.skipped);
+        }
+    }
+    if (label) label.textContent = message;
+    _volumeEnrichSayInModal(payload, message);
+    // Le rapport compte les unités sans résumé et sans ISBN : il vient de
+    // changer sous nos pieds. Seulement si la modale est encore là pour le lire.
+    if (oneSeries && (payload.counts || {}).done
+        && String(payload.series_id) === String(_volumeReportSeriesId)
+        && document.getElementById('volApplyResult')) {
+        refreshVolumeReport();
+    }
+    setTimeout(function () {
+        if (wrap) {
+            wrap.style.display = 'none';
+            wrap.setAttribute('aria-hidden', 'true');
+        }
+    }, 6000);
+}
+
+window.openVolumeEnrichPreview = openVolumeEnrichPreview;
+window.applyVolumeEnrich = applyVolumeEnrich;
+window.startVolumeEnrich = startVolumeEnrich;
+window.cancelVolumeEnrich = cancelVolumeEnrich;
+window._onVolumeEnrichProgress = _onVolumeEnrichProgress;
 
 (function () {
     function hydrateVisibleBadges() {

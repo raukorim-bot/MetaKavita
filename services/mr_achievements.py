@@ -3,6 +3,15 @@ Hauts-faits Manual Review — moteur partagé pour /stats (lifetime).
 
 Aligné sur le catalogue session JS (`static/js/manual_review.js`).
 Les titres `session_only` (ex. pause café) sont exclus du lifetime.
+
+Un cumul à vie n'autorise que des conditions **monotones** : un compteur ne
+redescend jamais, donc un haut-fait décroché ne doit jamais pouvoir se
+re-verrouiller. Toute condition de la forme « et rien d'autre » (aucune
+confirmation, aucune retouche, jamais le #1) est vraie d'une session et fausse
+dès l'action suivante — à vie, elle transforme l'écran de statistiques en
+compteur qui régresse, ce que l'utilisateur lit comme une remise à zéro. Les
+conditions non monotones sont donc soit reformulées en cumul (`rebel`), soit
+laissées au seul catalogue session (`lightning`, comme `empty_session`).
 """
 
 from __future__ import annotations
@@ -34,7 +43,14 @@ def lifetime_bag_from_stats(lifetime: Optional[dict]) -> Dict[str, Any]:
         "fusions": int(life.get("manual_fusions") or 0),
         "weak_picks": int(life.get("manual_weak_picks") or 0),
         "score_sum": float(life.get("manual_score_sum") or 0),
-        "score_n": reviews,
+        # Dénominateur de la moyenne : le nombre de confirmations *scorées*, qui
+        # n'est pas le nombre de confirmations. Un scraper communautaire qui
+        # n'appelle pas `attach_match_score()` fait entrer un candidat à 0,00
+        # pendant la collecte manuelle (le seuil y est abaissé à 0) ; compté au
+        # dénominateur, il tire la moyenne vers le bas et peut rendre `gourmet`
+        # inatteignable. Faute d'un compteur dédié côté db_manager, on retombe
+        # sur le nombre de reviews : `manual_score_n` est là pour être branché.
+        "score_n": int(life.get("manual_score_n") or reviews),
         "super_used": int(life.get("manual_super_confirms") or 0) > 0,
     }
 
@@ -44,6 +60,11 @@ def _avg(bag: dict) -> float:
     if n <= 0:
         return 0.0
     return float(bag.get("score_sum") or 0) / n
+
+
+def _off_podium(bag: dict) -> int:
+    """Confirmations qui n'ont pas retenu le candidat #1 — cumul, donc monotone."""
+    return max(0, int(bag.get("done") or 0) - int(bag.get("top1") or 0))
 
 
 def _catalog() -> List[dict]:
@@ -71,7 +92,7 @@ def _catalog() -> List[dict]:
         return ("mr_ach_oracle_flavor", {"0": s.get("top1") or 0, "1": s.get("done") or 0})
 
     def flavor_rebel(s):
-        return ("mr_ach_rebel_flavor", {"0": s.get("done") or 0})
+        return ("mr_ach_rebel_flavor", {"0": _off_podium(s)})
 
     def flavor_sculptor(s):
         return ("mr_ach_sculptor_flavor", {"0": s.get("edits") or 0})
@@ -114,7 +135,9 @@ def _catalog() -> List[dict]:
             "mono": "SP",
             "title_key": "mr_ach_spectator_title",
             "session_only": False,
-            "test": lambda s: int(s.get("done") or 0) == 0 and int(s.get("skipped") or 0) > 0,
+            # « Rien confirmé » ne survit pas à la première confirmation : à vie,
+            # seul le fait d'avoir passé des séries est acquis.
+            "test": lambda s: int(s.get("skipped") or 0) > 0,
             "flavor": flavor_spectator,
             "progress": lambda s: min(1.0, float(s.get("skipped") or 0) / 3.0),
             "hint_key": "mr_ach_hint_spectator",
@@ -211,11 +234,11 @@ def _catalog() -> List[dict]:
             "mono": "≠",
             "title_key": "mr_ach_rebel_title",
             "session_only": False,
-            "test": lambda s: int(s.get("done") or 0) >= 2 and int(s.get("top1") or 0) == 0,
+            # « Jamais le #1 » se perd au premier top-1 accepté : à vie, on compte
+            # les confirmations qui ont écarté le #1, ce qui ne redescend pas.
+            "test": lambda s: _off_podium(s) >= 2,
             "flavor": flavor_rebel,
-            "progress": lambda s: min(1.0, float(s.get("done") or 0) / 2.0)
-            if int(s.get("top1") or 0) == 0
-            else 0.0,
+            "progress": lambda s: min(1.0, _off_podium(s) / 2.0),
             "hint_key": "mr_ach_hint_rebel",
         },
         {
@@ -236,7 +259,11 @@ def _catalog() -> List[dict]:
             "accent": "lime",
             "mono": "⚡",
             "title_key": "mr_ach_lightning_title",
-            "session_only": False,
+            # « 3 confirms sans aucune retouche » n'a de sens que sur une session :
+            # les compteurs à vie ne disent pas combien de confirmations ont été
+            # faites *avant* la première retouche, et toute reformulation à partir
+            # de `edits` se re-verrouillerait. Reste au catalogue session (JS).
+            "session_only": True,
             "test": lambda s: int(s.get("done") or 0) >= 3 and int(s.get("edits") or 0) == 0,
             "flavor": flavor_lightning,
             "progress": lambda s: (
@@ -296,7 +323,9 @@ def _catalog() -> List[dict]:
             "mono": "1",
             "title_key": "mr_ach_warmup_title",
             "session_only": False,
-            "test": lambda s: int(s.get("done") or 0) == 1,
+            # `== 1` se referme à la 2e confirmation : l'échauffement est fait pour
+            # de bon dès la première.
+            "test": lambda s: int(s.get("done") or 0) >= 1,
             "flavor": flavor_warmup,
             "progress": lambda s: 1.0 if int(s.get("done") or 0) >= 1 else 0.0,
             "hint_key": "mr_ach_hint_warmup",
@@ -333,6 +362,10 @@ def _card(entry: dict, bag: dict, t: dict, unlocked: bool) -> dict:
         progress = float(entry["progress"](bag))
     except Exception:
         progress = 1.0 if unlocked else 0.0
+    # Une jauge pleine sur une carte encore verrouillée se lit comme un bug
+    # d'affichage : la barre suit le verdict, jamais l'inverse.
+    if unlocked:
+        progress = 1.0
     progress = max(0.0, min(1.0, progress))
     accent = entry.get("accent") or "teal"
     return {

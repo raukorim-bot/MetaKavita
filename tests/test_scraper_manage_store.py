@@ -971,3 +971,174 @@ def test_disk_orphan_allows_install_without_force(isolated_scrapers, monkeypatch
     # No force — orphan path must not 409.
     result = store.install_from_catalog("ORPHAN1", force=False)
     assert result["loaded"] is True
+
+
+# ---------------------------------------------------------------------------
+# Plancher de version : le catalogue annonce ce qu'il exige de l'image
+#
+# Un scraper du catalogue s'exécute *dans* l'image : il appelle les méthodes de
+# `BaseScraper` et les fonctions de `scrapers.utils` de la version installée. Les
+# 21 scrapers core de la 1.7.0 appellent `self._http_get` et importent
+# `response_is_ok` — deux choses absentes de la 1.6.x. Publier ces copies telles
+# quelles les aurait fait installer sur des conteneurs 1.6.x, où elles échouent à
+# l'import : le registre attrape par scraper, journalise, puis délie le module.
+# L'utilisateur n'aurait vu que la disparition de tous ses fournisseurs, chaque
+# recherche répondant « aucun résultat ».
+#
+# Le catalogue est par construction commun à toutes les versions en service :
+# c'est donc à lui d'annoncer son plancher, et à la synchronisation de le
+# respecter. La discipline de publication ne suffit pas — elle tient à une
+# commande près.
+# ---------------------------------------------------------------------------
+
+
+def _floor_catalog(entry_extra: dict, *, body: bytes = b"# scraper\n", is_core: bool = False) -> dict:
+    from services import scraper_store as store
+    from services.scraper_manager import sha256_hex
+
+    entry = {
+        "id": "FUTURESRC",
+        "file": "future_src.py",
+        "display_name": "Future",
+        "status": "stable",
+        "install": {
+            "path": "future_src.py",
+            "url": f"{store.DEFAULT_RAW_BASE}/future_src.py",
+            "sha256": sha256_hex(body),
+        },
+    }
+    if is_core:
+        entry["is_core"] = True
+    entry.update(entry_extra)
+    return {"schema_version": 1, "raw_base": store.DEFAULT_RAW_BASE, "scrapers": [entry]}
+
+
+def _pin_app_version(monkeypatch, version: str) -> None:
+    monkeypatch.setattr("services.changelog_service.get_current_version", lambda: version)
+
+
+@pytest.mark.parametrize("key", ["requires_app", "min_app_version", "requires_metakavita"])
+def test_les_trois_orthographes_du_plancher_sont_lues(key):
+    """Une exigence mal orthographiée qui passerait inaperçue vaudrait une absence
+    d'exigence — précisément le cas qu'on veut rendre impossible."""
+    from services import scraper_store as store
+
+    assert store.entry_requires_app({key: "1.7.0"}) == "1.7.0"
+    assert store.is_entry_too_new({key: "1.7.0"}, app_version="1.6.6") is True
+
+
+def test_sans_plancher_rien_ne_change():
+    from services import scraper_store as store
+
+    assert store.entry_requires_app({"id": "X"}) == ""
+    assert store.is_entry_too_new({"id": "X"}, app_version="1.0.0") is False
+
+
+def test_le_plancher_se_lit_a_partir_de_et_non_apres():
+    from services import scraper_store as store
+
+    assert store.is_entry_too_new({"requires_app": "1.7.0"}, app_version="1.7.0") is False
+    assert store.is_entry_too_new({"requires_app": "1.7.0"}, app_version="1.8.2") is False
+    assert store.is_entry_too_new({"requires_app": "1.7.0"}, app_version="1.6.6") is True
+
+
+def test_un_plancher_illisible_n_empeche_rien():
+    """Le reste du module dégrade vers « on n'en conclut rien » plutôt que de
+    lever : un catalogue mal formé ne doit pas bloquer un Magasin."""
+    from services import scraper_store as store
+
+    assert store.is_entry_too_new({"requires_app": "beta"}, app_version="1.6.6") is False
+    assert store.entry_requires_app(None) == ""
+    assert store.is_entry_too_new(None, app_version="1.6.6") is False
+
+
+def test_le_plancher_refuse_l_installation_en_nommant_la_version(isolated_scrapers, monkeypatch):
+    from services import scraper_store as store
+
+    catalog = _floor_catalog({"requires_app": "1.7.0"})
+    monkeypatch.setattr(store, "fetch_catalog", lambda **kw: catalog)
+    monkeypatch.setattr(store, "_download_catalog_python", lambda **kw: b"# scraper\n")
+    _pin_app_version(monkeypatch, "1.6.6")
+
+    with pytest.raises(store.StoreError) as excinfo:
+        store.install_from_catalog("FUTURESRC", force=True)
+
+    assert excinfo.value.status_code == 409
+    assert "1.7.0" in excinfo.value.message
+
+
+def test_un_core_trop_recent_n_ecrase_pas_la_copie_installee(isolated_scrapers, monkeypatch):
+    """Le cas réel : la copie installée fonctionne, celle du catalogue non."""
+    from services import scraper_store as store
+
+    scrapers_dir = isolated_scrapers["scrapers_dir"]
+    installed = b"# copie qui fonctionne\n"
+    (scrapers_dir / "future_src.py").write_bytes(installed)
+
+    catalog = _floor_catalog({"requires_app": "1.7.0", "version": "9.9.9"}, is_core=True)
+    monkeypatch.setattr(store, "fetch_catalog", lambda **kw: catalog)
+    monkeypatch.setattr(store, "_download_catalog_python", lambda **kw: b"# copie qui casse\n")
+    _pin_app_version(monkeypatch, "1.6.6")
+
+    result = store.sync_core_from_catalog(auto_update=True)
+
+    assert result["updated"] == []
+    assert result["seeded"] == []
+    assert (scrapers_dir / "future_src.py").read_bytes() == installed, (
+        "la copie installée a été remplacée par une copie que cette image ne sait pas importer"
+    )
+
+
+def test_un_core_sans_plancher_est_toujours_synchronise(isolated_scrapers, monkeypatch):
+    """Garde-fou : le plancher ne doit pas geler la synchronisation existante."""
+    from services import scraper_store as store
+
+    body = b"# core neuf\nis_core = True\n\n\nclass Neuf:\n    version = \"9.9.9\"\n"
+    catalog = _floor_catalog({"version": "9.9.9"}, body=body, is_core=True)
+    monkeypatch.setattr(store, "fetch_catalog", lambda **kw: catalog)
+    monkeypatch.setattr(store, "_download_catalog_python", lambda **kw: body)
+    _pin_app_version(monkeypatch, "1.6.6")
+
+    result = store.sync_core_from_catalog(auto_update=True)
+
+    assert "future_src.py" in (result["seeded"] + result["updated"])
+
+
+def test_une_entree_trop_recente_ne_propose_pas_de_mise_a_jour(isolated_scrapers, monkeypatch):
+    """Annoncer une mise à jour que l'installation refusera ne vaut qu'un clic perdu."""
+    from services import scraper_store as store
+
+    catalog = _floor_catalog({"requires_app": "1.7.0"})
+    _pin_app_version(monkeypatch, "1.6.6")
+
+    row = store.enrich_catalog_for_ui(catalog, lang="fr")["scrapers"][0]
+
+    assert row["too_new"] is True
+    assert row["requires_app"] == "1.7.0"
+    assert row["update_available"] is False
+
+
+def test_l_index_liste_les_entrees_trop_recentes(isolated_scrapers, monkeypatch):
+    from services import scraper_store as store
+
+    catalog = _floor_catalog({"requires_app": "1.7.0"})
+    _pin_app_version(monkeypatch, "1.6.6")
+
+    assert store.catalog_index(catalog)["too_new_ids"] == {"FUTURESRC"}
+
+
+def test_un_catalogue_injoignable_rend_quand_meme_la_cle(isolated_scrapers, monkeypatch):
+    """Les appelants lisent ces clés sans vérifier `available` : une absente serait
+    un KeyError sur le chemin hors ligne."""
+    from services import scraper_store as store
+
+    def _offline(**kw):
+        raise store.StoreError("offline")
+
+    monkeypatch.setattr(store, "fetch_catalog", _offline)
+
+    index = store.catalog_index()
+
+    assert index["available"] is False
+    assert index["too_new_ids"] == set()
+    assert index["retired_ids"] == set()

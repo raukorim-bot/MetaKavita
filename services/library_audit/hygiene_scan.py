@@ -20,7 +20,7 @@ from db_manager import (
 )
 from kavita_api import KavitaAPI
 from scrapers.utils import get_dup_accept_threshold
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 from services.library_audit.catalog_count import (
     apply_catalog_override,
     resolve_catalog_expected,
@@ -124,7 +124,19 @@ def start_hygiene_scan(
         daemon=True,
         name="hygiene-scan",
     )
-    t.start()
+    try:
+        t.start()
+    except Exception as exc:
+        # Un thread qui ne démarre pas laisserait `running` à vrai pour
+        # toujours : tous les clics suivants sur « Analyser » répondraient 409,
+        # `cancel_hygiene_scan()` ne réparerait rien, et seul un redémarrage du
+        # conteneur débloquerait. Même patron que la passe tomes (voir
+        # services/volume_enrichment/job.py::start_volume_enrich).
+        with _lock:
+            _state["running"] = False
+            _state["error"] = safe_exc_str(exc)
+        logging.error("[Inventaire] scan non démarré : %s", safe_exc_str(exc))
+        return {"success": False, "error": safe_exc_str(exc)}
     return {"success": True, "started": True, "mode": mode}
 
 
@@ -366,7 +378,9 @@ def _run_scan(
                 failed = True
                 failed_count += 1
                 logging.warning(
-                    "[Inventaire] series %s failed: %s", sid, safe_exc_str(e)
+                    "[Inventaire] %s : analyse en échec — %s",
+                    series_label(name, sid),
+                    safe_exc_str(e),
                 )
 
             with _lock:

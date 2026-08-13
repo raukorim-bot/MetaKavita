@@ -23,7 +23,7 @@ import time
 from collections import deque
 from datetime import datetime, timezone
 
-from flask import redirect, request, session, url_for
+from flask import after_this_request, jsonify, redirect, request, session, url_for
 from werkzeug.security import check_password_hash, generate_password_hash
 
 import db_manager
@@ -783,6 +783,14 @@ _COMPANION_EMBED_DENIED_ENDPOINTS = frozenset({
     "manual_review.api_manual_reviews_purge",
 })
 
+# Endpoints qui CONCLUENT une revue. Au-delà, le jeton d'embed n'a plus rien à
+# autoriser : il est révoqué (voir `_revoke_embed_token_after_completion`).
+_COMPANION_EMBED_COMPLETION_ENDPOINTS = frozenset({
+    "manual_review.api_manual_review_choice",
+    "manual_review.api_manual_review_confirm",
+    "manual_review.api_manual_review_skip",
+})
+
 
 def _companion_embed_may_call_manual_review(endpoint: str) -> bool:
     """Portée série d'un jeton d'embed sur les routes de review manuelle.
@@ -814,6 +822,99 @@ def _companion_embed_may_call_manual_review(endpoint: str) -> bool:
         return int(review.get("series_id")) == scope
     except (TypeError, ValueError):
         return False
+
+
+def companion_embed_may_call(endpoint=None) -> bool:
+    """True si le jeton d'embed porté par la requête couvre CET endpoint.
+
+    Décision UNIQUE, partagée par `login_gate` et par l'exemption CSRF de
+    `csrf_utils`. Cette dernière la refaisait de son côté, en plus permissif :
+    elle acceptait n'importe quel jeton encore valide, sans série ni endpoint.
+    Un jeton émis pour une série quelconque désactivait donc la protection CSRF
+    de TOUTE l'application (`POST /save-config`, `/account/password`, …), alors
+    que ce jeton n'est pas un secret bien gardé — il voyage en query string
+    (`/companion/embed?embed_token=…`, `<img src=/api/proxy-image?…>`), donc dans
+    les journaux du reverse proxy, l'historique et le `Referer`.
+
+    Ne dit rien de la session : un appelant authentifié passe par `login_gate`
+    comme avant.
+    """
+    endpoint = (request.endpoint or "") if endpoint is None else (endpoint or "")
+    if not endpoint:
+        return False
+    if endpoint.startswith(_COMPANION_EMBED_API_PREFIXES):
+        return _companion_embed_may_call_manual_review(endpoint)
+    # Companion Cover Pick : couverture d'UNE série, donc jeton scopé à cette série.
+    if endpoint in ("series.get_series_covers", "series.apply_series_cover"):
+        series_id = (request.view_args or {}).get("series_id")
+        if series_id is None:
+            return False
+        try:
+            return companion_embed_authorized(int(series_id))
+        except (TypeError, ValueError):
+            return False
+    # Previews du cover picker : un <img> de la page Kavita ne peut pas porter
+    # l'en-tête X-Companion-Embed-Token, le jeton voyage donc en query. La
+    # portée reste étroite : l'allowlist de domaines et le plafond de taille de
+    # `misc.proxy_image` s'appliquent inchangés.
+    if endpoint == "misc.proxy_image":
+        return companion_embed_authorized()
+    return False
+
+
+def _embed_response_is_terminal(response) -> bool:
+    """True si la réponse conclut la revue, et non une simple étape.
+
+    `/choice` peut n'être qu'une étape : il renvoie `mode="preview"` quand la
+    phase d'édition reste à venir. Révoquer le jeton à ce moment-là couperait
+    l'embed au milieu de la revue.
+    """
+    try:
+        data = response.get_json(silent=True)
+    except Exception:  # noqa: BLE001 - une réponse non JSON est terminale
+        return True
+    if not isinstance(data, dict):
+        return True
+    if data.get("success") is False:
+        return False
+    return str(data.get("mode") or "") != "preview"
+
+
+def _revoke_embed_token_after_completion(endpoint):
+    """Révoque le jeton d'embed dès que la revue est conclue (usage unique).
+
+    Le jeton contourne la session ET, dans son périmètre, le CSRF ; il voyage en
+    query string. Le laisser vivre jusqu'à son expiration après un
+    « Confirmer » / « Passer » laissait une capacité réutilisable sur la série
+    pendant un quart d'heure, alors que le shell d'embed est déjà fermé.
+
+    Révocation en `after_this_request` et non tout de suite : la vue appelée
+    revalide le jeton, et on ne révoque que si elle a réellement conclu (2xx, et
+    pas un simple `mode="preview"`) — sinon un échec de la vue fermerait la revue
+    au lieu de laisser l'utilisateur réessayer.
+    """
+    if endpoint not in _COMPANION_EMBED_COMPLETION_ENDPOINTS:
+        return
+    try:
+        from services.companion_embed_auth import (
+            request_embed_token,
+            revoke_embed_token,
+        )
+
+        token = request_embed_token()
+        if not token:
+            return
+
+        @after_this_request
+        def _revoke(response):
+            try:
+                if response.status_code < 400 and _embed_response_is_terminal(response):
+                    revoke_embed_token(token)
+            except Exception:  # noqa: BLE001 - ne doit jamais casser la réponse
+                pass
+            return response
+    except Exception:  # noqa: BLE001 - best-effort, jamais bloquant
+        pass
 
 
 def setup_gate():
@@ -866,24 +967,54 @@ def login_gate():
             except (TypeError, ValueError):
                 pass
     endpoint = request.endpoint or ""
-    if endpoint.startswith(_COMPANION_EMBED_API_PREFIXES):
-        if _companion_embed_may_call_manual_review(endpoint):
-            return None
-    # Companion Cover Pick: series-scoped embed token on cover GET/POST.
-    if endpoint in ("series.get_series_covers", "series.apply_series_cover"):
-        view_args = request.view_args or {}
-        sid = view_args.get("series_id")
-        if sid is not None:
-            try:
-                if companion_embed_authorized(int(sid)):
-                    return None
-            except (TypeError, ValueError):
-                pass
-    # Companion Cover Pick previews: <img> on the Kavita page cannot send
-    # X-Companion-Embed-Token headers, so the token is passed as ?embed_token=.
-    # Domain allowlist + size cap still apply inside misc.proxy_image.
-    if endpoint == "misc.proxy_image" and companion_embed_authorized():
+    # Périmètre du jeton d'embed : une seule décision, réutilisée telle quelle
+    # par l'exemption CSRF de `csrf_utils` (voir `companion_embed_may_call`).
+    if companion_embed_may_call(endpoint):
+        _revoke_embed_token_after_completion(endpoint)
         return None
     if not is_authenticated():
-        return redirect(url_for("auth.login"))
+        return _unauthenticated_response()
     return None
+
+
+def _wants_json_error() -> bool:
+    """True si l'appelant attend du JSON plutôt qu'une page HTML.
+
+    Mêmes critères que `csrf_utils.csrf_protect_before_request` : les deux gates
+    doivent refuser de la même façon, sinon le frontend a deux formes d'échec
+    d'authentification à gérer.
+    """
+    return bool(
+        request.path.startswith("/api/")
+        or request.is_json
+        or request.headers.get("X-Requested-With") == "XMLHttpRequest"
+        or request.accept_mimetypes.best == "application/json"
+        or "application/json" in (request.headers.get("Accept") or "")
+    )
+
+
+def _unauthenticated_response():
+    """401 JSON pour un appel d'API, redirection vers /login pour une navigation.
+
+    `fetch()` suit les redirections en silence : répondre 302 vers /login faisait
+    recevoir au JS un 200 porteur du HTML de la page de connexion, dont
+    `r.json()` levait une `SyntaxError` avalée par les `.catch()` génériques.
+    Tous les boutons annonçaient « Erreur réseau » sur une instance parfaitement
+    saine — un tableau de bord laissé ouvert jusqu'à l'expiration de la session
+    (7 jours), ou un conteneur redémarré avec une SECRET_KEY éphémère, suffit à
+    déclencher le cas.
+
+    L'en-tête `X-MetaKavita-Auth` permet au client partagé
+    (`static/js/utils.js`) de recharger la page — donc d'afficher le véritable
+    écran de connexion — sans avoir à consommer le corps de la réponse.
+    """
+    if not _wants_json_error():
+        return redirect(url_for("auth.login"))
+    response = jsonify({
+        "success": False,
+        "code": "unauthenticated",
+        "msg": "Session expirée ou absente. Rechargez la page pour vous reconnecter.",
+    })
+    response.status_code = 401
+    response.headers["X-MetaKavita-Auth"] = "required"
+    return response

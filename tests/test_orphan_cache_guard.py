@@ -4,11 +4,12 @@ Garde-fous contre la purge du cache déclenchée par un inventaire Kavita tronqu
 `series_cache` ne contient pas que du cache : id forcé, champs ciblés, préférence
 éditeur et drapeau de couverture manuelle y vivent, et supprimer une ligne
 supprime la review en attente associée. Or `get_all_series()` attrape ses erreurs
-par bibliothèque : une seule qui ne répond pas (timeout de 10 s, 500 pendant un
-scan Kavita) renvoyait une liste tronquée que `clean_orphaned_cache` prenait pour
-la vérité, effaçant des réglages saisis à la main sans aucun moyen de les
-retrouver. Deux verrous sont testés ici : le signal de complétude posé par
-`KavitaAPI`, et le refus défensif d'une purge sur inventaire vide.
+et rend une liste malgré tout : un `all-v2` qui ne répond pas (timeout de 10 s,
+500 pendant un scan Kavita) renvoyait un inventaire tronqué que
+`clean_orphaned_cache` prenait pour la vérité, effaçant des réglages saisis à la
+main sans aucun moyen de les retrouver. Deux verrous sont testés ici : le signal
+de complétude posé par `KavitaAPI`, et le refus défensif d'une purge sur
+inventaire vide.
 """
 import os
 
@@ -52,24 +53,37 @@ def test_full_inventory_is_flagged_complete(mocker):
     assert api.last_inventory_complete is True
 
 
-def test_library_returning_an_http_error_marks_the_inventory_incomplete(mocker):
-    """Cas réel : Kavita répond 500 sur `all-v2` pendant un de ses scans."""
+def test_an_http_error_on_the_inventory_call_marks_it_incomplete(mocker):
+    """Cas réel : Kavita répond 500 sur `all-v2` pendant un de ses scans.
+
+    L'inventaire tient désormais en un seul appel — `SeriesFilterV2Dto` n'a pas de
+    `libraryId`, donc un appel par bibliothèque rendait N fois le même catalogue.
+    Il n'y a donc plus de « bibliothèque muette » isolée : quand cet appel échoue,
+    il n'y a plus d'inventaire du tout, et surtout pas de feu vert pour purger."""
     api = _api()
     mocker.patch.object(
         KavitaAPI, "get_libraries",
         return_value=[{"id": 1, "type": 0}, {"id": 2, "type": 0}],
     )
+    mocker.patch("kavita_api.requests.post", return_value=_Res(500))
 
-    def _post(url, **kwargs):
-        if kwargs.get("json", {}).get("libraryId") == 2:
-            return _Res(500)
-        return _Res(200, [{"id": 10, "name": "A", "libraryId": 1}])
+    assert api.get_all_series() == []
+    assert api.last_inventory_complete is False
 
-    mocker.patch("kavita_api.requests.post", side_effect=_post)
 
-    series = api.get_all_series()
+def test_series_from_an_unknown_library_never_validate_the_inventory(mocker):
+    """L'appel unique rend tout le catalogue visible, y compris des séries d'une
+    bibliothèque que `GET /api/Library/libraries` n'a pas listée (droits, filtre
+    explicite). Non rattachables, elles ne sont pas typables : mieux vaut un
+    inventaire vide et non complet qu'une liste que la purge croirait complète."""
+    api = _api()
+    mocker.patch.object(KavitaAPI, "get_libraries", return_value=[{"id": 1, "type": 0}])
+    mocker.patch(
+        "kavita_api.requests.post",
+        return_value=_Res(200, [{"id": 77, "name": "Z", "libraryId": 9}]),
+    )
 
-    assert [s["id"] for s in series] == [10], "la biblio lisible reste servie"
+    assert api.get_all_series() == []
     assert api.last_inventory_complete is False
 
 

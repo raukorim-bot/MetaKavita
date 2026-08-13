@@ -1,8 +1,12 @@
+"""⚠️ SCRIPT À USAGE MANUEL — INTERROGE DIRECTEMENT L'API GRAPHQL HARDCOVER."""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
 
 import json
 from curl_cffi import requests
@@ -20,6 +24,7 @@ API_TOKEN = load_config().get("HARDCOVER_API_KEY", "").strip() or os.getenv("HAR
 SEARCH_QUERY = "Choses dites"
 
 def run_test():
+    confirm_live_network("debug_hardcover.py", "l'API GraphQL Hardcover")
     print(f"🔍 Lancement de la recherche Hardcover pour : '{SEARCH_QUERY}'\n")
 
     auth_token = f"Bearer {API_TOKEN}" if not API_TOKEN.startswith("Bearer") else API_TOKEN

@@ -74,6 +74,29 @@ function isBatchInProgress() {
     return batchProgressTotal > 0;
 }
 
+/**
+ * Le libellé d'un bouton de la barre d'actions vit dans son `.ba-label` : écrire
+ * dans le bouton lui-même effacerait le pictogramme SVG posé à côté. Les deux
+ * helpers acceptent l'ancienne forme (texte nu) pour ne rien casser ailleurs.
+ */
+function batchBtnLabel(btn) {
+    if (!btn) return '';
+    const slot = btn.querySelector('.ba-label');
+    return slot ? slot.textContent : btn.innerText;
+}
+
+function setBatchBtnLabel(btn, text) {
+    if (!btn) return;
+    const slot = btn.querySelector('.ba-label');
+    if (slot) slot.textContent = text;
+    else btn.innerText = text;
+}
+
+/** Signale un état passager : le pictogramme s'efface, l'émoji du message parle. */
+function setBatchBtnBusy(btn, busy) {
+    if (btn && btn.classList) btn.classList.toggle('is-busy', !!busy);
+}
+
 function mainBatchIdleLabel() {
     const T = window.AppTranslations || {};
     if (isBatchInProgress()) {
@@ -92,8 +115,15 @@ function mainBatchIdleHint() {
 
 function syncMainBatchBtnLabel() {
     const btn = document.getElementById('mainBatchBtn');
-    if (!btn || mainBatchBtnBusy) return;
-    btn.innerText = mainBatchIdleLabel();
+    // L'état de la barre ne dépend pas d'un message passager : le bouton d'arrêt
+    // doit devenir franc dès qu'un lot tourne, « Envoi… » affiché ou non.
+    const bar = document.getElementById('batchActions');
+    if (bar) bar.dataset.state = isBatchInProgress() ? 'running' : 'idle';
+    if (!btn) return;
+    if (btn.dataset) btn.dataset.mode = isBatchInProgress() ? 'append' : 'run';
+    if (mainBatchBtnBusy) return;
+    setBatchBtnBusy(btn, false);
+    setBatchBtnLabel(btn, mainBatchIdleLabel());
     const hint = mainBatchIdleHint();
     if (hint) btn.title = hint;
 }
@@ -478,11 +508,14 @@ function syncSingle(id, name, btn) {
         const altLangsInput = document.getElementById('alt-langs-' + id);
         const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
         
-        const fields = ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'format', 'weblinks', 'alt_titles', 'language'];
+        // Même contrat que overrides.js::saveOverride : liste vide → 'NONE'.
+        const fields = (typeof TARGETED_FIELD_KEYS !== 'undefined' && TARGETED_FIELD_KEYS)
+            ? TARGETED_FIELD_KEYS
+            : ['summary', 'cover', 'staff', 'genres', 'tags', 'year', 'status', 'publisher', 'age', 'weblinks', 'alt_titles', 'language'];
         const activeFields = fields.filter(f => {
             const cb = document.getElementById(`field-${f}-${id}`);
             return cb && cb.checked;
-        }).join(',');
+        }).join(',') || 'NONE';
         
         const loading = setSeriesSyncBusy(btn, true);
         
@@ -584,7 +617,8 @@ async function launchBatch(event) {
 
     if (ids.length === 0) {
         mainBatchBtnBusy = true;
-        btn.innerText = window.AppTranslations.batch_empty;
+        setBatchBtnBusy(btn, true);
+        setBatchBtnLabel(btn, window.AppTranslations.batch_empty);
         setTimeout(function () {
             mainBatchBtnBusy = false;
             syncMainBatchBtnLabel();
@@ -617,7 +651,8 @@ async function launchBatch(event) {
     batchEnqueueController = typeof AbortController !== 'undefined' ? new AbortController() : null;
 
     mainBatchBtnBusy = true;
-    btn.innerText = window.AppTranslations.batch_sending;
+    setBatchBtnBusy(btn, true);
+    setBatchBtnLabel(btn, window.AppTranslations.batch_sending);
 
     const batchFieldsMask = getBatchTargetedFieldsMask();
     let stopped = false;
@@ -728,9 +763,9 @@ async function launchBatch(event) {
     }
 
     if (stopped || batchEnqueueAbort) {
-        btn.innerText = window.AppTranslations.batch_stopped || '🛑 Batch stopped!';
+        setBatchBtnLabel(btn, window.AppTranslations.batch_stopped || '🛑 Batch stopped!');
     } else {
-        btn.innerText = window.AppTranslations.batch_ok;
+        setBatchBtnLabel(btn, window.AppTranslations.batch_ok);
     }
     setTimeout(function () {
         mainBatchBtnBusy = false;
@@ -877,7 +912,8 @@ function stopBatch() {
     .then(data => {
         const btn = document.getElementById('mainBatchBtn');
         mainBatchBtnBusy = true;
-        if (btn) btn.innerText = window.AppTranslations.batch_stopped || window.AppTranslations.launchBatch;
+        setBatchBtnBusy(btn, true);
+        setBatchBtnLabel(btn, window.AppTranslations.batch_stopped || window.AppTranslations.launchBatch);
         setTimeout(function () {
             mainBatchBtnBusy = false;
             syncMainBatchBtnLabel();
@@ -887,15 +923,19 @@ function stopBatch() {
 
 // --- AMNISTIE DES ERREURS ET DES IGNORÉS (AJAX) ---
 function resetErrors(btn) {
-    const originalText = btn.innerText;
-    btn.innerText = "⏳...";
-    
+    const originalText = batchBtnLabel(btn);
+    setBatchBtnBusy(btn, true);
+    setBatchBtnLabel(btn, "⏳...");
+
     fetch(getRootPath() + '/reset-errors', { method: 'POST' })
     .then(res => res.json())
     .then(data => {
         if (data.success) {
-            btn.innerText = (window.AppTranslations || {}).action_ok || '✅ OK';
-            setTimeout(() => { btn.innerText = originalText; }, 2000);
+            setBatchBtnLabel(btn, (window.AppTranslations || {}).action_ok || '✅ OK');
+            setTimeout(() => {
+                setBatchBtnLabel(btn, originalText);
+                setBatchBtnBusy(btn, false);
+            }, 2000);
             
             // Remise à jour visuelle des éléments NOT_FOUND et IGNORED en PENDING
             document.querySelectorAll('.series-item[data-status="NOT_FOUND"], .series-item[data-status="IGNORED"]').forEach(item => {
@@ -1029,8 +1069,9 @@ async function ignoreSelection() {
     if (ids.length === 0) return;
 
     const btn = document.getElementById('batchIgnoreBtn');
-    const originalText = btn.innerText;
-    btn.innerText = "⏳...";
+    const originalText = batchBtnLabel(btn);
+    setBatchBtnBusy(btn, true);
+    setBatchBtnLabel(btn, "⏳...");
     btn.disabled = true;
 
     for (let seriesId of ids) {
@@ -1081,9 +1122,10 @@ async function ignoreSelection() {
         }
     }
 
-    btn.innerText = (window.AppTranslations || {}).action_ok || '✅ OK';
+    setBatchBtnLabel(btn, (window.AppTranslations || {}).action_ok || '✅ OK');
     setTimeout(() => {
-        btn.innerText = originalText;
+        setBatchBtnLabel(btn, originalText);
+        setBatchBtnBusy(btn, false);
         btn.disabled = false;
         filterSeries();
     }, 1000);

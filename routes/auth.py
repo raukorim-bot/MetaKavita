@@ -39,7 +39,6 @@ _SETUP_BOOL_DEFAULTS = {
     'SMART_COMPLETION': True,
     'MANUAL_REVIEW_MODE': False,
     'AUTO_COVER': False,
-    'AUTO_READING_DIR': False,
     'TITLE_FALLBACK_TRANSLATION': False,
 }
 _SETUP_AUTO_SYNC_DEFAULT = 360  # 6 h
@@ -409,10 +408,86 @@ def _kavita_probe_fail_message(t, detail: str) -> str:
     )
 
 
+def _probe_target_is_link_local(url: str) -> bool:
+    """True si l'URL visée est en lien-local ou pointe un service de metadata.
+
+    Volontairement PAS `url_allowlist._is_blocked_host`, qui refuse aussi 10/8,
+    172.16/12 et 192.168/16 : Kavita est auto-hébergé, il vit précisément sur ces
+    plages, et les interdire ici rendrait le bouton « Tester » inutile pour
+    l'installation normale. Le lien-local, lui, n'héberge jamais un Kavita — mais
+    c'est là que répond le service de metadata d'un hébergeur cloud
+    (169.254.169.254), la cible classique d'une sonde réseau détournée.
+    """
+    import ipaddress
+    from urllib.parse import urlparse
+
+    try:
+        host = (urlparse(url).hostname or '').lower()
+    except ValueError:
+        return False
+    if not host:
+        return False
+    if host in ('metadata.google.internal', 'metadata'):
+        return True
+    try:
+        return ipaddress.ip_address(host.strip('[]')).is_link_local
+    except ValueError:
+        return False
+
+
+def _kavita_probe_owner_proof_ok() -> bool:
+    """Preuve de propriété exigée avant de laisser le serveur émettre un POST.
+
+    Cette route est dans les deux listes blanches des gates : tant que
+    `setup_required()` est vrai, elle est joignable sans session. Sur une
+    installation neuve c'est nécessaire (le wizard doit pouvoir tester Kavita
+    avant qu'un compte existe) et sans conséquence : le premier arrivé peut de
+    toute façon revendiquer l'instance par `/setup`, donc la sonde ne lui apprend
+    rien qu'il ne puisse obtenir ensuite.
+
+    Le cas gênant est l'instance DÉJÀ EN SERVICE qui vient d'être mise à niveau :
+    la table `users` est vide, donc `setup_required()` est vrai, et n'importe qui
+    sur le réseau faisait émettre au serveur un POST vers l'URL de son choix en
+    lisant le code d'erreur renvoyé (`dns` / `connection` / `timeout` / `ssl` /
+    `http_401`), c'est-à-dire un balayage réseau précis depuis l'intérieur. Le
+    mainteneur exige déjà l'ancien `ADMIN_PASSWORD` pour `POST /setup` : cette
+    route demande la même preuve, et rien de plus.
+
+    ⚠️ `templates/setup.html` n'envoie pas encore `legacy_password` avec le test
+    Kavita : sur une instance mise à niveau, le bouton « Tester » affiche donc
+    l'avertissement générique jusqu'à ce que ce champ soit joint au POST. Le test
+    n'a jamais été bloquant pour terminer le wizard.
+    """
+    if auth_manager.is_authenticated():
+        return True
+    if not auth_manager.legacy_proof_required():
+        return True
+
+    locked, remaining = auth_manager.is_locked_out()
+    if locked:
+        auth_manager.log_lockout_reject(remaining_seconds=remaining)
+        return False
+
+    candidate = request.form.get('legacy_password', '')
+    if auth_manager.verify_legacy_password(candidate):
+        return True
+    if candidate:
+        # Même comptabilité que /setup : sans elle, cette route offrirait une
+        # force brute illimitée sur la preuve de propriété.
+        auth_manager.register_failed_attempt()
+    logging.info(
+        "[Setup] Test Kavita refusé : instance déjà en service (ADMIN_PASSWORD "
+        "encore présent) et aucune preuve de propriété fournie."
+    )
+    return False
+
+
 @auth_bp.route('/setup/test-kavita', methods=['POST'])
 def setup_test_kavita():
     """Ping auth Kavita pendant le wizard — n'écrit pas la config."""
     if not auth_manager.setup_required() and not auth_manager.is_authenticated():
+        return jsonify(ok=False, error='forbidden'), 403
+    if not _kavita_probe_owner_proof_ok():
         return jsonify(ok=False, error='forbidden'), 403
 
     lang_arg = request.form.get('UI_LANG') or request.args.get('lang')
@@ -430,6 +505,14 @@ def setup_test_kavita():
             ok=False,
             error='missing',
             message=t.get('setup_kavita_test_missing', 'URL et clé API requises.'),
+        )
+    if _probe_target_is_link_local(url):
+        # Refus AVANT tout appel réseau : ni sortie vers le service de metadata,
+        # ni code d'erreur qui dirait si quelque chose écoute là.
+        return jsonify(
+            ok=False,
+            error='blocked',
+            message=_kavita_probe_fail_message(t, 'blocked'),
         )
 
     try:

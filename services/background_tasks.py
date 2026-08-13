@@ -27,6 +27,12 @@ sync_queue = queue.Queue()
 # Sérialise put / put_front / drain-detach qui réordonnent la file RAM.
 _sync_queue_lock = threading.Lock()
 
+# Sérialise « lire la file SQLite, écarter ce qui est déjà en RAM, empiler » :
+# deux hydrates concurrents (double-clic sur « Reprendre », ou Reprendre pendant
+# qu'un /batch-sync lève la pause) liraient les mêmes lignes `queued` avant que
+# l'un des deux ne les ait poussées. Toujours pris AVANT `_sync_queue_lock`.
+_hydrate_lock = threading.Lock()
+
 # Après Stop, rejette les paquets /batch-sync encore en vol (chunks de 50 côté UI).
 # Le premier chunk d'un nouveau lancement renvoie `resume_enqueue=true` pour réarmer.
 _batch_enqueue_lock = threading.Lock()
@@ -100,6 +106,10 @@ def register_batch_enqueue(count, new_batch):
     que le premier paquet doit déjà pouvoir afficher une progression.
     À appeler AVANT `put_sync(...)` pour que le worker ne lise jamais un
     total pas encore à jour.
+
+    ⚠️ `new_batch` décidé par l'appelant vaut pour un appelant qui SAIT déjà
+    qu'il ouvre le lot. Quand la décision se déduit de l'état courant, elle
+    doit se prendre ici : voir `register_batch_enqueue_if_first`.
     """
     global _batch_total, _batch_done, _batch_real_sends
     with _batch_progress_lock:
@@ -108,6 +118,34 @@ def register_batch_enqueue(count, new_batch):
             _batch_done = 0
             _batch_real_sends = 0
         _batch_total += max(0, int(count))
+
+
+def register_batch_enqueue_if_first(count) -> bool:
+    """Empile `count` séries et décide *ici* si elles ouvrent un nouveau lot.
+
+    Le test « un lot tourne-t-il déjà ? » et la remise à zéro des compteurs
+    doivent tenir dans la même section critique. Sous eventlet, `/batch-sync`
+    rend la main entre les deux — authentification Kavita, inventaire, lecture
+    du cache, écriture de la file SQLite : deux onglets, ou un double-clic sur
+    « Lancer », lisaient tous les deux « aucun lot en cours » et le second
+    remettait `_batch_total`/`_batch_done`/`_batch_real_sends` à zéro EN PLEIN
+    MILIEU du premier. Comme `_batch_done` est plafonné par `_batch_total`, la
+    barre atteignait alors la fin à la moitié du lot : l'UI recevait
+    `remaining: 0`, la barre disparaissait, et l'utilisateur pouvait fermer
+    l'onglet ou éteindre le conteneur pendant que la seconde moitié des séries
+    s'écrivait encore vers Kavita.
+
+    Rend True si ce paquet a bien ouvert le lot (compteurs repartis de zéro).
+    """
+    global _batch_total, _batch_done, _batch_real_sends
+    with _batch_progress_lock:
+        active = _batch_total > 0 and _batch_done < _batch_total
+        if not active:
+            _batch_total = 0
+            _batch_done = 0
+            _batch_real_sends = 0
+        _batch_total += max(0, int(count))
+    return not active
 
 
 def put_sync(item) -> None:
@@ -299,25 +337,73 @@ def detach_batch_from_ram() -> int:
     return drained
 
 
-def hydrate_batch_queue_to_ram(*, new_batch: bool = True) -> int:
-    """Pousse les lignes SQLite `queued` vers sync_queue (reprise / boot)."""
+def queued_series_ids(*, batch_only: bool = False) -> set:
+    """Séries qui attendent déjà leur tour dans la file RAM.
+
+    État DÉRIVÉ de la file, et non un registre tenu en parallèle : un compteur
+    alimenté par les quatre producteurs et purgé par le worker se désynchronise
+    au premier chemin oublié, et une entrée fantôme exclurait une série de
+    l'auto-sync jusqu'au redémarrage du conteneur. La série en cours de
+    traitement n'y figure pas (elle a quitté la file) — la réenfiler une fois
+    ne coûte qu'un passage « déjà à jour ».
+
+    Rend un ensemble vide si la file ne sait pas s'inspecter (double de test).
+    """
+    mutex = getattr(sync_queue, "mutex", None)
+    pending = getattr(sync_queue, "queue", None)
+    if mutex is None or pending is None:
+        return set()
+    with mutex:
+        snapshot = list(pending)
+    out = set()
+    for item in snapshot:
+        if not isinstance(item, dict):
+            continue
+        if batch_only and not item.get("is_batch"):
+            continue
+        try:
+            out.add(int(item["series_id"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
+
+
+def hydrate_batch_queue_to_ram(*, new_batch=None) -> int:
+    """Pousse les lignes SQLite `queued` vers sync_queue (reprise / boot).
+
+    `new_batch=None` : la décision se prend au moment d'incrémenter les
+    compteurs (voir `register_batch_enqueue_if_first`), parce que l'appelant
+    HTTP la déduirait d'une lecture déjà périmée.
+
+    Les séries déjà présentes en RAM sont écartées : la route « Reprendre »
+    hydrate sans condition, et un double-clic empilait donc deux fois chaque
+    série — deux enrichissements pour une, et un `_batch_total` doublé qui
+    faisait attendre la barre des séries qui n'existaient pas.
+    """
     from services import batch_queue as bq
 
-    items = bq.list_queued_for_hydrate()
-    if not items:
-        return 0
-    register_batch_enqueue(len(items), new_batch=new_batch)
-    for s in items:
-        put_sync(
-            make_sync_item(
-                s["series_id"],
-                s["series_name"],
-                s["force_update"],
-                s.get("fields_override"),
-                is_batch=True,
+    with _hydrate_lock:
+        items = bq.list_queued_for_hydrate()
+        already = queued_series_ids(batch_only=True)
+        if already:
+            items = [s for s in items if int(s["series_id"]) not in already]
+        if not items:
+            return 0
+        if new_batch is None:
+            register_batch_enqueue_if_first(len(items))
+        else:
+            register_batch_enqueue(len(items), new_batch=new_batch)
+        for s in items:
+            put_sync(
+                make_sync_item(
+                    s["series_id"],
+                    s["series_name"],
+                    s["force_update"],
+                    s.get("fields_override"),
+                    is_batch=True,
+                )
             )
-        )
-    return len(items)
+        return len(items)
 
 
 def _abandon_sync_item(series_id, is_batch: bool) -> None:
@@ -447,6 +533,63 @@ def select_auto_sync_candidates(all_series, cached, config=None):
     return candidates
 
 
+def _auto_sync_tick(config, t) -> int:
+    """Un tour de polling auto-sync. Rend le nombre de séries enfilées.
+
+    Le critère de candidature (« absente du cache, ou PENDING ») ne bouge
+    qu'une fois la série traitée par le worker unique. Un tick ne regardait ni
+    `sync_queue` ni ce que le tick précédent avait empilé : avec un intervalle
+    de six heures et plusieurs milliers de séries, le backlog dépasse
+    l'intervalle et TOUT repartait à chaque tour. Chaque doublon coûtait une
+    authentification et un `get_series_metadata` pour aboutir à « Déjà à jour »,
+    mais surtout il passait devant ce que l'utilisateur enfilerait ensuite — et
+    « Stop » ne retire que les items de lot, donc rien dans l'interface ne
+    permettait de purger ces fantômes.
+    """
+    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+    if not kavita.authenticate():
+        return 0
+
+    logging.info(t.get('log_auto_sync_start'))
+    # Inventaire complet : le nettoyage du cache doit voir les
+    # séries des bibliothèques exclues du polling, sinon elles
+    # seraient traitées comme orphelines et purgées.
+    all_series = kavita.get_all_series()
+    # Une bibliothèque muette (timeout, 500) tronque
+    # l'inventaire : purger sur cette base effacerait les
+    # réglages manuels de séries bien vivantes.
+    if getattr(kavita, "last_inventory_complete", False):
+        active_ids = {s['id'] for s in all_series}
+        clean_orphaned_cache(active_ids)
+    else:
+        logging.warning(t.get("log_orphans_skipped", "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet."))
+    cached = get_all_cached_data()
+
+    to_process = select_auto_sync_candidates(all_series, cached, config)
+    if not to_process:
+        return 0
+
+    already = queued_series_ids()
+    if already:
+        fresh = [s for s in to_process if int(s['id']) not in already]
+        skipped = len(to_process) - len(fresh)
+        if skipped:
+            logging.info(
+                t.get(
+                    "log_auto_sync_already_queued",
+                    "⏭️ [Auto-Sync] {0} série(s) déjà en file d'attente, non réenfilée(s).",
+                ).format(skipped)
+            )
+        to_process = fresh
+    if not to_process:
+        return 0
+
+    logging.info(t.get('log_auto_sync_found').format(len(to_process)))
+    for s in to_process:
+        put_sync(make_sync_item(s['id'], s['name'], False))
+    return len(to_process)
+
+
 def _auto_sync_worker():
     last_run = 0
     while True:
@@ -467,30 +610,7 @@ def _auto_sync_worker():
                 t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
 
                 try:
-                    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
-                    if kavita.authenticate():
-                        logging.info(t.get('log_auto_sync_start'))
-                        # Inventaire complet : le nettoyage du cache doit voir les
-                        # séries des bibliothèques exclues du polling, sinon elles
-                        # seraient traitées comme orphelines et purgées.
-                        all_series = kavita.get_all_series()
-                        # Une bibliothèque muette (timeout, 500) tronque
-                        # l'inventaire : purger sur cette base effacerait les
-                        # réglages manuels de séries bien vivantes.
-                        if getattr(kavita, "last_inventory_complete", False):
-                            active_ids = {s['id'] for s in all_series}
-                            clean_orphaned_cache(active_ids)
-                        else:
-                            logging.warning(t.get("log_orphans_skipped", "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet."))
-                        cached = get_all_cached_data()
-
-                        to_process = select_auto_sync_candidates(all_series, cached, config)
-
-                        if to_process:
-                            logging.info(t.get('log_auto_sync_found').format(len(to_process)))
-                            for s in to_process:
-                                put_sync(make_sync_item(s['id'], s['name'], False))
-
+                    _auto_sync_tick(config, t)
                 except Exception as e:
                     logging.error(f"❌ [Auto-Sync] Erreur : {e}")
 

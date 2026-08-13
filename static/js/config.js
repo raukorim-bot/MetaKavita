@@ -263,6 +263,60 @@ function appendEditBeforeConfirmFlags(formData) {
     formData.append('CONFIRM_BEFORE_WRITE', (edit.dataset.confirmWrite || 'false') === 'true' ? 'true' : 'false');
 }
 
+/* ===== Mode léger : les catégories que la barre latérale n'a pas à montrer =====
+ *
+ * Masquer une catégorie éteint sa fonctionnalité dans le même geste. Ce n'est
+ * pas un raccourci : une fonctionnalité dont les réglages ne sont plus à l'écran
+ * ne se commande plus, et deux des trois écrivent. Le serveur applique la même
+ * règle (`config_manager.apply_light_mode`), celle-ci est la version visible —
+ * l'interrupteur de la barre latérale se décoche sous les yeux de l'utilisateur,
+ * plutôt que de le laisser découvrir au rechargement suivant que sa relecture
+ * manuelle s'est arrêtée.
+ *
+ * Réafficher ne rallume rien : la catégorie revient, éteinte, et c'est à
+ * l'utilisateur de décider.
+ */
+function setUiSectionHidden(section, hidden) {
+    if (!document.body) return;
+    const raw = document.body.getAttribute('data-ui-hidden') || '';
+    const tokens = raw.split(/\s+/).filter(function (tok) { return tok && tok !== section; });
+    if (hidden) tokens.push(section);
+    document.body.setAttribute('data-ui-hidden', tokens.join(' '));
+}
+
+function turnUiSectionFeatureOff(section) {
+    if (section === 'manual') {
+        const mr = document.getElementById('sidebar_manual_review_mode');
+        if (mr) mr.checked = false;
+        // Les mêmes synchros que la case de la barre latérale : sans elles, les
+        // réglages dépendants resteraient cochés et actifs à l'écran.
+        if (typeof syncEditBeforeConfirmCheckbox === 'function') syncEditBeforeConfirmCheckbox();
+        if (typeof syncManualReviewCoverSwitch === 'function') syncManualReviewCoverSwitch();
+        return;
+    }
+    if (section === 'inventory') {
+        const inv = document.getElementById('sidebar_library_inventory');
+        if (inv) inv.checked = false;
+        if (document.body) document.body.setAttribute('data-inventory', '0');
+        return;
+    }
+    if (section === 'volumes') {
+        const vol = document.getElementById('sidebar_volume_enrichment');
+        if (vol) vol.checked = false;
+        if (document.body) document.body.setAttribute('data-volumes', '0');
+    }
+}
+
+function onUiSectionToggle(input, section) {
+    const show = !!(input && input.checked);
+    setUiSectionHidden(section, !show);
+    if (!show) turnUiSectionFeatureOff(section);
+    // Un seul enregistrement pour les deux effets : `saveConfig()` sérialise les
+    // interrupteurs de la barre latérale depuis le DOM, qui vient d'être mis à
+    // jour. Sans rechargement, comme toutes les bascules.
+    saveConfig();
+}
+
 // --- SAUVEGARDE CONFIGURATION (AJAX HYBRIDE) ---
 // options.reload : true uniquement pour la sauvegarde modale / changement de
 // langue — les toggles sidebar ne doivent PAS recharger (sinon un champ clé
@@ -289,7 +343,6 @@ function saveConfig(options) {
     const manualReviewMode = document.getElementById('sidebar_manual_review_mode');
     const manualReviewSounds = document.getElementById('sidebar_manual_review_sounds');
     const autoCover = document.getElementById('sidebar_auto_cover');
-    const autoReadingDir = document.getElementById('sidebar_auto_reading_dir');
     const resetContext = document.getElementById('sidebar_reset_context');
     const matchThresholdCustom = document.getElementById('sidebar_match_threshold_custom');
     const matchAcceptThreshold = document.getElementById('sidebar_match_accept_threshold');
@@ -319,8 +372,23 @@ function saveConfig(options) {
     if (coverForceOverwrite) formData.append('COVER_FORCE_OVERWRITE', coverForceOverwrite.checked ? 'true' : 'false');
     const inventoryEnabled = document.getElementById('sidebar_library_inventory');
     if (inventoryEnabled) formData.append('LIBRARY_INVENTORY_ENABLED', inventoryEnabled.checked ? 'true' : 'false');
-    if (autoReadingDir) formData.append('AUTO_READING_DIR', autoReadingDir.checked ? 'true' : 'false');
-    
+    // Enrichissement par tome : les deux derniers n'existent dans le DOM que si
+    // le premier est allumé, d'où le test d'existence sur chacun.
+    [
+        ['sidebar_volume_enrichment', 'VOLUME_ENRICHMENT_ENABLED'],
+        ['sidebar_volume_force_overwrite', 'VOLUME_FORCE_OVERWRITE'],
+        ['sidebar_volume_enrich_credits', 'VOLUME_ENRICH_CREDITS'],
+        ['sidebar_volume_enrich_experimental', 'VOLUME_ENRICH_EXPERIMENTAL'],
+        ['sidebar_volume_no_manga_fallback', 'VOLUME_NO_MANGA_FALLBACK'],
+    ].forEach(function (pair) {
+        const el = document.getElementById(pair[0]);
+        if (el) formData.append(pair[1], el.checked ? 'true' : 'false');
+    });
+    // Une liste, pas un interrupteur : c'est sa valeur qui part, et « AUTO »
+    // signifie « laisser la cascade décider ».
+    const volumeProvider = document.getElementById('sidebar_volume_provider');
+    if (volumeProvider) formData.append('VOLUME_PROVIDER', volumeProvider.value || 'AUTO');
+
     const titleFallback = document.getElementById('config_title_fallback');
     if (titleFallback) formData.append('TITLE_FALLBACK_TRANSLATION', titleFallback.checked ? 'true' : 'false');
 
@@ -329,6 +397,18 @@ function saveConfig(options) {
 
     const autoUpdateCore = document.getElementById('config_auto_update_core_scrapers');
     if (autoUpdateCore) formData.append('AUTO_UPDATE_CORE_SCRAPERS', autoUpdateCore.checked ? 'true' : 'false');
+
+    // Mode léger : envoyé à chaque enregistrement, y compris depuis une bascule
+    // de la barre latérale, pour que les trois cases ne dépendent pas de la
+    // soumission de la modale.
+    [
+        ['config_ui_show_manual_review', 'UI_SHOW_MANUAL_REVIEW'],
+        ['config_ui_show_inventory', 'UI_SHOW_INVENTORY'],
+        ['config_ui_show_volumes', 'UI_SHOW_VOLUMES'],
+    ].forEach(function (pair) {
+        const el = document.getElementById(pair[0]);
+        if (el) formData.append(pair[1], el.checked ? 'true' : 'false');
+    });
 
     const btn = shouldReload ? form.querySelector('.btn-primary') : null;
     const originalText = btn ? btn.innerText : "";

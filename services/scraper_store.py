@@ -44,6 +44,12 @@ ALLOWED_REPO_PREFIX = "/raukorim-bot/community-scraper-metakavita/"
 _RETIRED_STATUSES = frozenset({"retired", "deprecated", "archived", "dead", "unmaintained"})
 _RETIRED_TAGS = frozenset({"retired", "deprecated", "archived", "dead", "unmaintained", "hors-usage"})
 
+#: Champs par lesquels une entrée du catalogue peut exiger une version minimale
+#: de MetaKavita. Plusieurs noms sont acceptés parce que le catalogue est écrit à
+#: la main autant que généré, et qu'une exigence mal orthographiée qui passerait
+#: inaperçue vaudrait ici une absence d'exigence — le cas qu'on veut éviter.
+_REQUIRES_APP_KEYS = ("requires_app", "min_app_version", "requires_metakavita")
+
 _CACHE_LOCK = threading.Lock()
 _CACHE: Dict[str, Any] = {"fetched_at": 0.0, "catalog": None, "error": None}
 _CACHE_TTL_SEC = 600  # 10 min
@@ -74,6 +80,44 @@ def is_entry_retired(entry: Dict[str, Any]) -> bool:
     return False
 
 
+def entry_requires_app(entry: Dict[str, Any]) -> str:
+    """Version de MetaKavita exigée par l'entrée, `""` si elle n'en exige aucune."""
+    if not isinstance(entry, dict):
+        return ""
+    for key in _REQUIRES_APP_KEYS:
+        raw = str(entry.get(key) or "").strip()
+        if raw:
+            return raw
+    return ""
+
+
+def is_entry_too_new(entry: Dict[str, Any], app_version: Optional[str] = None) -> bool:
+    """True si l'entrée exige un MetaKavita plus récent que celui qui tourne.
+
+    Un scraper du catalogue s'exécute dans l'image, pas à côté : il appelle les
+    méthodes de `BaseScraper` et les fonctions de `scrapers.utils` de la version
+    installée. Une copie écrite pour une version ultérieure échoue donc à
+    l'import — `ImportError` sur un nom qui n'existe pas encore — et le registre,
+    qui attrape par scraper, la délie en silence : le fournisseur disparaît des
+    recherches sans que rien à l'écran ne l'explique.
+
+    Le catalogue est par construction commun à toutes les versions en service.
+    C'est donc à lui d'annoncer son plancher, et à la synchronisation de le
+    respecter : sans ça, publier une copie moderne suffit à priver de leurs
+    fournisseurs tous les conteneurs restés sur la version précédente.
+
+    À égalité on installe : le plancher se lit « à partir de », pas « après ».
+    """
+    required = entry_requires_app(entry)
+    if not required:
+        return False
+    if app_version is None:
+        from services.changelog_service import get_current_version
+
+        app_version = get_current_version()
+    return version_is_newer(required, app_version)
+
+
 def catalog_index(catalog: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """
     Index catalogue : ids, fichiers, entrées retirées.
@@ -83,11 +127,19 @@ def catalog_index(catalog: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         try:
             catalog = fetch_catalog(force=False)
         except StoreError:
-            return {"available": False, "ids": set(), "files": set(), "retired_ids": set(), "by_id": {}}
+            return {
+                "available": False,
+                "ids": set(),
+                "files": set(),
+                "retired_ids": set(),
+                "too_new_ids": set(),
+                "by_id": {},
+            }
 
     ids: set = set()
     files: set = set()
     retired_ids: set = set()
+    too_new_ids: set = set()
     by_id: Dict[str, Dict[str, Any]] = {}
     for entry in (catalog or {}).get("scrapers") or []:
         if not isinstance(entry, dict):
@@ -102,11 +154,14 @@ def catalog_index(catalog: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         by_id[sid] = entry
         if is_entry_retired(entry):
             retired_ids.add(sid)
+        if is_entry_too_new(entry):
+            too_new_ids.add(sid)
     return {
         "available": True,
         "ids": ids,
         "files": files,
         "retired_ids": retired_ids,
+        "too_new_ids": too_new_ids,
         "by_id": by_id,
     }
 
@@ -194,6 +249,17 @@ def sync_core_from_catalog(*, auto_update: bool, timeout: float = 8.0) -> Dict[s
         install = entry.get("install") or {}
         file_name = os.path.basename(str(entry.get("file") or install.get("path") or ""))
         if not file_name.endswith(".py") or file_name.startswith("."):
+            continue
+
+        if is_entry_too_new(entry):
+            # Télécharger cette copie remplacerait un scraper qui fonctionne par
+            # un fichier que cette image ne sait pas importer : le fournisseur
+            # disparaîtrait au prochain démarrage.
+            logging.warning(
+                "[Store] %s exige MetaKavita %s — téléchargement ignoré, la copie installée est conservée.",
+                file_name,
+                entry_requires_app(entry),
+            )
             continue
 
         expected_sha = (install.get("sha256") or "").strip().lower()
@@ -399,10 +465,14 @@ def enrich_catalog_for_ui(catalog: Dict[str, Any], *, lang: str = "fr") -> Dict[
             if opath and os.path.isfile(opath):
                 orphan = True
                 local_content = read_file_bytes(opath)
-        # sha catalogue ≠ contenu local (EOL normalisés) → update disponible
+        too_new = is_entry_too_new(entry)
+        # sha catalogue ≠ contenu local (EOL normalisés) → update disponible.
+        # Une entrée qui exige une version ultérieure ne propose rien : annoncer
+        # une mise à jour que l'installation refusera n'apporte qu'un clic perdu.
         update_available = bool(
             local
             and not is_core
+            and not too_new
             and catalog_sha
             and local_content is not None
             and not sha256_matches(local_content, catalog_sha)
@@ -428,6 +498,8 @@ def enrich_catalog_for_ui(catalog: Dict[str, Any], *, lang: str = "fr") -> Dict[
             "scopes": scopes,
             "status": status,
             "retired": retired,
+            "too_new": too_new,
+            "requires_app": entry_requires_app(entry),
             "needs_api_key": bool(entry.get("needs_api_key")),
             "auth": entry.get("auth") or {},
             "summary": _localize(entry.get("summary"), lang),
@@ -517,6 +589,12 @@ def install_from_catalog(scraper_id: str, *, force: bool = False) -> Dict[str, A
 
     if is_entry_retired(entry):
         raise StoreError("scraper is retired (out of service)", status_code=403)
+
+    if is_entry_too_new(entry):
+        raise StoreError(
+            f"scraper requires MetaKavita {entry_requires_app(entry)} or newer",
+            status_code=409,
+        )
 
     install = entry.get("install") or {}
     file_name = os.path.basename(str(entry.get("file") or install.get("path") or ""))

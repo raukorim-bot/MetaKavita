@@ -74,8 +74,33 @@ function toDisplayCoverUrl(url) {
 }
 
 // --- CSRF : injecte X-CSRF-Token sur tous les fetch mutatifs ---
+// …et traite la session expirée au même endroit : c'est le seul point de passage
+// commun à tous les appels du frontend.
 (function patchFetchWithCsrf() {
     const originalFetch = window.fetch.bind(window);
+    let authReloadStarted = false;
+
+    /**
+     * Session expirée : le gate répond 401 + X-MetaKavita-Auth, jamais une
+     * redirection vers /login — `fetch()` la suivrait en silence et le JS
+     * recevrait 200 + du HTML, donc une SyntaxError sur `r.json()` affichée
+     * comme « Erreur réseau ». Recharger fait apparaître le vrai formulaire de
+     * connexion, et l'utilisateur comprend qu'il doit se reconnecter.
+     *
+     * L'en-tête est testé plutôt que le corps : lire le corps ici le
+     * consommerait pour l'appelant.
+     */
+    function handleAuthExpired(res) {
+        if (!res || res.status !== 401 || authReloadStarted) return;
+        if (res.headers.get('X-MetaKavita-Auth') !== 'required') return;
+        // Shell Companion : il s'authentifie par jeton d'embed, pas par session.
+        // Recharger n'y afficherait aucun formulaire (l'iframe est cross-origin)
+        // et bouclerait dès que le jeton est révoqué en fin de revue.
+        if (window.COMPANION_EMBED) return;
+        authReloadStarted = true;
+        window.location.reload();
+    }
+
     window.fetch = function(input, init) {
         init = init || {};
         const method = String(init.method || 'GET').toUpperCase();
@@ -90,7 +115,10 @@ function toDisplayCoverUrl(url) {
                 init = Object.assign({}, init, { headers: headers });
             }
         }
-        return originalFetch(input, init);
+        return originalFetch(input, init).then(function(res) {
+            handleAuthExpired(res);
+            return res;
+        });
     };
 })();
 

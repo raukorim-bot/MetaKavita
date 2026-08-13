@@ -61,17 +61,19 @@ def csrf_protect_before_request():
     if request.method in ("GET", "HEAD", "OPTIONS"):
         return None
     endpoint = request.endpoint or ""
+    # Comparaison EXACTE, jamais un préfixe : `startswith("static")` exemptait
+    # aussi, en entier, tout blueprint futur nommé `static_pages`, `statics`…
+    # ('static' est déjà dans la liste ci-dessus, le préfixe n'ajoutait rien).
     if endpoint in CSRF_EXEMPT_ENDPOINTS:
         return None
-    if endpoint.startswith("static"):
-        return None
-    # Companion embed token is a short-lived capability secret; when present and
-    # valid it replaces the session double-submit cookie (which SameSite=Lax
-    # will not send inside a cross-origin Kavita iframe).
+    # Jeton d'embed Companion : capacité courte qui remplace le double-submit de
+    # session, que SameSite=Lax ne renvoie pas dans une iframe Kavita
+    # cross-origin. On s'en remet à la décision déjà prise par `login_gate` —
+    # endpoint par endpoint, série résolue en base — au lieu de la refaire ici :
+    # accepter « n'importe quel jeton encore valide » faisait de n'importe quel
+    # jeton un interrupteur CSRF global, sur toutes les routes de l'application.
     try:
-        from services.companion_embed_auth import authorize_companion_request
-
-        if authorize_companion_request() is not None:
+        if auth_manager.companion_embed_may_call(endpoint):
             return None
     except Exception:
         pass

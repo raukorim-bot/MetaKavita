@@ -405,7 +405,6 @@
                 <input type="hidden" name="SMART_COMPLETION" id="val_SMART_COMPLETION" value="{{ fv.get('SMART_COMPLETION', 'true') }}">
                 <input type="hidden" name="MANUAL_REVIEW_MODE" id="val_MANUAL_REVIEW_MODE" value="{{ fv.get('MANUAL_REVIEW_MODE', 'false') }}">
                 <input type="hidden" name="AUTO_COVER" id="val_AUTO_COVER" value="{{ fv.get('AUTO_COVER', 'false') }}">
-                <input type="hidden" name="AUTO_READING_DIR" id="val_AUTO_READING_DIR" value="{{ fv.get('AUTO_READING_DIR', 'false') }}">
                 <input type="hidden" name="TITLE_FALLBACK_TRANSLATION" id="val_TITLE_FALLBACK_TRANSLATION" value="{{ fv.get('TITLE_FALLBACK_TRANSLATION', 'false') }}">
 
                 {% if not setup_rerun %}
@@ -625,14 +624,6 @@
                         <span>
                             <strong>{{ t.auto_cover }}</strong>
                             <span class="setup-hint">{{ t.scraping_help_auto_cover }}</span>
-                        </span>
-                    </label>
-                    <label class="setup-opt">
-                        <input type="checkbox" id="cb_AUTO_READING_DIR" data-bool="AUTO_READING_DIR" data-default="false"
-                               {% if fv.get('AUTO_READING_DIR') == 'true' %}checked{% endif %}>
-                        <span>
-                            <strong>{{ t.auto_reading_dir }}</strong>
-                            <span class="setup-hint">{{ t.scraping_help_auto_reading_dir }}</span>
                         </span>
                     </label>
                     <div class="form-group" style="margin-top:14px;">
@@ -873,6 +864,9 @@
             body.set('KAVITA_URL', url);
             body.set('KAVITA_API_KEY', key);
             body.set('UI_LANG', form.UI_LANG.value);
+            // La sonde exige la même preuve de propriété que /setup sur une instance
+            // mise à niveau : sans elle, le test est refusé avant tout appel réseau.
+            body.set('legacy_password', form.legacy_password?.value || '');
             try {
                 const res = await fetch(testKavitaUrl, {
                     method: 'POST',

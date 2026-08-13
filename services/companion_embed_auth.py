@@ -15,6 +15,15 @@ _LOCK = threading.Lock()
 # token -> {series_id, parent_origin, exp}
 _TOKENS: Dict[str, Dict[str, Any]] = {}
 
+# Durée de vie d'un jeton fraîchement émis.
+#
+# ⚠️ Plancher imposé par l'extension : `companion/background.js` réutilise un
+# jeton déjà émis pendant 10 minutes (`EMBED_TOKEN_REUSE_MS`, un jeton par
+# `base|seriesId` pour ne pas en semer une vingtaine à l'ouverture du cover
+# picker). Descendre cette valeur sous ~11 minutes remettrait donc à l'embed un
+# jeton qui meurt pendant la revue, sur les extensions déjà installées.
+# L'exposition réelle est bornée ailleurs : `auth_manager` révoque le jeton dès
+# que la revue est conclue, donc il ne survit plus à la fermeture du shell.
 DEFAULT_TTL_SEC = 15 * 60
 
 
@@ -104,6 +113,12 @@ def authorize_companion_request(series_id: Optional[int] = None) -> Optional[Dic
 
 
 def revoke_embed_token(token: Optional[str]) -> None:
+    """Détruit un jeton avant son expiration (revue conclue, usage unique).
+
+    Appelée par `auth_manager._revoke_embed_token_after_completion` : sans elle,
+    un « Confirmer » / « Passer » laissait le jeton utilisable jusqu'au bout de
+    son TTL, alors qu'il contourne la session et, dans son périmètre, le CSRF.
+    """
     if not token:
         return
     with _LOCK:

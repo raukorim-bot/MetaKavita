@@ -137,22 +137,57 @@ function closeChangelogModal() {
     }
 }
 
-// --- MENU AIDE (À propos / Documentation) ---
-function closeHelpMenu() {
-    const dropdown = document.getElementById('helpDropdown');
-    const btn = document.getElementById('helpMenuBtn');
-    if (dropdown) dropdown.hidden = true;
-    if (btn) btn.setAttribute('aria-expanded', 'false');
+// --- MENUS DE LA BARRE DU HAUT (Scrapers / Aide) ---
+// Deux menus voisins : ouvrir l'un ferme l'autre, sinon les deux panneaux se
+// superposent. L'état ouvert vit sur aria-expanded du bouton, que le CSS lit
+// pour le surligner et retourner le chevron.
+function closeTopbarMenus() {
+    document.querySelectorAll('.topbar-menu .help-dropdown').forEach((dropdown) => {
+        dropdown.hidden = true;
+    });
+    document.querySelectorAll('.topbar-menu-btn').forEach((btn) => {
+        btn.setAttribute('aria-expanded', 'false');
+    });
 }
 
-function toggleHelpMenu(event) {
+function toggleTopbarMenu(event, dropdownId) {
     if (event) event.stopPropagation();
-    const dropdown = document.getElementById('helpDropdown');
-    const btn = document.getElementById('helpMenuBtn');
-    if (!dropdown || !btn) return;
+    const dropdown = document.getElementById(dropdownId);
+    if (!dropdown) return;
     const willOpen = dropdown.hidden;
-    dropdown.hidden = !willOpen;
-    btn.setAttribute('aria-expanded', willOpen ? 'true' : 'false');
+    closeTopbarMenus();
+    if (!willOpen) return;
+    dropdown.hidden = false;
+    const btn = dropdown.parentElement
+        ? dropdown.parentElement.querySelector('.topbar-menu-btn')
+        : null;
+    if (btn) btn.setAttribute('aria-expanded', 'true');
+}
+
+// --- ENCART COMPANION ---
+// L'oubli est volontairement local au navigateur : le serveur ne sait pas si
+// l'extension est installée, et une clé de config de plus pour une carte
+// promotionnelle n'apporterait rien.
+const COMPANION_CARD_KEY = 'mk_companion_card_dismissed';
+
+function dismissCompanionCard() {
+    const card = document.getElementById('companionCard');
+    if (card) card.hidden = true;
+    try { localStorage.setItem(COMPANION_CARD_KEY, '1'); } catch (e) { /* ignore */ }
+}
+
+function showCompanionCard() {
+    try { localStorage.removeItem(COMPANION_CARD_KEY); } catch (e) { /* ignore */ }
+    const card = document.getElementById('companionCard');
+    if (!card) return;
+    card.hidden = false;
+    card.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // Une carte qui réapparaît en haut de page pendant qu'on lit ailleurs passe
+    // inaperçue : un pulse bref la désigne, puis la classe s'efface.
+    card.classList.remove('is-recalled');
+    void card.offsetWidth;
+    card.classList.add('is-recalled');
+    setTimeout(() => card.classList.remove('is-recalled'), 1600);
 }
 
 function openAboutModal() {
@@ -176,15 +211,13 @@ function closeScrapingOptionsHelpModal() {
 }
 
 document.addEventListener('click', (event) => {
-    const help = document.querySelector('.topbar-help');
-    if (help && !help.contains(event.target)) {
-        closeHelpMenu();
-    }
+    const inside = event.target.closest ? event.target.closest('.topbar-menu') : null;
+    if (!inside) closeTopbarMenus();
 });
 
 document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') {
-        closeHelpMenu();
+        closeTopbarMenus();
         closeAboutModal();
         closeScrapingOptionsHelpModal();
         closeChangelogModal();

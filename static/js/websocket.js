@@ -92,6 +92,13 @@ function _handleHygieneProgress(payload) {
 socket.on('hygiene_progress', _handleHygieneProgress);
 socket.on('volume_hygiene_progress', _handleHygieneProgress);
 
+// Passe d'enrichissement par tome : sa propre barre, distincte de l'analyse.
+socket.on('volume_enrich_progress', function (payload) {
+    if (typeof window._onVolumeEnrichProgress === 'function') {
+        window._onVolumeEnrichProgress(payload || {});
+    }
+});
+
 socket.on('series_status', function(payload) {
     if (!payload || payload.series_id == null) return;
     var sid = String(payload.series_id);

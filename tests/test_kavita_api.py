@@ -35,6 +35,7 @@ Non-régression sur les deux bugs critiques corrigés dans kavita_api.py :
 import requests
 
 from kavita_api import (
+    COVER_FETCH_TIMEOUT_SECONDS,
     MAX_COVER_BYTES,
     KavitaAPI,
     _RELOCK_RETRY_TIMEOUT_CAP_S,
@@ -741,7 +742,7 @@ class TestSeriesIsbn:
 
 
 class _StreamedImage:
-    """Réponse HTTP dont le corps n'est pas encore lu, comme sous `stream=True`."""
+    """Réponse HTTP telle que `curl_cffi` la rend hors mode flux : corps déjà lu."""
 
     def __init__(self, body=b"", content_type="image/jpeg", declared_length=None, status_code=200):
         self.status_code = status_code
@@ -754,16 +755,122 @@ class _StreamedImage:
         self.closed = False
         self.read_bytes = 0
 
-    def iter_content(self, chunk_size=None):
-        # curl choisit lui-même la taille des morceaux ; on en simule plusieurs
-        # pour que le plafond soit atteint avant la fin du corps.
-        for start in range(0, len(self._body), 64 * 1024):
-            chunk = self._body[start:start + 64 * 1024]
-            self.read_bytes += len(chunk)
-            yield chunk
+    @property
+    def content(self):
+        self.read_bytes = len(self._body)
+        return self._body
 
     def close(self):
         self.closed = True
+
+
+class TestCoverFetchUnderEventlet:
+    """Le téléchargement d'une couverture doit être bornable sous eventlet.
+
+    Constaté sur une passe par tome : la première unité n'avait plus que sa
+    couverture à écrire, et l'écriture est restée à « 0 / 11 » treize minutes,
+    sans une ligne de journal — l'application, elle, répondait toujours, ce qui
+    écartait un worker bloqué et désignait une attente que personne ne
+    réveillerait.
+
+    Le mode flux de `curl_cffi` est cette attente : il soumet `perform()` à un
+    `ThreadPoolExecutor` et livre les morceaux par une file, sans honorer le
+    `thread="eventlet"` que son chemin non-flux respecte. Mesuré par
+    `debug/repro_cover_eventlet.py` : `timeout=5` sur un hôte muet attendait
+    toujours à 8 s en mode flux, contre « Operation timed out after 5007 ms »
+    sans lui.
+    """
+
+    def _patch(self, mocker, response=None, raises=None):
+        mocker.patch(
+            "scrapers.ScraperRegistry.get_all_proxy_domains", return_value=["cdn.test"]
+        )
+        mocker.patch("scrapers.ScraperRegistry.get_all", return_value=[])
+        session = mocker.Mock()
+        if raises is not None:
+            session.get.side_effect = raises
+        else:
+            session.get.return_value = response
+        mocker.patch("kavita_api.cffi_requests.Session", return_value=session)
+        return session
+
+    def test_the_body_is_never_asked_for_in_stream_mode(self, mocker):
+        """La régression à empêcher, nommée à l'endroit où elle se réintroduirait.
+
+        Remettre `stream=True` ramène une attente qu'aucun délai ne borne — et
+        aucune erreur ne le signalerait : la passe se contenterait de ne plus
+        avancer.
+        """
+        api = _authenticated_api()
+        session = self._patch(mocker, _StreamedImage(b"\x89PNG" + b"0" * 512, content_type="image/png"))
+
+        api._download_cover_base64("https://cdn.test/cover.jpg")
+
+        assert session.get.call_args is not None, "aucune requête n'a été faite"
+        assert not session.get.call_args.kwargs.get("stream"), (
+            "le mode flux est revenu : sous eventlet, l'attente d'un morceau n'y "
+            "est bornée par rien"
+        )
+        assert session.get.call_args.kwargs.get("timeout") == COVER_FETCH_TIMEOUT_SECONDS
+
+    def test_a_host_that_times_out_is_named_rather_than_raised(self, mocker):
+        """Une couverture est un extra : son échec ne doit pas condamner l'unité.
+
+        L'exception de curl remontait jusqu'à `apply_plan`, qui marquait l'unité
+        entière `FAILED` — alors que son texte, écrit juste avant, était bien
+        passé.
+        """
+        api = _authenticated_api()
+        self._patch(mocker, raises=RuntimeError("curl: (28) Operation timed out"))
+
+        data, err = api._download_cover_base64("https://cdn.test/cover.jpg")
+
+        assert data is None
+        assert str(COVER_FETCH_TIMEOUT_SECONDS) in err
+
+    def test_an_image_that_arrives_is_encoded_untouched(self, mocker):
+        import base64
+
+        api = _authenticated_api()
+        body = b"\x89PNG\r\n\x1a\n" + b"0" * 2048
+        response = _StreamedImage(body, content_type="image/png")
+        self._patch(mocker, response)
+
+        data, err = api._download_cover_base64("https://cdn.test/cover.jpg")
+
+        assert data is not None, err
+        assert base64.b64decode(data) == body
+        assert response.closed, "la réponse doit être fermée, sans quoi la connexion fuit"
+
+
+class TestCoverSessionAccommodatesEventlet:
+    """`thread="eventlet"` fait passer libcurl par un vrai thread système.
+
+    Sans lui, `perform()` s'exécute dans un greenthread : du C que le hub ne peut
+    pas interrompre, donc plus une page servie ni un événement diffusé pendant le
+    transfert. Le réglage n'a de sens que sous eventlet, et le demander ailleurs
+    ferait payer un pool de threads aux tests et aux scripts.
+    """
+
+    def test_the_accommodation_is_asked_for_under_eventlet(self, mocker):
+        from kavita_api import _cover_http_session
+
+        mocker.patch("eventlet.patcher.is_monkey_patched", return_value=True)
+        made = mocker.patch("kavita_api.cffi_requests.Session")
+
+        _cover_http_session()
+
+        assert made.call_args.kwargs.get("thread") == "eventlet"
+
+    def test_a_plain_session_is_used_outside_eventlet(self, mocker):
+        from kavita_api import _cover_http_session
+
+        mocker.patch("eventlet.patcher.is_monkey_patched", return_value=False)
+        made = mocker.patch("kavita_api.cffi_requests.Session")
+
+        _cover_http_session()
+
+        assert "thread" not in made.call_args.kwargs
 
 
 class TestCoverDownloadGuards:
@@ -794,9 +901,19 @@ class TestCoverDownloadGuards:
         assert data is None
         assert "text/html" in err
 
-    def test_an_image_over_the_cap_is_refused_before_the_body_is_fully_read(self, mocker):
+    def test_an_image_over_the_cap_is_refused_even_without_content_length(self, mocker):
         """Le plafond doit tenir sans `Content-Length` : un hôte peut l'omettre,
-        mentir, ou répondre en chunked où elle n'existe pas."""
+        mentir, ou répondre en chunked où elle n'existe pas.
+
+        Il s'applique désormais **après** la lecture, et non morceau par morceau :
+        abandonner le mode flux était le prix à payer pour que le délai de curl
+        borne enfin le transfert (`TestCoverFetchUnderEventlet`). Un corps trop
+        gros est donc reçu avant d'être refusé — borné en pratique par
+        `COVER_FETCH_TIMEOUT_SECONDS` et, pour les hôtes honnêtes, par le
+        `Content-Length` qui fait renoncer sans rien lire. Une attente sans fin
+        étant le défaut observé, et un CDN hostile une hypothèse, le compromis se
+        tranche dans ce sens.
+        """
         api = _authenticated_api()
         oversized = _StreamedImage(b"\xff" * (MAX_COVER_BYTES + 256 * 1024))
         self._patch_fetch(mocker, oversized)
@@ -805,9 +922,18 @@ class TestCoverDownloadGuards:
 
         assert data is None
         assert str(MAX_COVER_BYTES) in err
-        assert oversized.read_bytes < len(oversized._body), (
-            "le corps entier a été chargé en mémoire malgré le plafond"
-        )
+
+    def test_a_declared_length_over_the_cap_is_refused_without_reading(self, mocker):
+        """Le cas honnête, lui, ne coûte pas un octet : l'en-tête suffit."""
+        api = _authenticated_api()
+        huge = _StreamedImage(b"\xff" * 32, declared_length=MAX_COVER_BYTES + 1)
+        self._patch_fetch(mocker, huge)
+
+        data, err = api._download_cover_base64("https://cdn.test/cover.jpg")
+
+        assert data is None
+        assert str(MAX_COVER_BYTES) in err
+        assert huge.read_bytes == 0, "le corps a été lu alors que l'en-tête suffisait"
 
     def test_a_declared_length_over_the_cap_is_refused_without_reading_anything(self, mocker):
         api = _authenticated_api()

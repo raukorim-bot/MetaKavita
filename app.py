@@ -1,4 +1,4 @@
-﻿"""
+"""
 Point d'entrÃ©e de l'application MetaKavita.
 
 Ce module reste volontairement fin depuis le refactor architecture (voir
@@ -277,6 +277,7 @@ from routes.diagnostics import diagnostics_bp
 from routes.scrapers_manage import scrapers_manage_bp
 from routes.companion import companion_bp
 from routes.library_audit import library_audit_bp
+from routes.volume_enrichment import volume_enrichment_bp
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(pages_bp)
@@ -289,6 +290,7 @@ app.register_blueprint(diagnostics_bp)
 app.register_blueprint(scrapers_manage_bp)
 app.register_blueprint(companion_bp)
 app.register_blueprint(library_audit_bp)
+app.register_blueprint(volume_enrichment_bp)
 
 # --- ENREGISTREMENT DES HANDLERS SOCKET.IO (effet de bord Ã  l'import) ---
 import sockets.handlers  # noqa: F401

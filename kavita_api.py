@@ -65,6 +65,50 @@ SERIES_METADATA_LOCK_SOURCES = {
 # requête entière avant même de regarder l'image.
 MAX_COVER_BYTES = 20 * 1024 * 1024
 
+# Durée maximale du téléchargement d'une couverture, corps compris.
+#
+# Elle n'est tenue que parce que la requête n'est **pas** en mode flux : avec
+# `stream=True`, `curl_cffi` n'applique pas ce délai au corps, qui est consommé
+# après le retour de la requête (voir `_cover_http_session`). Mesuré :
+# `timeout=5` sur un hôte muet en mode flux attendait toujours à 8 s ; sans le
+# mode flux, curl rend « Operation timed out after 5007 ms ».
+COVER_FETCH_TIMEOUT_SECONDS = 20
+
+
+def _cover_http_session():
+    """Session `curl_cffi` utilisable sous le worker eventlet.
+
+    `curl_cffi` est libcurl, du C que le monkey-patch d'eventlet n'atteint pas.
+    La bibliothèque le sait et prévoit `thread="eventlet"` : son chemin **non
+    flux** passe alors `curl.perform()` par `eventlet.tpool`, donc par un vrai
+    thread système, et le hub continue de tourner pendant le transfert.
+
+    Son chemin **flux** (`stream=True`), lui, ignore ce réglage : il soumet
+    `perform()` à un `ThreadPoolExecutor` et livre les morceaux par une file.
+    Sous eventlet, l'attente d'un morceau ne se laisse alors borner par rien —
+    le délai de curl ne s'y applique pas, et une échéance vérifiée entre deux
+    morceaux n'est jamais atteinte puisque c'est l'attente elle-même qui ne rend
+    pas la main. Ce mode laisse en plus derrière lui un exécuteur que
+    `Session.close()` ne ferme pas, un par couverture.
+
+    C'est le défaut qui a figé une passe par tome sur sa première unité :
+    « 0 / 11 » pendant treize minutes, aucune ligne de journal, et l'application
+    par ailleurs vivante — ce qui écartait un blocage du worker et désignait une
+    attente que personne ne réveillerait. Reproduit par
+    `debug/repro_cover_eventlet.py`.
+
+    Hors eventlet (tests, scripts), une session ordinaire suffit : le délai de
+    curl borne déjà le transfert, seule la vivacité du hub demandait le détour.
+    """
+    try:
+        import eventlet.patcher
+
+        if eventlet.patcher.is_monkey_patched("thread"):
+            return cffi_requests.Session(thread="eventlet")
+    except Exception:
+        pass
+    return cffi_requests.Session()
+
 # Types que Kavita accepte pour une couverture (`AllowedCoverExtensions` de
 # `UploadController`). SVG en est absent côté Kavita — c'est un porteur de
 # script, pas une image — donc il ne doit pas non plus partir d'ici.
@@ -944,24 +988,42 @@ class KavitaAPI:
                     headers["Referer"] = scraper.proxy_referer
                 break
 
-        # `stream=True` n'existe que sur une Session en curl_cffi 0.6 : c'est lui
-        # qui rend le plafond utile, le corps n'étant pas encore lu au retour du
-        # GET. La session est fermée dans tous les cas, comme la réponse : sous le
-        # worker eventlet unique, une connexion abandonnée est un greenthread perdu.
-        session = cffi_requests.Session()
+        # Pas de `stream=True` : sous eventlet, l'attente d'un morceau n'y est
+        # bornée par rien (voir `_cover_http_session`). Le corps est donc lu par
+        # curl lui-même, sous son délai, et le plafond de taille s'applique sur
+        # la réponse complète. La session est fermée dans tous les cas, comme la
+        # réponse : sous le worker eventlet unique, une connexion abandonnée est
+        # un greenthread perdu.
+        session = _cover_http_session()
 
         def _cffi_get(u, **kw):
-            return session.get(u, impersonate="chrome110", stream=True, **kw)
+            return session.get(u, impersonate="chrome110", **kw)
 
         try:
-            img_res, fetch_reason, final_url = fetch_with_safe_redirects(
-                _cffi_get,
-                cover_url,
-                allowed_domains,
-                max_hops=3,
-                headers=headers,
-                timeout=15,
-            )
+            try:
+                img_res, fetch_reason, final_url = fetch_with_safe_redirects(
+                    _cffi_get,
+                    cover_url,
+                    allowed_domains,
+                    max_hops=3,
+                    headers=headers,
+                    timeout=COVER_FETCH_TIMEOUT_SECONDS,
+                )
+            except Exception as exc:
+                # Un hôte muet rend maintenant une erreur de curl au bout du
+                # délai, là où le mode flux attendait sans fin. Elle est nommée
+                # ici plutôt que remontée : une couverture est un extra, et la
+                # passe doit continuer sans elle.
+                logging.warning(
+                    self.t.get(
+                        "log_cover_fetch_failed",
+                        "[Upload Cover] Téléchargement abandonné ({0}) : {1}",
+                    ).format(safe_exc_str(exc), cover_url)
+                )
+                return None, self.t.get(
+                    "msg_cover_fetch_failed",
+                    "Téléchargement de la couverture impossible (délai de {0} s dépassé ou hôte injoignable)",
+                ).format(COVER_FETCH_TIMEOUT_SECONDS)
             if img_res is None:
                 if fetch_reason == "Client HTTP sans contrôle de redirect":
                     logging.warning(self.t.get("log_cover_curl_no_redirect", "[Upload Cover] curl_cffi sans allow_redirects — fetch annulé par sécurité"))
@@ -982,8 +1044,8 @@ class KavitaAPI:
 
                 # `Content-Length` n'est qu'une indication — un hôte peut l'omettre,
                 # mentir, ou répondre en chunked où elle n'existe pas. On la lit
-                # seulement pour renoncer tout de suite ; le compteur ci-dessous est
-                # ce qui applique réellement le plafond.
+                # pour renoncer avant même de regarder le corps ; le contrôle
+                # ci-dessous est ce qui applique réellement le plafond.
                 declared_length = res_headers.get("Content-Length")
                 if declared_length is not None:
                     try:
@@ -993,17 +1055,14 @@ class KavitaAPI:
                     except (TypeError, ValueError):
                         pass
 
-                # curl choisit lui-même la taille des morceaux (`chunk_size` est
-                # ignoré) : le dépassement du plafond est donc borné par un morceau,
-                # pas par ce que l'hôte a décidé d'envoyer.
-                chunks = bytearray()
-                for chunk in img_res.iter_content():
-                    if not chunk:
-                        continue
-                    chunks += chunk
-                    if len(chunks) > MAX_COVER_BYTES:
-                        logging.warning(self.t.get("log_cover_too_large", "[Upload Cover] Image trop volumineuse ({0} octets) : {1}").format(len(chunks), final_url))
-                        return None, self.t.get("msg_cover_too_large", "Image trop volumineuse pour Kavita (plafond {0} octets)").format(MAX_COVER_BYTES)
+                # Le corps est déjà là : curl l'a lu sous son propre délai. Le
+                # plafond se vérifie donc après coup, sur ce qui est arrivé, et
+                # non morceau par morceau — ce que le mode flux permettait au
+                # prix d'une attente que rien ne bornait.
+                chunks = getattr(img_res, "content", None) or b""
+                if len(chunks) > MAX_COVER_BYTES:
+                    logging.warning(self.t.get("log_cover_too_large", "[Upload Cover] Image trop volumineuse ({0} octets) : {1}").format(len(chunks), final_url))
+                    return None, self.t.get("msg_cover_too_large", "Image trop volumineuse pour Kavita (plafond {0} octets)").format(MAX_COVER_BYTES)
 
                 if not chunks:
                     return None, self.t.get("msg_cover_empty", "Image vide")
@@ -1078,7 +1137,14 @@ class KavitaAPI:
             return False, self.t.get("msg_cover_invalid", "URL de couverture invalide")
 
         try:
+            # Deux durées, séparées : le téléchargement chez le fournisseur et
+            # l'envoi à Kavita, qui reçoit du base64 (un tiers plus lourd que
+            # l'image) puis génère sa vignette. C'est le poste le plus coûteux de
+            # l'enrichissement par tome, et les journaux ne disaient pas lequel
+            # des deux traînait.
+            started = time.monotonic()
             img_base64, err = self._download_cover_base64(cover_url)
+            downloaded = time.monotonic()
             if not img_base64:
                 return False, err
 
@@ -1087,6 +1153,12 @@ class KavitaAPI:
                 f"{self.url}/api/Upload/chapter",
                 json={"id": int(chapter_id), "url": img_base64, "lockCover": bool(lock)},
                 timeout=self._write_timeout(),
+            )
+            logging.debug(
+                "[Upload Cover] chapitre %s : téléchargement=%.2fs envoi=%.2fs",
+                chapter_id,
+                downloaded - started,
+                time.monotonic() - downloaded,
             )
             if res is None:
                 return False, self.t.get("msg_not_authenticated", "Non authentifié")

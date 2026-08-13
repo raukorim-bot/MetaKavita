@@ -9,7 +9,14 @@ import secrets
 
 from flask import Blueprint, request, jsonify
 
-from config_manager import load_config, save_config, CONFIG_LOCK, CONFIG_FILE, format_disabled_libraries
+from config_manager import (
+    apply_light_mode,
+    load_config,
+    save_config,
+    CONFIG_LOCK,
+    CONFIG_FILE,
+    format_disabled_libraries,
+)
 from scrapers import ScraperRegistry
 from kavita_api import KavitaAPI
 from translations import get_ui_translations
@@ -190,11 +197,42 @@ def save_config_ajax():
 
         config['AUTO_COVER'] = request.form.get('AUTO_COVER') == 'true'
         config['COVER_FORCE_OVERWRITE'] = request.form.get('COVER_FORCE_OVERWRITE') == 'true'
-        config['AUTO_READING_DIR'] = request.form.get('AUTO_READING_DIR') == 'true'
         if 'LIBRARY_INVENTORY_ENABLED' in request.form:
             config['LIBRARY_INVENTORY_ENABLED'] = (
                 request.form.get('LIBRARY_INVENTORY_ENABLED') == 'true'
             )
+        # Enrichissement par tome : chaque interrupteur n'est lu que s'il est
+        # présent, pour qu'un formulaire partiel (la sidebar en envoie un par
+        # bloc) n'éteigne pas les deux autres au passage.
+        for key in (
+            'VOLUME_ENRICHMENT_ENABLED',
+            'VOLUME_FORCE_OVERWRITE',
+            'VOLUME_ENRICH_CREDITS',
+            'VOLUME_ENRICH_EXPERIMENTAL',
+            'VOLUME_NO_MANGA_FALLBACK',
+        ):
+            if key in request.form:
+                config[key] = request.form.get(key) == 'true'
+        if 'VOLUME_PROVIDER' in request.form:
+            # Normalisé ici plutôt qu'à la lecture : la valeur se compare à des
+            # identifiants de scrapers, qui sont en majuscules. « auto » est la
+            # valeur du choix « laisser la cascade décider » et vaut vide.
+            picked = (request.form.get('VOLUME_PROVIDER') or '').strip().upper()
+            config['VOLUME_PROVIDER'] = '' if picked in ('', 'AUTO', 'NONE') else picked
+
+        # Mode léger (C80) : trois cases qui retirent une catégorie de la barre
+        # latérale. Lues seulement si présentes, comme les interrupteurs
+        # ci-dessus, pour qu'un formulaire partiel n'en masque aucune au passage.
+        for key in ('UI_SHOW_MANUAL_REVIEW', 'UI_SHOW_INVENTORY', 'UI_SHOW_VOLUMES'):
+            if key in request.form:
+                config[key] = request.form.get(key) == 'true'
+        # Masquée veut dire éteinte. L'interface éteint déjà la fonctionnalité au
+        # moment où l'on décoche, mais la règle est réappliquée ici pour que
+        # l'état enregistré soit cohérent quel que soit le formulaire reçu — et
+        # surtout **avant** la purge de la file de relecture plus bas, qui compare
+        # `was_manual` à la valeur finale : sans cela, masquer la relecture
+        # manuelle aurait éteint le mode en laissant sa file gelée.
+        apply_light_mode(config)
 
         t = get_ui_translations(config=config)
         try:

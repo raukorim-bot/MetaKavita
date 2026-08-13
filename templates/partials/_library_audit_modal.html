@@ -6,7 +6,9 @@
      onclick="if(event.target===this) closeVolumeReportModal()">
     <div class="modal-content modal-shell modal-large audit-modal-content" role="dialog" aria-labelledby="volumeReportTitle">
         <div class="modal-header">
-            <h3 id="volumeReportTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-inventory"></use></svg><span class="audit-modal-label">{{ t.audit_volume_report }}</span></h3>
+            {# L'étiquette suit le titre ici aussi : c'est la fenêtre depuis
+               laquelle on écrit réellement dans Kavita. #}
+            <h3 id="volumeReportTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-inventory"></use></svg><span class="audit-modal-label">{{ t.audit_volume_report }}</span><span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span></h3>
             <button type="button" class="close-btn" onclick="closeVolumeReportModal()" aria-label="Close">&times;</button>
         </div>
         <div class="modal-scroll-body audit-modal-body">
@@ -15,6 +17,13 @@
         </div>
         <div class="modal-footer audit-footer">
             <button type="button" class="btn-opt" id="volumeReportRefresh" onclick="refreshVolumeReport()">{{ t.audit_refresh }}</button>
+            {# Le seul bouton d'écriture de cette modale : il remplace le tableau
+               des unités par l'aperçu, et n'apparaît que si l'utilisateur a allumé
+               l'enrichissement par tome. Le masquage est porté par le CSS sur
+               `data-volumes`, comme le groupe de la barre d'outils : la barre
+               latérale enregistre sans recharger, donc une condition de gabarit ne
+               suivrait l'interrupteur qu'au chargement suivant. #}
+            <button type="button" class="btn-sync" id="btnVolumePreview" onclick="openVolumeEnrichPreview()">{{ t.vol_enrich_btn }}</button>
             <a id="volumeReportCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
             <a id="volumeReportTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
         </div>

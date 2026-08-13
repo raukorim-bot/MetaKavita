@@ -22,12 +22,29 @@ STATE_RUNNING = "running"
 STATE_DONE = "done"
 STATE_CANCELLED = "cancelled"
 
+#: Lignes terminées gardées pour l'historique / le débogage. Le module ne
+#: contenait AUCUN `DELETE FROM batch_queue` : les lignes passaient en
+#: `done`/`cancelled` et y restaient à vie, si bien qu'après quelques milliers
+#: d'enrichissements chaque `enqueue_items` balayait toute la table.
+_TERMINAL_KEEP = 200
+
+#: Base pour laquelle les tables ont déjà été créées dans ce process. Sans ce
+#: garde-fou, les treize fonctions du module ouvraient une connexion neuve et
+#: deux DDL avant leur propre requête — `should_skip_batch_item`, appelé une fois
+#: par série de lot, faisait deux connexions et six requêtes pour un SELECT.
+_tables_ready_for = None
+
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def ensure_tables() -> None:
+    """Crée les tables de la file batch — une seule fois par base et par process."""
+    global _tables_ready_for
+    db_file = db_manager.DB_FILE
+    if _tables_ready_for == db_file:
+        return
     conn = db_manager._connect()
     try:
         c = conn.cursor()
@@ -35,6 +52,7 @@ def ensure_tables() -> None:
         conn.commit()
     finally:
         conn.close()
+    _tables_ready_for = db_file
 
 
 def is_paused() -> bool:
@@ -120,6 +138,25 @@ def _next_position(conn) -> int:
     return int(row[0] if row else 0) + 1
 
 
+def _prune_terminal(conn) -> int:
+    """Ne garde que la queue de l'historique terminé (`done` / `cancelled`).
+
+    Rien ne lit ces lignes : `snapshot_status` et `should_skip_batch_item` ne
+    regardent que `queued`/`running`. Les laisser s'accumuler ne coûtait qu'un
+    balayage de plus en plus long à chaque ajout, et une base qui grossit sans
+    fin. Une ligne effacée reste « à sauter » pour le worker, puisque c'est
+    l'ABSENCE de ligne active qui le décide.
+    """
+    cur = conn.execute(
+        "DELETE FROM batch_queue WHERE state IN (?, ?) AND id NOT IN ("
+        "  SELECT id FROM batch_queue WHERE state IN (?, ?)"
+        "  ORDER BY position DESC LIMIT ?"
+        ")",
+        (STATE_DONE, STATE_CANCELLED, STATE_DONE, STATE_CANCELLED, _TERMINAL_KEEP),
+    )
+    return max(0, int(cur.rowcount or 0))
+
+
 def enqueue_items(series_list: List[Dict[str, Any]]) -> Dict[str, Any]:
     """
     series_list items: series_id, series_name, force_update, fields_override.
@@ -134,6 +171,11 @@ def enqueue_items(series_list: List[Dict[str, Any]]) -> Dict[str, Any]:
         conn = db_manager._connect()
         try:
             c = conn.cursor()
+            _prune_terminal(conn)
+            # Position calculée une fois pour tout le paquet : la reprendre par
+            # série relançait un `MAX(position)` sur toute la table à chaque
+            # ligne insérée, soit cinquante balayages par paquet /batch-sync.
+            pos = _next_position(conn)
             for s in series_list:
                 sid = int(s["series_id"])
                 exists = c.execute(
@@ -144,7 +186,6 @@ def enqueue_items(series_list: List[Dict[str, Any]]) -> Dict[str, Any]:
                     skipped_dupes += 1
                     continue
                 item_id = str(uuid.uuid4())
-                pos = _next_position(conn)
                 c.execute(
                     "INSERT INTO batch_queue "
                     "(id, series_id, series_name, force_update, fields_override, state, created_at, position) "
@@ -160,6 +201,7 @@ def enqueue_items(series_list: List[Dict[str, Any]]) -> Dict[str, Any]:
                         pos,
                     ),
                 )
+                pos += 1
                 added += 1
                 to_put.append({
                     "id": item_id,

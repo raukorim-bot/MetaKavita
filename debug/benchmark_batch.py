@@ -34,7 +34,9 @@ import time
 from typing import Any, Dict, List, Optional, Tuple
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
+from _live_network_guard import confirm_live_network  # noqa: E402
 from config_manager import load_config  # noqa: E402
 from kavita_api import KavitaAPI  # noqa: E402
 from services import enrichment_engine  # noqa: E402
@@ -200,6 +202,15 @@ def main() -> int:
             "Relance avec --live --i-know si tu assumes le risque."
         )
         return 2
+
+    # `--i-know` ne couvrait que les ÉCRITURES Kavita. Le scraping, lui, est
+    # réel même en dry-run : un lot de vingt séries BD, c'est plusieurs
+    # centaines de pages chez Bédéthèque et Planète BD.
+    confirm_live_network(
+        "benchmark_batch.py",
+        "les fournisseurs de la cascade configurée, Bédéthèque et Planète BD compris",
+        details="Le scraping est réel même en dry-run ; seules les écritures Kavita sont mockées.",
+    )
 
     base = load_config()
     if not base.get("KAVITA_URL"):

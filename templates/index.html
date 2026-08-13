@@ -134,6 +134,8 @@
 			mr_age_r18: "{{ t.mr_age_r18 }}",
 			mr_age_x18: "{{ t.mr_age_x18 }}",
 			mr_cover_url_toggle: "{{ t.mr_cover_url_toggle }}",
+			mr_streaming: "{{ t.mr_streaming }}",
+			mr_hidden_below: "{{ t.mr_hidden_below }}",
 			mr_field_missing: "{{ t.mr_field_missing }}",
 			mr_no_summary: "{{ t.mr_no_summary }}",
 			mr_purge_confirm: "{{ t.mr_purge_confirm }}",
@@ -246,17 +248,32 @@
 			changelog_loading: "{{ t.changelog_loading }}"
         };
 
-        /* Inventaire : injecté en bloc plutôt que clé par clé, car library_audit.js
-           compose des clés dynamiques (audit_state_<état>, audit_unit_<unité>). */
+        /* Inventaire et enrichissement par tome : injectés en bloc plutôt que clé
+           par clé, car library_audit.js compose des clés dynamiques
+           (audit_state_<état>, audit_unit_<unité>, vol_field_<champ>,
+           vol_reason_<motif>). */
         Object.assign(window.AppTranslations, {
-        {%- for key, value in t.items() if key.startswith('audit_') %}
+        {%- for key, value in t.items() if key.startswith('audit_') or key.startswith('vol_') %}
             {{ key|tojson }}: {{ value|tojson }},
         {%- endfor %}
         });
 
     </script>
 </head>
-<body data-inventory="{{ '1' if inventory_enabled|default(true) else '0' }}">
+{# Mode léger : la liste des catégories que l'utilisateur a retirées de la barre
+   latérale. Une liste de mots, lue en CSS par `[data-ui-hidden~="…"]`, pour ne
+   pas ajouter trois attributs qui ressembleraient à s'y tromper aux deux
+   ci-dessus — ceux-là disent qu'une fonctionnalité est éteinte, celui-ci dit
+   qu'une catégorie de réglages est cachée. #}
+{%- set ui_sections = [('manual', 'UI_SHOW_MANUAL_REVIEW'), ('inventory', 'UI_SHOW_INVENTORY'), ('volumes', 'UI_SHOW_VOLUMES')] -%}
+<body data-inventory="{{ '1' if inventory_enabled|default(true) else '0' }}"
+      data-volumes="{{ '1' if config.get('VOLUME_ENRICHMENT_ENABLED', False) else '0' }}"
+      data-ui-hidden="{% for section, key in ui_sections %}{% if not config.get(key, True) %}{{ section }} {% endif %}{% endfor %}">
+    {# Sprite en tête de document : la barre du haut et l'encart Companion
+       affichent des icônes au premier rendu, or <use> ne trouve un symbole
+       déclaré plus bas qu'après l'analyse complète de la page. #}
+    {% include "partials/_icons_sprite.html" %}
+
     <div class="dashboard-wrapper">
         <header class="topbar">
             <div class="logo">
@@ -291,28 +308,99 @@
 				<a href="{{ kavita_plus_url }}" target="_blank" rel="noopener noreferrer" class="btn-icon support-link kavita-plus-link" title="{{ t.about_kavita_plus }}">💜 {{ t.kavita_plus_btn }}</a>
 				<a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer" class="btn-icon support-link bmc-link" title="{{ t.buy_me_coffee }}">☕ {{ t.buy_me_coffee }}</a>
 			</div>
-			<div class="topbar-help">
-				<button type="button" class="btn-icon" id="helpMenuBtn" onclick="toggleHelpMenu(event)" aria-expanded="false" aria-haspopup="true" title="{{ t.help_menu }}">❓ {{ t.help_menu }}</button>
-				<div id="helpDropdown" class="help-dropdown" hidden>
-					<button type="button" class="help-dropdown-item" onclick="openAboutModal(); closeHelpMenu();">{{ t.about_title }}</button>
-					<div class="help-dropdown-label">{{ t.docs_menu }}</div>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/README.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_readme }}</a>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_companion }}</a>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/community-scraper-metakavita" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_community_scrapers_repo }}</a>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/CUSTOM_SCRAPERS.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_custom_scrapers }}</a>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/DEVELOPER.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_developer }}</a>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/ROADMAP.md" target="_blank" rel="noopener noreferrer" onclick="closeHelpMenu();">{{ t.docs_roadmap }}</a>
+			{# Deux menus voisins plutôt qu'un seul fourre-tout : « Scrapers » est
+			   un atelier où l'on installe et met à jour, « Aide » ne fait que
+			   lire. Le chevron et l'état ouvert du bouton disent qu'ils cliquent. #}
+			<div class="topbar-menu" id="scrapersMenu">
+				<button type="button" class="btn-icon topbar-menu-btn" id="scrapersMenuBtn"
+						onclick="toggleTopbarMenu(event, 'scrapersDropdown')"
+						aria-expanded="false" aria-haspopup="true" aria-controls="scrapersDropdown"
+						aria-label="{{ t.scrapers_menu }}" title="{{ t.scrapers_menu_hint }}">
+					<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-puzzle"></use></svg>
+					<span class="topbar-menu-label">{{ t.scrapers_menu }}</span>
+					<svg class="mk-ico mk-caret" aria-hidden="true"><use href="#mk-ico-caret"></use></svg>
+				</button>
+				<div id="scrapersDropdown" class="help-dropdown" role="menu" hidden>
+					<div class="help-dropdown-label">{{ t.scrapers_menu_group_manage }}</div>
+					<a class="help-dropdown-item" href="{{ url_for('scrapers_manage.manage') }}" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-cog"></use></svg>{{ t.help_manage_scrapers }}
+					</a>
+					<a class="help-dropdown-item" href="{{ url_for('scrapers_manage.store') }}" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-store"></use></svg>{{ t.help_scraper_store }}
+					</a>
+					<button type="button" class="help-dropdown-item" role="menuitem" onclick="closeTopbarMenus(); openProvidersModal();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-providers"></use></svg>{{ t.open_providers_modal }}
+					</button>
 					<div class="help-dropdown-sep"></div>
-					<a class="help-dropdown-item" href="{{ url_for('scrapers_manage.manage') }}" onclick="closeHelpMenu();">{{ t.help_manage_scrapers }}</a>
-					<a class="help-dropdown-item" href="{{ url_for('scrapers_manage.store') }}" onclick="closeHelpMenu();">{{ t.help_scraper_store }}</a>
-					<a class="help-dropdown-item" href="{{ url_for('auth.setup') }}" onclick="closeHelpMenu();">{{ t.setup_help_rerun }}</a>
-					<button type="button" class="help-dropdown-item" onclick="closeHelpMenu(); openChangelogModal(true);">{{ t.help_changelog }}</button>
-					<a class="help-dropdown-item help-dropdown-item--muted" href="{{ url_for('pages.diagnostics') }}" onclick="closeHelpMenu();">{{ t.help_diagnostics }}</a>
+					<div class="help-dropdown-label">{{ t.docs_menu }}</div>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/community-scraper-metakavita" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-puzzle"></use></svg>{{ t.docs_community_scrapers_repo }}
+						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+					</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/CUSTOM_SCRAPERS.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-doc"></use></svg>{{ t.docs_custom_scrapers }}
+						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+					</a>
 				</div>
 			</div>
-			<button type="button" class="btn-icon" onclick="openChangelogModal(true)" title="{{ t.help_changelog }}">✨ v{{ app_version }}</button>
-                <button type="button" class="btn-icon" onclick="openConfigModal()" title="{{ t.toggle_config }}">⚙️ Config</button>
-                <button type="button" class="btn-icon" onclick="toggleTheme()" title="{{ t.toggle_theme }}">🌓 {{ t.toggle_theme }}</button>
+			<div class="topbar-menu" id="helpMenu">
+				<button type="button" class="btn-icon topbar-menu-btn" id="helpMenuBtn"
+						onclick="toggleTopbarMenu(event, 'helpDropdown')"
+						aria-expanded="false" aria-haspopup="true" aria-controls="helpDropdown"
+						aria-label="{{ t.help_menu }}" title="{{ t.help_menu }}">
+					<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-help"></use></svg>
+					<span class="topbar-menu-label">{{ t.help_menu }}</span>
+					<svg class="mk-ico mk-caret" aria-hidden="true"><use href="#mk-ico-caret"></use></svg>
+				</button>
+				<div id="helpDropdown" class="help-dropdown" role="menu" hidden>
+					<button type="button" class="help-dropdown-item" role="menuitem" onclick="openAboutModal(); closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-info"></use></svg>{{ t.about_title }}
+					</button>
+					<button type="button" class="help-dropdown-item" role="menuitem" onclick="closeTopbarMenus(); openChangelogModal(true);">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-sparkle"></use></svg>{{ t.help_changelog }}
+					</button>
+					<button type="button" class="help-dropdown-item" id="helpCompanionCardBtn" role="menuitem" onclick="closeTopbarMenus(); showCompanionCard();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-download"></use></svg>{{ t.companion_card_reopen }}
+					</button>
+					<a class="help-dropdown-item" href="{{ url_for('auth.setup') }}" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-wand"></use></svg>{{ t.setup_help_rerun }}
+					</a>
+					<div class="help-dropdown-sep"></div>
+					<div class="help-dropdown-label">{{ t.docs_menu }}</div>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/README.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-doc"></use></svg>{{ t.docs_readme }}
+						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+					</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-companion"></use></svg>{{ t.docs_companion }}
+						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+					</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/DEVELOPER.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-doc"></use></svg>{{ t.docs_developer }}
+						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+					</a>
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/ROADMAP.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-doc"></use></svg>{{ t.docs_roadmap }}
+						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+					</a>
+					<div class="help-dropdown-sep"></div>
+					<a class="help-dropdown-item help-dropdown-item--muted" href="{{ url_for('pages.diagnostics') }}" role="menuitem" onclick="closeTopbarMenus();">
+						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-pulse"></use></svg>{{ t.help_diagnostics }}
+					</a>
+				</div>
+			</div>
+			{# Mêmes pictogrammes que les deux menus : la barre du haut parle une
+			   seule langue. Les pastilles de soutien gardent leurs emojis, elles
+			   ne font pas partie de l'outillage. #}
+			<button type="button" class="btn-icon topbar-btn" onclick="openChangelogModal(true)" title="{{ t.help_changelog }}">
+				<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-sparkle"></use></svg>v{{ app_version }}
+			</button>
+			<button type="button" class="btn-icon topbar-btn" onclick="openConfigModal()" title="{{ t.toggle_config }}">
+				<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-cog"></use></svg>Config
+			</button>
+			<button type="button" class="btn-icon topbar-btn" onclick="toggleTheme()" title="{{ t.toggle_theme }}">
+				<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-theme"></use></svg><span class="topbar-btn-label">{{ t.toggle_theme }}</span>
+			</button>
             </div>
         </header>
 
@@ -341,6 +429,52 @@
             </div>
         </div>
         {% endif %}
+
+        {# Encart Companion : masqué par la croix, et remis en place par « Aide →
+           Télécharger le Companion ». Le serveur ne sait pas si l'extension est
+           installée, donc l'oubli est côté navigateur (localStorage) et le
+           dévoilement se fait pendant l'analyse du document : celui qui l'a
+           fermé ne le voit pas clignoter à chaque chargement. #}
+        <aside id="companionCard" class="companion-card" aria-labelledby="companionCardTitle" hidden>
+            <svg class="companion-card-art" aria-hidden="true"><use href="#mk-ico-companion"></use></svg>
+            <div class="companion-card-text">
+                <strong id="companionCardTitle">{{ t.companion_card_title }}</strong>
+                <span>{{ t.companion_card_body }}</span>
+                <a class="companion-card-guide" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md" target="_blank" rel="noopener noreferrer">
+                    {{ t.companion_card_guide }}
+                    <svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+                </a>
+            </div>
+            <div class="companion-card-actions">
+                <a class="companion-dl companion-dl--chrome" href="https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip" rel="noopener noreferrer">
+                    <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-chrome"></use></svg>
+                    <span class="companion-dl-text">
+                        <span class="companion-dl-title">{{ t.companion_card_chrome }}</span>
+                        <span class="companion-dl-sub">{{ t.companion_card_zip }}</span>
+                    </span>
+                </a>
+                <a class="companion-dl companion-dl--firefox" href="https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip" rel="noopener noreferrer">
+                    <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-firefox"></use></svg>
+                    <span class="companion-dl-text">
+                        <span class="companion-dl-title">{{ t.companion_card_firefox }}</span>
+                        <span class="companion-dl-sub">{{ t.companion_card_zip }}</span>
+                    </span>
+                </a>
+            </div>
+            <button type="button" class="companion-card-close" onclick="dismissCompanionCard()"
+                    title="{{ t.companion_card_dismiss }}" aria-label="{{ t.companion_card_dismiss }}">
+                <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-close"></use></svg>
+            </button>
+        </aside>
+        <script>
+            (function () {
+                try {
+                    if (localStorage.getItem('mk_companion_card_dismissed') === '1') return;
+                } catch (e) { /* stockage refusé : on montre l'encart */ }
+                var el = document.getElementById('companionCard');
+                if (el) el.hidden = false;
+            })();
+        </script>
 
         <div class="dashboard-body">
             {% include "partials/_sidebar.html" %}
@@ -380,19 +514,51 @@
                             <div id="batchProgressFill" class="batch-progress-fill" style="width: 0%;"></div>
                         </div>
                     </div>
-                    <div class="batch-actions">
-                        <button type="button" class="btn-warning" id="batchResetBtn" onclick="resetErrors(this)">{{ t.reset_errors }}</button>
-                        <button type="button" class="btn-secondary" id="batchIgnoreBtn" onclick="ignoreSelection()">{{ t.launch_ignore }}</button>
-                        <button type="button" class="btn-secondary" id="batchQueueBtn" onclick="openBatchQueueModal()" title="{{ t.batch_queue_btn_hint }}">
-                            {{ t.batch_queue_btn }}
-                            <span id="batchQueueBadge" class="batch-queue-badge" hidden>0</span>
-                        </button>
-                        <label class="checkbox-label" title="{{ t.audit_scan_with_batch }}">
+                    {# Trois groupes plutôt que six blocs de même largeur : les gestes
+                       d'entretien à gauche, l'option du lot au milieu, l'action qui
+                       écrit dans Kavita à droite. Les libellés vivent dans un
+                       `.ba-label` parce que le JS les remplace (« Envoi… », « Ajouter
+                       à la file ») et qu'écrire dans le bouton effacerait son
+                       pictogramme. #}
+                    <div class="batch-actions" id="batchActions" data-state="idle">
+                        <div class="ba-cluster ba-cluster--tools">
+                            <button type="button" class="ba-btn ba-btn--quiet ba-btn--amber" id="batchResetBtn"
+                                    onclick="resetErrors(this)" title="{{ t.reset_errors_hint }}">
+                                <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-undo"></use></svg>
+                                <span class="ba-label">{{ t.reset_errors }}</span>
+                            </button>
+                            <button type="button" class="ba-btn ba-btn--quiet" id="batchIgnoreBtn"
+                                    onclick="ignoreSelection()" title="{{ t.launch_ignore_hint }}">
+                                <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-eye-off"></use></svg>
+                                <span class="ba-label">{{ t.launch_ignore }}</span>
+                            </button>
+                            <button type="button" class="ba-btn ba-btn--quiet" id="batchQueueBtn"
+                                    onclick="openBatchQueueModal()" title="{{ t.batch_queue_btn_hint }}">
+                                <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-queue"></use></svg>
+                                <span class="ba-label">{{ t.batch_queue_btn }}</span>
+                                <span id="batchQueueBadge" class="batch-queue-badge" hidden>0</span>
+                            </button>
+                        </div>
+
+                        <label class="ba-toggle" for="hygieneWithBatchCb" title="{{ t.audit_scan_with_batch_hint }}">
                             <input type="checkbox" id="hygieneWithBatchCb">
-                            {{ t.audit_scan_with_batch }}
+                            <span class="ba-toggle-track"><span class="ba-toggle-dot"></span></span>
+                            <span class="ba-toggle-text">{{ t.audit_scan_with_batch }}</span>
                         </label>
-                        <button type="submit" class="btn-batch" id="mainBatchBtn" title="{{ t.launch_batch_hint }}">{{ t.launch_batch }}</button>
-                        <button type="button" class="btn-stop" onclick="stopBatch()">{{ t.stop_batch }}</button>
+
+                        <div class="ba-cluster ba-cluster--run">
+                            <button type="submit" class="ba-btn ba-btn--primary" id="mainBatchBtn"
+                                    data-mode="run" title="{{ t.launch_batch_hint }}">
+                                <svg class="mk-ico ba-ico--run" aria-hidden="true"><use href="#mk-ico-play"></use></svg>
+                                <svg class="mk-ico ba-ico--append" aria-hidden="true"><use href="#mk-ico-plus"></use></svg>
+                                <span class="ba-label">{{ t.launch_batch }}</span>
+                            </button>
+                            <button type="button" class="ba-btn ba-btn--stop" id="batchStopBtn"
+                                    onclick="stopBatch()" title="{{ t.stop_batch_hint }}">
+                                <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-stop"></use></svg>
+                                <span class="ba-label">{{ t.stop_batch }}</span>
+                            </button>
+                        </div>
                     </div>
                 </form>
 
@@ -430,8 +596,6 @@
             </main>
         </div>
     </div>
-
-    {% include "partials/_icons_sprite.html" %}
 
     {% include "partials/_config_modal.html" %}
 

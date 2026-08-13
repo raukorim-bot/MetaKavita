@@ -66,8 +66,22 @@ def auth_app(isolated_db, monkeypatch):
     def healthz():
         return {"status": "ok"}, 200
 
+    def api_ping():
+        return {"success": True}, 200
+
+    def save_config():
+        return {"success": True}, 200
+
     test_app.add_url_rule("/", endpoint="pages.index", view_func=index)
     test_app.add_url_rule("/healthz", endpoint="misc.healthz", view_func=healthz)
+    # Route sous /api/ et route mutante hors /api/ : c'est la forme de la réponse
+    # du gate qui est testée (JSON 401 pour un fetch, redirection pour une
+    # navigation), pas la vue.
+    test_app.add_url_rule("/api/ping", endpoint="misc.api_ping", view_func=api_ping)
+    test_app.add_url_rule(
+        "/save-config", endpoint="config.save_config",
+        view_func=save_config, methods=["POST"],
+    )
 
     # Ordre significatif, identique à app.py.
     test_app.before_request(auth_manager.setup_gate)
@@ -109,7 +123,6 @@ def _complete_setup(
         "SMART_COMPLETION": "true",
         "MANUAL_REVIEW_MODE": "false",
         "AUTO_COVER": "false",
-        "AUTO_READING_DIR": "false",
         "TITLE_FALLBACK_TRANSLATION": "false",
         "AUTO_SYNC_INTERVAL": "360",
         "PUBLISHER_PREFERENCE": "LOCALIZED",
@@ -333,7 +346,6 @@ def test_setup_rerun_updates_config_without_new_account(client):
         "SMART_COMPLETION": "false",
         "MANUAL_REVIEW_MODE": "false",
         "AUTO_COVER": "true",
-        "AUTO_READING_DIR": "false",
         "TITLE_FALLBACK_TRANSLATION": "false",
         "AUTO_SYNC_INTERVAL": "0",
         "PUBLISHER_PREFERENCE": "LOCALIZED",
@@ -409,7 +421,6 @@ def test_setup_persists_full_custom_options_matrix(client):
         "SMART_COMPLETION": "false",
         "MANUAL_REVIEW_MODE": "true",
         "AUTO_COVER": "true",
-        "AUTO_READING_DIR": "true",
         "AUTO_SYNC_INTERVAL": "1440",
         "ROOT_PATH": "/mk",
         "AZURE_REGION": "",
@@ -439,7 +450,6 @@ def test_setup_persists_full_custom_options_matrix(client):
     assert cfg["SMART_COMPLETION"] is False  # défaut code=False, wizard peut forcer False
     assert cfg["MANUAL_REVIEW_MODE"] is True
     assert cfg["AUTO_COVER"] is True
-    assert cfg["AUTO_READING_DIR"] is True
     assert int(cfg["AUTO_SYNC_INTERVAL"]) == 1440
     assert cfg["ROOT_PATH"] == "/mk"
     assert cfg["PROVIDER_1"] == "ANILIST"
@@ -490,6 +500,104 @@ def test_setup_omitted_providers_keep_cascade_defaults(client):
     assert after.get("PROVIDER_1") == before.get("PROVIDER_1")
     assert after.get("COMIC_PROVIDER_1") == before.get("COMIC_PROVIDER_1")
     assert after.get("BOOK_PROVIDER_1") == before.get("BOOK_PROVIDER_1")
+
+
+def _probe_kavita(client, url="http://kavita.test", key="bad", extra=None):
+    data = {"KAVITA_URL": url, "KAVITA_API_KEY": key, "UI_LANG": "fr"}
+    if extra:
+        data.update(extra)
+    return client.post("/setup/test-kavita", data=data)
+
+
+def test_the_kavita_probe_is_closed_on_an_upgraded_instance_without_proof(
+    client, isolated_config, monkeypatch
+):
+    """Le point gênant de cette route : la fenêtre de la mise à niveau.
+
+    Sur une instance DÉJÀ EN SERVICE, la table `users` est vide au premier
+    démarrage de cette version, donc `setup_required()` est vrai et cette sonde —
+    présente dans les deux listes blanches — était joignable par tout le réseau.
+    N'importe qui faisait alors émettre au serveur un POST vers l'URL de son
+    choix, avec un code d'erreur distinct par cause : un balayage réseau précis
+    depuis l'intérieur. Le mainteneur exige déjà l'ancien `ADMIN_PASSWORD` pour
+    `POST /setup` ; cette route demande la même preuve.
+    """
+    from kavita_api import KavitaAPI
+
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+    attempts = []
+    monkeypatch.setattr(
+        KavitaAPI, "authenticate", lambda self: attempts.append(self.url) or False
+    )
+
+    res = _probe_kavita(client, url="http://192.168.1.42:8080", key="x")
+    assert res.status_code == 403
+    assert attempts == [], "aucune sortie réseau ne doit être émise pour un anonyme"
+
+
+def test_the_kavita_probe_accepts_the_same_legacy_proof_as_setup(
+    client, isolated_config, monkeypatch
+):
+    """La preuve rouvre la sonde : le propriétaire garde son bouton « Tester »."""
+    from kavita_api import KavitaAPI
+
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+    monkeypatch.setattr(KavitaAPI, "authenticate", lambda self: True)
+
+    res = _probe_kavita(client, key="x", extra={"legacy_password": "legacy-plaintext"})
+    assert res.status_code == 200
+    assert res.get_json()["ok"] is True
+
+
+def test_a_wrong_legacy_proof_on_the_probe_counts_as_a_failed_attempt(
+    client, isolated_config
+):
+    """Sinon cette route offrirait une force brute illimitée sur la preuve de
+    propriété, sans le verrouillage qui protège /setup et /login."""
+    isolated_config.save_config({"ADMIN_PASSWORD": "legacy-plaintext", "SECRET_KEY": "k"})
+
+    res = _probe_kavita(client, key="x", extra={"legacy_password": "not-it"})
+    assert res.status_code == 403
+    assert auth_manager._failed_attempts
+
+
+def test_the_kavita_probe_refuses_a_link_local_target(client, monkeypatch):
+    """169.254.169.254 n'héberge jamais un Kavita — c'est le service de metadata
+    d'un hébergeur cloud. Le refus doit précéder l'appel réseau, sinon la réponse
+    dit déjà si quelque chose écoute là."""
+    from kavita_api import KavitaAPI
+
+    attempts = []
+    monkeypatch.setattr(
+        KavitaAPI, "authenticate", lambda self: attempts.append(self.url) or False
+    )
+
+    res = _probe_kavita(client, url="http://169.254.169.254", key="x")
+    assert res.status_code == 200
+    assert res.get_json()["ok"] is False
+    assert res.get_json()["error"] == "blocked"
+    assert attempts == []
+
+
+def test_the_kavita_probe_still_accepts_a_private_lan_target(client, monkeypatch):
+    """Décision assumée : les plages privées restent autorisées.
+
+    Kavita est auto-hébergé, il vit sur 192.168/16, 10/8 ou un réseau Docker.
+    Réutiliser `url_allowlist._is_blocked_host` tel quel — qui refuse ces plages
+    parce qu'il protège un proxy d'images sortant — rendrait le bouton « Tester »
+    inutilisable pour l'installation normale.
+    """
+    from kavita_api import KavitaAPI
+
+    attempts = []
+    monkeypatch.setattr(
+        KavitaAPI, "authenticate", lambda self: attempts.append(self.url) or True
+    )
+
+    res = _probe_kavita(client, url="http://192.168.1.116:5001", key="x")
+    assert res.status_code == 200
+    assert res.get_json()["ok"] is True
+    assert attempts == ["http://192.168.1.116:5001"]
 
 
 def test_setup_test_kavita_is_non_blocking_endpoint(client, monkeypatch):
@@ -674,6 +782,58 @@ def test_the_gate_fails_closed_with_no_admin_password_configured(client):
 
     assert client.get("/").status_code == 302
     assert client.get("/stats").status_code in (302, 404)
+
+
+# ---------------------------------------------------------------------------
+# Session expirée : forme de la réponse
+# ---------------------------------------------------------------------------
+
+def test_an_api_call_without_a_session_answers_401_json(client):
+    """Le piège : `fetch()` suit les redirections en silence.
+
+    Répondre 302 vers /login faisait donc recevoir au JS un **200 porteur du HTML
+    de la page de connexion** ; `r.json()` levait une `SyntaxError` avalée par les
+    `.catch()` génériques, et tous les boutons annonçaient « Erreur réseau » sur
+    une instance parfaitement saine. Il suffit d'un tableau de bord laissé ouvert
+    jusqu'à l'expiration de la session (7 jours) ou d'un conteneur redémarré avec
+    une SECRET_KEY éphémère pour y arriver.
+    """
+    _complete_setup(client)
+    client.get("/logout")
+
+    res = client.get("/api/ping")
+    assert res.status_code == 401
+    assert res.headers.get("Location") is None, "aucune redirection à suivre"
+    assert "application/json" in (res.headers.get("Content-Type") or "")
+    body = res.get_json()
+    assert body["success"] is False
+    assert body["code"] == "unauthenticated"
+    # En-tête lu par le client partagé (static/js/utils.js) pour recharger la
+    # page sans avoir à consommer le corps de la réponse.
+    assert res.headers.get("X-MetaKavita-Auth") == "required"
+
+
+def test_a_json_post_outside_api_also_answers_401(client):
+    """Le critère n'est pas seulement le préfixe /api/ : `request.is_json`
+    compte aussi, comme dans `csrf_utils`. Plusieurs routes mutantes
+    (/save-config, /save-override…) vivent hors de /api/."""
+    _complete_setup(client)
+    client.get("/logout")
+
+    res = client.post("/save-config", json={"PROVIDERS_SAVE": True})
+    assert res.status_code == 401
+    assert res.get_json()["code"] == "unauthenticated"
+
+
+def test_a_page_navigation_without_a_session_still_redirects(client):
+    """Garde-fou contre la surcorrection : une navigation doit continuer
+    d'atterrir sur le formulaire de connexion, pas afficher du JSON brut."""
+    _complete_setup(client)
+    client.get("/logout")
+
+    res = client.get("/", headers={"Accept": "text/html,application/xhtml+xml"})
+    assert res.status_code == 302
+    assert "/login" in res.headers["Location"]
 
 
 # ---------------------------------------------------------------------------
@@ -1234,8 +1394,12 @@ def test_change_password_refuses_a_too_short_new_password(client):
 
 
 def test_change_password_requires_an_active_session(client):
-    """Sans session (ex: cookie expiré), le gate doit rediriger avant la vue —
-    même comportement que n'importe quelle autre route protégée."""
+    """Sans session (ex: cookie expiré), le gate doit refuser avant la vue.
+
+    Requête JSON, donc réponse JSON : la modale Config appelle cette route en
+    `fetch()`, et une redirection vers /login lui aurait été servie comme un 200
+    porteur de HTML (voir la section « Session expirée » plus bas).
+    """
     _complete_setup(client)
     client.get("/logout")
 
@@ -1244,8 +1408,11 @@ def test_change_password_requires_an_active_session(client):
         "new_password": "new correct horse",
         "new_password_confirm": "new correct horse",
     })
-    assert res.status_code == 302
-    assert "/login" in res.headers["Location"]
+    assert res.status_code == 401
+    assert res.headers.get("Location") is None
+    assert res.get_json()["code"] == "unauthenticated"
+    # Le mot de passe ne doit évidemment pas avoir changé.
+    assert auth_manager.verify_credentials("admin", "correct horse") is not None
 
 
 def test_a_wrong_current_password_counts_as_a_failed_login_attempt(client):
@@ -1298,6 +1465,30 @@ def test_an_unreadable_users_table_denies_access(client, monkeypatch):
 # ---------------------------------------------------------------------------
 # CSRF
 # ---------------------------------------------------------------------------
+
+def test_a_blueprint_named_like_static_is_not_csrf_exempt(isolated_db, monkeypatch):
+    """Garde-fou : la liste d'exemption doit se comparer à l'identique.
+
+    Le test portait sur `endpoint.startswith("static")`, ce qui exemptait de CSRF
+    l'intégralité d'un futur blueprint nommé `static_pages`, `statics`… Aucun
+    endpoint actuel ne collisionne — c'est justement pour que ça reste vrai.
+    """
+    from csrf_utils import csrf_protect_before_request
+
+    def save():
+        return "written", 200
+
+    test_app = Flask(__name__)
+    test_app.config.update(TESTING=False, SECRET_KEY="test-secret")
+    test_app.add_url_rule(
+        "/static-pages/save", endpoint="static_pages.save",
+        view_func=save, methods=["POST"],
+    )
+    test_app.before_request(csrf_protect_before_request)
+
+    res = test_app.test_client().post("/static-pages/save")
+    assert res.status_code == 403
+
 
 def test_csrf_is_enforced_on_the_login_post(isolated_db, monkeypatch):
     """`csrf_protect_before_request()` no-op sous TESTING : il faut donc

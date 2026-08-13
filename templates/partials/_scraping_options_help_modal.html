@@ -61,10 +61,6 @@
 						<p>{{ t.scraping_help_auto_cover }}</p>
 					</article>
 					<article class="scraping-help-item">
-						<h5>{{ t.auto_reading_dir }}</h5>
-						<p>{{ t.scraping_help_auto_reading_dir }}</p>
-					</article>
-					<article class="scraping-help-item">
 						<h5>{{ t.reset_context_on_force }}</h5>
 						<p>{{ t.scraping_help_reset_context }}</p>
 					</article>
@@ -76,13 +72,50 @@
 						<h5>{{ t.cover_force_overwrite }}</h5>
 						<p>{{ t.scraping_help_cover_force_overwrite }}</p>
 					</article>
+					{# L'interrupteur vit dans cette catégorie de la barre latérale,
+					   auprès de l'écrasement des couvertures : son aide y reste. #}
+					<article class="scraping-help-item">
+						<h5>{{ t.volume_force_overwrite }}</h5>
+						<p>{{ t.scraping_help_volume_force_overwrite }}</p>
+					</article>
 					<article class="scraping-help-item">
 						<h5>{{ t.batch_targeted_fields }}</h5>
 						<p>{{ t.scraping_help_batch_fields }}</p>
 					</article>
+				</section>
+
+				{# Une section par catégorie de la barre latérale : l'Inventaire avait
+				   la sienne dans la barre mais se retrouvait rangé sous l'écriture,
+				   et les tomes n'étaient nulle part. #}
+				<section class="scraping-help-section">
+					<h4 class="scraping-help-section-title">{{ t.scraping_cat_inventory }}<span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span></h4>
 					<article class="scraping-help-item">
 						<h5>{{ t.library_inventory_enabled }}</h5>
 						<p>{{ t.scraping_help_library_inventory }}</p>
+					</article>
+				</section>
+
+				<section class="scraping-help-section">
+					<h4 class="scraping-help-section-title">{{ t.scraping_cat_volumes }}<span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span></h4>
+					<article class="scraping-help-item">
+						<h5>{{ t.volume_enrichment_enabled }}</h5>
+						<p>{{ t.scraping_help_volume_enrichment }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.volume_enrich_credits }}</h5>
+						<p>{{ t.scraping_help_volume_credits }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.volume_no_manga_fallback }}</h5>
+						<p>{{ t.scraping_help_volume_no_manga_fallback }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.volume_provider_forced }}</h5>
+						<p>{{ t.scraping_help_volume_provider }}</p>
+					</article>
+					<article class="scraping-help-item">
+						<h5>{{ t.volume_enrich_experimental }}</h5>
+						<p>{{ t.scraping_help_volume_experimental }}</p>
 					</article>
 				</section>
 			</div>

@@ -28,6 +28,7 @@ from db_manager import (
     set_inventory_excluded,
 )
 from kavita_api import KavitaAPI
+from routes.volume_enrichment import volume_enrichment_enabled
 from secure_logging import safe_exc_str
 from services.library_audit import (
     build_volume_report,
@@ -72,12 +73,24 @@ def inventory_enabled(config: dict = None) -> bool:
     return cfg.get("LIBRARY_INVENTORY_ENABLED", True) is not False
 
 
+#: Le détail tome par tome, reconstruit depuis Kavita seul (aucun appel de
+#: fournisseur, aucun attendu de catalogue). C'est la surface d'aperçu de
+#: l'enrichissement par tome, une fonctionnalité voisine mais distincte : la
+#: couper avec l'Inventaire rendait celle-ci injoignable alors que son propre
+#: interrupteur était allumé.
+_REACHABLE_FOR_VOLUME_ENRICHMENT = frozenset(
+    {"library_audit.series_volume_report_units"}
+)
+
+
 @library_audit_bp.before_request
 def _guard_inventory_disabled():
     """Coupe toutes les routes d'inventaire quand la fonctionnalité est éteinte :
     l'interface la masque déjà, mais un onglet resté ouvert ne doit pas relancer
     de scan ni de cascade provider en arrière-plan."""
     if inventory_enabled():
+        return None
+    if request.endpoint in _REACHABLE_FOR_VOLUME_ENRICHMENT and volume_enrichment_enabled():
         return None
     t = _t()
     return jsonify(

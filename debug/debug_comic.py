@@ -1,8 +1,23 @@
+"""⚠️ SCRIPT À USAGE MANUEL — ÉMET DE VRAIES REQUÊTES CHEZ BÉDÉTHÈQUE.
+
+Tout le corps s'exécute au chargement du module : lancer ce fichier, ou même
+l'importer, suffisait à interroger pour de bon Bédéthèque puis ComicVine.
+Bédéthèque n'a pas d'API et bannit l'IP qui l'interroge en rafale.
+"""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
+
+confirm_live_network(
+    "debug_comic.py",
+    "Bédéthèque (site sans API, bannit l'IP) et ComicVine",
+    details="1 fetch() par fournisseur, soit ~6 à 25 pages chez Bédéthèque.",
+)
 
 import logging
 from config_manager import load_config

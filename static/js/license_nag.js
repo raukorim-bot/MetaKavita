@@ -480,9 +480,15 @@
 
     function isSuperEnabled() {
         try {
-            var el = document.getElementById("opt_super_manual_review");
-            if (el) return !!el.checked;
-            return localStorage.getItem("opt_super_manual_review") === "true";
+            // Identifiant réel de la case Mode Super dans la sidebar : le même que
+            // celui lu par manual_review.js et config.js. Avec l'ancien nom, le
+            // `if (el)` avalait le null sans un mot, la variante "super_glow"
+            // n'était jamais éligible et ses trois traductions ne s'affichaient
+            // jamais. La case est désactivée quand le mode manuel est éteint —
+            // cochée mais grisée ne veut pas dire active.
+            var el = document.getElementById("sidebar_manual_review_super");
+            if (el) return !!(el.checked && !el.disabled);
+            return false;
         } catch (e) {
             return false;
         }

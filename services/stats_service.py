@@ -124,7 +124,13 @@ def compute_playful_stats(
     manual_top1_accepts = int(lifetime.get("manual_top1_accepts") or 0)
     manual_score_sum = float(lifetime.get("manual_score_sum") or 0)
     manual_field_edits = int(lifetime.get("manual_field_edits") or 0)
-    manual_avg_score = (manual_score_sum / manual_reviews) if manual_reviews else 0.0
+    # Le dénominateur de la moyenne est le nombre de confirmations *scorées*, pas
+    # le nombre de confirmations : un candidat sans `_match_score` (scraper
+    # communautaire) entre à 0,00 pendant la collecte manuelle, où le seuil est
+    # abaissé à 0. Tant que `db_manager` ne compte pas ces cas à part,
+    # `manual_score_n` est absent et on retombe sur le nombre de reviews.
+    manual_score_n = int(lifetime.get("manual_score_n") or manual_reviews)
+    manual_avg_score = (manual_score_sum / manual_score_n) if manual_score_n else 0.0
     manual_top1_rate = (manual_top1_accepts / manual_reviews) if manual_reviews else 0.0
 
     # --- État actuel (cache) ---

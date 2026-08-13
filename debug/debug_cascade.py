@@ -1,8 +1,21 @@
+"""⚠️ SCRIPT À USAGE MANUEL — CASCADE RÉELLE, BÉDÉTHÈQUE EN TÊTE.
+
+Tout s'exécute au chargement du module : lancer le fichier suffit à partir.
+"""
 import sys
 import os
 
 # 🎯 INJECTION DU DOSSIER PARENT (Racine du projet) DANS LE PATH PYTHON
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from _live_network_guard import confirm_live_network
+
+confirm_live_network(
+    "debug_cascade.py",
+    "Bédéthèque, ComicVine, Google Books, Open Library, Hardcover",
+    details="Deux cascades complètes (Comic puis Book).",
+)
 
 import logging
 import time

@@ -63,6 +63,10 @@ def _chap_number(chap: dict) -> Optional[float]:
 
 
 def _is_special_vol(vol: dict, num: Optional[float]) -> bool:
+    # Ce que Kavita fournit réellement au niveau du tome, c'est la sentinelle
+    # 100000 : `VolumeDto` n'a pas de propriété `IsSpecial` (le drapeau appartient
+    # à `ChapterDto`, lu plus bas). Le drapeau et le nom restent des tolérances,
+    # jamais l'unique preuve.
     if num is not None and abs(num - _SPECIAL_VOL) < 0.01:
         return True
     if vol.get("isSpecial") or vol.get("IsSpecial"):
@@ -87,6 +91,12 @@ def _summary_nonempty(obj: dict) -> bool:
 
 
 def _has_isbn(obj: dict) -> bool:
+    """Un ISBN vient du chapitre : `VolumeDto` ne porte pas la propriété.
+
+    Le repli sur le tome, plus bas, ne sert donc que les dictionnaires assemblés
+    autrement (tome sans chapitre, appelant de test) — il ne coûte rien et évite
+    de perdre un ISBN que l'appelant aurait bel et bien.
+    """
     isbn = obj.get("isbn") or obj.get("Isbn") or ""
     return bool(str(isbn).strip())
 
