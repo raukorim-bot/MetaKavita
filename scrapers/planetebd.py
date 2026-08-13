@@ -12,10 +12,12 @@ from curl_cffi import requests
 from config_manager import get_max_genres, get_max_tags
 from scrapers.base import BaseScraper
 from scrapers.utils import (
+    album_number_key,
     attach_match_score,
     clean_title,
     extract_volume_number,
     get_match_accept_threshold,
+    response_is_ok,
     score_candidate,
 )
 
@@ -50,6 +52,51 @@ def _abs(url: Optional[str]) -> Optional[str]:
     return urljoin(_BASE, url.split("#", 1)[0])
 
 
+def _album_number(text: str) -> Optional[str]:
+    """Numéro de tome d'un libellé Planète BD (« Astérix T41 : … »).
+
+    `extract_volume_number` ne connaît pas la forme « T41 », qui est pourtant la
+    seule qu'emploie le site : sans ce parseur, aucun album ne s'apparierait.
+
+    Le numéro est rendu sous forme de chaîne, et non d'entier, pour que les
+    hors-série intercalaires (« T1.5 », « T3,5 » — le site emploie l'un et
+    l'autre séparateur) restent exprimables. Les rendre en entier les
+    ramenait au tome plein qui les précède : le hors-série 1.5, croisé avant
+    le tome 1, occupait sa clé dans l'index et lui volait ses métadonnées.
+    """
+    raw = str(text or "")
+    match = re.search(r"\bT(?:ome)?\.?\s*(\d{1,4}(?:[.,]\d{1,2})?)\b", raw, re.I)
+    if not match:
+        match = re.match(r"^\s*(\d{1,4}(?:[.,]\d{1,2})?)\s*[.\-–:]", raw)
+    if match:
+        return album_number_key(match.group(1))
+    return album_number_key(extract_volume_number(raw))
+
+
+def _same_series_only(
+    albums: List[Dict[str, Any]], series_slug: str
+) -> List[Dict[str, Any]]:
+    """Ne garde que les albums de la série consultée.
+
+    Le slug de la page série tranche quand il correspond. Il ne correspond pas
+    toujours : quand la page a été atteinte par un identifiant forcé, l'URL de
+    sondage ne porte pas le vrai slug, et une redirection non suivie la laisse
+    telle quelle. On retombe alors sur le groupe le plus nombreux, parce qu'une
+    fiche série est faite de ses propres albums, tandis que les blocs « à lire
+    aussi » apportent un ou deux liens par série étrangère.
+    """
+    if not albums:
+        return []
+    if series_slug:
+        own = [a for a in albums if a["series"] == series_slug]
+        if own:
+            return own
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for album in albums:
+        groups.setdefault(album["series"], []).append(album)
+    return max(groups.values(), key=len)
+
+
 def _series_title_from_album_label(label: str) -> str:
     """'Astérix T41 : …' / 'Watchmen T12' → titre de série approximatif."""
     label = (label or "").strip()
@@ -67,7 +114,16 @@ class PlanetebdScraper(BaseScraper):
     is_core = True
     display_name = "Planète BD"
     supported_types = {"Comic"}
+    scopes = {"series", "volume"}
+    # 1.2.0 : cadence appliquée à chaque requête (un `fetch()` en émettait 25 en
+    # rafale, dont 8 en double), et décodage HTML confié à BeautifulSoup. La
+    # montée de version est ce qui autorise l'image à remplacer la copie 1.1.x
+    # déjà installée sous data/.
+    version = "1.2.0"
     rate_limit = 2.5  # HTML — anti-ban IP
+    # Une page par album à 2,5 s : au-delà, l'index coûterait plus de deux
+    # minutes pour une série que personne ne possède en entier.
+    VOLUME_INDEX_MAX = 50
     proxy_domains = ["planetebd.com", "static.planetebd.com", "www.planetebd.com"]
     has_direct_id_support = True
     requires_proxy = False
@@ -144,7 +200,9 @@ class PlanetebdScraper(BaseScraper):
                 for kind in ("bd", "comics", "mangas"):
                     probe = f"{_BASE}/{kind}/series/s/{sid}.html"
                     try:
-                        res = session.get(probe, timeout=20, allow_redirects=True)
+                        res = self._http_get(
+                            session, probe, timeout=20, allow_redirects=True
+                        )
                         if res is None or getattr(res, "status_code", 0) != 200:
                             continue
                         final = getattr(res, "url", None) or probe
@@ -228,6 +286,106 @@ class PlanetebdScraper(BaseScraper):
             except Exception:
                 pass
 
+    def fetch_volume_index(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Index des albums d'une série BD.
+
+        Une page par album, à 2,5 s de cadence : c'est lent, d'où le plafond.
+        Une série de plus de cinquante albums est rarissime en BD franco-belge,
+        et le tronquer vaut mieux qu'un quart d'heure de scraping muet.
+        """
+        session = requests.Session(impersonate="chrome110")
+        session.headers.update(
+            {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+                "Referer": f"{_BASE}/",
+            }
+        )
+        try:
+            series_url = self._resolve_series_url(session, query, library_type, series_id)
+            if not series_url:
+                return None
+
+            index: Dict[str, Any] = {}
+            for link in self._album_links_from_series(session, series_url)[
+                : self.VOLUME_INDEX_MAX
+            ]:
+                if link["number"] is None:
+                    continue
+                # `_album_number` rend déjà la clé canonique : la reformater
+                # ferait réapparaître un « 1.0 » là où l'on attend « 1 ».
+                key = link["number"]
+                if key in index:
+                    continue
+                # Une page par album, cinquante albums possibles : la cadence est
+                # celle de `_http_get`, qui la garantit requête par requête au
+                # lieu d'une pause en dur qui ne couvrait que cette boucle.
+                album = self._parse_album(session, link["url"])
+                if not album:
+                    continue
+                payload = {
+                    "provider_ref": link["url"],
+                    "title": album.get("album_title") or "",
+                    "summary": album.get("summary") or "",
+                    "release_date": str(album.get("year") or ""),
+                    "isbn": album.get("isbn") or "",
+                    "cover_url": album.get("cover_url") or "",
+                }
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    index[key] = payload
+            return index or None
+        except Exception as e:
+            logging.error(self.t("err").format(e))
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _resolve_series_url(
+        self, session, query: str, library_type: str, series_id: Optional[str]
+    ) -> Optional[str]:
+        """URL de la page série, par identifiant forcé si possible, par recherche sinon."""
+        raw = str(series_id or "").strip()
+        if raw:
+            sid = self.extract_id_from_url(raw) or (raw if raw.isdigit() else None)
+            if sid:
+                for kind in ("bd", "comics", "mangas"):
+                    probe = f"{_BASE}/{kind}/series/s/{sid}.html"
+                    try:
+                        res = self._http_get(
+                            session, probe, timeout=20, allow_redirects=True
+                        )
+                    except Exception:
+                        continue
+                    if res is not None and getattr(res, "status_code", 0) == 200:
+                        return getattr(res, "url", None) or probe
+            if "planetebd.com" in raw:
+                return raw
+
+        cleaned = clean_title(query, library_type="Comic")
+        if not cleaned:
+            return None
+        for hit in self._search(session, cleaned)[:5]:
+            url = hit.get("url") or ""
+            path = urlparse(urljoin(_BASE, url)).path
+            if _SERIES_RE.match(path):
+                return urljoin(_BASE, url)
+            if _ALBUM_RE.match(path):
+                # Un résultat d'album porte le lien vers sa série.
+                album = self._parse_album(session, urljoin(_BASE, url))
+                if album and album.get("series_url"):
+                    return album["series_url"]
+        return None
+
     def fetch_covers(
         self, query: str, library_type: str = "Comic"
     ) -> List[Dict[str, str]]:
@@ -269,14 +427,15 @@ class PlanetebdScraper(BaseScraper):
     # ------------------------------------------------------------------ Search
 
     def _search(self, session, terms: str) -> List[dict]:
-        res = session.get(
+        res = self._http_get(
+            session,
             f"{_BASE}/recherche/",
             params={"mot-clef": terms},
             timeout=25,
         )
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context="recherche"):
             return []
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = self._soup(res)
         hits: List[dict] = []
         for art in soup.select("article.featured"):
             cat_el = art.select_one(".cat")
@@ -334,11 +493,20 @@ class PlanetebdScraper(BaseScraper):
         series_url = None
         series_title = None
 
+        # La page série est chargée UNE fois et gardée : le titre, le statut de
+        # publication et le premier album en sortent tous les trois. Chacun
+        # passait par son propre `_get_soup`, soit la même page téléchargée deux
+        # à trois fois par candidat — sur huit candidats, à 2,5 s de cadence, ce
+        # sont plusieurs dizaines de secondes de requêtes inutiles offertes à un
+        # site qui bannit à vue.
+        series_soup = None
+
         if sm:
             series_url = url
-            series_title = self._fetch_series_title(session, url)
+            series_soup = self._get_soup(session, url)
+            series_title = self._series_title(series_soup)
             # Prendre un album de la série pour cover/staff
-            album_meta = self._first_album_from_series(session, url) or {}
+            album_meta = self._first_album_from_series(session, series_soup) or {}
         else:
             album_meta = self._parse_album(session, url) or {}
             if not album_meta:
@@ -347,7 +515,8 @@ class PlanetebdScraper(BaseScraper):
             series_title = album_meta.get("series_title")
             # Affiner le titre série via page série
             if series_url:
-                st = self._fetch_series_title(session, series_url)
+                series_soup = self._get_soup(session, series_url)
+                st = self._series_title(series_soup)
                 if st:
                     series_title = st
 
@@ -369,9 +538,9 @@ class PlanetebdScraper(BaseScraper):
         publisher = album_meta.get("publisher")
         year = album_meta.get("year")
         isbn = album_meta.get("isbn")
-        status = album_meta.get("status")
-        if series_url and not status:
-            status = self._fetch_series_status(session, series_url)
+        # `_parse_album` ne renseigne jamais `status` : le statut vient de la
+        # page série, celle déjà chargée plus haut.
+        status = album_meta.get("status") or self._series_status(series_soup)
 
         out: Dict[str, Any] = {
             "title": title,
@@ -394,15 +563,34 @@ class PlanetebdScraper(BaseScraper):
         # Pas d'age_rating inventé
         return out
 
-    def _get_soup(self, session, url: str) -> Optional[BeautifulSoup]:
-        res = session.get(url, timeout=25)
-        if res.status_code != 200:
-            return None
-        return BeautifulSoup(res.text, "html.parser")
+    @staticmethod
+    def _soup(res) -> BeautifulSoup:
+        """Soupe construite sur les OCTETS de la réponse, pas sur `res.text`.
 
-    def _fetch_series_title(self, session, series_url: str) -> Optional[str]:
-        soup = self._get_soup(session, series_url)
-        if not soup:
+        `curl_cffi` suppose UTF-8 quand le serveur n'annonce pas de `charset`, et
+        décode avec `errors="replace"` : sur une page en ISO-8859-1, les accents
+        d'un titre ou d'un résumé français devenaient des U+FFFD irrécupérables,
+        écrits puis verrouillés dans Kavita. En recevant les octets,
+        BeautifulSoup lit le `<meta charset>` de la page et retombe juste.
+
+        Le repli sur `res.text` vise les doublures de test : un `MagicMock`
+        fabrique un `.content` factice qu'il ne faut pas confondre avec des
+        octets réels, d'où le contrôle de type plutôt qu'un test de nullité.
+        """
+        raw = getattr(res, "content", None)
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = res.text
+        return BeautifulSoup(raw, "html.parser")
+
+    def _get_soup(self, session, url: str) -> Optional[BeautifulSoup]:
+        res = self._http_get(session, url, timeout=25)
+        if not response_is_ok(self, res, context=url):
+            return None
+        return self._soup(res)
+
+    @staticmethod
+    def _series_title(soup: Optional[BeautifulSoup]) -> Optional[str]:
+        if soup is None:
             return None
         if soup.h1:
             t = soup.h1.get_text(" ", strip=True)
@@ -410,9 +598,9 @@ class PlanetebdScraper(BaseScraper):
                 return t
         return None
 
-    def _fetch_series_status(self, session, series_url: str) -> Optional[str]:
-        soup = self._get_soup(session, series_url)
-        if not soup:
+    @staticmethod
+    def _series_status(soup: Optional[BeautifulSoup]) -> Optional[str]:
+        if soup is None:
             return None
         text = soup.get_text(" ", strip=True).casefold()
         if "série terminée" in text or "serie terminee" in text:
@@ -422,10 +610,9 @@ class PlanetebdScraper(BaseScraper):
         return None
 
     def _first_album_from_series(
-        self, session, series_url: str
+        self, session, soup: Optional[BeautifulSoup]
     ) -> Optional[Dict[str, Any]]:
-        soup = self._get_soup(session, series_url)
-        if not soup:
+        if soup is None:
             return None
         for a in soup.select("a[href]"):
             href = a.get("href") or ""
@@ -433,6 +620,53 @@ class PlanetebdScraper(BaseScraper):
             if _ALBUM_RE.match(path):
                 return self._parse_album(session, urljoin(_BASE, href))
         return None
+
+    def _album_links_from_series(self, session, series_url: str) -> List[Dict[str, Any]]:
+        """Les albums **de cette série**, avec leur numéro de tome.
+
+        Généralise `_first_album_from_series`, qui s'arrêtait au premier lien :
+        c'est cette liste qui permet d'écrire tome par tome plutôt que de ne
+        connaître que le tome 1.
+
+        Le filtre sur le slug de série n'est pas une précaution de confort : une
+        fiche Planète BD porte des blocs « à lire aussi », des critiques et des
+        albums du même éditeur, tous sous la même forme d'URL. Un de ces liens
+        dont le libellé contient « T2 » prendrait la place du vrai tome 2, et
+        l'utilisateur recevrait le résumé et la couverture d'une autre série.
+        """
+        soup = self._get_soup(session, series_url)
+        if not soup:
+            return []
+        series_match = _SERIES_RE.match(urlparse(series_url).path)
+        series_slug = (series_match.group("slug") if series_match else "").lower()
+
+        found: List[Dict[str, Any]] = []
+        seen = set()
+        for a in soup.select("a[href]"):
+            href = a.get("href") or ""
+            absolute = urljoin(_BASE, href)
+            path = urlparse(absolute).path
+            album_match = _ALBUM_RE.match(path)
+            if not album_match or path in seen:
+                continue
+            seen.add(path)
+            # Le numéro vient du libellé du lien (« Astérix T41 : … ») ; à
+            # défaut, du slug de l'album, qui le porte presque toujours. On le
+            # cherche dans le seul segment d'album : le reste de l'URL porte un
+            # identifiant numérique qui passerait pour un numéro de tome.
+            label = a.get_text(" ", strip=True) or (a.get("title") or "")
+            number = _album_number(label)
+            if number is None:
+                number = _album_number(album_match.group("album").replace("-", " "))
+            found.append(
+                {
+                    "url": absolute,
+                    "number": number,
+                    "label": label,
+                    "series": album_match.group("series").lower(),
+                }
+            )
+        return _same_series_only(found, series_slug)
 
     def _parse_album(self, session, album_url: str) -> Optional[Dict[str, Any]]:
         soup = self._get_soup(session, album_url)

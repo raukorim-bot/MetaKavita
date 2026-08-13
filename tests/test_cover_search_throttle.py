@@ -37,7 +37,9 @@ def _job(scraper, mode="by_title", query="ma serie"):
     )
 
 
-def test_cover_jobs_for_one_provider_are_spaced_by_its_rate_limit():
+def test_cover_jobs_for_one_provider_are_spaced_by_its_rate_limit(
+    real_provider_throttle_sleep,
+):
     scraper = _Scraper("FAKE_COVER_PROVIDER", rate_limit=0.2)
 
     threads = [
@@ -58,7 +60,9 @@ def test_cover_jobs_for_one_provider_are_spaced_by_its_rate_limit():
         )
 
 
-def test_a_cover_job_waits_for_an_enrichment_call_on_the_same_provider():
+def test_a_cover_job_waits_for_an_enrichment_call_on_the_same_provider(
+    real_provider_throttle_sleep,
+):
     """Les deux chemins partagent les horodatages : un enrichissement qui vient
     d'appeler le fournisseur retarde la recherche de couvertures, et l'inverse."""
     scraper = _Scraper("FAKE_SHARED_PROVIDER", rate_limit=0.3)

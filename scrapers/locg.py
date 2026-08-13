@@ -20,6 +20,7 @@ from scrapers.utils import (
     attach_match_score,
     clean_title,
     get_match_accept_threshold,
+    response_is_ok,
     score_candidate,
 )
 
@@ -62,6 +63,11 @@ class LocgScraper(BaseScraper):
     display_name = "League of Comic Geeks"
     supported_types = {"Comic"}
     rate_limit = 5.0  # interactive HTML/XHR; Crawl-delay 30 is for search bots — do not bulk-crawl
+    # 1.1.0 : les 5 s de cadence s'appliquent désormais à chaque requête (une
+    # recherche déclenche jusqu'à neuf pages de série, elles partaient en rafale)
+    # et le HTML est décodé par BeautifulSoup. La montée de version est ce qui
+    # autorise l'image à remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = [
         "leagueofcomicgeeks.com",
         "www.leagueofcomicgeeks.com",
@@ -244,7 +250,27 @@ class LocgScraper(BaseScraper):
         return covers
 
     def _get(self, url: str, **kwargs) -> Any:
-        return self._session.get(url, timeout=kwargs.pop("timeout", 25), **kwargs)
+        # Point de passage unique du scraper : c'est ici que la cadence est due,
+        # une recherche enchaînant jusqu'à neuf requêtes (XHR + fiches série).
+        return self._http_get(self._session, url, timeout=kwargs.pop("timeout", 25), **kwargs)
+
+    @staticmethod
+    def _soup(res) -> BeautifulSoup:
+        """Soupe construite sur les OCTETS de la réponse, pas sur `res.text`.
+
+        `curl_cffi` décode en UTF-8 avec `errors="replace"` quand le
+        `Content-Type` n'annonce pas de charset, sans jamais lire le
+        `<meta charset>` de la page : les caractères non-UTF-8 deviennent des
+        U+FFFD irrécupérables, écrits tels quels dans Kavita. Sur les octets,
+        BeautifulSoup lit le `<meta charset>` et décode juste.
+
+        Le repli sur `res.text` couvre les fausses réponses des tests, qui
+        n'exposent pas toujours d'octets exploitables.
+        """
+        raw = getattr(res, "content", None)
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = res.text
+        return BeautifulSoup(raw, "html.parser")
 
     def _search_series(self, terms: str) -> List[dict]:
         res = self._get(
@@ -256,7 +282,7 @@ class LocgScraper(BaseScraper):
                 "Referer": f"{_BASE}/comics",
             },
         )
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context="recherche de séries"):
             return []
         try:
             data = res.json()
@@ -349,7 +375,7 @@ class LocgScraper(BaseScraper):
             if "just a moment" in text.casefold() or len(text) < 8000:
                 # stub / CF — tenter ajax series
                 continue
-            page = BeautifulSoup(text, "html.parser")
+            page = self._soup(res)
             final_url = str(res.url) if getattr(res, "url", None) else u
             break
 
@@ -450,7 +476,9 @@ class LocgScraper(BaseScraper):
                 "Referer": f"{_BASE}/comics/series/{sid}",
             },
         )
-        if res.status_code != 200:
+        # Dernier recours du chemin série : si celui-là est refusé, plus rien ne
+        # sortira de League of Comic Geeks — c'est le moment de le dire.
+        if not response_is_ok(self, res, context="repli XHR série"):
             return seed
         try:
             data = res.json()

@@ -3,7 +3,15 @@ import requests
 import re
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    calculate_similarity,
+    clean_title,
+    get_match_accept_threshold,
+    normalize_str,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -32,6 +40,13 @@ class ShikimoriScraper(BaseScraper):
     display_name = "Shikimori (API JSON)"
     supported_types = {"Manga"}
     rate_limit = 0.75  # ~80/min: 10% under official 90 rpm (also 5 rps)
+    # 1.1.0 : une seule recherche déclenche jusqu'à onze requêtes (fiche et
+    # rôles de chaque candidat) que la cadence, appliquée avant `fetch()`,
+    # laissait partir en rafale — bien au-delà des 5 requêtes/seconde tolérées.
+    # Les refus de l'API sont désormais journalisés au lieu d'écarter
+    # silencieusement les candidats. La montée de version est ce qui autorise
+    # l'image à remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["shikimori.one", "shikimori.me"]
     has_direct_id_support = True
     requires_proxy = False
@@ -129,8 +144,8 @@ class ShikimoriScraper(BaseScraper):
         staff = []
         try:
             roles_url = f"https://shikimori.one/api/mangas/{manga_id}/roles"
-            roles_res = requests.get(roles_url, headers=headers, timeout=5)
-            if roles_res.status_code == 200:
+            roles_res = self._http_get(requests, roles_url, headers=headers, timeout=5)
+            if response_is_ok(self, roles_res, context="rôles (staff) de la série"):
                 for item in (roles_res.json() or []):
                     if isinstance(item, dict):
                         p_node = item.get("person") or {}
@@ -172,8 +187,8 @@ class ShikimoriScraper(BaseScraper):
             if is_id:
                 logging.info(self.t("direct_id").format(query))
                 url = f"https://shikimori.one/api/mangas/{query}"
-                res = requests.get(url, headers=headers, timeout=10)
-                if res.status_code == 200:
+                res = self._http_get(requests, url, headers=headers, timeout=10)
+                if response_is_ok(self, res, context="fiche par identifiant"):
                     return attach_match_score(self._parse_shikimori_record(res.json(), headers), 1.0)
                 return None
 
@@ -184,8 +199,8 @@ class ShikimoriScraper(BaseScraper):
             search_url = "https://shikimori.one/api/mangas"
             params = {"search": cleaned, "limit": 5}
 
-            res = requests.get(search_url, params=params, headers=headers, timeout=10)
-            if res.status_code != 200: return None
+            res = self._http_get(requests, search_url, params=params, headers=headers, timeout=10)
+            if not response_is_ok(self, res, context="recherche par titre"): return None
 
             items = res.json()
             if not isinstance(items, list) or not items: return None
@@ -197,8 +212,8 @@ class ShikimoriScraper(BaseScraper):
                 item_id = item.get("id")
                 romaji_name = item.get("name", "")
 
-                detail_res = requests.get(f"https://shikimori.one/api/mangas/{item_id}", headers=headers, timeout=10)
-                if detail_res.status_code != 200:
+                detail_res = self._http_get(requests, f"https://shikimori.one/api/mangas/{item_id}", headers=headers, timeout=10)
+                if not response_is_ok(self, detail_res, context="fiche d'un candidat"):
                     continue
                 detail_data = detail_res.json()
 
@@ -258,8 +273,11 @@ class ShikimoriScraper(BaseScraper):
         headers = {"User-Agent": "MetaKavita-Fetcher/1.5", "Accept": "application/json"}
 
         try:
-            res = requests.get("https://shikimori.one/api/mangas", params={"search": cleaned, "limit": 5}, headers=headers, timeout=8)
-            if res.status_code == 200:
+            # Le sélecteur de couvertures interroge tous les fournisseurs en
+            # parallèle : sans passer par `_http_get`, ce chemin doublait le débit
+            # vers Shikimori pendant qu'un batch tournait déjà.
+            res = self._http_get(requests, "https://shikimori.one/api/mangas", params={"search": cleaned, "limit": 5}, headers=headers, timeout=8)
+            if response_is_ok(self, res, context="recherche de couvertures"):
                 items = res.json()
                 if isinstance(items, list):
                     query_keywords = extract_meaningful_words(cleaned)
@@ -272,7 +290,7 @@ class ShikimoriScraper(BaseScraper):
 
                         if rel_path:
                             cover_url = rel_path if rel_path.startswith("http") else f"https://shikimori.one{rel_path}"
-                            detail_res = requests.get(f"https://shikimori.one/api/mangas/{item_id}", headers=headers, timeout=5)
+                            detail_res = self._http_get(requests, f"https://shikimori.one/api/mangas/{item_id}", headers=headers, timeout=5)
                             titles_to_check = [romaji_title]
                             display_title = romaji_title
 

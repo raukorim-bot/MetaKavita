@@ -70,7 +70,8 @@ def bedetheque(monkeypatch):
 
     session_factory.status = 503
     monkeypatch.setattr(module, "requests", types.SimpleNamespace(Session=session_factory))
-    monkeypatch.setattr(module.time, "sleep", lambda *a: None)
+    # Plus de `time.sleep` en dur à neutraliser : la cadence passe désormais par
+    # `_http_get`, que `conftest` accélère pour toute la suite.
     monkeypatch.setattr(module, "get_max_genres", lambda *a, **k: 5)
     monkeypatch.setattr(module, "get_max_tags", lambda *a, **k: 15)
     return types.SimpleNamespace(
@@ -107,3 +108,44 @@ def test_une_page_serie_en_erreur_ne_fournit_ni_titre_ni_statut(bedetheque, capl
         "le <h1> de la page 404 est sorti en titre, avec le statut FINISHED par défaut"
     )
     assert any("404" in rec.getMessage() for rec in caplog.records)
+
+
+# --- Bannissement : la cause doit sortir du scraper, pas seulement des journaux ---
+#
+# Les fiches album et série sont les requêtes les plus nombreuses du scraper,
+# donc les premières bloquées quand Bédéthèque coupe l'accès en cours de
+# parcours. Elles testaient leur code HTTP à la main, en WARNING générique :
+# visible dans les journaux, mais jamais remonté à `metadata_fetcher` comme
+# cause. L'utilisateur banni lisait « aucun résultat » et concluait que le site
+# n'avait rien sur sa série.
+
+
+@pytest.mark.parametrize(
+    ("status", "niveau_attendu", "cause_attendue"),
+    [
+        (403, logging.ERROR, "auth"),
+        (429, logging.WARNING, "quota"),
+    ],
+)
+def test_un_blocage_sur_une_fiche_remonte_sa_cause(
+    bedetheque, caplog, status, niveau_attendu, cause_attendue
+):
+    from scrapers.utils import provider_error_scope
+
+    bedetheque.factory.status = status
+    with caplog.at_level(logging.WARNING):
+        with provider_error_scope() as causes:
+            result = bedetheque.scraper.fetch(
+                "https://www.bedetheque.com/serie-42-BD-Test.html",
+                library_type="Comic",
+                is_id=True,
+            )
+
+    assert result is None
+    assert cause_attendue in {c["kind"] for c in causes}, (
+        f"HTTP {status} sur une fiche : la cause n'est pas remontée à l'appelant, "
+        "impossible de distinguer un bannissement d'une série absente du site"
+    )
+    assert any(rec.levelno >= niveau_attendu for rec in caplog.records), (
+        f"HTTP {status} journalisé en dessous de {logging.getLevelName(niveau_attendu)}"
+    )

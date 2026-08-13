@@ -9,6 +9,8 @@ class BaseScraper(ABC):
     # volume = scrapers conçus pour tomes/albums (pipeline volume à venir)
     scopes: Set[str] = {"series"}
     rate_limit: float = 1.0
+    # Délai d'une requête sortante quand le point d'appel n'en impose pas.
+    http_timeout: float = 20.0
     proxy_domains: List[str] = []
     has_direct_id_support: bool = False
     requires_proxy: bool = False
@@ -17,6 +19,18 @@ class BaseScraper(ABC):
     # Official image scrapers set True — single source of truth for core discovery
     # (seed/sync image → data/scrapers). Community/custom leave the default False.
     is_core: bool = False
+
+    # Version du scraper, en `major.minor.patch`. C'est elle qui arbitre le sync
+    # core : `data/scrapers/` est alimenté par deux sources concurrentes — l'image
+    # et le catalogue GitHub — et sans version la seule comparaison possible était
+    # l'égalité de sha256, qui ne dit pas laquelle des deux copies est la plus
+    # récente. Un scraper core qui gagne une capacité (un `fetch_volume_index`,
+    # par exemple) doit donc monter sa version : c'est le seul signal qui autorise
+    # l'image à remplacer la copie déjà installée, et qui empêche un catalogue en
+    # retard de la faire régresser. Le générateur du catalogue communautaire lit
+    # cet attribut de classe et le publie dans `store/catalog.json`.
+    version: str = "1.0.0"
+
     translations: Dict[str, Dict[str, str]] = {}
 
     # Déclaratif, PUREMENT informatif : indique si ce scraper attache un score réel
@@ -33,6 +47,39 @@ class BaseScraper(ABC):
     # régressent pas silencieusement vers un score neutre.
     uses_unified_scoring: bool = False
 
+
+    def _http_get(self, client: Any, url: str, **kwargs) -> Any:
+        """GET soumis au `rate_limit` du fournisseur, timeout compris.
+
+        `throttle_provider()` n'était appelé qu'une fois, par l'appelant, AVANT
+        `fetch()` : les six à vingt-cinq requêtes émises À L'INTÉRIEUR d'un
+        `fetch()` échappaient donc au compteur et partaient en rafale. C'est
+        exactement le profil de trafic qui fait bannir une IP ou déclencher un
+        403 Cloudflare sur les sites sans API — après quoi l'utilisateur voit
+        « aucun résultat » chez tous ses fournisseurs français sans savoir qu'il
+        est bloqué. La cadence doit donc être portée par la requête, pas par
+        l'appel de plus haut niveau, qui reste en place pour les scrapers
+        communautaires qui n'utilisent pas ce point de passage.
+
+        `client` est la session (ou le module `requests`) du scraper plutôt
+        qu'un client construit ici : chaque fournisseur a ses propres en-têtes,
+        son `impersonate`, et les tests remplacent ce module.
+        """
+        # Import local : `scrapers/base.py` est aussi la base des scrapers
+        # communautaires, qui doivent pouvoir être chargés hors application.
+        from services.provider_throttle import throttle_provider
+
+        throttle_provider(self)
+        kwargs.setdefault("timeout", self.http_timeout)
+        return client.get(url, **kwargs)
+
+    def _http_post(self, client: Any, url: str, **kwargs) -> Any:
+        """Équivalent de `_http_get` pour les API interrogées en POST (GraphQL)."""
+        from services.provider_throttle import throttle_provider
+
+        throttle_provider(self)
+        kwargs.setdefault("timeout", self.http_timeout)
+        return client.post(url, **kwargs)
 
     def get_ui_lang(self) -> str:
         """Récupère la langue d'interface configurée par l'utilisateur."""
@@ -61,6 +108,27 @@ class BaseScraper(ABC):
         """Doit retourner un dictionnaire standardisé de métadonnées, ou None."""
         pass
 
+    def fetch_volume_index(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Index des tomes/albums d'une série : `{numéro: payload}`. Défaut : None.
+
+        Un seul appel réseau pour toute la série quand le fournisseur le permet
+        — ComicVine ramène cent albums d'un coup, résumés et couvertures
+        compris — ce qui est la condition de viabilité de l'enrichissement par
+        tome : un appel par tome coûterait deux heures sur une bibliothèque de
+        mille unités. `fetch_volume` ne sert qu'aux fournisseurs incapables de
+        lister, interrogés unité par unité.
+
+        Chaque payload peut porter `title`, `summary`, `release_date`, `isbn`
+        et `cover_url`. Les clés absentes ne sont pas écrites.
+        """
+        return None
+
     def fetch_volume(
         self,
         query: str,
@@ -69,11 +137,10 @@ class BaseScraper(ABC):
         series_id: Optional[str] = None,
         existing_metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        """Hook volumes (tomes/albums). Défaut : non implémenté → None.
+        """Un tome précis, pour les fournisseurs qui ne savent pas lister.
 
-        Les scrapers `scopes={"volume"}` surchargent cette méthode. Le pipeline
-        d'écriture Kavita volume n'est pas encore branché ; le contrat permet
-        déjà l'install / enable via Manage + Magasin.
+        Défaut : non implémenté → None. Préférez `fetch_volume_index` quand la
+        source expose la liste des albums d'une série.
         """
         return None
 

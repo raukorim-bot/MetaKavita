@@ -4,7 +4,16 @@ import re
 import time
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    calculate_similarity,
+    clean_title,
+    get_match_accept_threshold,
+    log_provider_http_error,
+    normalize_str,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -22,13 +31,20 @@ def extract_description(data: Dict[str, Any]) -> str:
         return desc
     return ""
 
-def safe_get_request(url: str, params: dict = None, headers: dict = None, timeout: int = 12, rate_message: str = "", error_message: str = "") -> Optional[requests.Response]:
+def safe_get_request(scraper, url: str, params: dict = None, headers: dict = None, timeout: int = 12, rate_message: str = "", error_message: str = "") -> Optional[requests.Response]:
+    """GET Open Library, cadencé par `_http_get`, avec une seule reprise sur 429.
+
+    La pause de cinq secondes n'espace pas deux requêtes ordinaires — c'est le
+    `rate_limit` qui s'en charge, requête par requête — mais laisse retomber un
+    quota déjà dépassé avant l'unique nouvelle tentative. `scraper` n'est là que
+    pour porter cette cadence.
+    """
     try:
-        res = requests.get(url, params=params, headers=headers, timeout=timeout)
+        res = scraper._http_get(requests, url, params=params, headers=headers, timeout=timeout)
         if res.status_code == 429:
             logging.warning(rate_message or "⚠️ [OpenLibrary] HTTP 429; waiting 5 seconds...")
             time.sleep(5.0)
-            res = requests.get(url, params=params, headers=headers, timeout=timeout)
+            res = scraper._http_get(requests, url, params=params, headers=headers, timeout=timeout)
         return res
     except Exception as e:
         logging.error((error_message or "[OpenLibrary Request] Error: {0}").format(e))
@@ -42,10 +58,16 @@ def is_google_disclaimer_cover(doc_summary: dict, work_data: dict) -> bool:
             return True
     return False
 
-def fetch_real_cover_from_google(title: str, headers: dict, error_message: str = "") -> Optional[str]:
+def fetch_real_cover_from_google(scraper, title: str, headers: dict, error_message: str = "") -> Optional[str]:
+    """Couverture de secours chez Google Books quand Open Library sert la
+    vignette « disclaimer » de la numérisation Google.
+
+    La requête part depuis ce scraper : elle est donc cadencée sous son
+    `rate_limit`, faute de pouvoir emprunter celui du fournisseur Google Books.
+    """
     try:
-        gb_res = requests.get("https://www.googleapis.com/books/v1/volumes", params={"q": title, "maxResults": 1}, headers=headers, timeout=5)
-        if gb_res.status_code == 200:
+        gb_res = scraper._http_get(requests, "https://www.googleapis.com/books/v1/volumes", params={"q": title, "maxResults": 1}, headers=headers, timeout=5)
+        if response_is_ok(scraper, gb_res, context="couverture de secours Google Books"):
             items = gb_res.json().get("items", [])
             if items:
                 img_links = (items[0].get("volumeInfo") or {}).get("imageLinks") or {}
@@ -67,6 +89,13 @@ class OpenLibraryScraper(BaseScraper):
     has_direct_id_support = True
     requires_proxy = False
     uses_unified_scoring = True
+    # 1.1.0 : une recherche part jusqu'à six requêtes (une par œuvre candidate)
+    # que la cadence, appliquée avant `fetch()`, laissait filer d'un bloc — sur
+    # une API anonyme limitée à une requête par seconde, c'est le 429 assuré.
+    # Les refus autres que le 429 déjà traité sont désormais journalisés. La
+    # montée de version est ce qui autorise l'image à remplacer la copie 1.0.x
+    # déjà installée sous data/.
+    version = "1.1.0"
 
     translations = {
         "fr": {
@@ -131,7 +160,7 @@ class OpenLibraryScraper(BaseScraper):
 
         cover_url = None
         if is_google_disclaimer_cover(doc_summary, work_data):
-            cover_url = fetch_real_cover_from_google(title, headers, self.t("google_cover_err"))
+            cover_url = fetch_real_cover_from_google(self, title, headers, self.t("google_cover_err"))
             
         if not cover_url:
             cover_i = doc_summary.get("cover_i")
@@ -208,11 +237,17 @@ class OpenLibraryScraper(BaseScraper):
             if existing_isbn and not is_id:
                 logging.info(self.t("search_isbn").format(existing_isbn))
                 url = f"https://openlibrary.org/isbn/{existing_isbn}.json"
-                res = safe_get_request(url, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-                if res and res.status_code == 200:
+                res = safe_get_request(self, url, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+                if res is not None and res.status_code == 200:
                     logging.info(self.t("matched_isbn").format(existing_isbn))
                     return attach_match_score(self._parse_work_record(res.json(), {}, headers), 1.0)
-                    
+                # Un 404 est la réponse normale d'une sonde par ISBN absent du
+                # catalogue : la journaliser noierait les vraies causes (clé,
+                # quota) sous un avertissement par livre sans ISBN connu.
+                if res is not None and res.status_code != 404:
+                    log_provider_http_error(self, res, context="fiche par ISBN")
+
+
             # 2. RECHERCHE PAR ID / WORK / BOOK BRUT
             if is_id:
                 endpoint = f"/works/{query}" if not query.startswith("OL") or "W" in query else f"/books/{query}"
@@ -220,8 +255,8 @@ class OpenLibraryScraper(BaseScraper):
                     endpoint = f"/isbn/{query}"
                 
                 url = f"https://openlibrary.org{endpoint}.json"
-                res = safe_get_request(url, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-                if res and res.status_code == 200:
+                res = safe_get_request(self, url, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+                if response_is_ok(self, res, context="fiche par identifiant"):
                     return attach_match_score(self._parse_work_record(res.json(), {}, headers), 1.0)
                 return None
 
@@ -232,8 +267,8 @@ class OpenLibraryScraper(BaseScraper):
             search_url = "https://openlibrary.org/search.json"
             params = {"q": cleaned, "limit": 5}
 
-            res = safe_get_request(search_url, params=params, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-            if not res or res.status_code != 200: return None
+            res = safe_get_request(self, search_url, params=params, headers=headers, timeout=12, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+            if not response_is_ok(self, res, context="recherche par titre"): return None
 
             docs = res.json().get("docs", []) or []
             if not docs: return None
@@ -245,8 +280,8 @@ class OpenLibraryScraper(BaseScraper):
                 work_key = doc.get("key")
                 w_data = {}
                 if work_key:
-                    w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-                    if w_res and w_res.status_code == 200:
+                    w_res = safe_get_request(self, f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+                    if response_is_ok(self, w_res, context="fiche de l'œuvre"):
                         w_data = w_res.json()
 
                 candidate = self._parse_work_record(w_data, doc, headers)
@@ -279,8 +314,8 @@ class OpenLibraryScraper(BaseScraper):
         headers = {"User-Agent": "MetaKavita-Fetcher/1.5 (contact@metakavita.local)", "Accept": "application/json"}
 
         try:
-            res = safe_get_request("https://openlibrary.org/search.json", params={"q": cleaned, "limit": 5}, headers=headers, timeout=10, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-            if res and res.status_code == 200:
+            res = safe_get_request(self, "https://openlibrary.org/search.json", params={"q": cleaned, "limit": 5}, headers=headers, timeout=10, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+            if response_is_ok(self, res, context="couvertures"):
                 docs = res.json().get("docs", []) or []
                 query_keywords = extract_meaningful_words(cleaned)
 
@@ -296,7 +331,7 @@ class OpenLibraryScraper(BaseScraper):
 
                     if score >= 0.40:
                         if is_google_disclaimer_cover(doc, {}):
-                            real_c_url = fetch_real_cover_from_google(title, headers, self.t("google_cover_err"))
+                            real_c_url = fetch_real_cover_from_google(self, title, headers, self.t("google_cover_err"))
                             if real_c_url and real_c_url not in [c['url'] for c in covers]:
                                 covers.append({
                                     "provider": "OpenLibrary",
@@ -304,8 +339,8 @@ class OpenLibraryScraper(BaseScraper):
                                     "url": real_c_url
                                 })
                             elif work_key:
-                                w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-                                if w_res and w_res.status_code == 200:
+                                w_res = safe_get_request(self, f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+                                if response_is_ok(self, w_res, context="couvertures de l'œuvre"):
                                     w_covers = w_res.json().get("covers") or []
                                     for cid in w_covers[1:3]:
                                         if cid and isinstance(cid, int) and cid > 0:
@@ -321,8 +356,8 @@ class OpenLibraryScraper(BaseScraper):
                             if doc.get("cover_i"): candidate_cover_ids.append(doc["cover_i"])
 
                             if work_key:
-                                w_res = safe_get_request(f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
-                                if w_res and w_res.status_code == 200:
+                                w_res = safe_get_request(self, f"https://openlibrary.org{work_key}.json", headers=headers, timeout=5, rate_message=self.t("rate_limit"), error_message=self.t("request_err"))
+                                if response_is_ok(self, w_res, context="couvertures de l'œuvre"):
                                     w_covers = w_res.json().get("covers") or []
                                     for cid in w_covers:
                                         if cid and isinstance(cid, int) and cid > 0 and cid not in candidate_cover_ids:

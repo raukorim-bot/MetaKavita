@@ -11,10 +11,13 @@ from curl_cffi import requests
 from config_manager import get_max_genres, get_max_tags, load_config
 from scrapers.base import BaseScraper
 from scrapers.utils import (
+    PROVIDER_ERROR_AUTH,
     attach_match_score,
     clean_title,
     extract_year_from_title,
     get_match_accept_threshold,
+    note_provider_error,
+    response_is_ok,
     score_candidate,
 )
 
@@ -61,6 +64,12 @@ class MetronScraper(BaseScraper):
     display_name = "Metron (Comics API)"
     supported_types = {"Comic"}
     rate_limit = 3.4  # ~17.6/min: 10% under Metron burst 20/min
+    # 1.1.0 : les 3,4 s de cadence portent désormais sur chaque requête. Un
+    # `fetch()` en enchaîne jusqu'à quatre (recherche, série, créateurs,
+    # premier album) et elles partaient toutes en rafale, soit un pic bien
+    # au-dessus des 20 requêtes/minute que Metron tolère. La montée de version
+    # est ce qui autorise l'image à remplacer la copie 1.0.x installée sous data/.
+    version = "1.1.0"
     proxy_domains = [
         "metron.cloud",
         "static.metron.cloud",
@@ -310,7 +319,8 @@ class MetronScraper(BaseScraper):
         url: str,
         params: Optional[dict] = None,
     ) -> Optional[dict]:
-        res = session.get(
+        res = self._http_get(
+            session,
             url,
             params=params,
             headers=headers,
@@ -318,11 +328,14 @@ class MetronScraper(BaseScraper):
             timeout=20,
         )
         if res.status_code == 401:
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, "HTTP 401")
             logging.error(self.t("err_auth"))
             return None
+        # 404 est une réponse légitime ici : l'identifiant demandé n'existe pas.
+        # Ce n'est pas une panne du fournisseur, rien à signaler à l'appelant.
         if res.status_code == 404:
             return None
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context=url):
             return None
         try:
             data = res.json()

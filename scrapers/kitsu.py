@@ -2,7 +2,13 @@ import requests
 import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import get_max_tags
 
 
@@ -12,6 +18,11 @@ class KitsuScraper(BaseScraper):
     display_name = "Kitsu (JSON:API)"
     supported_types = {"Manga"}
     rate_limit = 1.5
+    # 1.1.0 : la cadence s'applique désormais à chaque requête et non à la seule
+    # première d'un `fetch()`, et un refus de l'API (429, 5xx) est journalisé au
+    # lieu de se confondre avec « aucun résultat ». La montée de version est ce
+    # qui autorise l'image à remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["kitsu.io", "media.kitsu.app", "media.kitsu.io"]
     has_direct_id_support = True
     uses_unified_scoring = True
@@ -131,8 +142,8 @@ class KitsuScraper(BaseScraper):
                     url = "https://kitsu.io/api/edge/manga"
                     params = {"filter[slug]": query, "include": "categories"}
 
-                res = requests.get(url, params=params, headers=headers, timeout=10)
-                if res.status_code != 200:
+                res = self._http_get(requests, url, params=params, headers=headers, timeout=10)
+                if not response_is_ok(self, res, context="fiche par identifiant"):
                     return None
 
                 json_res = res.json()
@@ -153,8 +164,8 @@ class KitsuScraper(BaseScraper):
             url = "https://kitsu.io/api/edge/manga"
             params = {"filter[text]": clean, "page[limit]": 5, "include": "categories"}
 
-            res = requests.get(url, params=params, headers=headers, timeout=10)
-            if res.status_code != 200:
+            res = self._http_get(requests, url, params=params, headers=headers, timeout=10)
+            if not response_is_ok(self, res, context="recherche par titre"):
                 return None
 
             json_res = res.json()
@@ -190,8 +201,8 @@ class KitsuScraper(BaseScraper):
             url = "https://kitsu.io/api/edge/manga"
             params = {"filter[text]": clean_sq, "page[limit]": 4}
             headers = {"Accept": "application/vnd.api+json"}
-            res = requests.get(url, params=params, headers=headers, timeout=10)
-            if res.status_code == 200:
+            res = self._http_get(requests, url, params=params, headers=headers, timeout=10)
+            if response_is_ok(self, res, context="couvertures"):
                 results = res.json().get('data', [])
                 for m in results:
                     attrs = m.get('attributes') or {}

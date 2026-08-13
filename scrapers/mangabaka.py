@@ -2,7 +2,13 @@ import requests
 import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import load_config, get_max_tags, get_max_genres
 from kavita_constants import normalize_provider_status
 from secure_logging import safe_exc_str
@@ -14,6 +20,12 @@ class MangaBakaScraper(BaseScraper):
     display_name = "MangaBaka (API / Rapide)"
     supported_types = {"Manga", "Book"}
     rate_limit = 2.25  # ~27/min: 10% under MangaBaka search 30/min
+    # 1.1.0 : le quota MangaBaka (30/min) se compte par requête, or la cadence
+    # n'était appliquée qu'avant `fetch()` ; et un 429 ou une clé d'accès
+    # refusée rendaient « aucun résultat » sans un seul journal. La montée de
+    # version est ce qui autorise l'image à remplacer la copie 1.0.x déjà
+    # installée sous data/.
+    version = "1.1.0"
     # API is on *.mangabaka.org; cover/CDN URLs still come back as *.mangabaka.dev
     # (images.mangabaka.org has no DNS yet). Whitelist both so uploads/proxy work.
     proxy_domains = [
@@ -91,8 +103,8 @@ class MangaBakaScraper(BaseScraper):
             if is_id:
                 logging.info(self.t("direct_id").format(query))
                 # schema=full : champs sources/tags/genres complets (fix LazyGeniusMan / PR communautaire).
-                res = requests.get(f"{base_url}/{query}", params={"schema": "full"}, timeout=10)
-                if res.status_code != 200: return None
+                res = self._http_get(requests, f"{base_url}/{query}", params={"schema": "full"}, timeout=10)
+                if not response_is_ok(self, res, context="fiche par identifiant"): return None
                 json_res = res.json()
                 raw_data = json_res.get('data') if 'data' in json_res else json_res
                 return attach_match_score(self._build_candidate(raw_data, pub_pref), 1.0) if raw_data else None
@@ -111,8 +123,8 @@ class MangaBakaScraper(BaseScraper):
                 mangabaka_type = type_mapping.get(library_type)
                 if mangabaka_type is not None:
                     params["type"] = mangabaka_type
-                res = requests.get(search_url, params=params, timeout=10)
-                if res.status_code != 200: return None
+                res = self._http_get(requests, search_url, params=params, timeout=10)
+                if not response_is_ok(self, res, context="recherche par titre"): return None
                 json_res = res.json()
                 results = json_res.get('data') if 'data' in json_res else json_res
                 
@@ -298,8 +310,8 @@ class MangaBakaScraper(BaseScraper):
             mangabaka_type = type_mapping.get(library_type)
             if mangabaka_type is not None:
                 params["type"] = mangabaka_type
-            res = requests.get("https://api.mangabaka.org/v2/series/search", params=params, timeout=10)
-            if res.status_code == 200:
+            res = self._http_get(requests, "https://api.mangabaka.org/v2/series/search", params=params, timeout=10)
+            if response_is_ok(self, res, context="couvertures"):
                 json_res = res.json()
                 results = json_res.get('data') if 'data' in json_res else json_res
                 if isinstance(results, list):

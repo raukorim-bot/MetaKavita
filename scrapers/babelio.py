@@ -12,9 +12,12 @@ from curl_cffi import requests
 from config_manager import get_max_genres, get_max_tags
 from scrapers.base import BaseScraper
 from scrapers.utils import (
+    PROVIDER_ERROR_AUTH,
     attach_match_score,
     clean_title,
     get_match_accept_threshold,
+    note_provider_error,
+    response_is_ok,
     score_candidate,
 )
 
@@ -74,6 +77,13 @@ class BabelioScraper(BaseScraper):
     display_name = "Babelio (Littérature FR)"
     supported_types = {"Book"}
     rate_limit = 3.0  # HTML — anti-ban IP
+    # 1.1.0 : les 3 s de cadence portent désormais sur chaque requête — un `fetch()`
+    # en enchaîne jusqu'à douze (warm-up, POST recherche, cinq fiches et leurs
+    # résumés AJAX) et elles partaient toutes en rafale, ce qui vaut le HTTP 403 que
+    # ce scraper sait déjà signaler. Le décodage ISO-8859-1 était, lui, déjà confié à
+    # BeautifulSoup sur les octets. La montée de version est ce qui autorise l'image
+    # à remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = [
         "babelio.com",
         "www.babelio.com",
@@ -280,7 +290,8 @@ class BabelioScraper(BaseScraper):
 
     def _warmup(self, session) -> None:
         try:
-            session.get(
+            self._http_get(
+                session,
                 f"{_BASE}/",
                 impersonate="chrome",
                 headers=self._headers(),
@@ -290,16 +301,20 @@ class BabelioScraper(BaseScraper):
             pass
 
     def _get(self, session, url: str, *, referer: Optional[str] = None):
-        res = session.get(
+        res = self._http_get(
+            session,
             url,
             impersonate="chrome",
             headers=self._headers(referer=referer),
             timeout=20,
         )
         if res.status_code == 403:
+            # Message dédié : Babelio bloque par IP, l'utilisateur doit le savoir
+            # plutôt que de croire son catalogue absent du site.
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, "HTTP 403")
             logging.error(self.t("blocked"))
             return None
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context=url):
             return None
         return res
 
@@ -307,7 +322,8 @@ class BabelioScraper(BaseScraper):
         # Babelio attend un corps ISO-8859-1 (accents FR), comme le client Calibre.
         safe = terms.encode(_ENCODING, "ignore").decode(_ENCODING)
         body = urlencode({"Recherche": safe}, encoding=_ENCODING).encode(_ENCODING)
-        res = session.post(
+        res = self._http_post(
+            session,
             f"{_BASE}/recherche",
             data=body,
             impersonate="chrome",
@@ -315,9 +331,10 @@ class BabelioScraper(BaseScraper):
             timeout=20,
         )
         if res.status_code == 403:
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, "HTTP 403")
             logging.error(self.t("blocked"))
             return None
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context="recherche"):
             return None
         return res
 
@@ -352,7 +369,8 @@ class BabelioScraper(BaseScraper):
     ) -> Optional[str]:
         try:
             body = f"type={summary_type}&id_obj={obj_id}".encode("ascii")
-            res = session.post(
+            res = self._http_post(
+                session,
                 f"{_BASE}/aj_voir_plus_a.php",
                 data=body,
                 impersonate="chrome",

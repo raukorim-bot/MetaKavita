@@ -15,14 +15,18 @@ import requests
 
 from scrapers import ScraperRegistry
 from services.scraper_manager import (
+    DEFAULT_SCRAPER_VERSION,
     delete_scraper_file,
     file_sha256,
+    installed_scraper_version,
     is_core_filename,
     normalize_scopes,
+    package_scraper_version,
     read_file_bytes,
     resolve_origin,
     safe_scraper_path,
     sha256_matches,
+    version_is_newer,
     write_core_scraper_bytes,
     write_scraper_bytes,
 )
@@ -137,6 +141,37 @@ def _download_catalog_python(*, url: str, expected_sha: str, timeout: float = 45
     return content
 
 
+def _catalog_core_is_downgrade(entry: Dict[str, Any], file_name: str, *, missing: bool) -> bool:
+    """True si l'entrée catalogue ferait régresser un scraper core — et le dit.
+
+    Le catalogue communautaire est un miroir des scrapers core de l'image : rien
+    ne garantit qu'il ait été régénéré après une release. Comparer les sha256,
+    seule vérification d'origine, ne dit pas laquelle des deux copies est la plus
+    récente — un miroir en retard réinstallait donc sa version à chaque boot, et
+    les correctifs livrés par l'image ne prenaient jamais.
+
+    Quand le fichier n'est pas encore posé, la référence est la version de
+    l'image : c'est elle qui comblera le trou juste après, et il est inutile de
+    télécharger une copie plus ancienne pour se la faire remplacer.
+    """
+    reference = (
+        package_scraper_version(file_name) if missing else installed_scraper_version(file_name)
+    )
+    # Une entrée sans version se lit comme le défaut de `BaseScraper.version`,
+    # comme un fichier qui n'en déclare pas : à égalité, c'est le sha qui tranche.
+    catalog_version = str(entry.get("version") or "").strip() or DEFAULT_SCRAPER_VERSION
+    if not version_is_newer(reference, catalog_version):
+        return False
+    logging.warning(
+        "[Store] Downgrade core refusé : catalogue %s en %s, %s en %s — téléchargement ignoré.",
+        file_name,
+        catalog_version or "version absente",
+        "image" if missing else "copie installée",
+        reference,
+    )
+    return True
+
+
 def sync_core_from_catalog(*, auto_update: bool, timeout: float = 8.0) -> Dict[str, list]:
     """
     Aligne les entrées catalogue ``is_core`` vers ``data/scrapers/``.
@@ -188,6 +223,8 @@ def sync_core_from_catalog(*, auto_update: bool, timeout: float = 8.0) -> Dict[s
             continue
 
         missing = local is None
+        if _catalog_core_is_downgrade(entry, file_name, missing=missing):
+            continue
         if not missing and not auto_update:
             pending.append(file_name)
             continue

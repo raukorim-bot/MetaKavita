@@ -11,10 +11,13 @@ from curl_cffi import requests
 from config_manager import get_max_genres, get_max_tags
 from scrapers.base import BaseScraper
 from scrapers.utils import (
+    PROVIDER_ERROR_HTTP,
     attach_match_score,
     clean_title,
     extract_volume_number,
     get_match_accept_threshold,
+    note_provider_error,
+    response_is_ok,
     score_candidate,
 )
 
@@ -213,6 +216,12 @@ class SensCritiqueScraper(BaseScraper):
     display_name = "SensCritique (FR)"
     supported_types = {"Book", "Comic"}
     rate_limit = 2.5  # GraphQL front — anti-ban IP
+    # 1.1.0 : les 2,5 s de cadence portent désormais sur chaque appel Apollo — un
+    # `fetch()` BD en enchaîne jusqu'à dix (deux recherches puis huit fiches
+    # produit) et ils partaient tous en rafale sur un front GraphQL sans clé, donc
+    # sans quota négocié. La montée de version est ce qui autorise l'image à
+    # remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = [
         "senscritique.com",
         "www.senscritique.com",
@@ -466,17 +475,25 @@ class SensCritiqueScraper(BaseScraper):
         payload: Dict[str, Any] = {"query": query, "variables": variables}
         if operation:
             payload["operationName"] = operation
-        res = session.post(
+        res = self._http_post(
+            session,
             _APOLLO,
             json=payload,
             headers=self._headers(),
             impersonate="chrome",
             timeout=20,
         )
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context=operation or "GraphQL"):
             return None
         data = res.json()
-        if data.get("errors") and not data.get("data"):
+        errors = data.get("errors")
+        if errors and not data.get("data"):
+            # GraphQL rend HTTP 200 même sur un refus : sans cette lecture, une
+            # requête rejetée et une œuvre inconnue donnent le même « aucun
+            # résultat ».
+            detail = "; ".join(str((e or {}).get("message") or e) for e in errors if e)[:300]
+            note_provider_error(self.id, PROVIDER_ERROR_HTTP, detail)
+            logging.warning("⚠️ [%s] GraphQL refusé (%s) : %s", self.id, operation or "?", detail)
             return None
         return data.get("data")
 

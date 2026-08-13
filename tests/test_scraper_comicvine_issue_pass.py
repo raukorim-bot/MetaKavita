@@ -104,7 +104,8 @@ def comicvine(monkeypatch):
         raise AssertionError(f"URL inattendue : {url}")
 
     monkeypatch.setattr(module, "requests", types.SimpleNamespace(get=fake_get))
-    monkeypatch.setattr(module.time, "sleep", lambda *a: None)
+    # La cadence passe par `_http_get` (accélérée par `conftest`) : ComicVine
+    # n'a plus de pause en dur à neutraliser ici.
     monkeypatch.setattr(module, "load_config", lambda: {"COMICVINE_API_KEY": "clef"})
     monkeypatch.setattr(module, "get_match_accept_threshold", lambda *a, **k: 0.6)
     return types.SimpleNamespace(

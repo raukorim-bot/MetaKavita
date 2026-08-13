@@ -7,6 +7,7 @@ from scrapers import ScraperRegistry
 from scrapers.utils import (
     get_match_accept_threshold,
     match_accept_threshold_scope,
+    provider_error_scope,
     MATCH_SCORE_KEY,
 )
 from config_manager import load_config
@@ -576,13 +577,32 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         if not provider_query:
             return p, None
 
+        # Reste en place malgré `BaseScraper._http_get` : un scraper
+        # communautaire n'est pas obligé d'y passer, et sa cadence doit être
+        # respectée quand même.
         throttle_provider(scraper)
 
-        try:
-            data = scraper.fetch(provider_query, library_type=library_type, is_id=is_id_search, existing_metadata=existing_ctx)
-        except Exception as e:
-            logging.error(t.get("log_scraper_fetch_err", "❌ [Scraper {0}] Erreur lors de la récupération pour '{1}': {2}").format(p, provider_query, e))
-            data = None
+        # Distinguer « ce fournisseur n'a rien trouvé » de « ce fournisseur nous
+        # a refusé l'accès » : une clé révoquée, un jeton expiré ou un quota
+        # dépassé rendent tous `None`, et l'utilisateur n'avait aucun moyen de
+        # savoir qu'il devait renouveler une clé plutôt que renommer sa série.
+        with provider_error_scope() as provider_errors:
+            try:
+                data = scraper.fetch(provider_query, library_type=library_type, is_id=is_id_search, existing_metadata=existing_ctx)
+            except Exception as e:
+                logging.error(t.get("log_scraper_fetch_err", "❌ [Scraper {0}] Erreur lors de la récupération pour '{1}': {2}").format(p, provider_query, e))
+                data = None
+
+            if data is None and provider_errors:
+                kinds = sorted({str(err.get("kind") or "") for err in provider_errors})
+                details = "; ".join(
+                    str(err.get("detail") or "") for err in provider_errors if err.get("detail")
+                )
+                logging.warning(
+                    "🚫 [Scraper %s] Aucune donnée : le fournisseur a refusé la requête "
+                    "(%s) — ce n'est pas une absence de correspondance. %s",
+                    p, ", ".join(k for k in kinds if k) or "http", details,
+                )
 
         return p, data
 

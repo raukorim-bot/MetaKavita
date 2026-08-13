@@ -1,4 +1,5 @@
 import contextvars
+import logging
 import re
 import unicodedata
 import difflib
@@ -33,8 +34,9 @@ MATCH_THRESHOLD_MIN = 0.30
 MATCH_THRESHOLD_MAX = 1.00
 
 # Dedup (hygiène) — seuil plus strict que le match scraper (défaut 0.92).
-# TODO: aligner un jour les malus édition/spin-off dans score_candidate() ;
-# V1 : marqueurs + relation_title_penalty utilisés uniquement par score_duplicate_pair.
+# Les malus édition/spin-off sont désormais partagés avec `score_candidate()` :
+# ils y sont indispensables, un spin-off étant précisément le faux positif qui
+# passe le seuil de match sans être détectable autrement.
 DUP_ACCEPT_THRESHOLD = 0.92
 DUP_THRESHOLD_MIN = 0.70
 DUP_THRESHOLD_MAX = 1.00
@@ -86,7 +88,9 @@ def find_title_relation_markers(norm_title: str) -> dict:
 def relation_title_penalty(markers_a: dict, markers_b: dict) -> tuple:
     """
     Malus when titles differ by unilateral spin-off/edition markers.
-    Returns (penalty 0..1, reasons[]). Dedup-only in V1 (not wired into score_candidate).
+    Returns (penalty 0..1, reasons[]). Utilisé par la détection de doublons ET
+    par `score_candidate()` : « Berserk » et « Berserk Perfect Edition » sont
+    deux séries distinctes dans les deux usages.
     """
     sa = set((markers_a or {}).get("spinoff") or ())
     sb = set((markers_b or {}).get("spinoff") or ())
@@ -220,6 +224,111 @@ def attach_match_score(candidate: Optional[dict], score: float) -> Optional[dict
     return candidate
 
 
+# --- CAUSE RÉELLE D'UN « AUCUN RÉSULTAT » ---
+# Une clé API révoquée, un jeton expiré ou un quota dépassé rendaient exactement
+# la même chose qu'une série inconnue : `fetch()` -> None, sans un seul journal.
+# L'utilisateur voyait « aucun résultat » sur tous ses fournisseurs et n'avait
+# aucun moyen de savoir qu'il devait renouveler une clé. Les scrapers déposent
+# donc ici la cause qu'ils connaissent, et l'appelant (metadata_fetcher) peut la
+# distinguer d'une absence de correspondance.
+#
+# ContextVar et non variable de module : la cascade de providers tourne dans un
+# ThreadPoolExecutor, et deux séries enrichies en parallèle ne doivent pas se
+# voler leurs diagnostics.
+_provider_errors: contextvars.ContextVar = contextvars.ContextVar(
+    "metakavita_provider_errors", default=None
+)
+
+# Causes normalisées, pour que l'appelant puisse trier sans lire un message.
+PROVIDER_ERROR_AUTH = "auth"          # 401 / 403 / jeton expiré / clé invalide
+PROVIDER_ERROR_QUOTA = "quota"        # 429 / quota applicatif dépassé
+PROVIDER_ERROR_HTTP = "http"          # tout autre non-200
+
+
+@contextmanager
+def provider_error_scope():
+    """Collecte les causes signalées par les scrapers pendant CE contexte."""
+    bucket: list = []
+    token = _provider_errors.set(bucket)
+    try:
+        yield bucket
+    finally:
+        _provider_errors.reset(token)
+
+
+def note_provider_error(provider_id, kind: str, detail: str = "") -> None:
+    """Signale à l'appelant pourquoi ce fournisseur ne rendra rien.
+
+    Hors d'un `provider_error_scope()` (scraper appelé isolément, diagnostic,
+    test), l'appel ne fait rien : c'est un canal d'information, jamais une
+    dépendance.
+    """
+    bucket = _provider_errors.get()
+    if bucket is None:
+        return
+    bucket.append({"provider": str(provider_id or ""), "kind": kind, "detail": str(detail or "")})
+
+
+def _retry_after(res) -> str:
+    try:
+        return str((res.headers or {}).get("Retry-After") or "")
+    except Exception:
+        return ""
+
+
+def log_provider_http_error(provider, res, context: str = "") -> None:
+    """Journalise un non-200 au niveau que sa cause mérite, et le signale.
+
+    ERROR sur 401/403 : seule l'action de l'utilisateur (renouveler la clé) peut
+    y remédier, il faut donc que ça se voie. WARNING sur 429 et sur le reste :
+    c'est passager, mais un batch qui en collectionne indique un `rate_limit`
+    trop court. Le silence était la pire des options : les bonnes pratiques
+    existaient déjà dans `metron.py`, `openlibrary.py` et `babelio.py`, c'était
+    une incohérence entre fichiers, pas un choix.
+    """
+    provider_id = getattr(provider, "id", None) or str(provider or "?")
+    status = getattr(res, "status_code", None)
+    where = f" ({context})" if context else ""
+    if status in (401, 403):
+        note_provider_error(provider_id, PROVIDER_ERROR_AUTH, f"HTTP {status}")
+        logging.error(
+            "🔑 [%s] HTTP %s%s — accès refusé : vérifiez la clé API / le jeton.",
+            provider_id, status, where,
+        )
+        return
+    if status == 429:
+        retry = _retry_after(res)
+        note_provider_error(provider_id, PROVIDER_ERROR_QUOTA, f"HTTP 429 Retry-After={retry or '?'}")
+        logging.warning(
+            "⏳ [%s] HTTP 429%s — quota atteint%s.",
+            provider_id, where,
+            f", Retry-After={retry}s" if retry else "",
+        )
+        return
+    note_provider_error(provider_id, PROVIDER_ERROR_HTTP, f"HTTP {status}")
+    logging.warning("⚠️ [%s] HTTP %s%s — réponse ignorée.", provider_id, status, where)
+
+
+def response_is_ok(provider, res, context: str = "") -> bool:
+    """True si la réponse est exploitable ; journalise et signale sinon."""
+    if res is None:
+        note_provider_error(
+            getattr(provider, "id", None) or str(provider or "?"),
+            PROVIDER_ERROR_HTTP,
+            "aucune réponse",
+        )
+        logging.warning(
+            "⚠️ [%s] aucune réponse%s.",
+            getattr(provider, "id", None) or provider,
+            f" ({context})" if context else "",
+        )
+        return False
+    if getattr(res, "status_code", None) == 200:
+        return True
+    log_provider_http_error(provider, res, context=context)
+    return False
+
+
 def normalize_str(s):
     """Retire les accents, la ponctuation et met en minuscule pour la comparaison."""
     if not s: return ""
@@ -258,6 +367,35 @@ def extract_volume_number(text: str) -> Optional[int]:
         return int(match.group(1))
     return None
 
+def album_number_key(raw) -> Optional[str]:
+    """Numéro d'album sous sa forme canonique, décimales comprises.
+
+    Le format doit être **exactement** celui que produit
+    `services.volume_enrichment.matching.number_key` sur le même nombre, sinon
+    l'album ne s'apparie à aucun tome Kavita : entier sans décimale inutile
+    (`3`), décimale conservée telle quelle (`1.5`), virgule ramenée au point.
+
+    Les hors-série numérotés en 1.5 sont la raison d'être de cette fonction.
+    Les deux parseurs BD tronquaient la décimale et rendaient `1` : un tome 1.5
+    rencontré avant le tome 1 occupait sa clé, et le vrai tome 1 recevait le
+    résumé et la couverture du hors-série, sans que rien ne le signale.
+    """
+    if raw is None or isinstance(raw, bool):
+        return None
+    text = str(raw).strip().replace(",", ".")
+    if not text:
+        return None
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if value != value or value in (float("inf"), float("-inf")):
+        return None
+    if abs(value - round(value)) < 0.001:
+        return str(int(round(value)))
+    return f"{value:g}"
+
+
 def calculate_similarity(s1, s2):
     """Calcule le pourcentage de ressemblance entre deux titres (0.0 à 1.0)"""
     n1 = normalize_str(convert_roman_vol(s1))
@@ -265,19 +403,30 @@ def calculate_similarity(s1, s2):
     if not n1 or not n2: return 0.0
     
     ratio = difflib.SequenceMatcher(None, n1, n2).ratio()
-    
+
     if len(n1) >= 5 and len(n2) >= 5:
+        coverage = min(len(n1), len(n2)) / max(len(n1), len(n2))
+
+        # Le plancher de 0.85 ne vaut que si les deux titres se recouvrent
+        # largement : « Berserk » est un préfixe de « Berserk Perfect Edition »
+        # comme « Monster » l'est de « Monster Musume no Iru Nichijou », et sans
+        # condition de couverture le plancher accordait 0.85 aux deux. Après le
+        # malus « mot-clé en trop » (-0.25) et l'ancrage tome 1 (+0.10), le score
+        # retombait invariablement à 0.70 — au-dessus du seuil de 0.60, donc
+        # écrit puis verrouillé dans Kavita sans passer par la revue manuelle. Le
+        # seuil de couverture est celui qu'applique déjà la branche
+        # « sous-chaîne » juste en dessous : un préfixe est un cas particulier de
+        # sous-chaîne, il n'y a pas de raison qu'il soit plus permissif.
         if n2.startswith(n1) or n1.startswith(n2):
-            return max(0.85, ratio)
+            if coverage >= 0.65:
+                return max(0.85, ratio)
+            return ratio
 
         if n1 in n2 or n2 in n1:
-            shorter_len = min(len(n1), len(n2))
-            longer_len = max(len(n1), len(n2))
-            coverage = shorter_len / longer_len
             if coverage >= 0.65:
                 bonus_score = 0.70 + (0.20 * coverage)
                 return max(bonus_score, ratio)
-            
+
     return ratio
 
 def library_type_for_scraper(scraper, detected_type: str) -> str:
@@ -494,6 +643,21 @@ def score_candidate(candidate: dict, search_query: str, existing_metadata: dict)
     
     if cand_has_noise and not query_has_noise:
         bonus -= 0.50
+
+    # --- D-bis. PÉNALITÉ ÉDITION / SPIN-OFF ---
+    # Les marqueurs existaient mais ne servaient qu'à la détection de doublons :
+    # rien n'empêchait « Berserk » de recevoir les métadonnées de « Berserk
+    # Perfect Edition » ni « Naruto » celles de « Naruto Gaiden », `age_rating`
+    # compris. Un marqueur d'édition ou de spin-off présent d'un seul côté ne
+    # décrit pas une variante de titre mais une autre œuvre : c'est le seul
+    # signal disponible quand les deux titres sont par ailleurs presque égaux
+    # (« Berserk Deluxe » vs « Berserk Perfect Edition »), où la similarité seule
+    # conclurait au contraire.
+    relation_penalty, _relation_reasons = relation_title_penalty(
+        find_title_relation_markers(query_norm),
+        find_title_relation_markers(cand_norm_title),
+    )
+    bonus -= relation_penalty
 
     # --- E. ANCRAGE TOME 1 & PÉNALITÉ DE TOME INTERMÉDIAIRE ---
     if query_vol is None:

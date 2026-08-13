@@ -4,9 +4,61 @@ import urllib.parse
 from typing import Optional, Dict, Any, List
 import re
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import load_config, get_max_tags, get_max_genres
 from secure_logging import safe_exc_str
+
+
+#: Formes sous lesquelles un numéro de tome apparaît dans un titre de livre :
+#: « Berserk, Vol. 7 », « Naruto T7 », « Monster tome 7 », « One Piece #7 ».
+#: Le mot-clé est exigé — sans lui, « Akira 2020 » passerait pour le tome 2020,
+#: et « 20th Century Boys » pour le tome 20.
+_VOLUME_IN_TITLE = re.compile(
+    r'(?:\b(?:vol|volume|tome|tomo|band|deel|t)\.?\s*|#\s*)(\d{1,4})\b', re.I
+)
+_ACCENTS = str.maketrans("àâäáãçéèêëíìîïñóòôöõúùûüýÿ", "aaaaaceeeeiiiinooooouuuuyy")
+
+
+def _normalize_for_match(text: str) -> str:
+    lowered = str(text or "").lower().translate(_ACCENTS)
+    return re.sub(r"[^a-z0-9]+", " ", lowered).strip()
+
+
+def _volume_token(raw) -> Optional[str]:
+    """Numéro de tome sous sa forme canonique, ou rien si ce n'en est pas un."""
+    try:
+        value = float(str(raw).strip().replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+    if value != value or value <= 0 or value != int(value):
+        return None
+    return str(int(value))
+
+
+def _volume_in_title(title: str) -> Optional[str]:
+    match = _VOLUME_IN_TITLE.search(str(title or ""))
+    return str(int(match.group(1))) if match else None
+
+
+def _title_matches_series(title: str, series: str) -> bool:
+    """Le titre du livre doit contenir celui de la série, mot pour mot.
+
+    Google Books répond volontiers à côté : demander « Berserk 7 » ramène des
+    artbooks, des guides de lecture et des tomes d'autres séries du même
+    éditeur. Sans cette vérification, chacun d'eux serait écrit sur le tome 7,
+    résumé et couverture compris, puis verrouillé.
+    """
+    haystack = _normalize_for_match(title)
+    needle = _normalize_for_match(series)
+    if not haystack or not needle:
+        return False
+    return re.search(rf"(?:^|\s){re.escape(needle)}(?:\s|$)", haystack) is not None
 
 
 def _isbn_query_variants(isbn: str) -> List[str]:
@@ -48,6 +100,13 @@ class GoogleBooksScraper(BaseScraper):
     has_direct_id_support = True
     needs_api_key = True
     uses_unified_scoring = True
+    # 1.1.0 : une clé Google révoquée ou son quota journalier épuisé se traduit
+    # par un 403 que rien ne journalisait — l'utilisateur lisait « aucun
+    # résultat » sans savoir qu'il devait renouveler sa clé. La cadence, elle,
+    # ne couvrait que la première des quatre requêtes possibles d'un `fetch()`.
+    # La montée de version est ce qui autorise l'image à remplacer la copie
+    # 1.0.x déjà installée sous data/.
+    version = "1.1.0"
 
     # Google Books géolocalise la requête via l'IP source pour le endpoint
     # volumes:list. Sur certaines IP (notamment françaises/résidentielles, cas
@@ -68,6 +127,7 @@ class GoogleBooksScraper(BaseScraper):
             "matched_isbn": "🎯 [GoogleBooks] Match exact par ISBN ({0}) sur : '{1}'",
             "no_match": "⚠️ [GoogleBooks] Aucun volume pertinent trouvé pour '{0}' (Meilleur score : {1}%)",
             "matched": "🎯 [GoogleBooks] Volume retenu : '{0}' (Score: {1}%)",
+            "volume_matched": "🎯 [GoogleBooks] Tome {0} vérifié : '{1}'",
             "err": "[GoogleBooks] Erreur : {0}"
         },
         "en": {
@@ -77,6 +137,7 @@ class GoogleBooksScraper(BaseScraper):
             "matched_isbn": "🎯 [GoogleBooks] Exact ISBN match ({0}) on: '{1}'",
             "no_match": "⚠️ [GoogleBooks] No relevant volume found for '{0}' (Best score: {1}%)",
             "matched": "🎯 [GoogleBooks] Selected volume: '{0}' (Score: {1}%)",
+            "volume_matched": "🎯 [GoogleBooks] Volume {0} verified: '{1}'",
             "err": "[GoogleBooks] Error: {0}"
         }
     }
@@ -100,8 +161,8 @@ class GoogleBooksScraper(BaseScraper):
                 url = f"https://www.googleapis.com/books/v1/volumes/{query}"
                 params = {"country": self.DEFAULT_COUNTRY}
                 if api_key: params["key"] = api_key
-                res = requests.get(url, params=params, timeout=15)
-                if res.status_code == 200:
+                res = self._http_get(requests, url, params=params, timeout=15)
+                if response_is_ok(self, res, context="fiche par identifiant"):
                     item = res.json()
                     return attach_match_score(self._build_candidate(item.get("volumeInfo", {}), item.get("id")), 1.0)
                 return None
@@ -120,8 +181,8 @@ class GoogleBooksScraper(BaseScraper):
                 for isbn_try in _isbn_query_variants(ex_isbn):
                     p_isbn = {"q": f"isbn:{isbn_try}", "country": self.DEFAULT_COUNTRY}
                     if api_key: p_isbn["key"] = api_key
-                    res = requests.get(url, params=p_isbn, timeout=12)
-                    if res.status_code == 200:
+                    res = self._http_get(requests, url, params=p_isbn, timeout=12)
+                    if response_is_ok(self, res, context="recherche par ISBN"):
                         items = res.json().get("items", [])
                         if items:
                             vol_info = items[0].get("volumeInfo", {})
@@ -132,15 +193,15 @@ class GoogleBooksScraper(BaseScraper):
                 params = {"q": cleaned, "maxResults": 10, "orderBy": "relevance", "country": self.DEFAULT_COUNTRY, "printType": "books"}
                 if google_lang: params["langRestrict"] = google_lang
                 if api_key: params["key"] = api_key
-                res = requests.get(url, params=params, timeout=12)
-                if res.status_code == 200:
+                res = self._http_get(requests, url, params=params, timeout=12)
+                if response_is_ok(self, res, context="recherche par titre (langue cible)"):
                     items = res.json().get("items", [])
 
             if not items:
                 params = {"q": cleaned, "maxResults": 10, "orderBy": "relevance", "country": self.DEFAULT_COUNTRY, "printType": "books"}
                 if api_key: params["key"] = api_key
-                res = requests.get(url, params=params, timeout=12)
-                if res.status_code == 200:
+                res = self._http_get(requests, url, params=params, timeout=12)
+                if response_is_ok(self, res, context="recherche par titre (toutes langues)"):
                     items = res.json().get("items", [])
 
             if not items: 
@@ -230,6 +291,68 @@ class GoogleBooksScraper(BaseScraper):
             'links': [info_link] if info_link else []
         }
 
+    def fetch_volume(
+        self,
+        query: str,
+        volume_number=None,
+        library_type: str = "Book",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Métadonnées d'un tome précis, par titre de série et numéro.
+
+        C'est le seul chemin qui donne un titre et un résumé à un manga scanné
+        sans ISBN — le cas courant. C'est aussi le plus fragile : une recherche
+        « Berserk 7 » rend volontiers un artbook, un guide, une intégrale ou le
+        tome 7 d'une autre série chez le même éditeur. Chaque résultat est donc
+        revérifié contre le titre **et** contre le numéro avant d'être rendu, et
+        on préfère ne rien rendre à rendre un tome plausible.
+        """
+        number = _volume_token(volume_number)
+        if number is None:
+            return None
+        cleaned = clean_title(query, library_type=library_type)
+        if not cleaned:
+            return None
+
+        config = load_config()
+        api_key = config.get("GOOGLEBOOKS_API_KEY", "").strip()
+        google_lang = str(config.get("TARGET_LANG", "") or "").lower()[:2]
+        params = {
+            "q": f'intitle:"{cleaned}" {number}',
+            "maxResults": 10,
+            "orderBy": "relevance",
+            "country": self.DEFAULT_COUNTRY,
+            "printType": "books",
+        }
+        if google_lang:
+            params["langRestrict"] = google_lang
+        if api_key:
+            params["key"] = api_key
+
+        try:
+            res = self._http_get(
+                requests, "https://www.googleapis.com/books/v1/volumes", params=params, timeout=12
+            )
+            if not response_is_ok(self, res, context="tome précis d'une série"):
+                return None
+            for item in (res.json() or {}).get("items", []):
+                info = item.get("volumeInfo") or {}
+                full = " ".join(
+                    part for part in (info.get("title"), info.get("subtitle")) if part
+                )
+                if not _title_matches_series(full, cleaned):
+                    continue
+                if _volume_in_title(full) != number:
+                    continue
+                candidate = self._build_candidate(info, item.get("id"))
+                if candidate:
+                    logging.info(self.t("volume_matched").format(number, full))
+                    return candidate
+        except Exception as e:
+            logging.debug(self.t("err").format(e))
+        return None
+
     def fetch_covers(self, query: str, library_type: str = "Book") -> List[Dict[str, str]]:
         covers = []
         cleaned = clean_title(query, library_type=library_type)
@@ -239,8 +362,8 @@ class GoogleBooksScraper(BaseScraper):
         params = {"q": cleaned, "maxResults": 4, "country": self.DEFAULT_COUNTRY, "printType": "books"}
         if api_key: params["key"] = api_key
         try:
-            res = requests.get(url, params=params, timeout=10)
-            if res.status_code == 200:
+            res = self._http_get(requests, url, params=params, timeout=10)
+            if response_is_ok(self, res, context="couvertures"):
                 for item in res.json().get("items", []):
                     vol = item.get("volumeInfo", {})
                     img = vol.get("imageLinks", {})

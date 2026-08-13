@@ -30,7 +30,12 @@ def test_metadata_fetcher_still_exposes_the_shared_throttle():
     assert metadata_fetcher.LAST_REQUEST_TIMES is provider_throttle.LAST_REQUEST_TIMES
 
 
-def test_throttle_provider_serializes_concurrent_calls_for_the_same_scraper():
+def test_throttle_provider_serializes_concurrent_calls_for_the_same_scraper(
+    real_provider_throttle_sleep,
+):
+    """`real_provider_throttle_sleep` : ce test mesure une attente réelle, il doit
+    donc désactiver le garde-fou de conftest qui neutralise le sommeil pour le
+    reste de la suite (voir `_no_real_provider_throttle_sleep`)."""
     scraper = SimpleNamespace(id="FAKE_SCRAPER_FOR_TEST", rate_limit=0.2)
 
     call_times = []

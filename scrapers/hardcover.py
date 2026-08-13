@@ -3,7 +3,18 @@ import re
 from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    PROVIDER_ERROR_AUTH,
+    PROVIDER_ERROR_HTTP,
+    attach_match_score,
+    calculate_similarity,
+    clean_title,
+    get_match_accept_threshold,
+    normalize_str,
+    note_provider_error,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import load_config, get_max_genres
 
 # --- OUTILS DE SCORING AVANCÉ ---
@@ -25,6 +36,14 @@ class HardcoverScraper(BaseScraper):
     requires_proxy = False
     needs_api_key = True 
     uses_unified_scoring = True
+    # 1.1.0 : un jeton Hardcover expiré revient en HTTP 200 avec
+    # `{"errors": [{"message": "Could not verify JWT: JWTExpired"}]}` — aucun
+    # contrôle de statut ne l'attrapait, `fetch()` rendait None et l'utilisateur
+    # lisait « aucun résultat » sans jamais apprendre qu'il devait renouveler sa
+    # clé. La cadence, elle, ne s'appliquait qu'à la première des quatre
+    # requêtes d'un `fetch()`. La montée de version est ce qui autorise l'image à
+    # remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
 
     translations = {
         "fr": {
@@ -37,7 +56,9 @@ class HardcoverScraper(BaseScraper):
             "no_match": "⚠️ [Hardcover] Aucun résultat pertinent pour '{0}' (Score max: {1}%)",
             "matched": "🎯 [Hardcover] Match validé : '{0}' (Score: {1}%)",
             "err": "❌ [Hardcover] Erreur API : {0}",
-            "covers_err": "❌ [Covers] Erreur Hardcover : {0}"
+            "covers_err": "❌ [Covers] Erreur Hardcover : {0}",
+            "gql_auth": "🔑 [Hardcover] Jeton refusé ({0}) : {1} — renouvelez la clé API Hardcover dans les paramètres.",
+            "gql_err": "⚠️ [Hardcover] Erreur GraphQL ({0}) : {1}"
         },
         "en": {
             "display_name": "Hardcover (Experimental / GraphQL)",
@@ -49,9 +70,42 @@ class HardcoverScraper(BaseScraper):
             "no_match": "⚠️ [Hardcover] No relevant result for '{0}' (Max score: {1}%)",
             "matched": "🎯 [Hardcover] Match validated: '{0}' (Score: {1}%)",
             "err": "❌ [Hardcover] API Error: {0}",
-            "covers_err": "❌ [Covers] Hardcover error: {0}"
+            "covers_err": "❌ [Covers] Hardcover error: {0}",
+            "gql_auth": "🔑 [Hardcover] Token rejected ({0}): {1} — renew the Hardcover API key in settings.",
+            "gql_err": "⚠️ [Hardcover] GraphQL error ({0}): {1}"
         }
     }
+
+    #: Fragments qui, dans un message d'erreur GraphQL, désignent un jeton
+    #: refusé plutôt qu'une donnée absente : seul le renouvellement de la clé
+    #: par l'utilisateur y remédie, le journal doit donc être en ERROR.
+    _AUTH_ERROR_MARKERS = ("jwt", "token", "unauthorized")
+
+    def _graphql_payload(self, res, context: str) -> Optional[Dict[str, Any]]:
+        """Corps JSON exploitable, ou None après avoir journalisé la cause.
+
+        Hasura répond HTTP 200 même quand le jeton est expiré : la seule trace
+        est le bloc `errors` du corps. Sans cette lecture, une clé à renouveler
+        et une série inconnue produisent exactement le même « aucun résultat ».
+        """
+        if not response_is_ok(self, res, context=context):
+            return None
+        body = res.json() or {}
+        if not isinstance(body, dict):
+            return None
+        errors = body.get("errors")
+        if isinstance(errors, dict):
+            errors = [errors]
+        if not errors:
+            return body
+        detail = "; ".join(str((e or {}).get("message") or e) for e in errors if e)[:300]
+        if any(marker in detail.lower() for marker in self._AUTH_ERROR_MARKERS):
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, detail)
+            logging.error(self.t("gql_auth").format(context, detail))
+        else:
+            note_provider_error(self.id, PROVIDER_ERROR_HTTP, detail)
+            logging.warning(self.t("gql_err").format(context, detail))
+        return None
 
     def extract_id_from_url(self, url: str) -> Optional[str]:
         if "hardcover.app/books/" in url:
@@ -94,9 +148,9 @@ class HardcoverScraper(BaseScraper):
                   }
                 }
                 """
-                res_isbn = session.post(graphql_url, json={"query": gql_search_isbn, "variables": {"isbn": existing_isbn}}, headers=headers, timeout=12)
-                if res_isbn.status_code == 200:
-                    s_data = res_isbn.json()
+                res_isbn = self._http_post(session, graphql_url, json={"query": gql_search_isbn, "variables": {"isbn": existing_isbn}}, headers=headers, timeout=12)
+                s_data = self._graphql_payload(res_isbn, context="recherche par ISBN")
+                if s_data:
                     s_node = (s_data.get("data") or {}).get("search") or {}
                     r_node = s_node.get("results", {}) if isinstance(s_node, dict) else {}
                     hits = r_node.get("hits", []) if isinstance(r_node, dict) else []
@@ -137,9 +191,10 @@ class HardcoverScraper(BaseScraper):
                     """
                     variables = {"slug": query}
                     
-                res = session.post(graphql_url, json={"query": gql_query, "variables": variables}, headers=headers, timeout=12)
-                if res.status_code == 200 and "data" in res.json():
-                    books = (res.json().get("data") or {}).get("books") or []
+                res = self._http_post(session, graphql_url, json={"query": gql_query, "variables": variables}, headers=headers, timeout=12)
+                payload = self._graphql_payload(res, context="fiche par identifiant")
+                if payload and "data" in payload:
+                    books = (payload.get("data") or {}).get("books") or []
                     if books and isinstance(books, list):
                         return attach_match_score(self._build_candidate(books[0]), 1.0)
                 return None
@@ -163,17 +218,16 @@ class HardcoverScraper(BaseScraper):
                 }
                 """
                 
-                res_search = session.post(graphql_url, json={"query": gql_search, "variables": {"title": cleaned}}, headers=headers, timeout=12)
-                if res_search.status_code == 200:
-                    search_data = res_search.json()
-                    if "errors" not in search_data:
-                        search_node = (search_data.get("data") or {}).get("search") or {}
-                        results_node = search_node.get("results", {}) if isinstance(search_node, dict) else {}
-                        hits = results_node.get("hits", []) if isinstance(results_node, dict) else []
-                        if hits and isinstance(hits, list):
-                            for h in hits:
-                                if isinstance(h, dict) and isinstance(h.get("document"), dict):
-                                    candidate_docs.append(h["document"])
+                res_search = self._http_post(session, graphql_url, json={"query": gql_search, "variables": {"title": cleaned}}, headers=headers, timeout=12)
+                search_data = self._graphql_payload(res_search, context="recherche par titre")
+                if search_data:
+                    search_node = (search_data.get("data") or {}).get("search") or {}
+                    results_node = search_node.get("results", {}) if isinstance(search_node, dict) else {}
+                    hits = results_node.get("hits", []) if isinstance(results_node, dict) else []
+                    if hits and isinstance(hits, list):
+                        for h in hits:
+                            if isinstance(h, dict) and isinstance(h.get("document"), dict):
+                                candidate_docs.append(h["document"])
 
             if not candidate_docs:
                 return None
@@ -309,10 +363,10 @@ class HardcoverScraper(BaseScraper):
               }
             }
             """
-            res_search = session.post("https://api.hardcover.app/v1/graphql", json={"query": gql_search, "variables": {"title": cleaned}}, headers=headers, timeout=10)
-            
-            if res_search.status_code == 200:
-                search_data = res_search.json()
+            res_search = self._http_post(session, "https://api.hardcover.app/v1/graphql", json={"query": gql_search, "variables": {"title": cleaned}}, headers=headers, timeout=10)
+
+            search_data = self._graphql_payload(res_search, context="couvertures")
+            if search_data:
                 search_node = (search_data.get("data") or {}).get("search") or {}
                 
                 results_node = search_node.get("results", {}) if isinstance(search_node, dict) else {}

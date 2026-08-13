@@ -84,6 +84,97 @@ def _file_declares_is_core(path: str) -> bool:
     return False
 
 
+DEFAULT_SCRAPER_VERSION = "1.0.0"
+
+
+def parse_version(raw) -> Tuple[int, ...]:
+    """`"1.2.3"` → `(1, 2, 3)`. Tolérant : tout segment illisible vaut 0.
+
+    Volontairement plus simple que PEP 440 : les versions de scrapers sont des
+    `major.minor.patch` produits par le générateur du catalogue, et une version
+    exotique doit dégrader vers « pas plus récent » plutôt que lever.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return (0,)
+    parts: List[int] = []
+    for chunk in text.split("."):
+        digits = ""
+        for ch in chunk:
+            if not ch.isdigit():
+                break
+            digits += ch
+        parts.append(int(digits) if digits else 0)
+    return tuple(parts) or (0,)
+
+
+def version_is_newer(candidate, reference) -> bool:
+    """True si `candidate` est **strictement** plus récent que `reference`.
+
+    À version égale on ne conclut rien : c'est ce qui laisse le contenu trancher
+    comme avant (comparaison de sha256), et ce qui évite de réécrire en boucle
+    deux copies identiques dont la version n'a pas bougé.
+    """
+    a, b = parse_version(candidate), parse_version(reference)
+    length = max(len(a), len(b))
+    a += (0,) * (length - len(a))
+    b += (0,) * (length - len(b))
+    return a > b
+
+
+def file_scraper_version(path: str) -> str:
+    """Version déclarée par la classe du scraper dans ``path`` (AST, sans exec).
+
+    Absente → ``DEFAULT_SCRAPER_VERSION``, comme `BaseScraper.version` : un
+    scraper core qui n'a jamais bougé se compare donc à égalité avec lui-même,
+    quelle que soit la source dont vient la copie.
+    """
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            source = f.read()
+        tree = ast.parse(source, filename=path)
+    except (OSError, SyntaxError, ValueError):
+        return DEFAULT_SCRAPER_VERSION
+
+    for node in tree.body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        for item in node.body:
+            target_name = None
+            value_node = None
+            if isinstance(item, ast.Assign) and len(item.targets) == 1:
+                t0 = item.targets[0]
+                if isinstance(t0, ast.Name):
+                    target_name = t0.id
+                    value_node = item.value
+            elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                target_name = item.target.id
+                value_node = item.value
+            if target_name != "version" or value_node is None:
+                continue
+            if isinstance(value_node, ast.Constant) and isinstance(value_node.value, str):
+                declared = value_node.value.strip()
+                if declared:
+                    return declared
+    return DEFAULT_SCRAPER_VERSION
+
+
+def package_scraper_version(filename: str) -> str:
+    """Version du scraper tel que livré dans l'image, ou le défaut s'il n'y est pas."""
+    path = os.path.join(package_scrapers_dir(), os.path.basename(filename or ""))
+    if not os.path.isfile(path):
+        return DEFAULT_SCRAPER_VERSION
+    return file_scraper_version(path)
+
+
+def installed_scraper_version(filename: str) -> str:
+    """Version de la copie présente sous `data/scrapers/`, ou le défaut si absente."""
+    path = os.path.join(data_scrapers_dir(), os.path.basename(filename or ""))
+    if not os.path.isfile(path):
+        return DEFAULT_SCRAPER_VERSION
+    return file_scraper_version(path)
+
+
 def list_core_filenames() -> List[str]:
     """Basenames des scrapers officiels : ``is_core = True`` dans le package image."""
     global _core_filenames_cache
@@ -266,7 +357,17 @@ def _sync_core_from_image(
     """
     Aligne data/scrapers/ sur le package image pour les fichiers ``is_core``.
 
-    ``missing_only=True`` : ne remplit que les absents (après sync GitHub réussi).
+    ``missing_only=True`` : ne remplit que les absents — **plus** les fichiers
+    dont l'image porte une version strictement plus récente. C'est la seule
+    manière pour une mise à jour d'image de livrer ses scrapers core corrigés :
+    le catalogue GitHub passe avant elle et, une fois un fichier écrit, la
+    comparaison de sha256 le déclarait « à jour » à jamais, quelle que soit son
+    ancienneté (bug BF143 — l'enrichissement par tome n'avait plus aucun
+    fournisseur, l'image seule portant `fetch_volume_index`).
+
+    Dans les deux modes, une copie locale **plus récente** que l'image n'est
+    jamais écrasée : elle vient d'un catalogue en avance sur l'image, et la
+    régresser réintroduirait des bugs déjà corrigés. Le refus est journalisé.
     """
     src_dir = package_scrapers_dir()
     dest_dir = data_scrapers_dir()
@@ -295,20 +396,50 @@ def _sync_core_from_image(
                 except OSError as e:
                     logging.error("[Scrapers] Échec seed core %s : %s", filename, e)
                     continue
-            elif not missing_only:
-                dest_bytes = read_file_bytes(dest) or b""
-                if not _contents_equivalent(src_bytes, dest_bytes):
-                    if auto_update:
-                        try:
-                            _write_bytes_atomic(dest, src_bytes)
-                            updated.append(filename)
-                            logging.info("[Scrapers] Core mis à jour (image) : %s", filename)
-                        except OSError as e:
-                            logging.error("[Scrapers] Échec update core %s : %s", filename, e)
+            else:
+                src_version = file_scraper_version(src)
+                dest_version = file_scraper_version(dest)
+                if version_is_newer(dest_version, src_version):
+                    logging.warning(
+                        "[Scrapers] Downgrade core refusé : %s installé en %s, "
+                        "image en %s — copie locale conservée.",
+                        filename,
+                        dest_version,
+                        src_version,
+                    )
+                elif missing_only:
+                    # Après un sync GitHub réussi : on ne rattrape que ce que
+                    # l'image livre en version plus récente que la copie posée.
+                    if version_is_newer(src_version, dest_version):
+                        if auto_update:
+                            try:
+                                _write_bytes_atomic(dest, src_bytes)
+                                updated.append(filename)
+                                logging.info(
+                                    "[Scrapers] Core mis à jour (image %s → %s) : %s",
+                                    dest_version,
+                                    src_version,
+                                    filename,
+                                )
+                            except OSError as e:
+                                logging.error("[Scrapers] Échec update core %s : %s", filename, e)
+                                pending.append({"file": filename, "status": "stale"})
+                        else:
                             pending.append({"file": filename, "status": "stale"})
-                            continue
-                    else:
-                        pending.append({"file": filename, "status": "stale"})
+                else:
+                    dest_bytes = read_file_bytes(dest) or b""
+                    if not _contents_equivalent(src_bytes, dest_bytes):
+                        if auto_update:
+                            try:
+                                _write_bytes_atomic(dest, src_bytes)
+                                updated.append(filename)
+                                logging.info("[Scrapers] Core mis à jour (image) : %s", filename)
+                            except OSError as e:
+                                logging.error("[Scrapers] Échec update core %s : %s", filename, e)
+                                pending.append({"file": filename, "status": "stale"})
+                                continue
+                        else:
+                            pending.append({"file": filename, "status": "stale"})
 
             if origins.get(filename) != "core":
                 origins[filename] = "core"
@@ -352,19 +483,27 @@ def sync_core_scrapers(*, force: bool = False, auto_update: Optional[bool] = Non
 
     gh = _try_sync_core_from_github(auto_update=auto)
     if gh is not None:
-        # Ne pas écraser un core GitHub plus récent avec l'image ; combler seulement les absents.
-        img = _sync_core_from_image(auto_update=False, missing_only=True)
+        # Combler les absents, et rattraper ce que l'image livre en version plus
+        # récente que le catalogue : un catalogue en retard ne doit pas priver
+        # l'installation d'un correctif déjà présent dans l'image.
+        img = _sync_core_from_image(auto_update=auto, missing_only=True)
         seeded = list(gh.get("seeded") or []) + [f for f in (img.get("seeded") or []) if f not in gh.get("seeded", [])]
-        updated = list(gh.get("updated") or [])
-        pending_files = list(gh.get("pending") or [])
+        updated = list(gh.get("updated") or []) + [
+            f for f in (img.get("updated") or []) if f not in (gh.get("updated") or [])
+        ]
+        pending_files = list(gh.get("pending") or []) + [
+            f for f in (img.get("pending") or []) if f not in (gh.get("pending") or [])
+        ]
         # Origins for image-only cores still missing from github catalog
         set_pending_core_updates([{"file": f, "status": "stale"} for f in pending_files])
         logging.info(
-            "[Scrapers] Sync core GitHub OK (seeded=%s updated=%s pending=%s ; image gaps=%s)",
+            "[Scrapers] Sync core GitHub OK (seeded=%s updated=%s pending=%s ; "
+            "image gaps=%s, image plus récente=%s)",
             len(gh.get("seeded") or []),
             len(gh.get("updated") or []),
             len(pending_files),
             len(img.get("seeded") or []),
+            len(img.get("updated") or []),
         )
         return {"seeded": seeded, "updated": updated, "pending": pending_files}
 

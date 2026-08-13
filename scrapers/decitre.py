@@ -16,6 +16,7 @@ from scrapers.utils import (
     attach_match_score,
     clean_title,
     get_match_accept_threshold,
+    response_is_ok,
     score_candidate,
 )
 
@@ -38,6 +39,12 @@ class DecitreScraper(BaseScraper):
     display_name = "Decitre"
     supported_types = {"Book"}
     rate_limit = 2.5  # HTML e-commerce — anti-ban IP
+    # 1.1.0 : les 2,5 s de cadence portent désormais sur chaque requête (une
+    # recherche ouvre jusqu'à huit fiches produit, elles partaient en rafale) et le
+    # HTML est décodé par BeautifulSoup, `curl_cffi` remplaçant sinon les accents
+    # par des U+FFFD définitifs. La montée de version est ce qui autorise l'image à
+    # remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["decitre.fr", "www.decitre.fr", "products-images.di-static.com", "di-static.com"]
     has_direct_id_support = True
     needs_api_key = False
@@ -179,11 +186,29 @@ class DecitreScraper(BaseScraper):
                 pass
         return covers
 
+    @staticmethod
+    def _soup(res) -> BeautifulSoup:
+        """Soupe construite sur les OCTETS de la réponse, pas sur `res.text`.
+
+        `curl_cffi` décode en UTF-8 avec `errors="replace"` quand le
+        `Content-Type` n'annonce pas de charset, et ne lit jamais le
+        `<meta charset>` de la page : les accents des titres et des résumés
+        Decitre deviennent des U+FFFD irrécupérables, écrits puis verrouillés
+        dans Kavita. Sur les octets, BeautifulSoup lit ce `<meta charset>`.
+
+        Le repli sur `res.text` couvre les fausses réponses des tests, qui
+        n'exposent pas toujours d'octets exploitables.
+        """
+        raw = getattr(res, "content", None)
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = res.text
+        return BeautifulSoup(raw, "html.parser")
+
     def _search(self, session, terms: str) -> List[dict]:
-        res = session.get(f"{_BASE}/search", params={"search": terms}, timeout=25)
-        if res.status_code != 200:
+        res = self._http_get(session, f"{_BASE}/search", params={"search": terms}, timeout=25)
+        if not response_is_ok(self, res, context="recherche"):
             return []
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = self._soup(res)
         hits, seen = [], set()
         for a in soup.select('a[href*="/livres/"]'):
             href = a.get("href") or ""
@@ -202,10 +227,10 @@ class DecitreScraper(BaseScraper):
         return hits
 
     def _parse_product(self, session, url: str) -> Optional[Dict[str, Any]]:
-        res = session.get(url, timeout=25)
-        if res.status_code != 200:
+        res = self._http_get(session, url, timeout=25)
+        if not response_is_ok(self, res, context="fiche produit"):
             return None
-        soup = BeautifulSoup(res.text, "html.parser")
+        soup = self._soup(res)
         data = None
         for sc in soup.select('script[type="application/ld+json"]'):
             raw = (sc.string or "").strip()

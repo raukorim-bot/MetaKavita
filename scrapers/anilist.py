@@ -2,7 +2,16 @@ import requests
 import logging
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    PROVIDER_ERROR_AUTH,
+    PROVIDER_ERROR_HTTP,
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    note_provider_error,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import get_max_genres, get_max_tags
 
 class AnilistScraper(BaseScraper):
@@ -13,6 +22,14 @@ class AnilistScraper(BaseScraper):
     # Book: search still uses type MANGA but candidates are filtered to format NOVEL.
     supported_types = {"Manga", "Comic", "Book"}
     rate_limit = 2.25  # ~27/min: 10% under AniList degraded 30/min (normal 90/min)
+    # 1.1.0 : le quota AniList (30/min en mode dégradé) se compte par requête, or
+    # la cadence n'était appliquée qu'avant `fetch()` — les trois appels d'une
+    # même recherche partaient en rafale et déclenchaient le 429 qui suit. Les
+    # refus (429 HTTP, `errors` GraphQL rendus en HTTP 200) sont désormais
+    # journalisés au lieu de ressembler à « aucun résultat ». La montée de
+    # version est ce qui autorise l'image à remplacer la copie 1.0.x déjà
+    # installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["anilist.co"]
     has_direct_id_support = True
     uses_unified_scoring = True
@@ -25,16 +42,52 @@ class AnilistScraper(BaseScraper):
             "req_slug": "[Anilist] Requête directe par Slug : '{0}'",
             "search_title": "[Anilist] Recherche par titre ({0}) : '{1}'",
             "err": "[Erreur Anilist] {0}",
-            "covers_err": "[Covers] Erreur AniList : {0}"
+            "covers_err": "[Covers] Erreur AniList : {0}",
+            "gql_auth": "🔑 [AniList] Accès refusé ({0}) : {1} — vérifiez la configuration AniList.",
+            "gql_err": "⚠️ [AniList] Erreur GraphQL ({0}) : {1}"
         },
         "en": {
             "req_id": "[Anilist] Direct request by ID: {0}",
             "req_slug": "[Anilist] Direct request by Slug: '{0}'",
             "search_title": "[Anilist] Title search ({0}): '{1}'",
             "err": "[AniList Error] {0}",
-            "covers_err": "[Covers] AniList error: {0}"
+            "covers_err": "[Covers] AniList error: {0}",
+            "gql_auth": "🔑 [AniList] Access denied ({0}): {1} — check the AniList configuration.",
+            "gql_err": "⚠️ [AniList] GraphQL error ({0}): {1}"
         }
     }
+
+    #: Fragments qui, dans un message d'erreur GraphQL, désignent un refus
+    #: d'authentification plutôt qu'une donnée absente : seule une action de
+    #: l'utilisateur peut y remédier, le journal doit donc être en ERROR.
+    _AUTH_ERROR_MARKERS = ("jwt", "token", "unauthorized")
+
+    def _graphql_payload(self, res, context: str) -> Optional[Dict[str, Any]]:
+        """Corps JSON exploitable, ou None après avoir journalisé la cause.
+
+        GraphQL répond volontiers HTTP 200 avec un bloc `errors` : aucun
+        contrôle de code de statut ne l'attrape, et `fetch()` rendait alors
+        None sans un seul journal — indiscernable, pour l'utilisateur, d'une
+        série inconnue.
+        """
+        if not response_is_ok(self, res, context=context):
+            return None
+        body = res.json() or {}
+        if not isinstance(body, dict):
+            return None
+        errors = body.get("errors")
+        if isinstance(errors, dict):
+            errors = [errors]
+        if not errors:
+            return body
+        detail = "; ".join(str((e or {}).get("message") or e) for e in errors if e)[:300]
+        if any(marker in detail.lower() for marker in self._AUTH_ERROR_MARKERS):
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, detail)
+            logging.error(self.t("gql_auth").format(context, detail))
+        else:
+            note_provider_error(self.id, PROVIDER_ERROR_HTTP, detail)
+            logging.warning(self.t("gql_err").format(context, detail))
+        return None
 
     def extract_id_from_url(self, url: str) -> Optional[str]:
         if "anilist.co/manga/" in url:
@@ -75,9 +128,10 @@ class AnilistScraper(BaseScraper):
                 variables = {'search': str(query)}
 
             try:
-                response = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': variables}, timeout=10)
-                if response.status_code == 200:
-                    data = (response.json().get('data') or {}).get('Media')
+                response = self._http_post(requests, 'https://graphql.anilist.co', json={'query': graphql_query, 'variables': variables}, timeout=10)
+                payload = self._graphql_payload(response, context="fiche par identifiant")
+                if payload:
+                    data = (payload.get('data') or {}).get('Media')
                     if data and self._library_allows(data, library_type):
                         return attach_match_score(self._build_candidate(data), 1.0)
             except Exception as e:
@@ -102,9 +156,10 @@ class AnilistScraper(BaseScraper):
             }
             '''
             try:
-                response = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': {'search': clean}}, timeout=10)
-                if response.status_code == 200:
-                    media_list = ((response.json().get('data') or {}).get('Page') or {}).get('media') or []
+                response = self._http_post(requests, 'https://graphql.anilist.co', json={'query': graphql_query, 'variables': {'search': clean}}, timeout=10)
+                payload = self._graphql_payload(response, context="recherche par titre")
+                if payload:
+                    media_list = ((payload.get('data') or {}).get('Page') or {}).get('media') or []
                     if not media_list: return None
 
                     best_match = None
@@ -204,9 +259,10 @@ class AnilistScraper(BaseScraper):
               }
             }
             '''
-            res = requests.post('https://graphql.anilist.co', json={'query': graphql_query, 'variables': {'search': clean}}, timeout=10)
-            if res.status_code == 200:
-                results = ((res.json().get('data') or {}).get('Page') or {}).get('media') or []
+            res = self._http_post(requests, 'https://graphql.anilist.co', json={'query': graphql_query, 'variables': {'search': clean}}, timeout=10)
+            payload = self._graphql_payload(res, context="couvertures")
+            if payload:
+                results = ((payload.get('data') or {}).get('Page') or {}).get('media') or []
                 for m in results:
                     if (m.get('coverImage') or {}).get('extraLarge'):
                         covers.append({

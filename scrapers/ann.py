@@ -14,6 +14,7 @@ from scrapers.utils import (
     attach_match_score,
     clean_title,
     get_match_accept_threshold,
+    response_is_ok,
     score_candidate,
 )
 
@@ -70,6 +71,12 @@ class AnnScraper(BaseScraper):
     display_name = "Anime News Network"
     supported_types = {"Manga"}
     rate_limit = 1.1  # ~0.91/s: 10% under ANN official 1 req/s
+    # 1.1.0 : la cadence porte désormais sur chaque requête. ANN annonce 1
+    # requête/seconde et coupe au-delà ; un `fetch()` en émet deux à trois
+    # (recherche puis fiches), qui partaient ensemble. Les refus de l'API sont
+    # journalisés au lieu de rendre un XML vide. La montée de version est ce qui
+    # autorise l'image à remplacer la copie 1.0.x installée sous data/.
+    version = "1.1.0"
     proxy_domains = [
         "animenewsnetwork.com",
         "cdn.animenewsnetwork.com",
@@ -247,7 +254,8 @@ class AnnScraper(BaseScraper):
     # ------------------------------------------------------------------ HTTP
 
     def _get_xml(self, session, params: Dict[str, str]) -> Optional[ET.Element]:
-        res = session.get(
+        res = self._http_get(
+            session,
             _API,
             params=params,
             impersonate="chrome",
@@ -258,7 +266,7 @@ class AnnScraper(BaseScraper):
             },
             timeout=25,
         )
-        if res.status_code != 200:
+        if not response_is_ok(self, res, context="API encyclopédie"):
             return None
         try:
             return ET.fromstring(res.content)

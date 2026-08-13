@@ -1,11 +1,17 @@
-import time
 import logging
 import re
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from typing import Optional, Dict, Any, List
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    album_number_key,
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import get_max_tags, get_max_genres
 
 def format_author_name(name: str) -> str:
@@ -39,6 +45,13 @@ class BedethequeScraper(BaseScraper):
     is_core = True
     display_name = "Bédéthèque (Franco-Belge)"
     supported_types = {"Comic"}
+    scopes = {"series", "volume"}
+    # 1.2.0 : cadence appliquée à chaque requête (les pauses en dur de 1 s
+    # dépassaient de deux fois le rate_limit déclaré), jeton CSRF absent
+    # journalisé, année de série plus déduite d'un nombre à quatre chiffres,
+    # décodage HTML confié à BeautifulSoup. La montée de version est ce qui
+    # autorise l'image à remplacer la copie 1.1.x déjà installée sous data/.
+    version = "1.2.0"
     uses_unified_scoring = True
     rate_limit = 2.0
     proxy_domains = ["bedetheque.com"]
@@ -55,7 +68,8 @@ class BedethequeScraper(BaseScraper):
             "unknown": "Inconnu",
             "direct_url": "🎯 [Bédéthèque] Court-circuit activé : Scraping direct de l'URL '{0}'",
             "invalid_url": "⚠️ [Bédéthèque] L'URL fournie n'est ni un album ni une série reconnue : {0}",
-            "http_err": "⚠️ [Bédéthèque] HTTP {0} sur {1} — page ignorée."
+            "http_err": "⚠️ [Bédéthèque] HTTP {0} sur {1} — page ignorée.",
+            "csrf_err": "⚠️ [Bédéthèque] Jeton CSRF introuvable : la recherche va rendre zéro résultat ({0})."
         },
         "en": {
             "display_name": "Bedetheque (Franco-Belgian)",
@@ -67,7 +81,8 @@ class BedethequeScraper(BaseScraper):
             "unknown": "Unknown",
             "direct_url": "🎯 [Bédéthèque] Direct URL override active for '{0}'",
             "invalid_url": "⚠️ [Bédéthèque] Provided URL is not a recognized album or series: {0}",
-            "http_err": "⚠️ [Bédéthèque] HTTP {0} on {1} — page skipped."
+            "http_err": "⚠️ [Bédéthèque] HTTP {0} on {1} — page skipped.",
+            "csrf_err": "⚠️ [Bédéthèque] CSRF token not found: the search will return zero result ({0})."
         }
     }
 
@@ -77,13 +92,47 @@ class BedethequeScraper(BaseScraper):
         return None
 
     def _get_csrf_token(self, session, headers):
+        """Jeton anti-CSRF du formulaire de recherche, ou chaîne vide — en le disant.
+
+        Sans jeton, Bédéthèque rend une page de résultats vide : la recherche
+        aboutissait donc à « Aucun album trouvé » alors que la série existe, et
+        la cause — formulaire modifié, page interceptée par un anti-bot — n'était
+        journalisée nulle part puisque l'exception était avalée.
+        """
         try:
-            res = session.get("https://www.bedetheque.com/search/albums", headers=headers, timeout=10)
-            soup = BeautifulSoup(res.text, 'html.parser')
+            res = self._http_get(
+                session, "https://www.bedetheque.com/search/albums", headers=headers, timeout=10
+            )
+            if not response_is_ok(self, res, context="jeton CSRF"):
+                return ""
+            soup = self._soup(res)
             tag = soup.find('input', {'name': 'csrf_token_bel'})
-            return tag['value'] if tag else ""
-        except Exception:
+            if tag and tag.get('value'):
+                return tag['value']
+            logging.warning(self.t("csrf_err").format("champ absent de la page"))
             return ""
+        except Exception as e:
+            logging.warning(self.t("csrf_err").format(e))
+            return ""
+
+    @staticmethod
+    def _soup(res) -> BeautifulSoup:
+        """Soupe construite sur les OCTETS de la réponse, pas sur `res.text`.
+
+        `curl_cffi` suppose UTF-8 quand le serveur n'annonce pas de `charset` et
+        décode avec `errors="replace"` : sur une page Bédéthèque en ISO-8859-1,
+        les accents devenaient des U+FFFD irrécupérables, écrits puis verrouillés
+        dans Kavita. En recevant les octets, BeautifulSoup lit le
+        `<meta charset>` de la page et retombe juste dans les deux cas.
+
+        Le repli sur `res.text` vise les doublures de test : un `MagicMock`
+        fabrique un `.content` factice qu'il ne faut pas confondre avec des
+        octets réels, d'où le contrôle de type plutôt qu'un test de nullité.
+        """
+        raw = getattr(res, "content", None)
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = res.text
+        return BeautifulSoup(raw, 'html.parser')
 
     def _get_page(self, session, url, headers):
         """Soupe de la page, ou None si Bédéthèque n'a pas répondu 200.
@@ -92,12 +141,277 @@ class BedethequeScraper(BaseScraper):
         une fiche : son `<h1>` devenait le titre récupéré, son message d'attente le
         résumé, et le statut de publication gardait son défaut `FINISHED`. La seule
         chose qui manquait dans les journaux était la vraie cause.
+
+        Le contrôle passe par `response_is_ok` et non par un test de code écrit
+        ici : c'est ce qui distingue un 403 de bannissement — journalisé en ERROR
+        et remonté à l'appelant comme cause `auth` — d'un 404 de page disparue.
+        Les fiches album et série sont les requêtes les plus nombreuses du
+        scraper, donc les premières à se faire bloquer quand Bédéthèque coupe :
+        c'est précisément là qu'un simple WARNING générique laissait croire à
+        l'utilisateur que le site n'avait rien sur sa série.
         """
-        res = session.get(url, headers=headers, timeout=15)
-        if res.status_code != 200:
-            logging.warning(self.t("http_err").format(res.status_code, url))
+        res = self._http_get(session, url, headers=headers, timeout=15)
+        if not response_is_ok(self, res, context=url):
             return None
-        return BeautifulSoup(res.text, 'html.parser')
+        return self._soup(res)
+
+    # ===== Index des albums (issue #27) =====
+
+    #: Une page par album à 2 s de cadence : au-delà, l'index coûterait plus de
+    #: deux minutes pour une série que personne ne possède en entier.
+    VOLUME_INDEX_MAX = 50
+
+    @staticmethod
+    def _album_number(text: str) -> Optional[str]:
+        """Numéro de tome d'un libellé Bédéthèque (« 3. Le Sceau du dragon »).
+
+        La décimale fait partie du numéro. Bédéthèque range les hors-série
+        intercalaires en 1.5, 3.5, et l'ancienne version les tronquait à `1` :
+        un tome 1.5 croisé avant le tome 1 prenait sa place dans l'index — la
+        boucle garde la première entrée d'une clé — et le vrai tome 1 repartait
+        avec le résumé et la couverture du hors-série.
+        """
+        raw = str(text or "").strip()
+        match = re.match(
+            r"^\s*(?:T(?:ome)?\.?\s*)?(\d{1,4}(?:[.,]\d{1,2})?)\s*[.\-–:]", raw, re.I
+        )
+        if not match:
+            match = re.search(r"\bT(?:ome)?\.?\s*(\d{1,4}(?:[.,]\d{1,2})?)\b", raw, re.I)
+        return album_number_key(match.group(1)) if match else None
+
+    #: Libellés de la fiche album qui portent une vraie date de parution.
+    _DATE_LABELS = ("depot legal", "dépot légal", "dépôt légal", "date de parution", "parution")
+
+    @staticmethod
+    def _album_release_date(soup_album) -> str:
+        """Date de parution d'un album, ou rien.
+
+        L'ancienne version prenait la première suite de quatre chiffres
+        rencontrée dans les quatre mille premiers caractères de la page. Sur une
+        fiche Bédéthèque, c'est aussi bien l'année de naissance du dessinateur,
+        une année du menu de recherche ou la mention de copyright du pied de
+        page — et cette date-là partait chez Kavita, verrouillée. Mieux vaut
+        aucune date qu'une date fausse qu'on ne pourra plus corriger
+        automatiquement : on ne lit donc que les emplacements qui la déclarent.
+        """
+        if soup_album is None:
+            return ""
+        meta = soup_album.find('meta', attrs={'itemprop': 'datePublished'})
+        content = (meta.get('content') if meta else "") or ""
+        iso = re.match(r'^((?:19|20)\d{2})(?:-(\d{2})(?:-(\d{2}))?)?', content.strip())
+        if iso:
+            return "-".join(part for part in iso.groups() if part)
+
+        for label in soup_album.find_all('label'):
+            text = (label.get_text(" ", strip=True) or "").lower()
+            if not any(text.startswith(prefix) for prefix in BedethequeScraper._DATE_LABELS):
+                continue
+            holder = label.find_parent(['li', 'div', 'p']) or label.parent
+            if holder is None:
+                continue
+            value = holder.get_text(" ", strip=True)[len(label.get_text(" ", strip=True)):]
+            day = re.search(r'\b(\d{2})/(\d{2})/((?:19|20)\d{2})\b', value)
+            if day:
+                return f"{day.group(3)}-{day.group(2)}-{day.group(1)}"
+            month = re.search(r'\b(\d{2})/((?:19|20)\d{2})\b', value)
+            if month:
+                return f"{month.group(2)}-{month.group(1)}"
+            year = re.search(r'\b((?:19|20)\d{2})\b', value)
+            if year:
+                return year.group(1)
+        return ""
+
+    @staticmethod
+    def _serie_year(soup_serie, soup_album) -> Optional[int]:
+        """Année de la série, uniquement là où une date est déclarée.
+
+        L'ancienne version prenait le premier nombre à quatre chiffres de la
+        liste d'albums : un album intitulé « 1984 », un numéro de collection ou
+        un prix y suffisaient, et cette année-là partait chez Kavita, verrouillée.
+        C'est exactement l'heuristique que le docstring de `_album_release_date`
+        condamne pour les dates d'album, et elle n'est pas plus défendable pour
+        une série. On réutilise donc le même lecteur de dates déclarées : la
+        fiche série d'abord, la fiche album ensuite — c'est l'album que la
+        recherche a retenu, presque toujours le tome 1, donc l'entrée en matière
+        de la série. Aucune date déclarée : aucune année, plutôt qu'une fausse.
+        """
+        for soup in (soup_serie, soup_album):
+            if soup is None:
+                continue
+            declared = BedethequeScraper._album_release_date(soup)
+            match = re.match(r'^((?:19|20)\d{2})', declared or "")
+            if match:
+                return int(match.group(1))
+        return None
+
+    @staticmethod
+    def _album_title(label: str) -> str:
+        """Titre d'album sans son numéro de rang.
+
+        La liste des albums écrit « 3. La Galère noire » : Kavita affiche déjà
+        le numéro du tome à côté du titre, le garder le doublerait. La décimale
+        fait partie du rang à retirer, sans quoi « 1.5. Hors-série » laisserait
+        un « 5. » orphelin en tête de titre.
+        """
+        return re.sub(
+            r'^\s*\d{1,4}(?:[.,]\d{1,2})?\s*[.\-–:]\s*', '', str(label or "")
+        ).strip()
+
+    def _album_links_from_serie(self, soup_serie) -> List[Dict[str, Any]]:
+        """Liens et numéros des albums d'une fiche série.
+
+        La liste `liste-albums` n'était lue qu'au lasso, pour en extraire une
+        année avec une expression régulière sur tout le texte. Elle porte en
+        fait un lien et un numéro par album : de quoi écrire tome par tome.
+        """
+        if soup_serie is None:
+            return []
+        container = (
+            soup_serie.find('ul', class_='liste-albums')
+            or soup_serie.find('div', class_='liste-albums')
+        )
+        if container is None:
+            return []
+
+        out: List[Dict[str, Any]] = []
+        seen = set()
+        for a in container.find_all('a', href=True):
+            href = a['href']
+            # Bédéthèque écrit tantôt « /album-1234-… », tantôt « …-album-1234 » :
+            # exiger la barre oblique laisserait passer la moitié des séries.
+            if 'album-' not in href or not href.endswith('.html'):
+                continue
+            if not href.startswith('http'):
+                href = f"https://www.bedetheque.com{href}"
+            if href in seen:
+                continue
+            label = a.get_text(" ", strip=True) or (a.get('title') or "")
+            number = self._album_number(label)
+            if number is None:
+                # Le libellé du lien est parfois l'image seule : le numéro est
+                # alors sur l'élément de liste qui l'entoure.
+                parent = a.find_parent('li')
+                if parent is not None:
+                    number = self._album_number(parent.get_text(" ", strip=True))
+            if number is None:
+                continue
+            seen.add(href)
+            out.append({"url": href, "number": number, "label": label})
+        return out
+
+    def fetch_volume_index(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """`{numéro de tome: payload}` en lisant la liste d'albums de la série."""
+        session = requests.Session(impersonate="chrome110")
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9",
+            "Referer": "https://www.bedetheque.com/search/albums",
+        }
+        try:
+            serie_url = self._resolve_serie_url(session, headers, query, library_type, series_id)
+            if not serie_url:
+                return None
+            soup_serie = self._get_page(session, serie_url, headers)
+            links = self._album_links_from_serie(soup_serie)
+            if not links:
+                return None
+
+            index: Dict[str, Any] = {}
+            for link in links[: self.VOLUME_INDEX_MAX]:
+                if link["number"] in index:
+                    continue
+                # La cadence est celle de `_http_get` : une page d'album par
+                # `rate_limit`, sans pause en dur qui la contredirait.
+                soup_album = self._get_page(session, link["url"], headers)
+                if soup_album is None:
+                    continue
+                cover = soup_album.find('img', class_='couv')
+                cover_url = cover.get('src') if cover else ""
+                if cover_url:
+                    cover_url = cover_url.replace('/cache/thb_couv/', '/media/Couvertures/')
+                    if not cover_url.startswith('http'):
+                        cover_url = f"https://www.bedetheque.com{cover_url}"
+                title_tag = soup_album.find('h1')
+                payload = {
+                    "provider_ref": link["url"],
+                    "title": self._album_title(
+                        link["label"] or (title_tag.get_text(strip=True) if title_tag else "")
+                    ),
+                    "summary": self._extract_summary(soup_album) or "",
+                    "release_date": self._album_release_date(soup_album),
+                    "cover_url": cover_url or "",
+                }
+                payload = {k: v for k, v in payload.items() if v}
+                if payload:
+                    index[link["number"]] = payload
+            return index or None
+        except Exception as e:
+            logging.error("[Bédéthèque] index des albums: %s", e)
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _resolve_serie_url(self, session, headers, query, library_type, series_id):
+        """URL de fiche série, par URL forcée si possible, par recherche sinon."""
+        raw = str(series_id or "").strip()
+        if '/serie-' in raw:
+            return raw if raw.startswith('http') else f"https://www.bedetheque.com{raw}"
+        if '/album-' in raw:
+            soup = self._get_page(
+                session,
+                raw if raw.startswith('http') else f"https://www.bedetheque.com{raw}",
+                headers,
+            )
+            if soup is not None:
+                links = soup.find_all('a', href=lambda h: h and '/serie-' in h and '.html' in h)
+                if links:
+                    href = links[0]['href']
+                    return href if href.startswith('http') else f"https://www.bedetheque.com{href}"
+
+        clean = clean_title(query, library_type=library_type)
+        if not clean:
+            return None
+        csrf_token = self._get_csrf_token(session, headers)
+        for q in generate_search_queries(clean):
+            try:
+                res = self._http_get(
+                    session,
+                    "https://www.bedetheque.com/search/albums",
+                    params={"RechSerie": q, "csrf_token_bel": csrf_token},
+                    headers=headers,
+                    timeout=15,
+                )
+            except Exception:
+                continue
+            if not response_is_ok(self, res, context="recherche de série"):
+                continue
+            soup = self._soup(res)
+            for a in soup.find_all('a', href=True):
+                href = a['href']
+                if '/serie-' in href and '.html' in href:
+                    return href if href.startswith('http') else f"https://www.bedetheque.com{href}"
+            first = soup.select_one('ul.search-list a[href]')
+            if first:
+                href = first['href']
+                album = href if href.startswith('http') else f"https://www.bedetheque.com{href}"
+                soup_album = self._get_page(session, album, headers)
+                if soup_album is not None:
+                    links = soup_album.find_all(
+                        'a', href=lambda h: h and '/serie-' in h and '.html' in h
+                    )
+                    if links:
+                        href = links[0]['href']
+                        return href if href.startswith('http') else f"https://www.bedetheque.com{href}"
+        return None
 
     def _extract_summary(self, soup):
         for css_class in ['synopsis', 'histoire', 'story']:
@@ -192,10 +506,17 @@ class BedethequeScraper(BaseScraper):
                     params = {"RechSerie": q, "csrf_token_bel": csrf_token}
                     logging.info(self.t("search").format(q))
                     
-                    res_search = session.get("https://www.bedetheque.com/search/albums", params=params, headers=headers, timeout=15)
-                    if res_search.status_code != 200: continue
-                    
-                    soup_search = BeautifulSoup(res_search.text, 'html.parser')
+                    res_search = self._http_get(
+                        session,
+                        "https://www.bedetheque.com/search/albums",
+                        params=params,
+                        headers=headers,
+                        timeout=15,
+                    )
+                    if not response_is_ok(self, res_search, context="recherche d'album"):
+                        continue
+
+                    soup_search = self._soup(res_search)
                     results_ul = soup_search.find('ul', class_='search-list')
                     if not results_ul: continue
                         
@@ -239,7 +560,6 @@ class BedethequeScraper(BaseScraper):
             publisher = None
             
             if album_url:
-                time.sleep(1.0)
                 soup_album = self._get_page(session, album_url, headers)
                 if soup_album is None and not serie_url:
                     # Ni fiche album lisible, ni série à parcourir : rien à scraper.
@@ -270,8 +590,7 @@ class BedethequeScraper(BaseScraper):
             if serie_url:
                 if not serie_url.startswith('http'): 
                     serie_url = f"https://www.bedetheque.com{serie_url}"
-                    
-                time.sleep(self.rate_limit)
+
                 logging.info(self.t("scraping_serie").format(serie_url))
                 
                 soup_serie = self._get_page(session, serie_url, headers)
@@ -298,10 +617,7 @@ class BedethequeScraper(BaseScraper):
                     for p in parts:
                         if p.strip(): genres.append(p.strip().capitalize())
                 
-                albums_list = soup_serie.find('ul', class_='liste-albums') or soup_serie.find('div', class_='liste-albums')
-                if albums_list:
-                    match = re.search(r'\b(19|20)\d{2}\b', albums_list.get_text())
-                    if match: year = int(match.group())
+                year = self._serie_year(soup_serie, soup_album)
 
                 if soup_serie.find(string=re.compile(r'En cours', re.IGNORECASE)):
                     status = "RELEASING"
@@ -383,9 +699,15 @@ class BedethequeScraper(BaseScraper):
             params = {"RechSerie": q, "csrf_token_bel": csrf_token}
             
             try:
-                res = session.get("https://www.bedetheque.com/search/albums", params=params, headers=headers, timeout=10)
-                if res.status_code == 200:
-                    soup = BeautifulSoup(res.text, 'html.parser')
+                res = self._http_get(
+                    session,
+                    "https://www.bedetheque.com/search/albums",
+                    params=params,
+                    headers=headers,
+                    timeout=10,
+                )
+                if response_is_ok(self, res, context="recherche de couvertures"):
+                    soup = self._soup(res)
                     results_ul = soup.find('ul', class_='search-list')
                     
                     if results_ul:

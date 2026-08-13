@@ -13,7 +13,13 @@ import requests
 
 from config_manager import get_max_genres, get_max_tags, load_config
 from .base import BaseScraper
-from .utils import attach_match_score, clean_title, get_match_accept_threshold, score_candidate
+from .utils import (
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 
 API_BASE = "https://api.myanimelist.net/v2"
 MANGA_FIELDS = (
@@ -35,6 +41,12 @@ class MalScraper(BaseScraper):
     display_name = "MyAnimeList (Official API)"
     supported_types = {"Manga", "Book"}
     rate_limit = 1.2
+    # 1.1.0 : la cadence porte désormais sur chaque requête — un `fetch()` en
+    # enchaîne jusqu'à sept (recherche puis fiche détaillée de chaque candidat)
+    # et elles partaient toutes ensemble. La cause d'un refus est signalée à
+    # l'appelant en plus d'être journalisée. La montée de version est ce qui
+    # autorise l'image à remplacer la copie 1.0.x installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["cdn.myanimelist.net", "myanimelist.net", "api.myanimelist.net"]
     has_direct_id_support = True
     needs_api_key = True
@@ -90,9 +102,11 @@ class MalScraper(BaseScraper):
 
     def _get(self, path: str, client_id: str, params: Optional[dict] = None) -> Optional[dict]:
         url = f"{API_BASE}{path}"
-        res = requests.get(url, headers=self._headers(client_id), params=params or {}, timeout=12)
-        if res.status_code != 200:
-            logging.warning(self.t("http_err").format(res.status_code))
+        res = self._http_get(requests, url, headers=self._headers(client_id), params=params or {}, timeout=12)
+        if not response_is_ok(self, res, context=path):
+            # Message historique conservé : il porte le code HTTP dans la langue
+            # de l'interface, là où le helper partagé écrit la cause en clair.
+            logging.warning(self.t("http_err").format(getattr(res, "status_code", "?")))
             return None
         data = res.json()
         return data if isinstance(data, dict) else None

@@ -130,8 +130,16 @@ def test_seed_updates_stale_core_when_auto_on(isolated_scrapers, monkeypatch):
     assert sm.get_pending_core_updates() == []
 
 
-def _wire_github_catalog(monkeypatch, sm, *, body: bytes, auto_via_try: bool = True):
-    """Branche un catalogue Magasin mocké sur le chemin sync core GitHub."""
+def _wire_github_catalog(
+    monkeypatch, sm, *, body: bytes, auto_via_try: bool = True, version: str = "9.9.9"
+):
+    """Branche un catalogue Magasin mocké sur le chemin sync core GitHub.
+
+    La version par défaut dépasse celle de tous les scrapers de l'image : sans
+    elle, l'entrée serait lue comme un miroir en retard et refusée avant même le
+    téléchargement. Ces tests portent sur la priorité du catalogue, pas sur le
+    refus de régression — celui-ci est couvert par test_core_scraper_versioning.
+    """
     import hashlib
     import services.scraper_store as store
 
@@ -144,6 +152,7 @@ def _wire_github_catalog(monkeypatch, sm, *, body: bytes, auto_via_try: bool = T
                 "id": "MANGABAKA",
                 "file": "mangabaka.py",
                 "is_core": True,
+                "version": version,
                 "install": {
                     "path": "scrapers/mangabaka.py",
                     "url": f"{store.DEFAULT_RAW_BASE}/scrapers/mangabaka.py",
@@ -166,10 +175,10 @@ def _wire_github_catalog(monkeypatch, sm, *, body: bytes, auto_via_try: bool = T
 
 
 def test_github_core_sync_updates_before_image(isolated_scrapers, monkeypatch):
-    """Catalogue GitHub prioritaire : contenu community écrit même si l'image diffère."""
+    """Catalogue GitHub prioritaire : contenu community écrit quand il apporte du neuf."""
     sm = isolated_scrapers["sm"]
     scrapers_dir = isolated_scrapers["scrapers_dir"]
-    body = b"# github core hotfix\nis_core = True\n"
+    body = b"# github core hotfix\nis_core = True\n\n\nclass Hotfix:\n    version = \"9.9.9\"\n"
     _wire_github_catalog(monkeypatch, sm, body=body)
 
     marker = scrapers_dir / "mangabaka.py"
@@ -211,7 +220,7 @@ def test_github_pending_when_auto_off(isolated_scrapers, monkeypatch):
 def test_github_seed_missing_on_fresh_install(isolated_scrapers, monkeypatch):
     sm = isolated_scrapers["sm"]
     scrapers_dir = isolated_scrapers["scrapers_dir"]
-    body = b"# fresh github seed\nis_core = True\n"
+    body = b"# fresh github seed\nis_core = True\n\n\nclass Seed:\n    version = \"9.9.9\"\n"
     _wire_github_catalog(monkeypatch, sm, body=body)
 
     marker = scrapers_dir / "mangabaka.py"

@@ -121,11 +121,14 @@ def list_installed_payload(config=None):
 
 
 def _set_disabled(scraper_id: str, disabled: bool):
+    # Ces messages remontent tels quels dans un toast : les traduire, l'UI n'est
+    # pas forcément anglaise.
+    _, _, t = _ui()
     sid = (scraper_id or "").strip().upper()
     if not sid:
-        return False, "missing id", 400
+        return False, t.get("err_scraper_missing_id", "Identifiant de scraper manquant."), 400
     if ScraperRegistry.get(sid, include_disabled=True) is None:
-        return False, "unknown scraper", 404
+        return False, t.get("err_scraper_unknown", "Scraper inconnu."), 404
     with CONFIG_LOCK:
         config = load_config()
         current = get_disabled_scraper_ids(config)
@@ -188,22 +191,37 @@ def api_disable(scraper_id):
 
 @scrapers_manage_bp.route("/api/scrapers/<scraper_id>", methods=["DELETE"])
 def api_delete(scraper_id):
+    _, _, t = _ui()
     sid = (scraper_id or "").strip().upper()
     scraper = ScraperRegistry.get(sid, include_disabled=True)
     if scraper is None:
-        return jsonify({"success": False, "msg": "unknown scraper"}), 404
+        return jsonify({"success": False, "msg": t.get("err_scraper_unknown", "Scraper inconnu.")}), 404
     src = ScraperRegistry.get_source_file(sid)
     if not src or is_core_filename(src):
-        return jsonify({"success": False, "msg": "core scrapers cannot be deleted"}), 403
+        return jsonify({
+            "success": False,
+            "msg": t.get("scraper_core_no_delete", "Les scrapers officiels ne peuvent pas être supprimés."),
+        }), 403
     try:
         delete_scraper_file(src)
-    except PermissionError as e:
-        return jsonify({"success": False, "msg": str(e)}), 403
+    except PermissionError:
+        # Seule protection qui lève ici : le fichier est un scraper officiel.
+        return jsonify({
+            "success": False,
+            "msg": t.get("scraper_core_no_delete", "Les scrapers officiels ne peuvent pas être supprimés."),
+        }), 403
     except ValueError as e:
-        return jsonify({"success": False, "msg": str(e)}), 400
+        logging.error("[Scrapers] delete rejected %s: %s", sid, e)
+        return jsonify({
+            "success": False,
+            "msg": t.get("err_scraper_delete_failed", "Suppression du scraper impossible."),
+        }), 400
     except OSError as e:
         logging.error("[Scrapers] delete failed %s: %s", sid, e)
-        return jsonify({"success": False, "msg": "delete failed"}), 500
+        return jsonify({
+            "success": False,
+            "msg": t.get("err_scraper_delete_failed", "Suppression du scraper impossible."),
+        }), 500
 
     # Clear from disabled list if present
     with CONFIG_LOCK:
@@ -248,11 +266,18 @@ def api_store_install():
         if "retired" in (msg or "").lower():
             msg = t.get("scraper_retired_blocked") or msg
         return jsonify({"success": False, "msg": msg}), e.status_code
-    except PermissionError as e:
-        return jsonify({"success": False, "msg": str(e)}), 403
+    except PermissionError:
+        # Seule protection qui lève ici : la cible est un scraper officiel.
+        return jsonify({
+            "success": False,
+            "msg": t.get("err_scraper_core_no_overwrite", "Les scrapers officiels ne peuvent pas être remplacés."),
+        }), 403
     except Exception as e:
         logging.error("[Store] install failed: %s", e)
-        return jsonify({"success": False, "msg": "install failed"}), 500
+        return jsonify({
+            "success": False,
+            "msg": t.get("err_scraper_install_failed", "Installation impossible."),
+        }), 500
 
 
 @scrapers_manage_bp.route("/api/scrapers/core-updates")

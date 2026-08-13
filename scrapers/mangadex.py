@@ -3,14 +3,34 @@ import requests
 import re
 from typing import Dict, Any, List, Optional
 from .base import BaseScraper
-from .utils import clean_title, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import load_config, get_max_tags
+
+_UUID_RE = re.compile(
+    r'[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}'
+)
+
 
 class MangaDexScraper(BaseScraper):
     id = "MANGADEX"
     is_core = True
     display_name = "MangaDex (API)"
     supported_types = {"Manga"}
+    scopes = {"series", "volume"}
+    # 1.1.0 : couvertures de tome (issue #27).
+    # 1.2.0 : la pagination des couvertures s'espaçait avec un `time.sleep` posé
+    # entre deux pages, qui ne couvrait ni la recherche ni la fiche de série ; la
+    # cadence est maintenant portée par chaque requête, et les refus de l'API
+    # (429, 5xx) sont journalisés au lieu de rendre un index vide en silence. La
+    # montée de version est ce qui autorise l'image à remplacer la copie déjà
+    # installée sous data/.
+    version = "1.2.0"
     rate_limit = 0.25  # ~4.5/s: 10% under MangaDex global ~5 req/s
     proxy_domains = ["mangadex.org", "uploads.mangadex.org", "api.mangadex.org"]
     has_direct_id_support = True
@@ -25,7 +45,8 @@ class MangaDexScraper(BaseScraper):
             "no_match": "⚠️ [MangaDex] Aucun résultat pertinent trouvé pour '{0}'",
             "matched": "🎯 [MangaDex] Match validé (Score pondéré: {0}%)",
             "err": "[MangaDex] Erreur : {0}",
-            "covers_err": "[Covers] Erreur MangaDex : {0}"
+            "covers_err": "[Covers] Erreur MangaDex : {0}",
+            "index_err": "[MangaDex] Couvertures par tome — erreur : {0}"
         },
         "en": {
             "direct_uuid": "[MangaDex] Direct request by UUID: '{0}'",
@@ -33,7 +54,8 @@ class MangaDexScraper(BaseScraper):
             "no_match": "⚠️ [MangaDex] No relevant result found for '{0}'",
             "matched": "🎯 [MangaDex] Match validated (Weighted score: {0}%)",
             "err": "[MangaDex] Error: {0}",
-            "covers_err": "[Covers] MangaDex error: {0}"
+            "covers_err": "[Covers] MangaDex error: {0}",
+            "index_err": "[MangaDex] Per-volume covers failed: {0}"
         }
     }
 
@@ -156,8 +178,8 @@ class MangaDexScraper(BaseScraper):
             if is_id:
                 logging.info(self.t("direct_uuid").format(query))
                 url = f"{base_url}/{query}"
-                res = requests.get(url, params=common_includes, headers=headers, timeout=12)
-                if res.status_code != 200: return None
+                res = self._http_get(requests, url, params=common_includes, headers=headers, timeout=12)
+                if not response_is_ok(self, res, context="fiche par UUID"): return None
                 manga_data = res.json().get("data")
                 return attach_match_score(self._build_candidate(manga_data, target_lang), 1.0) if manga_data else None
 
@@ -175,8 +197,8 @@ class MangaDexScraper(BaseScraper):
                 ("contentRating[]", "pornographic")
             ] + common_includes
 
-            res = requests.get(base_url, params=params, headers=headers, timeout=12)
-            if res.status_code != 200: return None
+            res = self._http_get(requests, base_url, params=params, headers=headers, timeout=12)
+            if not response_is_ok(self, res, context="recherche par titre"): return None
 
             items = res.json().get("data", [])
             if not items: return None
@@ -220,6 +242,97 @@ class MangaDexScraper(BaseScraper):
             logging.error(self.t("err").format(e))
             return None
 
+    #: Nombre de pages de couvertures lues au plus. Cent couvertures par page,
+    #: et le filtre de langue en écarte déjà l'essentiel : trois pages couvrent
+    #: One Piece et ses cent tomes sans laisser la porte ouverte à une série
+    #: pathologique qui tirerait vingt appels.
+    COVER_PAGES_MAX = 3
+
+    def _resolve_manga_uuid(self, query: str, series_id: Optional[str]) -> Optional[str]:
+        """UUID MangaDex de la série, par identifiant forcé ou par recherche."""
+        raw = str(series_id or "").strip()
+        if raw:
+            uuid = self.extract_id_from_url(raw) if raw.startswith("http") else raw
+            if uuid and _UUID_RE.fullmatch(uuid):
+                return uuid
+        # Pas d'identifiant utilisable : on repasse par `fetch`, et donc par le
+        # score d'appariement. Une recherche brute rendrait le premier résultat
+        # venu, ce qui suffirait à coller les couvertures d'une autre série.
+        candidate = self.fetch(query, library_type="Manga")
+        return self.extract_id_from_url((candidate or {}).get("url") or "")
+
+    def fetch_volume_index(
+        self,
+        query: str,
+        library_type: str = "Manga",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """`{numéro de tome: couverture}` — le seul apport de MangaDex par tome.
+
+        MangaDex ne publie ni résumé ni ISBN par tome : ses métadonnées sont
+        celles de la série. Il tient en revanche la couverture de chaque tome,
+        dans chaque langue d'édition, et c'est exactement ce qui manque à un
+        manga scanné : Kavita affiche sinon une vignette découpée dans la
+        première page, souvent une page de garde noire.
+
+        Un appel couvre toute la série, contre un appel par tome ailleurs.
+        """
+        config = load_config()
+        target = str(config.get("TARGET_LANG", "FR")).lower()[:2]
+        headers = {"User-Agent": "MetaKavita-Fetcher/1.5"}
+
+        try:
+            manga_id = self._resolve_manga_uuid(query, series_id)
+            if not manga_id:
+                return None
+
+            # Une série populaire a des couvertures dans trente langues. Les
+            # filtrer côté serveur évite de payer la pagination pour des
+            # éditions qu'on écarterait de toute façon.
+            locales = list(dict.fromkeys([target, "ja", "en"]))
+            found: Dict[str, Dict[str, Any]] = {}
+            offset = 0
+            for _page in range(self.COVER_PAGES_MAX):
+                params = [("manga[]", manga_id), ("limit", "100"),
+                          ("offset", str(offset)), ("order[volume]", "asc")]
+                params += [("locales[]", loc) for loc in locales]
+                res = self._http_get(
+                    requests, "https://api.mangadex.org/cover", params=params,
+                    headers=headers, timeout=15
+                )
+                if not response_is_ok(self, res, context="couvertures des tomes"):
+                    break
+                body = res.json() or {}
+                items = body.get("data") or []
+                for item in items:
+                    attrs = item.get("attributes") or {}
+                    volume = str(attrs.get("volume") or "").strip()
+                    file_name = attrs.get("fileName")
+                    if not volume or not file_name:
+                        continue
+                    locale = str(attrs.get("locale") or "").lower()
+                    rank = locales.index(locale) if locale in locales else len(locales)
+                    # Deux éditions du même tome : la langue demandée l'emporte,
+                    # l'édition d'origine ensuite.
+                    if volume in found and found[volume]["rank"] <= rank:
+                        continue
+                    found[volume] = {
+                        "rank": rank,
+                        "cover_url": f"https://uploads.mangadex.org/covers/{manga_id}/{file_name}",
+                    }
+                offset += len(items)
+                if len(items) < 100 or offset >= int(body.get("total") or 0):
+                    break
+                # Plus de pause explicite entre deux pages : `_http_get` garantit
+                # désormais le `rate_limit` requête par requête.
+
+            index = {vol: {"cover_url": data["cover_url"]} for vol, data in found.items()}
+            return index or None
+        except Exception as e:
+            logging.error(self.t("index_err").format(e))
+            return None
+
     def fetch_covers(self, query: str, library_type: str = "Manga") -> List[Dict[str, str]]:
         covers = []
         cleaned = clean_title(query, library_type=library_type)
@@ -227,14 +340,15 @@ class MangaDexScraper(BaseScraper):
         headers = {"User-Agent": "MetaKavita-Fetcher/1.5"}
         
         try:
-            res_manga = requests.get(
+            res_manga = self._http_get(
+                requests,
                 "https://api.mangadex.org/manga",
                 params={"title": cleaned, "limit": 2, "includes[]": "cover_art"},
                 headers=headers,
                 timeout=10
             )
-            
-            if res_manga.status_code == 200:
+
+            if response_is_ok(self, res_manga, context="couvertures"):
                 manga_list = res_manga.json().get("data", [])
                 
                 for manga in manga_list:

@@ -7,7 +7,6 @@ Fiches séries : /series/{id}/{slug}
 """
 import logging
 import re
-import time
 import unicodedata
 from typing import Any, Dict, List, Optional
 from urllib.parse import quote
@@ -17,7 +16,13 @@ from bs4 import BeautifulSoup
 
 from config_manager import get_max_genres, get_max_tags
 from .base import BaseScraper
-from .utils import attach_match_score, clean_title, get_match_accept_threshold, score_candidate
+from .utils import (
+    attach_match_score,
+    clean_title,
+    get_match_accept_threshold,
+    response_is_ok,
+    score_candidate,
+)
 
 BASE_URL = "https://www.bdtheque.com"
 USER_AGENT = "MetaKavita/1.6 (+https://github.com; BD metadata enrichment)"
@@ -108,6 +113,12 @@ class BdthequeScraper(BaseScraper):
     supported_types = {"Comic"}
     uses_unified_scoring = True
     rate_limit = 2.2  # HTML polite-use + margin
+    # 1.1.0 : les 2,2 s de cadence portent désormais sur chaque requête (une
+    # recherche enchaîne jusqu'à huit appels typeahead + fiches) et le HTML est
+    # décodé par BeautifulSoup au lieu du repli ISO-8859-1 de `requests`. La
+    # montée de version est ce qui autorise l'image à remplacer la copie 1.0.x
+    # déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["bdtheque.com", "www.bdtheque.com"]
     has_direct_id_support = True
 
@@ -173,12 +184,26 @@ class BdthequeScraper(BaseScraper):
     def _series_url(self, series_id: str) -> str:
         return f"{BASE_URL}/series/{series_id}"
 
+    @staticmethod
+    def _raw_html(res) -> Any:
+        """OCTETS de la réponse plutôt que `res.text` déjà décodé.
+
+        Sans `charset` dans le `Content-Type`, `requests` retombe sur
+        ISO-8859-1 et ne lit jamais le `<meta charset>` de la page : les
+        accents des titres et résumés BDTheque arrivent alors abîmés dans
+        Kavita. Sur les octets, BeautifulSoup lit ce `<meta charset>`.
+
+        Le repli sur `res.text` couvre les fausses réponses des tests, qui
+        n'exposent pas toujours d'octets exploitables.
+        """
+        raw = getattr(res, "content", None)
+        return raw if isinstance(raw, (bytes, bytearray)) else res.text
+
     def _ajax_search(self, session: requests.Session, query: str) -> List[dict]:
         path = quote(query.strip(), safe="")
         url = f"{BASE_URL}/ajax/search/series/{path}"
-        res = session.get(url, headers=self._headers(), timeout=12)
-        if res.status_code != 200:
-            logging.warning(self.t("error").format(f"HTTP {res.status_code} (search)"))
+        res = self._http_get(session, url, headers=self._headers(), timeout=12)
+        if not response_is_ok(self, res, context="recherche AJAX"):
             return []
         try:
             data = res.json()
@@ -230,7 +255,9 @@ class BdthequeScraper(BaseScraper):
     def _row_links(self, row) -> List[str]:
         return [format_author_name(a.get_text(strip=True)) for a in row.find_all("a")]
 
-    def _parse_series_html(self, html: str, series_id: str, series_url: str) -> Optional[Dict[str, Any]]:
+    def _parse_series_html(self, html: Any, series_id: str, series_url: str) -> Optional[Dict[str, Any]]:
+        # `html` en octets quand il vient du réseau (cf. `_raw_html`), en texte
+        # quand un appelant fournit déjà du HTML décodé.
         soup = BeautifulSoup(html, "html.parser")
         h1 = soup.find("h1")
         title = h1.get_text(strip=True) if h1 else ""
@@ -372,18 +399,19 @@ class BdthequeScraper(BaseScraper):
     def _fetch_series(
         self, session: requests.Session, series_id: str, sleep: bool = True
     ) -> Optional[Dict[str, Any]]:
+        """`sleep` n'a plus d'effet : `_http_get` impose le `rate_limit` à chaque
+        requête, il n'y a donc plus de pause à arbitrer ici. Le paramètre reste
+        accepté pour les appelants qui le passent encore.
+        """
         series_id = self._normalize_series_id(series_id) or series_id
         url = self._series_url(series_id)
-        if sleep:
-            time.sleep(self.rate_limit)
         logging.info(self.t("scraping").format(url))
-        res = session.get(url, headers=self._headers(), timeout=15)
-        if res.status_code != 200:
-            logging.warning(self.t("error").format(f"HTTP {res.status_code} ({url})"))
+        res = self._http_get(session, url, headers=self._headers(), timeout=15)
+        if not response_is_ok(self, res, context=url):
             return None
         # ID final depuis l'URL effective (redirect /series/590 → …/slug)
         final_id = self.extract_id_from_url(res.url) or series_id
-        return self._parse_series_html(res.text, final_id, res.url.split("?")[0])
+        return self._parse_series_html(self._raw_html(res), final_id, res.url.split("?")[0])
 
     def fetch(
         self,

@@ -1,11 +1,10 @@
 import logging
 import re
-import time
 from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import clean_title, calculate_similarity, normalize_str, response_is_ok, score_candidate, get_match_accept_threshold, attach_match_score
 from config_manager import get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -31,6 +30,12 @@ class MangaNewsScraper(BaseScraper):
     display_name = "Manga-News (Catalogue VF)"
     supported_types = {"Manga"}
     rate_limit = 2.5  # HTML polite-use + margin
+    # 1.1.0 : les 2,5 s de cadence portent désormais sur chaque requête (recherche
+    # + trois fiches détaillées partaient en rafale derrière Cloudflare) et le HTML
+    # est décodé par BeautifulSoup, `curl_cffi` remplaçant sinon les accents par des
+    # U+FFFD définitifs. La montée de version est ce qui autorise l'image à
+    # remplacer la copie 1.0.x déjà installée sous data/.
+    version = "1.1.0"
     proxy_domains = ["manga-news.com", "www.manga-news.com"]
     has_direct_id_support = True
     requires_proxy = False
@@ -70,7 +75,29 @@ class MangaNewsScraper(BaseScraper):
                 return url
         return None
 
-    def _parse_html_page(self, html: str, url: str) -> Optional[Dict[str, Any]]:
+    @staticmethod
+    def _raw_html(res) -> Any:
+        """OCTETS de la réponse plutôt que `res.text` déjà décodé.
+
+        `curl_cffi` décode en UTF-8 avec `errors="replace"` quand le
+        `Content-Type` n'annonce pas de charset, et ne lit jamais le
+        `<meta charset>` de la page : les accents des titres et synopsis VF
+        deviennent des U+FFFD irrécupérables, écrits puis verrouillés dans
+        Kavita. Sur les octets, BeautifulSoup lit ce `<meta charset>`.
+
+        Le repli sur `res.text` couvre les fausses réponses des tests, qui
+        n'exposent pas toujours d'octets exploitables.
+        """
+        raw = getattr(res, "content", None)
+        return raw if isinstance(raw, (bytes, bytearray)) else res.text
+
+    @staticmethod
+    def _soup(res) -> BeautifulSoup:
+        return BeautifulSoup(MangaNewsScraper._raw_html(res), 'html.parser')
+
+    def _parse_html_page(self, html: Any, url: str) -> Optional[Dict[str, Any]]:
+        # `html` en octets quand il vient du réseau (cf. `_raw_html`), en texte
+        # quand un appelant fournit déjà du HTML décodé.
         if not html: return None
         soup = BeautifulSoup(html, 'html.parser')
 
@@ -220,9 +247,9 @@ class MangaNewsScraper(BaseScraper):
             if is_id:
                 logging.info(self.t("direct_url").format(query))
                 target_url = query if query.startswith('http') else f"https://www.manga-news.com/index.php/serie/{query}"
-                res = session.get(target_url, headers=headers, timeout=12)
-                if res.status_code == 200:
-                    return attach_match_score(self._parse_html_page(res.text, target_url), 1.0)
+                res = self._http_get(session, target_url, headers=headers, timeout=12)
+                if response_is_ok(self, res, context="fiche par identifiant"):
+                    return attach_match_score(self._parse_html_page(self._raw_html(res), target_url), 1.0)
                 return None
 
             cleaned = clean_title(query, library_type=library_type)
@@ -232,10 +259,10 @@ class MangaNewsScraper(BaseScraper):
             search_url = "https://www.manga-news.com/index.php/recherche/"
             params = {"q": cleaned}
 
-            res = session.get(search_url, params=params, headers=headers, timeout=12)
-            if res.status_code != 200: return None
+            res = self._http_get(session, search_url, params=params, headers=headers, timeout=12)
+            if not response_is_ok(self, res, context="recherche"): return None
 
-            soup = BeautifulSoup(res.text, 'html.parser')
+            soup = self._soup(res)
             result_links = soup.find_all('a', href=re.compile(r'/index\.php/serie/'))
             if not result_links: return None
 
@@ -288,12 +315,13 @@ class MangaNewsScraper(BaseScraper):
             best_score = -1.0
 
             for _, cand_url in prefiltered[:3]:
-                time.sleep(self.rate_limit)
-                detail_res = session.get(cand_url, headers=headers, timeout=12)
-                if detail_res.status_code != 200:
+                # Plus de pause explicite ici : `_http_get` garantit le `rate_limit`
+                # requête par requête, y compris pour la recherche qui précède.
+                detail_res = self._http_get(session, cand_url, headers=headers, timeout=12)
+                if not response_is_ok(self, detail_res, context="fiche d'un candidat"):
                     continue
 
-                candidate = self._parse_html_page(detail_res.text, cand_url)
+                candidate = self._parse_html_page(self._raw_html(detail_res), cand_url)
                 if not candidate or not candidate.get("title"):
                     continue
 
@@ -332,10 +360,10 @@ class MangaNewsScraper(BaseScraper):
 
         try:
             search_url = "https://www.manga-news.com/index.php/recherche/"
-            res = session.get(search_url, params={"q": cleaned}, headers=headers, timeout=10)
-            if res.status_code != 200: return covers
+            res = self._http_get(session, search_url, params={"q": cleaned}, headers=headers, timeout=10)
+            if not response_is_ok(self, res, context="recherche de couvertures"): return covers
 
-            soup = BeautifulSoup(res.text, 'html.parser')
+            soup = self._soup(res)
             result_links = soup.find_all('a', href=re.compile(r'/index\.php/serie/'))
             if not result_links: return covers
 
@@ -372,9 +400,9 @@ class MangaNewsScraper(BaseScraper):
 
             if not best_url or best_score < 0.45: return covers
 
-            detail_res = session.get(best_url, headers=headers, timeout=10)
-            if detail_res.status_code == 200:
-                detail_soup = BeautifulSoup(detail_res.text, 'html.parser')
+            detail_res = self._http_get(session, best_url, headers=headers, timeout=10)
+            if response_is_ok(self, detail_res, context="fiche de couvertures"):
+                detail_soup = self._soup(detail_res)
                 
                 main_img = detail_soup.find('img', class_='entryPicture')
                 main_url = main_img['src'] if main_img and main_img.get('src') else None

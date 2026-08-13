@@ -6,7 +6,15 @@ from typing import Dict, Any, List, Optional
 from curl_cffi import requests
 
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    attach_match_score,
+    calculate_similarity,
+    clean_title,
+    get_match_accept_threshold,
+    normalize_str,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import load_config, get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
@@ -28,6 +36,13 @@ class MangaUpdatesScraper(BaseScraper):
     display_name = "MangaUpdates (Baka-Updates)"
     supported_types = {"Manga"}
     rate_limit = 0.55  # reads mostly unlimited; cushion vs DDoS 429
+    # 1.1.0 : recherche puis détail partaient coup sur coup, la cadence n'ayant
+    # été appliquée qu'avant `fetch()` — deux requêtes simultanées derrière le
+    # bouclier Cloudflare de MangaUpdates, qui répond 403 pour bien moins. Un
+    # refus sur la recherche est désormais journalisé. La montée de version est
+    # ce qui autorise l'image à remplacer la copie 1.0.x déjà installée sous
+    # data/.
+    version = "1.1.0"
     proxy_domains = ["mangaupdates.com", "api.mangaupdates.com", "www.mangaupdates.com"]
     has_direct_id_support = True
     requires_proxy = False
@@ -186,8 +201,8 @@ class MangaUpdatesScraper(BaseScraper):
                 logging.info(self.t("direct_id").format(query))
                 url = f"https://api.mangaupdates.com/v1/series/{query}"
                 # Ajout de impersonate="chrome110" pour passer Cloudflare
-                res = requests.get(url, headers=headers, timeout=12, impersonate="chrome110")
-                if res.status_code == 200:
+                res = self._http_get(requests, url, headers=headers, timeout=12, impersonate="chrome110")
+                if response_is_ok(self, res, context="fiche de la série"):
                     return attach_match_score(self._parse_series_record(res.json(), pub_pref), 1.0)
                 return None
 
@@ -199,8 +214,8 @@ class MangaUpdatesScraper(BaseScraper):
             payload = {"search": cleaned, "perpage": 5, "page": 1}
 
             # Ajout de impersonate="chrome110" pour passer Cloudflare
-            res = requests.post(search_url, json=payload, headers=headers, timeout=12, impersonate="chrome110")
-            if res.status_code != 200: return None
+            res = self._http_post(requests, search_url, json=payload, headers=headers, timeout=12, impersonate="chrome110")
+            if not response_is_ok(self, res, context="recherche par titre"): return None
 
             results = res.json().get("results", []) or []
             if not results: return None
@@ -244,11 +259,14 @@ class MangaUpdatesScraper(BaseScraper):
             # Le détail est plus riche (résumé complet, titres associés) et reste
             # donc prioritaire — mais il repasse par Cloudflare : un 403/429/5xx
             # ne doit pas jeter un match déjà validé, le candidat construit
-            # depuis le record de recherche a exactement la même forme.
+            # depuis le record de recherche a exactement la même forme. Le refus
+            # garde son message dédié plutôt que le contrôle partagé : il dit le
+            # repli, et le fournisseur rend bel et bien un résultat — signaler
+            # ici une cause d'échec tromperait l'appelant.
             detail = None
             try:
                 # Ajout de impersonate="chrome110" pour passer Cloudflare
-                detail_res = requests.get(f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12, impersonate="chrome110")
+                detail_res = self._http_get(requests, f"https://api.mangaupdates.com/v1/series/{best_match_id}", headers=headers, timeout=12, impersonate="chrome110")
                 if detail_res.status_code == 200:
                     detail = self._parse_series_record(detail_res.json(), pub_pref)
                 else:
@@ -278,9 +296,9 @@ class MangaUpdatesScraper(BaseScraper):
             payload = {"search": cleaned, "perpage": 5, "page": 1}
             
             # Ajout de impersonate="chrome110" pour passer Cloudflare
-            res = requests.post(search_url, json=payload, headers=headers, timeout=10, impersonate="chrome110")
+            res = self._http_post(requests, search_url, json=payload, headers=headers, timeout=10, impersonate="chrome110")
 
-            if res.status_code == 200:
+            if response_is_ok(self, res, context="couvertures"):
                 results = res.json().get("results", []) or []
                 query_keywords = extract_meaningful_words(cleaned)
                 scored_candidates = []
