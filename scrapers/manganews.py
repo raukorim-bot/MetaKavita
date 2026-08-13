@@ -4,10 +4,28 @@ from typing import Dict, Any, List, Optional
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from .base import BaseScraper
-from .utils import clean_title, calculate_similarity, normalize_str, response_is_ok, score_candidate, get_match_accept_threshold, attach_match_score
+from .utils import (
+    album_number_key,
+    attach_match_score,
+    calculate_similarity,
+    clean_title,
+    get_match_accept_threshold,
+    normalize_str,
+    response_is_ok,
+    score_candidate,
+)
 from config_manager import get_max_tags, get_max_genres
 
 STOP_WORDS = {"a", "an", "the", "of", "in", "on", "at", "to", "for", "with", "and", "or", "no", "de", "la", "le", "les", "du", "un", "une", "des"}
+
+_VOL_HREF = re.compile(r"/manga/([^/]+)/vol-(\d+(?:[.,]\d+)?)(?:/|$)", re.I)
+_ISBN_RE = re.compile(r"\b(97[89]\d{10})\b")
+_MOIS = {
+    "janvier": "01", "février": "02", "fevrier": "02", "mars": "03",
+    "avril": "04", "mai": "05", "juin": "06", "juillet": "07",
+    "août": "08", "aout": "08", "septembre": "09", "octobre": "10",
+    "novembre": "11", "décembre": "12", "decembre": "12",
+}
 
 def extract_meaningful_words(title: str) -> set:
     normalized = normalize_str(title)
@@ -29,13 +47,18 @@ class MangaNewsScraper(BaseScraper):
     is_core = True
     display_name = "Manga-News (Catalogue VF)"
     supported_types = {"Manga"}
-    rate_limit = 2.5  # HTML polite-use + margin
-    # 1.1.0 : les 2,5 s de cadence portent désormais sur chaque requête (recherche
-    # + trois fiches détaillées partaient en rafale derrière Cloudflare) et le HTML
-    # est décodé par BeautifulSoup, `curl_cffi` remplaçant sinon les accents par des
-    # U+FFFD définitifs. La montée de version est ce qui autorise l'image à
-    # remplacer la copie 1.0.x déjà installée sous data/.
-    version = "1.1.0"
+    scopes = {"series", "volume"}
+    # 6 s : une page HTML par tome, derrière Cloudflare. 2,5 s suffisaient à la
+    # fiche série (quatre requêtes) ; l'index en envoie une par album, et c'est
+    # exactement le profil qui a valu un ban Bédéthèque. Mieux vaut une série
+    # lente qu'un fournisseur muet pour le reste de la journée.
+    rate_limit = 6.0
+    # 40 × 6 s = quatre minutes. Au-delà, une série-fleuve mangerait la passe.
+    VOLUME_INDEX_MAX = 40
+    # 1.2.0 : index des tomes VF (titre, résumé, ISBN, date) et cadence portée
+    # à 6 s. La montée de version est ce qui autorise l'image à remplacer la
+    # copie 1.1.x déjà installée sous data/.
+    version = "1.2.0"
     proxy_domains = ["manga-news.com", "www.manga-news.com"]
     has_direct_id_support = True
     requires_proxy = False
@@ -52,6 +75,7 @@ class MangaNewsScraper(BaseScraper):
             "covers_err": "[Covers] Erreur Manga-News : {0}",
             "cover_provider_series": "Manga-News (Série)",
             "cover_provider_volume": "Manga-News (Tome)",
+            "volume_index_err": "[Manga-News] Index des tomes : {0}",
         },
         "en": {
             "display_name": "Manga-News (French catalog)",
@@ -63,6 +87,7 @@ class MangaNewsScraper(BaseScraper):
             "covers_err": "[Covers] Manga-News error: {0}",
             "cover_provider_series": "Manga-News (Series)",
             "cover_provider_volume": "Manga-News (Volume)",
+            "volume_index_err": "[Manga-News] Volume index: {0}",
         }
     }
 
@@ -237,16 +262,18 @@ class MangaNewsScraper(BaseScraper):
 
     def fetch(self, query: str, library_type: str = "Manga", is_id: bool = False, existing_metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
         session = requests.Session(impersonate="chrome110")
-        headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        headers = self._headers()
 
         try:
             if is_id:
                 logging.info(self.t("direct_url").format(query))
-                target_url = query if query.startswith('http') else f"https://www.manga-news.com/index.php/serie/{query}"
+                # Une URL de tome collée dans le Champ Magique doit ouvrir la
+                # fiche série, pas la page du volume — sinon on parse un album
+                # comme s'il était la série.
+                target_url = self._serie_url_from_ref(query) or (
+                    query if query.startswith("http")
+                    else f"https://www.manga-news.com/index.php/serie/{query}"
+                )
                 res = self._http_get(session, target_url, headers=headers, timeout=12)
                 if response_is_ok(self, res, context="fiche par identifiant"):
                     return attach_match_score(self._parse_html_page(self._raw_html(res), target_url), 1.0)
@@ -346,17 +373,271 @@ class MangaNewsScraper(BaseScraper):
             except Exception:
                 pass
 
+    @staticmethod
+    def _headers() -> Dict[str, str]:
+        return {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+        }
+
+    @staticmethod
+    def _absolute(url: str) -> str:
+        if not url:
+            return ""
+        if url.startswith("http"):
+            return url
+        return f"https://www.manga-news.com{url}"
+
+    @staticmethod
+    def _upgrade_cover(url: str) -> str:
+        if not url:
+            return ""
+        url = MangaNewsScraper._absolute(url)
+        return (
+            url.replace("_medium.webp", "_large.webp")
+            .replace("_small.webp", "_large.webp")
+            .replace("_medium.jpg", "_large.jpg")
+            .replace("_small.jpg", "_large.jpg")
+        )
+
+    @staticmethod
+    def _serie_url_from_ref(raw: str) -> Optional[str]:
+        """URL de fiche série, ou None si ce n'est pas du Manga-News."""
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        if raw.startswith("http") and "manga-news.com" not in raw:
+            return None
+        if not raw.startswith("http"):
+            if raw.startswith("/"):
+                raw = f"https://www.manga-news.com{raw}"
+            elif "/index.php/" in raw:
+                raw = f"https://www.manga-news.com/{raw.lstrip('/')}"
+            else:
+                raw = f"https://www.manga-news.com/index.php/serie/{raw}"
+        raw = raw.split("?")[0]
+        vol = _VOL_HREF.search(raw)
+        if vol:
+            return f"https://www.manga-news.com/index.php/serie/{vol.group(1)}"
+        raw = raw.replace("/serie/editions/", "/serie/")
+        if "/index.php/serie/" in raw:
+            return raw
+        return None
+
+    def _resolve_serie_url(
+        self, session, headers, query, library_type, series_id, existing_metadata
+    ) -> Optional[str]:
+        for candidate in (
+            series_id,
+            (existing_metadata or {}).get("url"),
+        ):
+            url = self._serie_url_from_ref(str(candidate or ""))
+            if url:
+                return url
+
+        cleaned = clean_title(query, library_type=library_type)
+        if not cleaned:
+            return None
+        res = self._http_get(
+            session,
+            "https://www.manga-news.com/index.php/recherche/",
+            params={"q": cleaned},
+            headers=headers,
+            timeout=15,
+        )
+        if not response_is_ok(self, res, context="recherche de série (tomes)"):
+            return None
+        soup = self._soup(res)
+        query_keywords = extract_meaningful_words(cleaned)
+        best_url, best_score = None, -1.0
+        for a in soup.find_all("a", href=re.compile(r"/index\.php/serie/")):
+            href = a.get("href") or ""
+            if not href or any(ign in href for ign in ("/critique/", "/vol-", "/preview/", "/editions/")):
+                continue
+            raw_title = a.get_text(strip=True) or a.get("title") or ""
+            if not raw_title and a.find("img"):
+                raw_title = a.find("img").get("alt") or a.find("img").get("title") or ""
+            if not raw_title:
+                continue
+            cand_title = clean_result_title(raw_title)
+            score = calculate_similarity(cleaned, cand_title)
+            if query_keywords:
+                missing = query_keywords - extract_meaningful_words(cand_title)
+                if missing:
+                    score -= 0.25 * len(missing)
+            if score > best_score:
+                best_score = score
+                best_url = self._absolute(href)
+        if not best_url or best_score < 0.45:
+            return None
+        return best_url
+
+    @staticmethod
+    def _volume_links_from_serie(soup, serie_url: str = "") -> List[Dict[str, str]]:
+        """Liens des tomes, lus uniquement dans `#serieVolumes`.
+
+        Le reste de la page est plein de `/vol-` (critiques, VO, suggestions) :
+        les suivre multiplierait le coût et écrirait le mauvais manga. Le slug
+        de la série, quand on l'a, écarte en plus un lien étranger qui se
+        serait glissé dans le bandeau.
+        """
+        if soup is None:
+            return []
+        block = soup.find(id="serieVolumes")
+        if block is None:
+            return []
+        slug = ""
+        slug_match = re.search(r"/serie/(?:editions/)?([^/?#]+)", serie_url or "")
+        if slug_match:
+            slug = slug_match.group(1)
+        out: List[Dict[str, str]] = []
+        seen = set()
+        for a in block.find_all("a", href=True):
+            href = a["href"]
+            match = _VOL_HREF.search(href)
+            if not match or "/critique/" in href:
+                continue
+            if slug and match.group(1).lower() != slug.lower():
+                continue
+            number = album_number_key(match.group(2))
+            if number is None or number in seen:
+                continue
+            seen.add(number)
+            img = a.find("img")
+            cover = ""
+            if img and img.get("src"):
+                cover = MangaNewsScraper._upgrade_cover(img["src"])
+            label = (a.get("title") or "").strip()
+            if not label and img is not None:
+                label = (img.get("alt") or "").strip()
+            out.append({
+                "number": number,
+                "url": MangaNewsScraper._absolute(href),
+                "cover_url": cover,
+                "label": label,
+            })
+        return out
+
+    @staticmethod
+    def _volume_title(h1: str) -> str:
+        """Sous-titre du tome, sans le « Naruto Vol.7 » que Kavita affiche déjà."""
+        if not h1:
+            return ""
+        match = re.search(r"(?i)vol\.?\s*\d+(?:[.,]\d+)?\s*(.*)$", h1)
+        subtitle = (match.group(1) if match else "").strip(" -–:")
+        return subtitle
+
+    @staticmethod
+    def _volume_isbn(text: str) -> str:
+        labeled = re.search(r"(?i)(?:EAN|ISBN)\s*[:\s]+(97[89][\d\- ]{10,16})", text or "")
+        raw = labeled.group(1) if labeled else ""
+        digits = re.sub(r"\D", "", raw)
+        if len(digits) == 13 and digits.startswith(("978", "979")):
+            return digits
+        found = _ISBN_RE.search(text or "")
+        return found.group(1) if found else ""
+
+    @staticmethod
+    def _volume_release_date(text: str) -> str:
+        match = re.search(
+            r"(?i)Date de publication\s*:\s*(\d{1,2})\s+([A-Za-zÀ-ÿ]+)\s+((?:19|20)\d{2})",
+            text or "",
+        )
+        if not match:
+            return ""
+        day, month_name, year = match.group(1), match.group(2), match.group(3)
+        month = _MOIS.get(month_name.lower())
+        if not month:
+            return year
+        return f"{year}-{month}-{int(day):02d}"
+
+    def _parse_volume_page(self, html, url: str, fallback_cover: str = "") -> Dict[str, str]:
+        soup = BeautifulSoup(html, "html.parser") if html else None
+        if soup is None:
+            return {}
+        h1 = soup.find("h1", class_="entry-page-title") or soup.find("h1")
+        title = self._volume_title(h1.get_text(" ", strip=True) if h1 else "")
+        summary = ""
+        summary_div = (
+            soup.select_one("#summary .bigsize")
+            or soup.find(id="fiche_synopsis")
+            or soup.find(class_="synopsis")
+        )
+        if summary_div:
+            for br in summary_div.find_all("br"):
+                br.replace_with("\n")
+            summary = clean_text_formatting(summary_div.get_text(separator="\n", strip=True))
+        img = soup.find("img", class_="entryPicture")
+        cover = ""
+        if img and img.get("src"):
+            cover = self._upgrade_cover(img["src"])
+        page_text = soup.get_text(" ", strip=True)
+        payload = {
+            "provider_ref": url,
+            "title": title,
+            "summary": summary,
+            "release_date": self._volume_release_date(page_text),
+            "isbn": self._volume_isbn(page_text),
+            "cover_url": cover or fallback_cover,
+        }
+        return {k: v for k, v in payload.items() if v}
+
+    def fetch_volume_index(
+        self,
+        query: str,
+        library_type: str = "Manga",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """`{numéro: payload}` en lisant la liste `#serieVolumes`, puis chaque fiche.
+
+        Une requête pour la série, une par tome, à `rate_limit`. On ne visite
+        pas la page « tous les volumes » : elle porte les mêmes liens, sans
+        résumé.
+        """
+        session = requests.Session(impersonate="chrome110")
+        headers = self._headers()
+        try:
+            serie_url = self._resolve_serie_url(
+                session, headers, query, library_type, series_id, existing_metadata
+            )
+            if not serie_url:
+                return None
+            res = self._http_get(session, serie_url, headers=headers, timeout=15)
+            if not response_is_ok(self, res, context="fiche série (tomes)"):
+                return None
+            links = self._volume_links_from_serie(self._soup(res), serie_url=serie_url)
+            if not links:
+                return None
+
+            index: Dict[str, Any] = {}
+            for link in links[: self.VOLUME_INDEX_MAX]:
+                vol_res = self._http_get(session, link["url"], headers=headers, timeout=15)
+                if not response_is_ok(self, vol_res, context=f"tome {link['number']}"):
+                    continue
+                payload = self._parse_volume_page(
+                    self._raw_html(vol_res), link["url"], fallback_cover=link.get("cover_url") or ""
+                )
+                if payload:
+                    index[link["number"]] = payload
+            return index or None
+        except Exception as e:
+            logging.error(self.t("volume_index_err").format(e))
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
     def fetch_covers(self, query: str, library_type: str = "Manga") -> List[Dict[str, str]]:
         covers = []
         cleaned = clean_title(query, library_type=library_type)
         if not cleaned: return covers
 
         session = requests.Session(impersonate="chrome110")
-        headers = {
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-        }
+        headers = self._headers()
 
         try:
             search_url = "https://www.manga-news.com/index.php/recherche/"

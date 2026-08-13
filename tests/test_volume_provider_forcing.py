@@ -21,9 +21,9 @@ de tout fournisseur, ce qui rendrait un « aucun fournisseur ne connaît cette
 série » accusant le fournisseur au lieu du réglage.
 
 Et il ne lisait qu'une des deux familles. Google Books, Open Library et Hardcover
-servent les tomes depuis le début — par ISBN, ce qui fait tout le travail sur les
-mangas, dont aucun fournisseur ne liste les tomes autrement que par leurs
-couvertures — mais aucun n'apparaissait au menu, et imposer l'un d'eux
+servent les tomes depuis le début — par ISBN, pour compléter un index manga
+qui n'a pas tout dit (Manga-News s'arrête à quarante tomes, MangaDex ne rend
+que des couvertures) — mais aucun n'apparaissait au menu, et imposer l'un d'eux
 journalisait « fournisseur imposé inutilisable » avant de reprendre la cascade.
 """
 from __future__ import annotations
@@ -65,6 +65,7 @@ def registre(monkeypatch):
         _Faux("BEDETHEQUE", {"Comic"}),
         _Faux("COMICVINE", {"Comic"}),
         _Faux("MANGADEX", {"Manga"}),
+        _Faux("MANGANEWS", {"Manga"}),
         _Faux("PLANETEBD", {"Comic"}),
     ]
     monkeypatch.setattr(
@@ -125,12 +126,14 @@ class TestRepliManga:
         ordre = [s.id for s in volume_providers("ComicFlexible", config=_config())]
 
         assert "MANGADEX" in ordre
+        assert "MANGANEWS" in ordre
+        assert ordre.index("MANGANEWS") < ordre.index("MANGADEX")
 
     def test_une_bibliotheque_manga_n_est_pas_touchee(self, registre):
         """Le réglage nomme les bibliothèques flexibles, et lui seul les concerne.
 
-        L'appliquer à une bibliothèque manga la priverait de son unique
-        fournisseur de tomes.
+        L'appliquer à une bibliothèque manga la priverait de ses fournisseurs
+        de tomes.
         """
         ordre = [
             s.id
@@ -139,7 +142,7 @@ class TestRepliManga:
             )
         ]
 
-        assert ordre == ["MANGADEX"]
+        assert ordre == ["MANGANEWS", "MANGADEX"]
 
 
 class TestFournisseurImpose:
@@ -170,7 +173,7 @@ class TestFournisseurImpose:
                 "Manga", config=_config(VOLUME_PROVIDER="COMICVINE")
             )
 
-        assert [s.id for s in retenus] == ["MANGADEX"]
+        assert [s.id for s in retenus] == ["MANGANEWS", "MANGADEX"]
         assert "COMICVINE" in caplog.text, "le repli doit se lire dans le journal"
 
     def test_un_fournisseur_inconnu_ne_vide_pas_la_liste(self, registre):
@@ -196,9 +199,8 @@ class _ALUnite:
     """Fournisseur qui répond à l'unité : un ISBN, un tome.
 
     Google Books, Open Library et Hardcover : ils ne listent pas les albums d'une
-    série, ils identifient un tome à la fois. C'est le seul chemin praticable sur
-    un manga, dont aucun fournisseur ne liste les tomes autrement que par leurs
-    couvertures.
+    série, ils identifient un tome à la fois. Sur un manga ils complètent
+    Manga-News (et MangaDex, qui ne rend que des jaquettes).
     """
 
     def __init__(self, scraper_id, cherche_par_titre=False):
@@ -215,7 +217,7 @@ class _ALUnite:
         return {"title": f"Tome {query}", "summary": "Un résumé"}
 
     def _fetch_volume(self, query, library_type="Manga", volume_number=None,
-                      series_id=None, existing_metadata=None):  # pragma: no cover
+                      series_id=None, existing_metadata=None):
         return {"title": f"{query} {volume_number}"}
 
 
@@ -415,6 +417,68 @@ class TestUnFournisseurALUniteImpose:
         )
 
         assert vus.get("provider_ids") == ["GOOGLEBOOKS"]
+
+    def test_l_imposer_suffit_a_ouvrir_la_recherche_par_titre(
+        self, caplog, registre_complet
+    ):
+        """Le cas de tous les mangas scannés, et l'aperçu vide qu'il rendait.
+
+        Sans ISBN dans Kavita, la recherche par titre et numéro est le seul chemin
+        qui rende un titre ou un résumé. Elle était refusée à un fournisseur pourtant
+        désigné à la main, faute d'avoir aussi coché l'interrupteur expérimental :
+        le geste fait pour remplir l'aperçu était précisément celui qui garantissait
+        qu'il resterait vide, l'index par série étant supprimé par le même réglage.
+        """
+        with caplog.at_level("INFO"):
+            provider, index = resolve_index(
+                "Berserk", _tomes(avec_isbn=False), library_type="Manga",
+                config=_config(VOLUME_PROVIDER="GOOGLEBOOKS"),
+            )
+
+        assert provider == "TITRE"
+        assert set(index) == {"1", "2", "3"}
+        assert index["2"]["title"] == "Berserk 2", "le fournisseur imposé a bien répondu"
+        assert "GOOGLEBOOKS" in caplog.text, "le journal doit dire d'où vient la recherche"
+
+    def test_la_cascade_automatique_reste_derriere_l_interrupteur(
+        self, monkeypatch, registre_complet
+    ):
+        """L'activation implicite ne vaut que pour un fournisseur nommé à la main.
+
+        Personne n'a désigné Google Books ici : la recherche sans identifiant ne
+        doit pas se déclencher d'elle-même sur toute une bibliothèque.
+        """
+        from services.volume_enrichment import providers as prov
+
+        appels = []
+        monkeypatch.setattr(prov, "fetch_index", lambda *a, **kw: ("", {}))
+        monkeypatch.setattr(
+            prov, "fetch_by_title_volume", lambda *a, **kw: appels.append(a) or {}
+        )
+
+        resolve_index("Berserk", _tomes(avec_isbn=False), library_type="Manga",
+                      config=_config())
+
+        assert appels == []
+
+    def test_open_library_impose_sans_interrupteur_ne_cherche_pas_non_plus(
+        self, monkeypatch, registre_complet
+    ):
+        """Open Library et Hardcover n'ont pas de `fetch_volume` : les imposer ne
+        peut rien ouvrir, et le journal doit nommer ceux qui savent le faire."""
+        from services.volume_enrichment import providers as prov
+
+        appels = []
+        monkeypatch.setattr(
+            prov, "fetch_by_title_volume", lambda *a, **kw: appels.append(a) or {}
+        )
+
+        resolve_index(
+            "Berserk", _tomes(avec_isbn=False), library_type="Manga",
+            config=_config(VOLUME_PROVIDER="HARDCOVER"),
+        )
+
+        assert appels == []
 
     def test_open_library_impose_ne_part_pas_en_recherche_par_titre(
         self, monkeypatch, registre_complet

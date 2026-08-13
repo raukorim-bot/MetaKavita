@@ -97,6 +97,20 @@ def test_the_first_provider_with_something_to_say_wins():
     assert index == {"1": {"title": "Un"}}
 
 
+def test_a_cover_only_index_does_not_stop_the_cascade():
+    """MangaDex rend une couverture pour chaque tome : s'en contenter
+    empêchait Manga-News (titre, résumé, ISBN) d'être jamais consulté."""
+    covers = _Scraper("MANGADEX", {"1": {"cover_url": "https://x/1.jpg"}, "2": {"cover_url": "https://x/2.jpg"}})
+    text = _Scraper("MANGANEWS", {"1": {"title": "La voie à suivre", "summary": "Sakura…"}})
+
+    units = [{"volume_number": "1"}, {"volume_number": "2"}]
+    provider, index = fetch_index("Naruto", providers=[covers, text], units=units)
+
+    assert "MANGANEWS" in provider
+    assert index["1"]["title"] == "La voie à suivre"
+    assert index["1"]["cover_url"] == "https://x/1.jpg", "la couverture MangaDex reste prioritaire"
+
+
 def test_a_provider_that_crashes_does_not_sink_the_series():
     class _Broken(_Scraper):
         def fetch_volume_index(self, *a, **k):
@@ -235,6 +249,7 @@ def _registry(monkeypatch):
         _Scraper("BEDETHEQUE", supported_types={"Comic"}),
         _Scraper("COMICVINE", supported_types={"Comic"}),
         _Scraper("MANGADEX", supported_types={"Manga"}),
+        _Scraper("MANGANEWS", supported_types={"Manga"}),
         _Scraper("PLANETEBD", supported_types={"Comic"}),
     ]
     monkeypatch.setattr(
@@ -282,7 +297,49 @@ def test_the_library_type_still_filters_before_the_order(_registry):
 def test_manga_reads_its_own_slots(_registry):
     config = {"PROVIDER_1": "MANGADEX", "COMIC_PROVIDER_1": "COMICVINE"}
 
-    assert _ids("Manga", config) == ["MANGADEX"]
+    assert _ids("Manga", config) == ["MANGANEWS", "MANGADEX"]
+
+
+def test_manga_news_leads_on_manga_even_when_the_series_cascade_says_otherwise(_registry):
+    """La cascade série met MangaDex en tête : pour les tomes, ça ne rend que
+    des jaquettes que Kavita a déjà. Manga-News passe devant ; MangaDex reste
+    en repli. Un fournisseur imposé n'est pas recalé."""
+    config = {"PROVIDER_1": "MANGADEX", "PROVIDER_2": "ANILIST"}
+
+    assert _ids("Manga", config)[0] == "MANGANEWS"
+    assert _ids("Manga", {**config, "VOLUME_PROVIDER": "MANGADEX"}) == ["MANGADEX"]
+
+
+def test_manga_news_does_not_jump_the_comic_cascade(_registry):
+    config = {"COMIC_PROVIDER_1": "COMICVINE", "PROVIDER_1": "MANGANEWS"}
+
+    assert _ids("Comic", config)[0] == "COMICVINE"
+
+
+def test_manga_news_is_the_manga_rescue_on_flexible(_registry):
+    """Sur une bibliothèque mixte, les comics d'abord ; Manga-News en dernier
+    recours, pas MangaDex — MangaDex ne rend que des jaquettes."""
+    config = {
+        "COMIC_PROVIDER_1": "COMICVINE",
+        "COMIC_PROVIDER_2": "BEDETHEQUE",
+        "PROVIDER_1": "MANGADEX",
+    }
+    ids = _ids("ComicFlexible", config)
+
+    assert ids.index("COMICVINE") < ids.index("MANGANEWS")
+    assert ids.index("BEDETHEQUE") < ids.index("MANGANEWS")
+    assert ids.index("PLANETEBD") < ids.index("MANGANEWS")
+    assert ids.index("MANGANEWS") < ids.index("MANGADEX")
+
+
+def test_cutting_manga_fallback_still_drops_manga_news(_registry):
+    ids = _ids(
+        "ComicFlexible",
+        {"COMIC_PROVIDER_1": "COMICVINE", "VOLUME_NO_MANGA_FALLBACK": True},
+    )
+
+    assert "MANGANEWS" not in ids
+    assert "MANGADEX" not in ids
 
 
 def test_an_empty_cascade_keeps_the_registry_order(_registry):

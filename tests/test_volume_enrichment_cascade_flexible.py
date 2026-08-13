@@ -55,6 +55,7 @@ def registre(monkeypatch):
         _Faux("BEDETHEQUE", {"Comic"}),
         _Faux("COMICVINE", {"Comic"}),
         _Faux("MANGADEX", {"Manga"}),
+        _Faux("MANGANEWS", {"Manga"}),
         _Faux("PLANETEBD", {"Comic"}),
     ]
     monkeypatch.setattr(
@@ -91,12 +92,15 @@ def test_comicvine_est_interroge_avant_mangadex_sur_une_bd(registre):
 def test_mangadex_reste_joignable_en_repli(registre):
     """Le retirer serait une régression : une bibliothèque flexible peut mélanger.
 
-    Un manga rangé dans une bibliothèque Comic Flexible doit encore pouvoir être
-    servi par MangaDex — après les fournisseurs comics, pas à leur place.
+    Un manga rangé ici est d'abord servi par Manga-News ; MangaDex reste après,
+    pour les couvertures, jamais à la place des comics.
     """
     ordre = [s.id for s in volume_providers("ComicFlexible", config=CONFIG)]
 
+    assert "MANGANEWS" in ordre
     assert "MANGADEX" in ordre
+    assert ordre.index("COMICVINE") < ordre.index("MANGANEWS")
+    assert ordre.index("MANGANEWS") < ordre.index("MANGADEX")
 
 
 def test_un_fournisseur_hors_cascade_passe_apres_ceux_qui_y_sont(registre):

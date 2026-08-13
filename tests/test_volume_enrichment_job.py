@@ -247,8 +247,8 @@ def test_a_series_no_provider_knows_is_counted_not_failed(wired, monkeypatch):
 
 
 def test_the_isbn_path_takes_over_when_no_provider_lists_the_series(wired, monkeypatch):
-    """Aucun fournisseur ne liste les tomes d'un manga, mais chaque tome scanné
-    porte son ISBN."""
+    """Quand l'index de série est vide, chaque tome scanné qui porte un ISBN
+    est encore identifiable."""
     monkeypatch.setattr(
         "services.volume_enrichment.providers.fetch_index", lambda name, **kw: ("", {})
     )

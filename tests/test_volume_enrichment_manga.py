@@ -1,11 +1,11 @@
 """
 Le chemin manga de l'enrichissement par tome.
 
-Un manga n'est pas une BD : aucun fournisseur ne publie de résumé par tome, et
-Kavita affiche pour chaque volume une vignette découpée dans la première page —
-souvent une page de garde noire. MangaDex tient les vraies couvertures de tomes,
-un appel pour toute la série ; les ISBN déjà présents dans Kavita apportent le
-reste. Les deux doivent se compléter : c'est le point que ces tests gardent.
+Manga-News liste les tomes VF (titre, résumé, ISBN, date). MangaDex n'apporte
+que les vraies couvertures, un appel pour toute la série — Kavita affiche sinon
+une vignette découpée dans la première page, souvent une page de garde noire.
+Les ISBN déjà présents dans Kavita complètent ce que l'index n'a pas couvert.
+Les deux doivent se compléter : c'est le point que ces tests gardent.
 """
 from __future__ import annotations
 

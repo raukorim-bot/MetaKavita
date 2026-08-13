@@ -4,9 +4,10 @@ Choix du fournisseur et récupération de l'index des tomes.
 Deux chemins, de coûts très différents :
 
 * **l'index par série** — un appel réseau pour toute la série, quand le
-  fournisseur sait lister ses albums (ComicVine, Planète BD, Bédéthèque) ;
+  fournisseur sait lister ses albums (ComicVine, Planète BD, Bédéthèque,
+  Manga-News) ; MangaDex n'y apporte que les couvertures ;
 * **le chemin ISBN** — un appel par tome, réservé aux unités qui portent déjà un
-  ISBN dans Kavita, typiquement les mangas et les livres.
+  ISBN dans Kavita, pour ce que l'index n'a pas couvert.
 
 Le second ne se déclenche que sur ce que le premier n'a pas couvert.
 
@@ -36,9 +37,9 @@ TITLE_VOLUME_PROVIDERS = ("GOOGLEBOOKS",)
 #: Les fournisseurs qui répondent à l'unité, et non à la série. Ils ne savent
 #: pas lister les albums — donc `volume_providers()`, bâti sur le scope
 #: `volume`, ne les a jamais contenus — mais ils servent bel et bien les tomes,
-#: par ISBN pour les trois, et par titre + numéro pour Google Books. C'est le
-#: seul chemin praticable sur un manga, dont aucun fournisseur ne liste les
-#: tomes autrement que par leurs couvertures.
+#: par ISBN pour les trois, et par titre + numéro pour Google Books. Sur un
+#: manga, Manga-News liste désormais les tomes VF ; ce chemin-ci complète ce
+#: que l'index n'a pas couvert (pas de fiche, pas d'ISBN dans Kavita).
 #:
 #: Ils sont réunis ici pour que `VOLUME_PROVIDER` puisse les nommer : le réglage
 #: ne lisait que la liste des index, si bien qu'imposer Google Books pour les
@@ -71,6 +72,14 @@ CASCADE_SLOTS: Dict[str, Tuple[str, ...]] = {
 #: repli — trois slots ne couvrent pas les cinq fournisseurs d'un type — mais
 #: toujours après ceux que l'utilisateur a désignés.
 _UNRANKED = 99
+
+#: Manga-News est le seul index manga qui rende un titre, un résumé, un ISBN et
+#: une date. La cascade série (MangaBaka, Kitsu, MangaDex) n'a rien à voir : la
+#: suivre pour les tomes mettait MangaDex en tête, un appel pour des jaquettes
+#: que Kavita a déjà. Sur une bibliothèque Manga il passe donc devant ; sur une
+#: Comic (Flexible) il reste le dernier recours manga, après les comics, à la
+#: place de MangaDex. Un fournisseur imposé (`VOLUME_PROVIDER`) reste prioritaire.
+MANGA_VOLUME_LEAD = "MANGANEWS"
 
 
 def forced_volume_provider(config: Optional[dict] = None) -> str:
@@ -177,6 +186,11 @@ def volume_providers(library_type: str = "Comic", *, config: Optional[dict] = No
     ComicVine soit consulté, et au prix de cinquante pages HTML là où deux
     appels d'API auraient suffi. On suit donc la cascade de la modale Fournisseurs, celle qui
     sert déjà à l'enrichissement par série, plutôt que l'alphabet.
+
+    Sauf pour les tomes manga : Manga-News passe devant sur une bibliothèque
+    Manga, et sert de dernier recours sur une Comic (Flexible), après les
+    comics — c'est le seul index qui y rende autre chose que des couvertures.
+    La cascade série n'est pas touchée.
     """
     from scrapers import ScraperRegistry
 
@@ -227,7 +241,24 @@ def volume_providers(library_type: str = "Comic", *, config: Optional[dict] = No
             library_type or "?",
         )
     # Tri stable : à rang égal, l'ordre alphabétique du registre est conservé.
-    return sorted(out, key=lambda s: ranks.get(s.id, _UNRANKED))
+    # Un fournisseur imposé a déjà rendu plus haut, il n'est pas recalé.
+    # Triplet (vague, préférence manga, rang de cascade) : même longueur partout,
+    # Python 3 refuse de comparer des tuples de tailles différentes.
+    def _rank(scraper):
+        cascade = ranks.get(scraper.id, _UNRANKED)
+        manga_lead = 0 if scraper.id == MANGA_VOLUME_LEAD else 1
+        if library_type == "Manga":
+            return (0, manga_lead, cascade)
+        if library_type == "ComicFlexible":
+            supported = getattr(scraper, "supported_types", set()) or set()
+            # Vague comics d'abord, vague manga ensuite. Dans la seconde,
+            # Manga-News passe devant MangaDex : le secours d'un manga rangé
+            # ici doit rendre un titre, pas seulement une jaquette.
+            wave = 0 if "Comic" in supported else 1
+            return (wave, manga_lead, cascade)
+        return (0, 1, cascade)
+
+    return sorted(out, key=_rank)
 
 
 def forced_id_for(scraper, forced_id: str, forced_provider: str = "") -> Optional[str]:
@@ -358,8 +389,11 @@ def fetch_index(
 
     Un index qui ne couvre qu'une part dérisoire de la série ne clôt plus la
     cascade : il est gardé, mais complété par le fournisseur suivant, dont il
-    reste prioritaire champ par champ. Sans `units`, la couverture n'est pas
-    jugée et le premier index non vide gagne, comme avant.
+    reste prioritaire champ par champ. Un index qui ne porte que des couvertures
+    non plus — MangaDex les rend pour tout le manga, et s'en contenter
+    empêcherait Manga-News (titres, résumés, ISBN) d'être jamais consulté.
+    Sans `units`, la couverture n'est pas jugée et le premier index **textuel**
+    non vide gagne.
     """
     if providers is None:
         providers = volume_providers(library_type, config=config)
@@ -397,7 +431,7 @@ def fetch_index(
             index = merge_indexes(partial_index, index)
         else:
             provider_id = scraper.id
-        if _covers_enough(index, units):
+        if _covers_enough(index, units) and not _is_cover_only(index):
             return provider_id, index
         logging.info(
             "[Tomes] %s : index partiel pour « %s » (%.0f %% des tomes) — on complète",
@@ -464,16 +498,18 @@ def resolve_index(
     """L'index le plus complet qu'on puisse bâtir pour une série.
 
     L'index par série passe d'abord, parce qu'il coûte un appel là où l'ISBN en
-    coûte un par tome. Mais il ne suffit pas toujours : MangaDex, seul
-    fournisseur qui liste les tomes d'un manga, ne connaît que les couvertures.
-    S'en contenter priverait les mangas de tout titre et de tout résumé, alors
-    que leurs ISBN sont là, dans Kavita, et que la cascade sait les lire. Les
-    deux se complètent donc au lieu de s'exclure — l'index par série reste
-    prioritaire champ par champ.
+    coûte un par tome. Mais il ne suffit pas toujours : MangaDex ne connaît que
+    les couvertures, et Manga-News s'arrête à quarante tomes. S'en contenter
+    priverait le reste des titres et résumés, alors que leurs ISBN sont là, dans
+    Kavita, et que la cascade sait les lire. Les deux se complètent donc au lieu
+    de s'exclure — l'index par série reste prioritaire champ par champ.
 
     Un fournisseur à l'unité imposé (`VOLUME_PROVIDER`) restreint les deux
     cascades par tome à lui seul, et supprime l'index : il n'en rend pas, et
-    interroger quand même ceux qui en rendent irait contre le réglage.
+    interroger quand même ceux qui en rendent irait contre le réglage. S'il sait
+    chercher par titre et numéro, l'imposer suffit à ouvrir ce chemin :
+    `VOLUME_ENRICH_EXPERIMENTAL` garde la cascade automatique, il ne barre plus
+    un fournisseur nommé à la main.
     """
     from services.volume_enrichment.matching import matchable_numbers
 
@@ -538,28 +574,41 @@ def resolve_index(
     if should_cancel and should_cancel():
         return provider, index
 
-    if unit_only and not (experimental and unit_only in TITLE_VOLUME_PROVIDERS):
+    if unit_only and unit_only not in TITLE_VOLUME_PROVIDERS:
         # Un fournisseur à l'unité imposé qui n'a rien rendu, et plus rien à
-        # tenter : sans ISBN dans Kavita, il n'a aucune prise. C'est le réglage
+        # tenter : Open Library et Hardcover n'identifient un tome que par son
+        # ISBN, et sans ISBN dans Kavita ils n'ont aucune prise. C'est le réglage
         # qui ferme la porte, pas le fournisseur ni la série — et l'aperçu, lui,
         # affichera « aucun fournisseur ne connaît cette série ».
         logging.info(
-            "[Tomes] aucun ISBN exploitable pour « %s », et %s %s — renseignez les ISBN "
-            "dans Kavita, ou laissez la cascade décider",
+            "[Tomes] aucun ISBN exploitable pour « %s », et %s n'identifie un tome que par "
+            "son ISBN — renseignez les ISBN dans Kavita, imposez un fournisseur qui cherche "
+            "par titre + numéro (%s), ou laissez la cascade décider",
             series_name,
             unit_only,
-            "ne cherche pas par titre + numéro"
-            if unit_only not in TITLE_VOLUME_PROVIDERS
-            else "ne le cherche par titre + numéro que si vous l'autorisez (réglage expérimental)",
+            ", ".join(TITLE_VOLUME_PROVIDERS),
         )
         return provider, index
 
     if not experimental:
-        return provider, index
+        if not unit_only:
+            return provider, index
+        # Imposer un fournisseur qui sait chercher par titre et numéro **est**
+        # l'acte explicite que l'interrupteur expérimental réclame : il est
+        # nommé, il est seul consulté, et rien d'autre ne peut plus répondre.
+        # Exiger en plus l'interrupteur rendait un aperçu vide au geste même qui
+        # demandait la recherche — le cas de tous les mangas sans ISBN, où c'est
+        # le seul chemin qui rende un titre et un résumé.
+        logging.info(
+            "[Tomes] « %s » : %s imposé pour les tomes — recherche par titre + numéro, "
+            "vérifiée titre et numéro chez le fournisseur",
+            series_name,
+            unit_only,
+        )
 
     # Dernier recours : la recherche par titre et numéro. Elle ne se déclenche
     # que si tout le reste a échoué à produire du texte, et seulement quand
-    # l'utilisateur l'a demandée.
+    # l'utilisateur l'a demandée — interrupteur coché, ou fournisseur imposé.
     by_title = fetch_by_title_volume(
         series_name,
         units,
@@ -586,11 +635,10 @@ def fetch_by_title_volume(
     """Index bâti tome par tome, par recherche « titre de série + numéro ».
 
     Expérimental, et pour une raison précise : c'est le seul chemin de tout le
-    module qui ne s'appuie sur aucun identifiant. La plupart des mangas scannés
-    n'ont pas d'ISBN dans Kavita, donc pas de cascade possible, et aucun
-    fournisseur ne liste leurs tomes autrement que par leurs couvertures. Reste
-    la recherche — avec ce qu'elle comporte de risque, d'où la vérification du
-    titre et du numéro côté fournisseur, et l'interrupteur côté configuration.
+    module qui ne s'appuie sur aucun identifiant. Quand Manga-News n'a pas de
+    fiche et que Kavita n'a pas d'ISBN, il ne reste que la recherche — avec ce
+    qu'elle comporte de risque, d'où la vérification du titre et du numéro
+    côté fournisseur, et l'interrupteur côté configuration.
     """
     from scrapers import ScraperRegistry
     from services.volume_enrichment.matching import unit_number
@@ -671,16 +719,16 @@ def fetch_by_isbn(
 ) -> Dict[str, Dict[str, Any]]:
     """Index bâti tome par tome, à partir des ISBN déjà présents dans Kavita.
 
-    C'est le seul chemin praticable pour les mangas : aucun fournisseur ne
-    liste les tomes d'une série, mais chaque tome scanné porte son ISBN. Coûte
-    un appel par tome, d'où le plafond.
+    Complète un index qui n'a pas tout dit — couvertures seules, plafond
+    Manga-News, série absente du catalogue VF. Coûte un appel par tome, d'où
+    le plafond.
 
     `should_cancel` est testé à chaque tome, comme dans `fetch_index` et
-    `fetch_by_title_volume` : sur une bibliothèque Manga cette cascade prend
-    systématiquement le relais, et trois fournisseurs cadencés à une seconde
-    par appel tiennent jusqu'à onze minutes au plafond — pendant lesquelles
-    l'annulation répondait pourtant « annulée », `/status` disait `running` et
-    aucune nouvelle passe n'était acceptée.
+    `fetch_by_title_volume` : quand l'index n'a pas clôturé, cette cascade
+    prend le relais, et trois fournisseurs cadencés à une seconde par appel
+    tiennent jusqu'à onze minutes au plafond — pendant lesquelles l'annulation
+    répondait pourtant « annulée », `/status` disait `running` et aucune
+    nouvelle passe n'était acceptée.
     """
     from scrapers import ScraperRegistry
     from services.volume_enrichment.matching import unit_isbn, unit_key
