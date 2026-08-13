@@ -53,9 +53,9 @@ def test_get_all_series_never_filters_disabled_libraries():
     ]
     mock_res = MagicMock()
     mock_res.status_code = 200
-    mock_res.json.side_effect = [
-        [{"id": 10, "name": "A", "libraryId": 1}],
-        [{"id": 20, "name": "B"}],
+    mock_res.json.return_value = [
+        {"id": 10, "name": "A", "libraryId": 1},
+        {"id": 20, "name": "B", "libraryId": 2},
     ]
 
     with patch.object(api, "get_libraries", return_value=libs):
@@ -64,13 +64,20 @@ def test_get_all_series_never_filters_disabled_libraries():
                 series = api.get_all_series()
 
     assert {s["id"] for s in series} == {10, 20}
-    assert post.call_count == 2
+    # Un seul appel pour tout l'inventaire : `SeriesFilterV2Dto` n'a pas de
+    # `libraryId`, donc un appel par bibliothèque rendait N fois le même catalogue.
+    post.assert_called_once()
     denylist.assert_not_called()
-    # libraryId posé même absent du payload all-v2 : le polling doit pouvoir filtrer.
     assert {s["id"]: s["libraryId"] for s in series} == {10: 1, 20: 2}
+    assert {s["id"]: s["libraryType"] for s in series} == {10: "Manga", 20: "ComicFlexible"}
 
 
-def test_get_all_series_explicit_library_id_scans_only_it():
+def test_get_all_series_asks_for_the_whole_catalog_once_and_sorts_locally():
+    """Le corps `{"libraryId": …}` qu'on postait n'existe pas sur
+    `SeriesFilterV2Dto` : System.Text.Json l'ignorait et `all-v2` rendait tout le
+    catalogue visible, une fois par bibliothèque. Le filtre explicite doit donc
+    s'appliquer localement, sur `SeriesDto.libraryId`, sans prétendre filtrer côté
+    serveur."""
     from kavita_api import KavitaAPI
 
     api = KavitaAPI("http://kavita.test", "key")
@@ -81,14 +88,19 @@ def test_get_all_series_explicit_library_id_scans_only_it():
     ]
     mock_res = MagicMock()
     mock_res.status_code = 200
-    mock_res.json.return_value = [{"id": 99, "name": "X", "libraryId": 2}]
+    mock_res.json.return_value = [
+        {"id": 10, "name": "A", "libraryId": 1},
+        {"id": 99, "name": "X", "libraryId": 2},
+    ]
 
     with patch.object(api, "get_libraries", return_value=libs):
         with patch("kavita_api.requests.post", return_value=mock_res) as post:
             series = api.get_all_series(library_id=2)
             assert [s["id"] for s in series] == [99]
             post.assert_called_once()
-            assert post.call_args.kwargs["json"]["libraryId"] == 2
+            assert post.call_args.kwargs["json"] == {}
+    # Inventaire partiel : jamais un feu vert pour purger le cache d'orphelines.
+    assert api.last_inventory_complete is False
 
 
 def test_auto_sync_candidates_skip_disabled_libraries():

@@ -21,7 +21,8 @@ from db_manager import (
 )
 from translator import translate_text
 from scrapers.utils import MATCH_SCORE_KEY
-from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP, resolve_kavita_format_enum
+from kavita_api import lock_keys_from_payload
+from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP
 from translations import get_ui_translations
 
 
@@ -148,7 +149,7 @@ def _staff_preview(staff):
     return ", ".join(names)
 
 
-def build_preview_fields(provider_data: dict, localized_name=None, format_val=None) -> dict:
+def build_preview_fields(provider_data: dict, localized_name=None) -> dict:
     """Dict plat UI-friendly pour le panneau d'édition manuel."""
     pd = provider_data or {}
     return {
@@ -160,7 +161,7 @@ def build_preview_fields(provider_data: dict, localized_name=None, format_val=No
         "tags": _preview_list(pd.get("tags")),
         "publisher": pd.get("publisher") or "",
         "age_rating": pd.get("age_rating") or "",
-        "format": pd.get("format") or format_val or "",
+        "format": pd.get("format") or "",
         "cover_url": pd.get("cover_url") or "",
         "localized_name": localized_name or "",
         "anilist_id": pd.get("anilist_id") or "",
@@ -270,7 +271,7 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
     Pure-ish : mappe provider_data → metadata Kavita + champs généraux.
 
     Retourne un dict :
-      metadata, localized_name, format_val, cover_url,
+      metadata, localized_name, cover_url,
       external_ids {anilist, mal, mangabaka}, preview_fields
 
     Ne doit PAS appeler kavita.update_series_external_ids.
@@ -287,7 +288,6 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
 
     meta = copy.deepcopy(metadata) if metadata else {}
     localized_name_to_update = None
-    format_to_update = None
     external_ids = {"anilist": None, "mal": None, "mangabaka": None}
     active = list(active_fields or [])
 
@@ -437,11 +437,7 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
             meta["ageRating"] = mapped_rating
             meta["ageRatingLocked"] = True
 
-    # 10. Format / sens de lecture
-    if "format" in active and config.get("AUTO_READING_DIR") and pd.get("format"):
-        format_to_update = resolve_kavita_format_enum(pd["format"])
-
-    # 11. Liens externes & IDs (collecte uniquement — pas d'appel Kavita ici)
+    # 10. Liens externes & IDs (collecte uniquement — pas d'appel Kavita ici)
     if "weblinks" in active:
         a_id = pd.get("anilist_id")
         m_id = pd.get("mal_id")
@@ -485,7 +481,7 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
             # Explicit clear so a failed/empty scrape does not keep old URLs.
             meta["webLinks"] = ""
 
-    # 12. Langue (BF57) — uniquement si le champ est dans le masque ciblé.
+    # 11. Langue (BF57) — uniquement si le champ est dans le masque ciblé.
     # Avant : écriture hors active_fields à chaque enrich réussi.
     if "language" in active:
         target_lang = (config.get("TARGET_LANG") or "").strip()
@@ -498,14 +494,11 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
     meta["seriesId"] = int(series_id)
     cover_url = pd.get("cover_url")
 
-    preview_fields = build_preview_fields(
-        pd, localized_name=localized_name_to_update, format_val=format_to_update
-    )
+    preview_fields = build_preview_fields(pd, localized_name=localized_name_to_update)
 
     return {
         "metadata": meta,
         "localized_name": localized_name_to_update,
-        "format_val": format_to_update,
         "cover_url": cover_url,
         "external_ids": external_ids,
         "preview_fields": preview_fields,
@@ -530,8 +523,14 @@ def _emit_series_status(series_id, status, series_name=None):
         logging.debug("series_status emit skipped: %s", exc)
 
 
-def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
+def _schedule_seal_retry(series_id, series_name, delay_s=2.0, lock_keys=None):
     """Après soft-fail re-lock : retente un seal seul (sans re-scrape).
+
+    `lock_keys` : les verrous que la passe d'écriture a réellement fermés. Sans
+    cette liste, `seal_series_locks` se replie sur « tout verrou dont le champ
+    porte du contenu », donc referme aussi les champs remplis par le scan de
+    fichiers ou par Kavita+ que l'utilisateur avait laissés ouverts exprès —
+    alors qu'ici l'appelant sait exactement ce qu'il vient d'écrire.
 
     Passe sous le même `_processing_lock` que `enrich_series` /
     `apply_manual_review` : sans ça, un re-scrape (force-sync, webhook, review
@@ -562,7 +561,7 @@ def _schedule_seal_retry(series_id, series_name, delay_s=2.0):
             if not api.authenticate():
                 logging.warning(t.get("log_seal_retry_auth", "[{0}] ⚠️ Retry seal : auth Kavita échouée").format(series_name))
                 return
-            ok, msg = api.seal_series_locks(series_id)
+            ok, msg = api.seal_series_locks(series_id, lock_keys=lock_keys)
             if ok:
                 update_status(series_id, "COMPLETED")
                 _emit_series_status(series_id, "COMPLETED", series_name)
@@ -599,7 +598,6 @@ def apply_kavita_payload(
     series_id = int(series_id)
     meta = built.get("metadata") or {}
     localized_name = built.get("localized_name")
-    format_val = built.get("format_val")
     cover_url = built.get("cover_url")
     ext = built.get("external_ids") or {}
     active = list(active_fields or [])
@@ -626,12 +624,21 @@ def apply_kavita_payload(
     general_ok = True
     general_msg = ""
     general_sealed = True
+    # Verrous que l'écriture des champs généraux ferme : `update_series_general`
+    # pose `localizedNameLocked` dès qu'un titre alternatif part, et rien d'autre.
+    general_locks = {}
     # BF67: n'appeler general que si la metadata a réussi (atomicité soft).
-    if success and (localized_name or format_val):
+    #
+    # Le format ne déclenche plus l'appel : `UpdateSeriesDto` n'a jamais porté ni
+    # `Format` ni `FormatLocked`, si bien qu'une passe n'ayant qu'un format à
+    # « écrire » traversait quand même le chemin d'écriture des champs généraux
+    # pour n'y rien écrire, et faisait dépendre son verdict de verrouillage d'un
+    # appel sans objet.
+    if success and localized_name:
+        general_locks = {"localizedNameLocked": True}
         general_ok, general_msg, general_sealed = kavita.update_series_general(
             series_id,
             localized_name=localized_name,
-            format_val=format_val,
         )
         if not general_ok:
             logging.error(
@@ -710,7 +717,16 @@ def apply_kavita_payload(
         _broadcast_enrichment_stats(record_enrichment_telemetry(used))
 
         if not sealed:
-            _schedule_seal_retry(series_id, series_name)
+            # Le rescellement se limite aux verrous de CES payloads : ce sont les
+            # seuls que la passe a fermés. Sans la liste, le repli refermerait
+            # tout verrou dont le champ porte du contenu côté Kavita — y compris
+            # un éditeur ou un âge venus du scan de fichiers, que MetaKavita n'a
+            # jamais écrits et que l'utilisateur avait laissés ouverts.
+            _schedule_seal_retry(
+                series_id,
+                series_name,
+                lock_keys=lock_keys_from_payload(meta, general_locks),
+            )
             return True, "NEEDS_RELOCK", used
 
         return True, t.get("msg_success", "Succès"), used
