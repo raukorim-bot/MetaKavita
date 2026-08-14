@@ -70,8 +70,11 @@
     toastTestOk: "Connexion OK",
     toastTestFail: "Échec de connexion",
     toastTestFailToken: "Jeton webhook invalide",
+    toastTestFailNoUrl: "Collez l’URL de MetaKavita",
+    toastTestFailNoToken: "Collez le jeton webhook (MetaKavita → Configuration)",
     toastTestFailHealth: "MetaKavita injoignable (/healthz)",
     toastTestFailNetwork: "Erreur réseau vers MetaKavita",
+    toastTestFailUnexpected: "Réponse inattendue (HTTP $1$)",
     toastNeedHosts: "Ouvrez d’abord un onglet Kavita, puis réessayez",
     toastNeedSeriesPage: "Ouvrez une fiche série Kavita (/library/…/series/…)",
     toastMetaIsNotKavita: "Ceci est MetaKavita — ouvrez votre site Kavita puis activez",
@@ -128,8 +131,11 @@
     toastTestOk: "Connection OK",
     toastTestFail: "Connection failed",
     toastTestFailToken: "Invalid webhook token",
+    toastTestFailNoUrl: "Paste the MetaKavita URL",
+    toastTestFailNoToken: "Paste the webhook token (MetaKavita → Configuration)",
     toastTestFailHealth: "MetaKavita unreachable (/healthz)",
     toastTestFailNetwork: "Network error reaching MetaKavita",
+    toastTestFailUnexpected: "Unexpected response (HTTP $1$)",
     toastNeedHosts: "Open a Kavita tab first, then try again",
     toastNeedSeriesPage: "Open a Kavita series page (/library/…/series/…)",
     toastMetaIsNotKavita: "This is MetaKavita — open your Kavita site, then enable",
@@ -460,7 +466,21 @@
         !hostname.includes(".");
       u = (isLocal ? "http://" : "https://") + u.replace(/^\/+/, "");
     }
-    return u.replace(/\/+$/, "");
+    u = u.split("#")[0];
+    const q = u.indexOf("?");
+    if (q !== -1) u = u.slice(0, q);
+    u = u.replace(/\/+$/, "");
+    u = u.replace(/\/webhook$/i, "");
+    return u;
+  }
+
+  function tokenFromPastedUrl(url) {
+    try {
+      const m = String(url || "").trim().match(/[?&]token=([^&]+)/i);
+      return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : "";
+    } catch {
+      return "";
+    }
   }
 
   function originFromUrl(url) {
@@ -831,11 +851,12 @@
     els.btnSave.addEventListener("click", async () => {
       const partial = {
         metaBaseUrl: els.metaUrl.value,
-        webhookToken: els.token.value,
+        webhookToken: (els.token.value || tokenFromPastedUrl(els.metaUrl.value)).trim(),
         showActionFabs: els.showFabs.checked,
         cacheBustOnConfirm: els.cacheBust.checked,
         uiLang: els.uiLang.value,
       };
+      if (partial.webhookToken && !els.token.value) els.token.value = partial.webhookToken;
       const metaOrigin = originFromUrl(partial.metaBaseUrl);
       const res = await chrome.runtime.sendMessage({ type: "saveSettings", settings: partial });
       if (!res || !res.ok) {
@@ -857,7 +878,21 @@
     });
 
     els.btnTest.addEventListener("click", async () => {
-      const trial = { metaBaseUrl: els.metaUrl.value, webhookToken: els.token.value };
+      const typedToken = (els.token.value || "").trim();
+      const webhookToken =
+        typedToken ||
+        tokenFromPastedUrl(els.metaUrl.value) ||
+        ((settings && settings.webhookToken) || "").trim();
+      if (!els.token.value && webhookToken) els.token.value = webhookToken;
+      const trial = { metaBaseUrl: els.metaUrl.value, webhookToken };
+      if (!normalizeBaseUrl(trial.metaBaseUrl)) {
+        showToast(t("toastTestFailNoUrl"), true);
+        return;
+      }
+      if (!webhookToken) {
+        showToast(t("toastTestFailNoToken"), true);
+        return;
+      }
       await chrome.runtime.sendMessage({ type: "saveSettings", settings: trial });
       const metaOrigin = originFromUrl(trial.metaBaseUrl);
       if (metaOrigin && !(await hasHostPermission(metaOrigin))) {
@@ -868,13 +903,18 @@
         }
       }
       const res = await chrome.runtime.sendMessage({ type: "testConnection", settings: trial });
-      const reason = res && res.result && res.result.reason;
-      if (res && res.result && res.result.ok) showToast(t("toastTestOk"));
+      const result = res && res.result;
+      const reason = result && result.reason;
+      if (result && result.ok) showToast(t("toastTestOk"));
       else if (reason === "permission") showToast(t("toastUsePopupForPermission"), true);
+      else if (reason === "no_url") showToast(t("toastTestFailNoUrl"), true);
+      else if (reason === "no_token" || reason === "config") showToast(t("toastTestFailNoToken"), true);
       else if (reason === "token") showToast(t("toastTestFailToken"), true);
       else if (reason === "healthz") showToast(t("toastTestFailHealth"), true);
       else if (reason === "network") showToast(t("toastTestFailNetwork"), true);
-      else showToast(t("toastTestFail"), true);
+      else if (reason === "unexpected") {
+        showToast(t("toastTestFailUnexpected").replace("$1$", String(result.status || "?")), true);
+      } else showToast(t("toastTestFail"), true);
     });
 
     els.btnEnableSite.addEventListener("click", async () => {

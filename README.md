@@ -362,7 +362,7 @@ In the **Config Modal** (Planning section) you get the base webhook URL (`/webho
 
 #### 3. MetaKavita Companion (browser extension) — *beta*
 
-Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.27**, MetaKavita **1.7.0**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
+Chrome + Firefox MV3 under [`companion/`](companion/) (extension **1.0.28**, MetaKavita **1.7.0**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
 
 Floating icon menu on Kavita **series** pages — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review embeds `/companion/embed` when schemes match; an HTTPS Kavita with an HTTP MetaKavita cannot embed it (mixed content), so the review opens in a small **dedicated window** centred over Kavita and closes itself when it finishes. Cover previews that travel through MetaKavita are fetched by the extension itself, so they render in both cases. Companion one-shots **override** MR/Super toggles, jump ahead of a running batch queue (after the in-flight job), and **replace** any pending job for the same series.
 
@@ -744,7 +744,7 @@ Dans la **Modal Config** (section Planification) vous avez l'URL de base (`/webh
 
 #### 3. MetaKavita Companion (extension navigateur) — *bêta*
 
-Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.27**, MetaKavita **1.7.0**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
+Chrome + Firefox MV3 dans [`companion/`](companion/) (extension **1.0.28**, MetaKavita **1.7.0**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
 
 Menu flottant sur les **fiches série** Kavita — Super Review, Auto, Cover, Config, Buy me a coffee. Super Review via `/companion/embed` si les schémas matchent ; un Kavita en HTTPS avec un MetaKavita en HTTP ne peut pas l'embarquer (contenu mixte), la review s'ouvre alors dans une petite **fenêtre dédiée** centrée sur Kavita et se ferme en fin de parcours. Les aperçus de couverture qui transitent par MetaKavita sont récupérés par l'extension elle-même, donc ils s'affichent dans les deux cas. Les one-shots Companion **passent outre** les toggles MR/Super, passent devant la file batch (après le job en cours) et **remplacent** tout job pending pour la même série.
 

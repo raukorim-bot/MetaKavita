@@ -142,7 +142,37 @@ def test_the_zips_carry_lf_whatever_the_machine_that_packed_them():
                 )
 
 
-def test_both_manifests_agree_on_the_version():
+def test_connection_test_names_a_missing_token_instead_of_connection_failed():
+    """Issue #37 : le toast générique « Connection failed » masquait un jeton vide."""
+    page = _read("content/page-ui.js")
+    assert 'reason === "no_token"' in page
+    assert "toastTestFailNoToken" in page
+    options = _read("options.js")
+    assert "toastTestFailNoToken" in options
+    webhook = _read("lib/webhook.js")
+    assert 'reason: "no_token"' in webhook
+    assert 'reason: "no_url"' in webhook
+    assert 'reason: "config"' not in webhook
+
+
+def test_connection_test_does_not_save_an_empty_token_over_a_stored_one():
+    """Tester avec le champ jeton vide ne doit pas écraser un jeton déjà enregistré."""
+    page = _read("content/page-ui.js")
+    handler = page.split("btnTest.addEventListener")[1].split("btnEnableSite.addEventListener")[0]
+    assert "settings.webhookToken" in handler
+    assert 'toastTestFailNoToken' in handler
+    options = _read("options.js")
+    opt_handler = options.split('btnTest").addEventListener')[1].split('btnEnableSite").addEventListener')[0]
+    assert "stored.settings.webhookToken" in opt_handler
+
+
+def test_a_pasted_webhook_url_is_reduced_to_the_instance_root():
+    """L'URL affichée en Config Meta est `…/webhook?token=` — collée telle quelle,
+    Test tapait `/webhook/healthz`."""
+    for src_name in ("lib/storage.js", "content/page-ui.js"):
+        src = _read(src_name)
+        assert "/webhook$" in src, f"{src_name} : doit retirer un suffixe /webhook"
+        assert "tokenFromPastedUrl" in src
     chrome = json.loads(_read("manifest.json"))["version"]
     firefox = json.loads(_read("manifest.firefox.json"))["version"]
     assert chrome == firefox
