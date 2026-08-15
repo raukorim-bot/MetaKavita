@@ -58,8 +58,8 @@ def test_worker_ignores_non_batch_items_for_progress(mocker, isolated_db):
     bg._worker()
 
     assert len(calls) == 3, "seuls les 2 items batch (+ le signal de fin) doivent émettre"
-    assert calls[0] == ((1,), {"active": "Batch A"})
-    assert calls[1] == ((0,), {"active": "Batch B"})
+    assert calls[0] == ((1,), {"active": "Batch A", "series_id": 1})
+    assert calls[1] == ((0,), {"active": "Batch B", "series_id": 2})
     assert calls[2] == ((0,), {"real_sends": 0})
 
 
@@ -174,7 +174,7 @@ def test_a_batch_item_finishing_after_a_stop_does_not_broadcast_stale_progress(m
 
     bg._worker()
 
-    assert calls == [((0,), {"active": "In-flight when stopped"})], (
+    assert calls == [((0,), {"active": "In-flight when stopped", "series_id": 1})], (
         "le broadcast de démarrage utilise déjà remaining=0 (total réinitialisé) "
         "mais aucun broadcast de FIN ne doit suivre puisque total == 0"
     )

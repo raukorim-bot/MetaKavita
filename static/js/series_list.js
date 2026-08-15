@@ -15,6 +15,7 @@
     var windowEl = null;
     var kavitaUiUrl = '';
     var scrollRaf = 0;
+    var processingId = null;
     var T = function () { return window.AppTranslations || {}; };
 
     // Échappement partagé (utils.js) : voir escapeHtmlText, l'apostrophe incluse.
@@ -76,11 +77,12 @@
         var checked = (typeof selectedIds !== 'undefined' && selectedIds.has(sid)) ? ' checked' : '';
         // Pinned + open Options: auto height so the panel is not clipped to ROW_HEIGHT.
         var pinned = pinnedPanelIds.has(sid);
+        var processing = processingId && sid === processingId;
         var heightStyle = pinned
             ? 'min-height:' + ROW_HEIGHT + 'px;height:auto;overflow:visible;'
             : 'height:' + ROW_HEIGHT + 'px;overflow:hidden;';
         return (
-            '<div class="series-item' + (pinned ? ' is-pinned-panel' : '') + '"' +
+            '<div class="series-item' + (pinned ? ' is-pinned-panel' : '') + (processing ? ' is-processing' : '') + '"' +
             ' data-status="' + escAttr(s.status || 'PENDING') + '"' +
             ' data-search-title="' + escAttr(s.searchTitle || name.toLowerCase()) + '"' +
             ' data-series-id="' + escAttr(sid) + '"' +
@@ -307,6 +309,28 @@
         return true;
     }
 
+    function _scrollToProcessing() {
+        if (!root || !processingId) return;
+        var matched = matchedIds || [];
+        var idx = matched.indexOf(processingId);
+        if (idx < 0) return;
+        var y = pinnedPanelIds.size > 0 ? _cumulativeOffsets(matched)[idx] : idx * ROW_HEIGHT;
+        var viewH = root.clientHeight || 400;
+        if (y < root.scrollTop || y + ROW_HEIGHT > root.scrollTop + viewH) {
+            root.scrollTop = Math.max(0, y - Math.floor(viewH / 3));
+        }
+    }
+
+    function setProcessing(seriesId) {
+        processingId = (seriesId == null || seriesId === '') ? null : String(seriesId);
+        if (!root || root.getAttribute('data-virtual') !== '1') return false;
+        if (processingId) _scrollToProcessing();
+        renderWindow();
+        var row = windowEl && windowEl.querySelector('.series-item.is-processing');
+        if (row) row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        return true;
+    }
+
     function refreshMountedChecks() {
         if (!windowEl) return;
         windowEl.querySelectorAll('.series-cb').forEach(function (cb) {
@@ -395,6 +419,7 @@
             scrollRaf = 0;
         }
         pinnedPanelIds.clear();
+        processingId = null;
         items = [];
         byId = {};
         root = null;
@@ -416,6 +441,7 @@
             unpinAllPanels: unpinAllPanels,
             afterPanelOpened: afterPanelOpened,
             getItem: getItem,
+            setProcessing: setProcessing,
             renderWindow: renderWindow,
             isPinned: function (id) { return pinnedPanelIds.has(String(id)); },
             init: init,

@@ -162,7 +162,24 @@ function bumpBatchProgressTotal(delta) {
     syncMainBatchBtnLabel();
 }
 
+/** Liséré violet + suivi de la série en cours : l'id, pas le titre du journal. */
+function setBatchProcessingSeries(seriesId) {
+    const sid = (seriesId == null || seriesId === '') ? null : String(seriesId);
+    if (window.SeriesList && typeof window.SeriesList.setProcessing === 'function') {
+        if (window.SeriesList.setProcessing(sid)) return;
+    }
+    document.querySelectorAll('.series-item.is-processing').forEach(function (item) {
+        item.classList.remove('is-processing');
+    });
+    if (!sid) return;
+    const row = document.querySelector('.series-item[data-series-id="' + sid + '"]');
+    if (!row) return;
+    row.classList.add('is-processing');
+    row.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
 function hideBatchProgress() {
+    setBatchProcessingSeries(null);
     batchProgressTotal = 0;
     batchProgressDone = 0;
     if (batchProgressHideTimer) {
@@ -198,6 +215,11 @@ function applyBatchProgressPayload(payload) {
     if (payload.stopped) {
         hideBatchProgress();
         return;
+    }
+    if (payload.series_id != null) {
+        setBatchProcessingSeries(payload.series_id);
+    } else if (!payload.active) {
+        setBatchProcessingSeries(null);
     }
     if (batchProgressTotal <= 0) return;
 

@@ -247,8 +247,14 @@ def reset_batch_progress():
         _batch_real_sends = 0
 
 
-def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=None):
+def broadcast_batch_progress(remaining, active=None, series_id=None, stopped=False, real_sends=None):
     """Notifie l'UI (barre de progression batch) via Socket.IO.
+
+    `series_id` (quand une série est en cours) : le liséré violet et le suivi
+    de la ligne se font sur cet identifiant, pas sur le texte du journal — le
+    titre y est désormais `« Name » (id)`, ce qui ne matche plus `.series-name`.
+    `active` reste le titre nu : la barre et la review manuelle s'en servent
+    pour savoir qu'un job est encore ouvert (`hasActive`).
 
     `real_sends` (uniquement sur le message de fin) : nombre de séries du batch
     réellement écrites vers Kavita — voir `_REAL_SEND_MESSAGES`. Sert de garde-fou
@@ -264,6 +270,8 @@ def broadcast_batch_progress(remaining, active=None, stopped=False, real_sends=N
         }
         if active is not None:
             payload["active"] = active
+        if series_id is not None:
+            payload["series_id"] = int(series_id)
         if real_sends is not None:
             payload["real_sends"] = int(real_sends)
         socketio.emit("batch_progress", payload)
@@ -475,7 +483,7 @@ def _worker():
                 with _batch_progress_lock:
                     remaining = max(0, _batch_total - _batch_done - 1)
                 logging.info(t.get('log_worker_start').format(series_label(series_name, series_id), remaining))
-                broadcast_batch_progress(remaining, active=series_name)
+                broadcast_batch_progress(remaining, active=series_name, series_id=series_id)
             else:
                 logging.info(t.get('log_worker_start').format(series_label(series_name, series_id), sync_queue.qsize()))
 

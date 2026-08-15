@@ -1,4 +1,6 @@
-// --- WEBSOCKETS LOGS & INDICATEUR LIVE DE TRAITEMENT ---
+// --- WEBSOCKETS : journal, statuts, barre de lot ---
+// Le liséré violet de la série en cours est posé par batch.js
+// (`batch_progress.series_id`), plus par le texte du journal.
 // Dépend de utils.js (getRootPath). La variable globale `socket` est réutilisée
 // par covers.js (flux de couvertures en direct) : ce fichier doit donc être
 // chargé AVANT covers.js.
@@ -38,50 +40,6 @@ socket.on('log_update', function(msg) {
     }
     logConsole.appendChild(newLog);
     logConsole.scrollTop = logConsole.scrollHeight;
-
-    try {
-        const matchStart = msg.data.match(/▶️\s+\[(.*?)\]\s+Début/i) || msg.data.match(/▶️\s+\[(.*?)\]\s+Starting/i);
-        if (matchStart && matchStart[1]) {
-            const activeTitle = matchStart[1].trim();
-            
-            document.querySelectorAll('.series-item.is-processing').forEach(item => {
-                item.classList.remove('is-processing');
-            });
-            
-            document.querySelectorAll('.series-item').forEach(item => {
-                const nameElem = item.querySelector('.series-name');
-                if (nameElem && nameElem.textContent.trim().toLowerCase() === activeTitle.toLowerCase()) {
-                    item.classList.add('is-processing');
-                    item.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-                }
-            });
-        }
-
-        // Retrait du highlight "en cours" : le statut final (badge) est géré
-        // exclusivement par l'événement typé `series_status` ci-dessous, pas ici.
-        // Avant, ce même bloc devinait le badge en testant des mots-clés traduits
-        // dans le texte du log ("réussi", "déjà à jour", "introuvable"...) — un
-        // parsing fragile qui se désynchronisait silencieusement de la vraie
-        // langue des logs ou du wording exact (voir services/enrichment_engine.py
-        // et kavita_payload.py, qui émettent maintenant `series_status` pour
-        // CHAQUE issue : COMPLETED, NOT_FOUND, PENDING_REVIEW, NEEDS_RELOCK).
-        const matchEnd = msg.data.match(/\[(.*?)\]\s+✅/i) ||
-                         msg.data.match(/\[(.*?)\]\s+⏭️/i) ||
-                         msg.data.match(/\[(.*?)\]\s+❌/i) ||
-                         msg.data.match(/\[(.*?)\]\s+⚠️/i);
-
-        if (matchEnd && matchEnd[1]) {
-            const finishedTitle = matchEnd[1].trim();
-            document.querySelectorAll('.series-item').forEach(item => {
-                const nameElem = item.querySelector('.series-name');
-                if (nameElem && nameElem.textContent.trim().toLowerCase() === finishedTitle.toLowerCase()) {
-                    item.classList.remove('is-processing');
-                }
-            });
-        }
-    } catch(e) {
-        console.error("[WebSockets] Erreur Live Highlight :", e);
-    }
 });
 
 function _handleHygieneProgress(payload) {
