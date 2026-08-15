@@ -4,7 +4,7 @@
 
 ← [Documentation](README.md)
 
-![Tableau de bord MetaKavita](../../assets/dashboard.png)
+![Tableau de bord MetaKavita](../../assets/docs-dashboard.png)
 
 L'interface est 100 % AJAX. La barre latérale gauche gère la stratégie ; le panneau central affiche tes œuvres. Le stockage local retient bibliothèque, filtre de statut, masquage des ignorés et recherche. Les **cases du batch** sont mémorisées par bibliothèque (`mk_batch_selection:*`).
 
