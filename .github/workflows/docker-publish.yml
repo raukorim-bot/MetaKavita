@@ -4,6 +4,20 @@ on:
   push:
     branches: [ "main", "dev" ]
     tags: [ "v*" ]
+    # Guides et captures GitHub : pas dans l'image (assets/ est déjà
+    # dans .dockerignore). CHANGELOG.md n'est pas ignoré — la modale
+    # Nouveautés le lit au runtime depuis le conteneur.
+    paths-ignore:
+      - "docs/**"
+      - "assets/**"
+      - "README.md"
+      - "DEVELOPER.md"
+      - "CUSTOM_SCRAPERS.md"
+      - "ROADMAP.md"
+      - "CODE_REVIEW.md"
+      - "kavita_api.md"
+      - "companion/**/*.md"
+      - "debug/**/*.md"
 
 jobs:
   # L'image ne doit jamais partir devant les tests : les deux workflows
