@@ -372,6 +372,10 @@ function saveConfig(options) {
     if (coverForceOverwrite) formData.append('COVER_FORCE_OVERWRITE', coverForceOverwrite.checked ? 'true' : 'false');
     const inventoryEnabled = document.getElementById('sidebar_library_inventory');
     if (inventoryEnabled) formData.append('LIBRARY_INVENTORY_ENABLED', inventoryEnabled.checked ? 'true' : 'false');
+    const folderPrefix = document.getElementById('dupFolderPathPrefix');
+    if (folderPrefix) formData.append('INVENTORY_FOLDER_PATH_PREFIX', folderPrefix.value || '');
+    const folderTrash = document.getElementById('dupFolderTrash');
+    if (folderTrash) formData.append('INVENTORY_FOLDER_TRASH', folderTrash.value || '');
     // Enrichissement par tome : les deux derniers n'existent dans le DOM que si
     // le premier est allumé, d'où le test d'existence sur chacun.
     [
@@ -424,6 +428,15 @@ function saveConfig(options) {
     })
     .then(data => {
         if (data.success) {
+            if (folderPrefix) {
+                window.INVENTORY_FOLDER_PATH_PREFIX = (folderPrefix.value || '').trim();
+            }
+            if (folderTrash) {
+                window.INVENTORY_FOLDER_TRASH = (folderTrash.value || '').trim();
+            }
+            if (typeof updateInventoryFolderPreview === 'function') {
+                updateInventoryFolderPreview();
+            }
             if (btn) {
                 btn.innerText = "✅ OK";
                 setTimeout(() => { btn.innerText = originalText; }, 2000);

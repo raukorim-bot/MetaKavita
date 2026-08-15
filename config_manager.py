@@ -180,6 +180,10 @@ def load_config():
             # barre d'outils, les cartouches et les routes disparaissent, et le
             # dashboard économise deux lectures SQLite par rendu.
             "LIBRARY_INVENTORY_ENABLED": True,
+            # Préfixe POSIX collé devant le folderPath Kavita dans le script bash.
+            "INVENTORY_FOLDER_PATH_PREFIX": "",
+            # Corbeille POSIX hors des roots Kavita, pour le script `mv`.
+            "INVENTORY_FOLDER_TRASH": "",
             # C80 — Mode léger. Trois familles de réglages que tout le monde n'a
             # pas à voir : décochées, leur catégorie quitte la barre latérale et
             # leur fonctionnalité s'éteint (voir `apply_light_mode`). Toutes
@@ -293,6 +297,9 @@ def load_config():
             "LOCALIZED_TITLE_MODE", "LOCALIZED_TITLE_LANGS",
             "DISABLED_LIBRARIES",
             "DISABLED_SCRAPERS",
+            "INVENTORY_FOLDER_PATH_PREFIX",
+            "INVENTORY_FOLDER_URL_PREFIX",
+            "INVENTORY_FOLDER_TRASH",
             "PROVIDER_1", "PROVIDER_2", "PROVIDER_3",
             "COMIC_PROVIDER_1", "COMIC_PROVIDER_2", "COMIC_PROVIDER_3",
             "BOOK_PROVIDER_1", "BOOK_PROVIDER_2", "BOOK_PROVIDER_3",
@@ -322,6 +329,15 @@ def load_config():
             sorted(parse_library_id_list(config.get("DISABLED_LIBRARIES")), key=_library_id_sort_key)
         )
         config["DISABLED_SCRAPERS"] = format_disabled_scrapers(config.get("DISABLED_SCRAPERS"))
+        from services.library_audit.dup_script import (
+            inventory_folder_path_prefix_from_config,
+            normalize_inventory_folder_trash,
+        )
+        config["INVENTORY_FOLDER_PATH_PREFIX"] = inventory_folder_path_prefix_from_config(config)
+        config.pop("INVENTORY_FOLDER_URL_PREFIX", None)
+        config["INVENTORY_FOLDER_TRASH"] = normalize_inventory_folder_trash(
+            config.get("INVENTORY_FOLDER_TRASH")
+        )
 
         for env_key, env_val in os.environ.items():
             if env_key.endswith("_API_KEY") and env_key not in config:
@@ -683,6 +699,25 @@ def save_config(data):
             )
         if "DUP_THRESHOLD_CUSTOM" in data:
             data["DUP_THRESHOLD_CUSTOM"] = bool(data.get("DUP_THRESHOLD_CUSTOM"))
+        if (
+            "INVENTORY_FOLDER_PATH_PREFIX" in data
+            or "INVENTORY_FOLDER_URL_PREFIX" in data
+        ):
+            from services.library_audit.dup_script import (
+                inventory_folder_path_prefix_from_config,
+                normalize_inventory_folder_trash,
+            )
+            data["INVENTORY_FOLDER_PATH_PREFIX"] = inventory_folder_path_prefix_from_config(data)
+            data.pop("INVENTORY_FOLDER_URL_PREFIX", None)
+            if "INVENTORY_FOLDER_TRASH" in data:
+                data["INVENTORY_FOLDER_TRASH"] = normalize_inventory_folder_trash(
+                    data.get("INVENTORY_FOLDER_TRASH")
+                )
+        elif "INVENTORY_FOLDER_TRASH" in data:
+            from services.library_audit.dup_script import normalize_inventory_folder_trash
+            data["INVENTORY_FOLDER_TRASH"] = normalize_inventory_folder_trash(
+                data.get("INVENTORY_FOLDER_TRASH")
+            )
         if not os.path.exists(DATA_DIR):
             os.makedirs(DATA_DIR, exist_ok=True)
 

@@ -125,6 +125,33 @@ def _staff_from_metadata(meta: dict) -> List[dict]:
     return staff
 
 
+def series_folder_path(series: Optional[dict]) -> str:
+    """Chemin dossier Kavita (`folderPath`, sinon `lowestFolderPath`).
+
+    `POST /api/Series/all-v2` le porte déjà : le scan Inventaire n'a pas d'appel
+    en plus. Vide si Kavita n'a rien renseigné, ou si l'on n'a qu'un id.
+    """
+    if not isinstance(series, dict):
+        return ""
+    raw = series.get("raw_series") if isinstance(series.get("raw_series"), dict) else series
+    for blob in (raw, series):
+        if not isinstance(blob, dict):
+            continue
+        for key in (
+            "folder_path",
+            "folderPath",
+            "FolderPath",
+            "lowestFolderPath",
+            "LowestFolderPath",
+        ):
+            val = blob.get(key)
+            if val:
+                path = str(val).strip()
+                if path:
+                    return path
+    return ""
+
+
 def merge_series_identity(
     series: Optional[dict] = None,
     metadata: Optional[dict] = None,
@@ -185,6 +212,7 @@ def merge_series_identity(
         "localizedName": localized or "",
         "libraryId": series.get("libraryId") or series.get("LibraryId"),
         "libraryType": library_type or series.get("libraryType") or "Manga",
+        "folder_path": series_folder_path(series),
         "ids": ids,
         "webLinks": web_blob,
         "has_external_id": bool(ids) or _links_have_external(web_blob),

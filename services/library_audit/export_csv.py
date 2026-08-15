@@ -180,13 +180,18 @@ def volume_report_to_txt(report: Dict[str, Any]) -> str:
 def duplicates_to_csv(groups: List[Dict[str, Any]], *, library_id: Any = "") -> str:
     buf = io.StringIO()
     w = csv.writer(buf)
-    _write_row(w, ["library_id", "group_id", "group_key", "score", "reasons", "series_id", "name"])
+    _write_row(
+        w,
+        ["library_id", "group_id", "group_key", "score", "reasons", "series_id", "name", "folder_path"],
+    )
     for g in groups or []:
         reasons = "|".join(g.get("reasons") or [])
         ids = g.get("series_ids") or []
         names = g.get("names") or []
+        paths = g.get("folder_paths") or []
         for i, sid in enumerate(ids):
             name = names[i] if i < len(names) else ""
+            path = paths[i] if i < len(paths) else ""
             _write_row(
                 w,
                 [
@@ -197,6 +202,7 @@ def duplicates_to_csv(groups: List[Dict[str, Any]], *, library_id: Any = "") -> 
                     reasons,
                     sid,
                     name,
+                    path,
                 ]
             )
     return buf.getvalue()
@@ -277,7 +283,13 @@ def duplicates_to_txt(groups: List[Dict[str, Any]], *, library_id: Any = "") -> 
             f"[{g.get('group_id')}] score={g.get('score')} "
             f"reasons={','.join(g.get('reasons') or [])}"
         )
-        for sid, name in zip(g.get("series_ids") or [], g.get("names") or []):
-            lines.append(f"  - {sid}: {name}")
+        ids = g.get("series_ids") or []
+        names = g.get("names") or []
+        paths = g.get("folder_paths") or []
+        for i, sid in enumerate(ids):
+            name = names[i] if i < len(names) else ""
+            path = paths[i] if i < len(paths) else ""
+            suffix = f"  {path}" if path else ""
+            lines.append(f"  - {sid}: {name}{suffix}")
         lines.append("")
     return "\n".join(lines)

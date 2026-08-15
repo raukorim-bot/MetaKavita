@@ -893,15 +893,16 @@ function onVolumeEnrichmentToggle(input) {
     if (typeof saveConfig === 'function') saveConfig();
 }
 
-function openDuplicatesModal() {
+function openDuplicatesModal(opts) {
     var m = document.getElementById('duplicatesModal');
     var body = document.getElementById('duplicatesBody');
     var tr = _auditT();
     var lib = _selectedLibraryIdOrAll();
+    var keepBody = opts && opts.keepBody;
     if (!m || !body) return;
     m.style.display = 'flex';
     m.setAttribute('aria-hidden', 'false');
-    body.innerHTML = _loadingHtml(tr);
+    if (!keepBody) body.innerHTML = _loadingHtml(tr);
     var csv = document.getElementById('duplicatesCsv');
     var txt = document.getElementById('duplicatesTxt');
     if (csv) csv.href = getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates?format=csv';
@@ -1162,11 +1163,201 @@ function _kavitaSeriesUrl(seriesId) {
     return '';
 }
 
+var _lastDupGroups = [];
+/* Cases Jeter : « Pas un doublon » recharge la liste, sans ça on perdait
+ * la sélection du script. Les id restent tant que la page est ouverte. */
+var _dupDropMarked = {};
+
+function _syncDupDropMarkedFromDom() {
+    document.querySelectorAll('#duplicatesBody .audit-dup-drop-cb').forEach(function (cb) {
+        var id = String(cb.value || '');
+        if (!id) return;
+        if (cb.checked) _dupDropMarked[id] = true;
+        else delete _dupDropMarked[id];
+    });
+}
+
+function _restoreDupDropMarked() {
+    document.querySelectorAll('#duplicatesBody .audit-dup-drop-cb').forEach(function (cb) {
+        cb.checked = !!_dupDropMarked[String(cb.value || '')];
+    });
+    _enforceAllDupKeepOne();
+}
+
+function _dupGroupCheckboxes(groupEl) {
+    return Array.prototype.slice.call(
+        (groupEl && groupEl.querySelectorAll('.audit-dup-drop-cb')) || []
+    );
+}
+
+/** Au moins une série du groupe reste hors de Jeter : tout cocher viderait le groupe. */
+function _enforceDupKeepOne(groupEl) {
+    var boxes = _dupGroupCheckboxes(groupEl);
+    if (!boxes.length) return;
+    var members = groupEl.querySelectorAll('.audit-dup-row').length;
+    var implicitKeep = members - boxes.length;
+    var maxCheck = implicitKeep > 0 ? boxes.length : Math.max(0, boxes.length - 1);
+    var checked = boxes.filter(function (cb) { return cb.checked; });
+    if (checked.length > maxCheck) {
+        checked.slice(maxCheck).forEach(function (cb) {
+            cb.checked = false;
+            delete _dupDropMarked[String(cb.value || '')];
+        });
+    }
+    var stillChecked = boxes.filter(function (cb) { return cb.checked; }).length;
+    var canCheckMore = stillChecked < maxCheck;
+    var tr = _auditT();
+    var keepHint = tr.audit_dup_keep_one || 'Keep at least one series in the group.';
+    boxes.forEach(function (cb) {
+        cb.disabled = !cb.checked && !canCheckMore;
+        var label = cb.closest('.audit-dup-drop');
+        if (label) {
+            label.classList.toggle('is-locked', cb.disabled);
+            label.title = cb.disabled ? keepHint : '';
+        }
+        cb.title = cb.disabled ? keepHint : '';
+    });
+}
+
+function _enforceAllDupKeepOne() {
+    document.querySelectorAll('#duplicatesBody .audit-dup-group').forEach(_enforceDupKeepOne);
+}
+
+function _folderPathPrefix() {
+    var prefixEl = document.getElementById('dupFolderPathPrefix');
+    var typed = prefixEl ? (prefixEl.value || '').trim() : '';
+    return (typed || window.INVENTORY_FOLDER_PATH_PREFIX || '').trim().replace(/\/+$/, '');
+}
+
+function _resolvedFolderPath(path) {
+    var prefix = _folderPathPrefix();
+    var p = String(path || '').replace(/\\/g, '/');
+    if (!p) return '';
+    if (!prefix) return p;
+    if (p === prefix || p.indexOf(prefix + '/') === 0) return p;
+    return prefix + (p.charAt(0) === '/' ? p : '/' + p);
+}
+
+function _copyText(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        return navigator.clipboard.writeText(text);
+    }
+    var ta = document.createElement('textarea');
+    ta.value = text;
+    ta.setAttribute('readonly', '');
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); } finally { document.body.removeChild(ta); }
+    return Promise.resolve();
+}
+
+function updateInventoryFolderPreview() {
+    var input = document.getElementById('dupFolderPathPrefix');
+    var out = document.getElementById('inventoryFolderPrefixPreview');
+    if (!input || !out) return;
+    var prefix = (input.value || '').trim().replace(/\/+$/, '');
+    var sample = window.INVENTORY_FOLDER_SAMPLE_PATH || '/library/Example Series';
+    if (!prefix) {
+        out.hidden = true;
+        out.textContent = '';
+        return;
+    }
+    var tr = _auditT();
+    var label = tr.audit_folder_prefix_preview || 'Preview';
+    out.hidden = false;
+    out.textContent = label + ' : ' + _resolvedFolderPath(sample);
+}
+
+function _refreshDupFolderPaths() {
+    document.querySelectorAll('#duplicatesBody .audit-dup-row[data-folder-path]').forEach(function (row) {
+        var raw = row.getAttribute('data-folder-path') || '';
+        var resolved = _resolvedFolderPath(raw);
+        var code = row.querySelector('.audit-dup-path code');
+        var copyBtn = row.querySelector('.audit-copy-path');
+        if (code) code.textContent = resolved;
+        if (copyBtn) copyBtn.setAttribute('data-path', resolved);
+    });
+}
+
+function _readDupFolderFields() {
+    var prefixEl = document.getElementById('dupFolderPathPrefix');
+    var trashEl = document.getElementById('dupFolderTrash');
+    return {
+        prefix: prefixEl ? (prefixEl.value || '').trim() : (window.INVENTORY_FOLDER_PATH_PREFIX || ''),
+        trash: trashEl ? (trashEl.value || '').trim() : (window.INVENTORY_FOLDER_TRASH || ''),
+    };
+}
+
+function _applyDupFolderFields(prefix, trash) {
+    var prefixEl = document.getElementById('dupFolderPathPrefix');
+    var trashEl = document.getElementById('dupFolderTrash');
+    if (prefixEl) {
+        if (!(prefixEl.value || '').trim() && prefix) prefixEl.value = prefix;
+        window.INVENTORY_FOLDER_PATH_PREFIX = (prefixEl.value || '').trim();
+    } else if (prefix != null) {
+        window.INVENTORY_FOLDER_PATH_PREFIX = prefix;
+    }
+    if (trashEl) {
+        if (!(trashEl.value || '').trim() && trash) trashEl.value = trash;
+        window.INVENTORY_FOLDER_TRASH = (trashEl.value || '').trim();
+    } else if (trash != null) {
+        window.INVENTORY_FOLDER_TRASH = trash;
+    }
+    updateInventoryFolderPreview();
+    _refreshDupFolderPaths();
+}
+
+function saveDupFolderSettings() {
+    var fields = _readDupFolderFields();
+    window.INVENTORY_FOLDER_PATH_PREFIX = fields.prefix;
+    window.INVENTORY_FOLDER_TRASH = fields.trash;
+    updateInventoryFolderPreview();
+    _refreshDupFolderPaths();
+    var body = new URLSearchParams();
+    body.set('INVENTORY_FOLDER_PATH_PREFIX', fields.prefix);
+    body.set('INVENTORY_FOLDER_TRASH', fields.trash);
+    return fetch(getRootPath() + '/save-config', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: body.toString(),
+    }).catch(function () { /* ignore */ });
+}
+
+function _bindDupFolderFields() {
+    var prefixEl = document.getElementById('dupFolderPathPrefix');
+    var trashEl = document.getElementById('dupFolderTrash');
+    if (prefixEl && !prefixEl.dataset.bound) {
+        prefixEl.dataset.bound = '1';
+        prefixEl.addEventListener('input', function () {
+            window.INVENTORY_FOLDER_PATH_PREFIX = (prefixEl.value || '').trim();
+            updateInventoryFolderPreview();
+            _refreshDupFolderPaths();
+        });
+        prefixEl.addEventListener('change', saveDupFolderSettings);
+    }
+    if (trashEl && !trashEl.dataset.bound) {
+        trashEl.dataset.bound = '1';
+        trashEl.addEventListener('input', function () {
+            window.INVENTORY_FOLDER_TRASH = (trashEl.value || '').trim();
+        });
+        trashEl.addEventListener('change', saveDupFolderSettings);
+    }
+    updateInventoryFolderPreview();
+}
+
 function _renderDuplicatesModalBody(data) {
     var tr = _auditT();
     var body = document.getElementById('duplicatesBody');
     if (!body) return;
+    _syncDupDropMarkedFromDom();
     var groups = (data && data.groups) || [];
+    _lastDupGroups = groups;
+    if (data && data.folder_path_prefix != null) {
+        _applyDupFolderFields(data.folder_path_prefix || '', data.folder_trash || '');
+    } else if (data && data.folder_trash != null) {
+        _applyDupFolderFields(null, data.folder_trash || '');
+    }
     if (!groups.length) {
         body.innerHTML = _dupThresholdControlHtml(tr) +
             _stateHtml('unique', tr.audit_dup_none || 'None',
@@ -1175,20 +1366,32 @@ function _renderDuplicatesModalBody(data) {
         return;
     }
     var html = _dupThresholdControlHtml(tr) +
-        '<p><strong>' + groups.length + '</strong> ' + _escHtml(tr.audit_dup_groups || 'groups') + '</p>';
+        '<p class="audit-hint">' + _escHtml(tr.audit_dup_script_hint || '') + '</p>' +
+        '<p class="audit-dup-count"><strong>' + groups.length + '</strong> ' +
+        _escHtml(tr.audit_dup_groups || 'groups') + '</p>';
     groups.forEach(function (g, gi) {
+        var scoreNum = parseFloat(g.score);
+        var scoreCls = (scoreNum >= 0.99) ? 'audit-dup-tag--exact' : 'audit-dup-tag--score';
         html += '<div class="audit-dup-group" data-group-index="' + gi + '">';
         html += '<div class="audit-dup-head">' +
             '<span class="audit-dup-id">' + _escHtml(g.group_id) + '</span>' +
-            '<span class="audit-dup-tag">score ' + _escHtml(g.score) + '</span>' +
+            '<span class="audit-dup-tag ' + scoreCls + '">score ' + _escHtml(g.score) + '</span>' +
             (g.reasons || []).map(function (reason) {
-                return '<span class="audit-dup-tag">' + _escHtml(reason) + '</span>';
+                return '<span class="audit-dup-tag" data-reason="' + _escHtml(reason) + '">' +
+                    _escHtml(reason) + '</span>';
             }).join('') +
             '</div>';
         (g.series_ids || []).forEach(function (sid, i) {
             var name = (g.names && g.names[i]) || sid;
+            var path = (g.folder_paths && g.folder_paths[i]) || '';
             var kavitaUrl = _kavitaSeriesUrl(sid);
-            html += '<div class="audit-dup-row" data-series-id="' + _escHtml(sid) + '">' +
+            var resolved = _resolvedFolderPath(path);
+            if (path && !window.INVENTORY_FOLDER_SAMPLE_PATH) {
+                window.INVENTORY_FOLDER_SAMPLE_PATH = path;
+                updateInventoryFolderPreview();
+            }
+            html += '<div class="audit-dup-row" data-series-id="' + _escHtml(sid) +
+                '" data-folder-path="' + _escHtml(path) + '">' +
                 '<button type="button" class="linkish audit-open-report audit-dup-name">' +
                 _escHtml(name) + ' <span class="muted">#' + _escHtml(sid) + '</span></button>' +
                 '<span class="audit-dup-row-actions">' +
@@ -1196,9 +1399,19 @@ function _renderDuplicatesModalBody(data) {
                     ? '<a class="btn-opt audit-open-kavita" target="_blank" rel="noopener" href="' +
                       _escHtml(kavitaUrl) + '">' + _escHtml(tr.audit_open_kavita || 'Kavita') + '</a>'
                     : '') +
-                '<button type="button" class="btn-warning audit-delete-series" data-sid="' + _escHtml(sid) + '">' +
-                _escHtml(tr.audit_delete_series || 'Delete') + '</button>' +
-                '</span></div>';
+                (path
+                    ? '<label class="audit-dup-drop"><input type="checkbox" class="audit-dup-drop-cb" value="' +
+                      _escHtml(sid) + '"> ' + _escHtml(tr.audit_dup_drop || 'Trash') + '</label>'
+                    : '<span class="muted">' + _escHtml(tr.audit_dup_no_path || 'No folder path') + '</span>') +
+                '</span>';
+            if (path) {
+                html += '<div class="audit-dup-path">' +
+                    '<code>' + _escHtml(resolved) + '</code>' +
+                    '<button type="button" class="btn-opt audit-copy-path" data-path="' +
+                    _escHtml(resolved) + '">' + _escHtml(tr.audit_dup_copy_path || 'Copy') + '</button>' +
+                    '</div>';
+            }
+            html += '</div>';
         });
         html += '<div class="audit-dup-actions">' +
             '<button type="button" class="btn-opt audit-not-dup" data-ids="' +
@@ -1211,6 +1424,7 @@ function _renderDuplicatesModalBody(data) {
     });
     body.innerHTML = html;
     _bindDupThresholdControl();
+    _restoreDupDropMarked();
     body.querySelectorAll('.audit-open-report').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var row = btn.closest('.audit-dup-row');
@@ -1222,21 +1436,35 @@ function _renderDuplicatesModalBody(data) {
         btn.addEventListener('click', function () {
             var ids = (btn.getAttribute('data-ids') || '').split(',').filter(Boolean);
             var reason = btn.classList.contains('audit-ignore-dup') ? 'ignored' : 'not_duplicate';
-            _dismissDupGroup(ids, reason);
+            _dismissDupGroup(ids, reason, btn);
         });
     });
-    body.querySelectorAll('.audit-delete-series').forEach(function (btn) {
+    body.querySelectorAll('.audit-copy-path').forEach(function (btn) {
         btn.addEventListener('click', function () {
-            var sid = btn.getAttribute('data-sid');
-            _deleteSeriesConfirm(sid);
+            var path = btn.getAttribute('data-path') || '';
+            if (!path) return;
+            _copyText(path).then(function () {
+                btn.textContent = tr.audit_dup_path_copied || 'Copied';
+                setTimeout(function () {
+                    btn.textContent = tr.audit_dup_copy_path || 'Copy';
+                }, 1500);
+            }).catch(function () { /* ignore */ });
+        });
+    });
+    body.querySelectorAll('.audit-dup-drop-cb').forEach(function (cb) {
+        cb.addEventListener('change', function () {
+            _enforceDupKeepOne(cb.closest('.audit-dup-group'));
+            _syncDupDropMarkedFromDom();
         });
     });
 }
 
-function _dismissDupGroup(seriesIds, reason) {
+function _dismissDupGroup(seriesIds, reason, btn) {
     var lib = _selectedLibraryIdOrAll();
     var tr = _auditT();
     if (seriesIds.length < 2) return;
+    _syncDupDropMarkedFromDom();
+    if (btn) btn.disabled = true;
     fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/dismiss', {
         method: 'POST',
         credentials: 'same-origin',
@@ -1244,30 +1472,103 @@ function _dismissDupGroup(seriesIds, reason) {
         body: JSON.stringify({ series_ids: seriesIds.map(Number), reason: reason }),
     })
         .then(function (r) { return r.json(); })
-        .then(function () { openDuplicatesModal(); if (typeof filterSeries === 'function') filterSeries(); })
-        .catch(function () { alert(tr.audit_err_generic || 'Error'); });
-}
-
-function _deleteSeriesConfirm(seriesId) {
-    var tr = _auditT();
-    var msg = tr.audit_delete_warning ||
-        'Delete this series from Kavita? Recovery = library rescan if files remain. No Meta undo.';
-    if (!window.confirm(msg)) return;
-    fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/kavita-delete', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: true }),
-    })
-        .then(function (r) { return r.json(); })
         .then(function (data) {
             if (!data || !data.success) {
+                if (btn) btn.disabled = false;
                 alert((data && data.error) || (tr.audit_err_generic || 'Error'));
                 return;
             }
-            openDuplicatesModal();
+            openDuplicatesModal({ keepBody: true });
+            if (typeof filterSeries === 'function') filterSeries();
+        })
+        .catch(function () {
+            if (btn) btn.disabled = false;
+            alert(tr.audit_err_generic || 'Error');
+        });
+}
+
+function _dupDropIds() {
+    var ids = [];
+    document.querySelectorAll('#duplicatesBody .audit-dup-drop-cb:checked').forEach(function (cb) {
+        var n = parseInt(cb.value, 10);
+        if (n) ids.push(n);
+    });
+    return ids;
+}
+
+function _dupGroupsFullyDropped(ids) {
+    var marked = {};
+    ids.forEach(function (id) { marked[id] = true; });
+    var emptied = [];
+    (_lastDupGroups || []).forEach(function (g) {
+        var members = g.series_ids || [];
+        if (!members.length) return;
+        var all = members.every(function (sid) { return marked[sid]; });
+        if (all) emptied.push(g.group_id || members.join(','));
+    });
+    return emptied;
+}
+
+function _requestDupScript(download) {
+    var tr = _auditT();
+    var ids = _dupDropIds();
+    if (!ids.length) {
+        alert(tr.audit_dup_script_empty || 'Tick at least one series to trash.');
+        return;
+    }
+    var emptied = _dupGroupsFullyDropped(ids);
+    if (emptied.length) {
+        alert(tr.audit_dup_keep_one || 'Keep at least one series in each group.');
+        return;
+    }
+    var modeEl = document.getElementById('dupScriptMode');
+    var mode = (modeEl && modeEl.value) || 'trash';
+    var lib = _selectedLibraryIdOrAll();
+    saveDupFolderSettings().then(function () {
+    return fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/script', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ series_ids: ids, mode: mode }),
+    });
+    })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (!data || !data.success || !data.script) {
+                alert((data && data.error) || (tr.audit_err_generic || 'Error'));
+                return;
+            }
+            if (download) {
+                var blob = new Blob([data.script], { type: 'text/x-sh' });
+                var a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = 'metakavita-duplicates.sh';
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(a.href);
+                return;
+            }
+            _copyText(data.script).then(function () {
+                alert(tr.audit_dup_script_copied || 'Script copied.');
+            }).catch(function () {
+                alert(tr.audit_dup_script_failed || 'Could not copy.');
+            });
         })
         .catch(function () { alert(tr.audit_err_generic || 'Error'); });
+}
+
+function _bindDupScriptButtons() {
+    var copyBtn = document.getElementById('dupCopyScript');
+    var dlBtn = document.getElementById('dupDownloadScript');
+    if (copyBtn && !copyBtn.dataset.bound) {
+        copyBtn.dataset.bound = '1';
+        copyBtn.addEventListener('click', function () { _requestDupScript(false); });
+    }
+    if (dlBtn && !dlBtn.dataset.bound) {
+        dlBtn.dataset.bound = '1';
+        dlBtn.addEventListener('click', function () { _requestDupScript(true); });
+    }
 }
 
 function setDupThresholdPreset(value) {
@@ -1297,6 +1598,16 @@ window.closeMissingVolumesModal = closeMissingVolumesModal;
 window.openVolumeReportModal = openVolumeReportModal;
 window.closeVolumeReportModal = closeVolumeReportModal;
 window.closeDuplicatesModal = closeDuplicatesModal;
+window.updateInventoryFolderPreview = updateInventoryFolderPreview;
+window.saveDupFolderSettings = saveDupFolderSettings;
+_bindDupScriptButtons();
+_bindDupFolderFields();
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function () {
+        _bindDupScriptButtons();
+        _bindDupFolderFields();
+    });
+}
 window.refreshVolumeReport = refreshVolumeReport;
 window.applyDuplicateFlagsToUi = applyDuplicateFlagsToUi;
 window.setDupThresholdPreset = setDupThresholdPreset;
