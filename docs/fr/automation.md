@@ -51,6 +51,6 @@ Voir [Companion](companion.md).
 
 ## Endpoint de santé
 
-`GET /healthz` → `{"status": "ok", "version": "1.7.0"}`
+`GET /healthz` → `{"status": "ok", "version": "1.7.1"}`
 
 Sonde de liveness non authentifiée (`HEALTHCHECK` Docker, Kubernetes, Portainer, Uptime Kuma). Elle ne lit pas la config, n'ouvre pas la base et ne contacte pas Kavita — une panne Kavita ne doit pas redémarrer un MetaKavita sain.

@@ -179,6 +179,18 @@ def test_the_card_offers_the_two_browsers(index):
     assert any(FIREFOX_ZIP in h for h in hrefs)
 
 
+def test_the_help_menu_opens_the_user_guides(index):
+    """Le README racine n'est plus le guide : Aide pointe vers docs/en ou
+    docs/fr selon la langue de l'interface. L'encart Companion garde le
+    mode opératoire complet sous companion/README.md."""
+    help_menu = index.find("div", id="helpDropdown")
+    hrefs = [a.get("href", "") for a in help_menu.find_all("a")]
+
+    assert any("docs/" in h and h.endswith("/README.md") for h in hrefs)
+    assert any("docs/" in h and h.endswith("/companion.md") for h in hrefs)
+    assert not any(h.rstrip('"').endswith("/blob/dev/README.md") for h in hrefs)
+
+
 def test_the_card_links_the_install_guide(index):
     """L'extension s'installe à la main : deux zips sans le mode opératoire ne
     servent à rien."""

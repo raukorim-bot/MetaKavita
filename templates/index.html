@@ -369,11 +369,12 @@
 					</a>
 					<div class="help-dropdown-sep"></div>
 					<div class="help-dropdown-label">{{ t.docs_menu }}</div>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/README.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+					{% set docs_lang = 'en' if (config.get('UI_LANG') or 'fr') == 'en' else 'fr' %}
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/docs/{{ docs_lang }}/README.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
 						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-doc"></use></svg>{{ t.docs_readme }}
 						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
 					</a>
-					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/companion/README.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
+					<a class="help-dropdown-item" href="https://github.com/raukorim-bot/MetaKavita/blob/dev/docs/{{ docs_lang }}/companion.md" target="_blank" rel="noopener noreferrer" role="menuitem" onclick="closeTopbarMenus();">
 						<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-companion"></use></svg>{{ t.docs_companion }}
 						<svg class="mk-ico mk-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
 					</a>

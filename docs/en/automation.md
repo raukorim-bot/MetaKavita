@@ -51,6 +51,6 @@ See [Companion](companion.md).
 
 ## Health endpoint
 
-`GET /healthz` → `{"status": "ok", "version": "1.7.0"}`
+`GET /healthz` → `{"status": "ok", "version": "1.7.1"}`
 
 Unauthenticated liveness probe (Docker `HEALTHCHECK`, Kubernetes, Portainer, Uptime Kuma). It does not read config, open the database, or contact Kavita — a Kavita outage must not restart a healthy MetaKavita container.
