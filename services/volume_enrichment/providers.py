@@ -23,7 +23,7 @@ import logging
 import re
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 from services.magic_input import detect_provider_from_url, is_http_url
 from services.provider_throttle import throttle_provider
 
@@ -380,6 +380,7 @@ def fetch_index(
     should_cancel: Optional[Callable[[], bool]] = None,
     config: Optional[dict] = None,
     units: Optional[List[Dict[str, Any]]] = None,
+    kavita_series_id: Any = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """Le premier index de la cascade qui couvre la série. Rend `(id, index)`.
 
@@ -395,6 +396,7 @@ def fetch_index(
     Sans `units`, la couverture n'est pas jugée et le premier index **textuel**
     non vide gagne.
     """
+    label = series_label(series_name, kavita_series_id)
     if providers is None:
         providers = volume_providers(library_type, config=config)
     partial_provider, partial_index = "", {}
@@ -417,9 +419,9 @@ def fetch_index(
             )
         except Exception as exc:
             logging.warning(
-                "[Tomes] %s : index indisponible pour « %s » (%s)",
+                "[Tomes] %s : index indisponible pour %s (%s)",
                 scraper.id,
-                series_name,
+                label,
                 safe_exc_str(exc),
             )
             continue
@@ -434,9 +436,9 @@ def fetch_index(
         if _covers_enough(index, units) and not _is_cover_only(index):
             return provider_id, index
         logging.info(
-            "[Tomes] %s : index partiel pour « %s » (%.0f %% des tomes) — on complète",
+            "[Tomes] %s : index partiel pour %s (%.0f %% des tomes) — on complète",
             provider_id,
-            series_name,
+            label,
             index_coverage(index, units or []) * 100,
         )
         partial_provider, partial_index = provider_id, index
@@ -447,8 +449,8 @@ def fetch_index(
         # a été consulté et n'a rien rendu » de « ComicVine n'a pas été consulté »,
         # ce qui est précisément la question qu'on se pose devant un aperçu vide.
         logging.info(
-            "[Tomes] aucun index pour « %s » — fournisseur(s) consulté(s) : %s",
-            series_name,
+            "[Tomes] aucun index pour %s — fournisseur(s) consulté(s) : %s",
+            label,
             ", ".join(consulted) or "aucun",
         )
     return partial_provider, partial_index
@@ -494,6 +496,7 @@ def resolve_index(
     should_cancel: Optional[Callable[[], bool]] = None,
     experimental: bool = False,
     config: Optional[dict] = None,
+    kavita_series_id: Any = None,
 ) -> Tuple[str, Dict[str, Any]]:
     """L'index le plus complet qu'on puisse bâtir pour une série.
 
@@ -512,6 +515,8 @@ def resolve_index(
     un fournisseur nommé à la main.
     """
     from services.volume_enrichment.matching import matchable_numbers
+
+    label = series_label(series_name, kavita_series_id)
 
     # Un fournisseur à l'unité imposé n'a pas d'index à rendre : `volume_providers`
     # rend une liste vide pour lui, et c'est ici que la conséquence se lit — les
@@ -550,6 +555,7 @@ def resolve_index(
             should_cancel=should_cancel,
             config=config,
             units=units,
+            kavita_series_id=kavita_series_id,
         )
         # Un index partiel est traité comme un index sans texte : la cascade ISBN
         # peut le compléter, et elle ne coûte un appel que sur les tomes qui portent
@@ -581,10 +587,10 @@ def resolve_index(
         # qui ferme la porte, pas le fournisseur ni la série — et l'aperçu, lui,
         # affichera « aucun fournisseur ne connaît cette série ».
         logging.info(
-            "[Tomes] aucun ISBN exploitable pour « %s », et %s n'identifie un tome que par "
+            "[Tomes] aucun ISBN exploitable pour %s, et %s n'identifie un tome que par "
             "son ISBN — renseignez les ISBN dans Kavita, imposez un fournisseur qui cherche "
             "par titre + numéro (%s), ou laissez la cascade décider",
-            series_name,
+            label,
             unit_only,
             ", ".join(TITLE_VOLUME_PROVIDERS),
         )
@@ -600,9 +606,9 @@ def resolve_index(
         # demandait la recherche — le cas de tous les mangas sans ISBN, où c'est
         # le seul chemin qui rende un titre et un résumé.
         logging.info(
-            "[Tomes] « %s » : %s imposé pour les tomes — recherche par titre + numéro, "
+            "[Tomes] %s : %s imposé pour les tomes — recherche par titre + numéro, "
             "vérifiée titre et numéro chez le fournisseur",
-            series_name,
+            label,
             unit_only,
         )
 

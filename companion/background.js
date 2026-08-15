@@ -585,7 +585,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
               "Content-Type": "application/json",
               "X-Companion-Embed-Token": embedToken,
             },
-            body: JSON.stringify({ cover_url: msg.coverUrl }),
+            body: JSON.stringify({
+              cover_url: msg.coverUrl,
+              series_name: msg.seriesName || "",
+            }),
           });
           const body = await res.json().catch(() => ({}));
           if (!res.ok || !body.success) {

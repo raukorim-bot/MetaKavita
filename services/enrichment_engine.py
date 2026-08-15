@@ -28,7 +28,7 @@ from translations import translations
 from kavita_api import KavitaAPI
 from scrapers import ScraperRegistry
 from scrapers.utils import MATCH_SCORE_KEY, apply_title_year_hint
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 from services.kavita_payload import (
     build_kavita_payload,
     apply_kavita_payload,
@@ -87,7 +87,7 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     return [f.strip() for f in str(raw).split(",") if f.strip()]
 
 
-def _providers_from_config(config, library_type, series_name):
+def _providers_from_config(config, library_type, series_name, series_id=None):
     """Lit COMIC_/BOOK_/PROVIDER_* selon le type, avec auto-réparation si vide."""
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     if library_type == "Comic":
@@ -105,14 +105,15 @@ def _providers_from_config(config, library_type, series_name):
 
     if not providers:
         available = ScraperRegistry.get_by_type(repair_type)
+        label = series_label(series_name, series_id)
         if available:
             providers = [available[0].id]
-            logging.warning(t.get("log_config_repair", "[{0}] ⚠️ Config invalide. Auto-réparation : utilisation de {1}").format(series_name, providers[0]))
+            logging.warning(t.get("log_config_repair", "[{0}] ⚠️ Config invalide. Auto-réparation : utilisation de {1}").format(label, providers[0]))
         else:
             fallback = ScraperRegistry.get_by_type("Manga")
             if fallback:
                 providers = [fallback[0].id]
-                logging.warning(t.get("log_config_repair_absolute", "[{0}] ⚠️ Config invalide. Secours absolu : utilisation de {1}").format(series_name, providers[0]))
+                logging.warning(t.get("log_config_repair_absolute", "[{0}] ⚠️ Config invalide. Secours absolu : utilisation de {1}").format(label, providers[0]))
 
     return list(dict.fromkeys(providers))
 
@@ -240,6 +241,7 @@ def _apply_comic_flexible_manga_fallback(
     smart_scoring,
     t,
     on_candidate=None,
+    series_id=None,
 ):
     """Bascule Comic → Manga pour une bibliothèque Flexible, cohérente avec le
     mode Auto : condition de déclenchement (`_candidates_have_a_strong_hit`,
@@ -261,7 +263,7 @@ def _apply_comic_flexible_manga_fallback(
 
     from metadata_fetcher import fetch_metadata
 
-    manga_providers = _providers_from_config(config, "Manga", series_name)
+    manga_providers = _providers_from_config(config, "Manga", series_name, series_id)
     if super_review:
         manga_providers = expand_providers_for_super_review(
             config, "Manga", preferred_ids=manga_providers
@@ -273,7 +275,7 @@ def _apply_comic_flexible_manga_fallback(
         t.get(
             "log_flexible_manga_fallback",
             "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
-        ).format(series_name, " > ".join(manga_providers))
+        ).format(series_label(series_name, series_id), " > ".join(manga_providers))
     )
     manga_payload, manga_used = fetch_metadata(
         search_query,
@@ -315,7 +317,7 @@ def _scrape_manual_candidates(
     cache_data = cache_data or {}
     library_type = kavita.get_library_type_for_series(series_id)
     provider_family = "Comic" if library_type in ("Comic", "ComicFlexible") else library_type
-    providers_list = _providers_from_config(config, provider_family, series_name)
+    providers_list = _providers_from_config(config, provider_family, series_name, series_id)
     forced_provider = cache_data.get("forced_provider", "AUTO") or "AUTO"
     _, super_review = resolve_manual_review_flags(config, is_forced_id=is_forced_id)
 
@@ -406,6 +408,7 @@ def _scrape_manual_candidates(
         existing_metadata=existing_metadata,
         smart_scoring=smart_scoring,
         t=t,
+        series_id=series_id,
     )
 
     if isinstance(candidates_payload, dict):
@@ -442,6 +445,7 @@ def research_manual_review(review_id, query: str):
 
     series_id = int(review["series_id"])
     series_name = review.get("series_name") or str(series_id)
+    label = series_label(review.get("series_name"), series_id)
 
     with _processing_lock:
         if series_id in _processing_series_ids:
@@ -459,7 +463,7 @@ def research_manual_review(review_id, query: str):
         # Comme l'override titre, sans purger la review en cours.
         save_series_override(ov, purge_pending=False, status="PENDING_REVIEW")
 
-        logging.info(t.get("log_mr_research", "[{0}] 🔎 Re-recherche manuelle : « {1} » (review {2})").format(series_name, query, review_id))
+        logging.info(t.get("log_mr_research", "[{0}] 🔎 Re-recherche manuelle : « {1} » (review {2})").format(label, query, review_id))
         candidates_payload, used_providers = _scrape_manual_candidates(
             series_id,
             series_name,
@@ -472,7 +476,7 @@ def research_manual_review(review_id, query: str):
         )
 
         if _candidates_empty(candidates_payload):
-            logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
+            logging.warning(t.get("log_not_found").format(label, "API(s)"))
             return False, t.get("msg_no_candidates", "Aucun candidat pour cette recherche."), {
                 "query": query,
                 "used_providers": used_providers,
@@ -485,7 +489,7 @@ def research_manual_review(review_id, query: str):
                     t.get(
                         "log_mr_summaries_translated_research",
                         "[manual_review] {0} résumé(s) traduit(s) (re-recherche {1})",
-                    ).format(n_tr, series_name)
+                    ).format(n_tr, label)
                 )
         except Exception as exc:
             logging.warning(t.get("log_mr_retranslate_fail", "[manual_review] traduction re-recherche échouée : {0}").format(exc))
@@ -536,7 +540,7 @@ def research_manual_review(review_id, query: str):
         emit_pending_count()
         return True, "OK", lite
     except Exception as exc:
-        logging.error(t.get("log_mr_research_crash", "[{0}] Crash re-recherche manuelle : {1}").format(series_name, exc))
+        logging.error(t.get("log_mr_research_crash", "[{0}] Crash re-recherche manuelle : {1}").format(label, exc))
         return False, t.get("err_internal", "Erreur interne."), None
     finally:
         with _processing_lock:
@@ -577,6 +581,7 @@ def enrich_series(
     Retourne un tuple (success: bool, message: str, used_providers: list).
     """
     sid = int(series_id)
+    label = series_label(series_name, sid)
     with _processing_lock:
         already_running = sid in _processing_series_ids
         if not already_running:
@@ -587,7 +592,7 @@ def enrich_series(
             t = translations.get(load_config().get("UI_LANG", "fr"), translations["fr"])
         except Exception:
             t = translations["fr"]
-        logging.warning(t.get("log_already_processing_detail", "⏭️ [{0}] Traitement déjà en cours pour cette série ailleurs (Sync manuel / file d'attente / webhook) : requête ignorée pour éviter une écriture concurrente vers Kavita.").format(series_name))
+        logging.warning(t.get("log_already_processing_detail", "⏭️ [{0}] Traitement déjà en cours pour cette série ailleurs (Sync manuel / file d'attente / webhook) : requête ignorée pour éviter une écriture concurrente vers Kavita.").format(label))
         return False, t.get("msg_already_processing", "Déjà en cours de traitement."), []
 
     # Verrou posé : plus rien ne s'exécute hors du try/finally qui le relâche. La
@@ -602,12 +607,12 @@ def enrich_series(
         kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
 
         if not kavita.authenticate():
-            logging.error(t.get('log_auth_fail').format(series_name))
+            logging.error(t.get('log_auth_fail').format(label))
             return False, t.get("msg_kavita_error", "Erreur Kavita."), []
 
         metadata = kavita.get_series_metadata(series_id)
         if not metadata:
-            logging.error(t.get('log_meta_fail').format(series_name))
+            logging.error(t.get('log_meta_fail').format(label))
             return False, t.get("msg_meta_error", "Erreur de métadonnées."), []
 
         # Cache tôt : besoin du statut / forced_id / champs ciblés avant le skip.
@@ -624,7 +629,7 @@ def enrich_series(
         # justement en review parce qu'elle n'en a pas. Le re-scrape volontaire
         # (bouton de la série, force=true, Companion) passe par force_update.
         if cache_data.get('status') == 'PENDING_REVIEW' and not force_update:
-            logging.info(t.get("log_pending_review_skip", "[{0}] ⏭️ Déjà en review manuelle — skip (relancer en mode forcé pour re-scraper).").format(series_name))
+            logging.info(t.get("log_pending_review_skip", "[{0}] ⏭️ Déjà en review manuelle — skip (relancer en mode forcé pour re-scraper).").format(label))
             return True, "PENDING_REVIEW", []
 
         if metadata.get('summary') and not force_update:
@@ -634,9 +639,9 @@ def enrich_series(
                 if ok_seal:
                     update_status(series_id, 'COMPLETED')
                     _emit_series_status(series_id, 'COMPLETED', series_name)
-                    logging.info(t.get("log_seal_deferred_ok", "[{0}] ✅ Seal différé OK — COMPLETED").format(series_name))
+                    logging.info(t.get("log_seal_deferred_ok", "[{0}] ✅ Seal différé OK — COMPLETED").format(label))
                     return True, t.get("msg_success", "Succès"), []
-                logging.warning(t.get("log_still_needs_relock", "[{0}] ⚠️ Toujours À sceller ({1})").format(series_name, seal_msg))
+                logging.warning(t.get("log_still_needs_relock", "[{0}] ⚠️ Toujours À sceller ({1})").format(label, seal_msg))
                 _emit_series_status(series_id, "NEEDS_RELOCK", series_name)
                 return True, "NEEDS_RELOCK", []
             # BF102: summary présent mais âge Pending/vide + champ age actif → enrichir.
@@ -646,7 +651,7 @@ def enrich_series(
                 and age_rating_kavita in (None, "", 0, 1)
             )
             if not age_needs_fill:
-                logging.info(t.get('log_skip').format(series_name))
+                logging.info(t.get('log_skip').format(label))
                 update_status(series_id, 'COMPLETED')
                 _emit_series_status(series_id, 'COMPLETED', series_name)
                 # Nettoie toute review orpheline éventuelle
@@ -673,7 +678,7 @@ def enrich_series(
         # --- LECTURE DE LA CONFIGURATION UTILISATEUR ---
         # ComicFlexible : vague Comic d'abord ; la vague Manga est construite plus bas si besoin.
         provider_family = "Comic" if library_type in ("Comic", "ComicFlexible") else library_type
-        providers_list = _providers_from_config(config, provider_family, series_name)
+        providers_list = _providers_from_config(config, provider_family, series_name, series_id)
 
         # --- OVERRIDE DU FOURNISSEUR & AUTO-DÉTECTION URL ---
         forced_provider = cache_data.get('forced_provider', 'AUTO')
@@ -709,12 +714,12 @@ def enrich_series(
                             t.get(
                                 'log_auto_url_found',
                                 "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.",
-                            ).format(series_name, display)
+                            ).format(label, display)
                         )
             else:
                 # ID brut : filtre ID-capable uniquement hors Super (Super expand all ensuite)
                 if forced_provider == 'AUTO' and not super_review:
-                    logging.info(t.get("log_smart_id", "[{0}] 🔄 ID brut détecté en mode AUTO. Lancement de la résolution intelligente (Smart ID Match).").format(series_name))
+                    logging.info(t.get("log_smart_id", "[{0}] 🔄 ID brut détecté en mode AUTO. Lancement de la résolution intelligente (Smart ID Match).").format(label))
                     providers_list = [p for p in providers_list if getattr(ScraperRegistry.get(p), 'has_direct_id_support', False)]
 
         before_override = list(providers_list)
@@ -730,7 +735,7 @@ def enrich_series(
             and forced_provider != 'AUTO'
             and forced_provider in ScraperRegistry._scrapers
         ):
-            logging.info(t.get('log_forced_provider', "[{0}] 🎯 Scraping ciblé forcé sur : {1}").format(series_name, forced_provider))
+            logging.info(t.get('log_forced_provider', "[{0}] 🎯 Scraping ciblé forcé sur : {1}").format(label, forced_provider))
         elif super_review:
             logging.info(
                 "[%s] Super Review : %d scrapers (slots %d → tous utilisables)%s.",
@@ -742,21 +747,21 @@ def enrich_series(
 
         # Log protégé contre les valeurs None
         safe_providers_log = [str(p) for p in providers_list if p is not None]
-        logging.info(t.get('log_scraping').format(series_name, " > ".join(safe_providers_log), search_query))
-        logging.info(t.get('log_lib_type_detected', "[{0}] 📂 Type de bibliothèque détecté : {1}").format(series_name, library_type))
+        logging.info(t.get('log_scraping').format(label, " > ".join(safe_providers_log), search_query))
+        logging.info(t.get('log_lib_type_detected', "[{0}] 📂 Type de bibliothèque détecté : {1}").format(label, library_type))
         if manual_mode:
             mode_label = "Super Review" if super_review else t.get("label_manual_mode", "manuel")
-            logging.info(t.get("log_pending_review_counts", "[{0}] 👁️ Mode {1} : candidats → file de review.").format(series_name, mode_label))
+            logging.info(t.get("log_pending_review_counts", "[{0}] 👁️ Mode {1} : candidats → file de review.").format(label, mode_label))
         elif smart_scoring:
-            logging.info(t.get("log_smart_scoring_on", "[{0}] 🎯 Smart Scoring activé (meilleur score gagne).").format(series_name))
+            logging.info(t.get("log_smart_scoring_on", "[{0}] 🎯 Smart Scoring activé (meilleur score gagne).").format(label))
         else:
-            logging.info(t.get("log_classic_fallback", "[{0}] 📋 Fallback classique (ordre de la liste des fournisseurs).").format(series_name))
+            logging.info(t.get("log_classic_fallback", "[{0}] 📋 Fallback classique (ordre de la liste des fournisseurs).").format(label))
 
         # --- DÉTECTION DES MÉTADONNÉES PROFONDES KAVITA (ISBN & AUTEURS) ---
         reset_context_on_force = config.get('RESET_CONTEXT_ON_FORCE', False)
 
         if force_update and reset_context_on_force:
-            logging.info(t.get('log_force_reset_context', "[{0}] 🔄 Mode forcé avec réinitialisation du contexte.").format(series_name))
+            logging.info(t.get('log_force_reset_context', "[{0}] 🔄 Mode forcé avec réinitialisation du contexte.").format(label))
             existing_metadata = {
                 'isbn': kavita.get_series_isbn(series_id),
                 'authors': [],
@@ -770,9 +775,9 @@ def enrich_series(
             existing_metadata = kavita.get_series_deep_metadata(series_id)
             existing_metadata['publisher_pref'] = cache_data.get('publisher_pref', 'GLOBAL')
             if existing_metadata.get('isbn'):
-                logging.info(t.get('log_isbn_detected', "[{0}] 📑 ISBN détecté dans Kavita : {1}").format(series_name, existing_metadata['isbn']))
+                logging.info(t.get('log_isbn_detected', "[{0}] 📑 ISBN détecté dans Kavita : {1}").format(label, existing_metadata['isbn']))
             if existing_metadata.get('authors'):
-                logging.info(t.get('log_authors_detected', "[{0}] ✍️ Auteur(s) détecté(s) dans Kavita : {1}").format(series_name, ', '.join(existing_metadata['authors'])))
+                logging.info(t.get('log_authors_detected', "[{0}] ✍️ Auteur(s) détecté(s) dans Kavita : {1}").format(label, ', '.join(existing_metadata['authors'])))
 
         # Comic / Flexible : année "(YYYY)" du nom → existing_metadata avant vague Comic.
         if library_type in ("Comic", "ComicFlexible"):
@@ -851,10 +856,11 @@ def enrich_series(
                 smart_scoring=smart_scoring,
                 t=t,
                 on_candidate=_on_candidate,
+                series_id=series_id,
             )
 
             if _candidates_empty(candidates_payload):
-                logging.warning(t.get("log_not_found").format(series_name, "API(s)"))
+                logging.warning(t.get("log_not_found").format(label, "API(s)"))
                 try:
                     delete_pending_by_series(series_id)
                 except Exception:
@@ -874,7 +880,7 @@ def enrich_series(
                 library_id=library_id,
             )
             logging.info(
-                f"[{series_name}] 👁️ PENDING_REVIEW "
+                f"[{label}] 👁️ PENDING_REVIEW "
                 f"(above={len((candidates_payload or {}).get('above') or [])}, "
                 f"below={len((candidates_payload or {}).get('below') or [])})"
             )
@@ -895,7 +901,7 @@ def enrich_series(
             and forced_provider == 'AUTO'
             and not _has_useful_provider_data(provider_data)
         ):
-            manga_providers = _providers_from_config(config, "Manga", series_name)
+            manga_providers = _providers_from_config(config, "Manga", series_name, series_id)
             if is_forced_id and not (search_query.startswith('http://') or search_query.startswith('https://')):
                 manga_providers = [
                     p for p in manga_providers
@@ -906,7 +912,7 @@ def enrich_series(
                     t.get(
                         'log_flexible_manga_fallback',
                         "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1})."
-                    ).format(series_name, " > ".join(manga_providers))
+                    ).format(label, " > ".join(manga_providers))
                 )
                 manga_data, manga_used = fetch_metadata(
                     search_query,
@@ -924,7 +930,7 @@ def enrich_series(
                     provider_data = manga_data
 
         if not provider_data:
-            logging.warning(t.get('log_not_found').format(series_name, "API(s)"))
+            logging.warning(t.get('log_not_found').format(label, "API(s)"))
             update_status(series_id, 'NOT_FOUND')
             _emit_series_status(series_id, 'NOT_FOUND', series_name)
             _broadcast_enrichment_stats(record_enrichment_miss())
@@ -939,7 +945,7 @@ def enrich_series(
         score_tie = bool(provider_data.pop('_score_tie', False))
         tie_review_payload = provider_data.pop('_tie_review_payload', None)
 
-        msg_found = t.get('log_found').format(series_name) + f" (Base: {actual_provider})"
+        msg_found = t.get('log_found').format(label) + f" (Base: {actual_provider})"
         if fusion_providers:
             # Protection contre les None dans la liste de fusion
             safe_fusion = [str(fp) for fp in fusion_providers if fp is not None]
@@ -957,7 +963,7 @@ def enrich_series(
                 "log_age_write_diag",
                 "[{0}] Âge: provider={1} | champ age actif={2} | écriture prévue={3}",
             ).format(
-                series_name,
+                label,
                 prov_age,
                 "age" in active_fields,
                 will_write_age,
@@ -998,7 +1004,7 @@ def enrich_series(
                 )
                 _emit_series_status(series_id, "PENDING_REVIEW", series_name)
                 logging.info(
-                    f"[{series_name}] 👁️ PENDING_REVIEW "
+                    f"[{label}] 👁️ PENDING_REVIEW "
                     f"(score tie → pick; "
                     f"above={len((payload or {}).get('above') or [])}, "
                     f"below={len((payload or {}).get('below') or [])})"
@@ -1029,7 +1035,7 @@ def enrich_series(
         )
 
     except Exception as e:
-        logging.error(t.get('log_crash').format(series_name, e))
+        logging.error(t.get('log_crash').format(label, e))
         return False, t.get("err_internal", "Erreur interne."), []
     finally:
         with _processing_lock:
@@ -1177,6 +1183,7 @@ def _apply_manual_review_locked(
 
     series_id = int(review["series_id"])
     series_name = review.get("series_name") or str(series_id)
+    label = series_label(review.get("series_name"), series_id)
     cache_data = get_all_cached_data().get(series_id, {})
     active_fields = resolve_active_fields(cache_data.get("targeted_fields", "ALL"))
 
@@ -1253,7 +1260,7 @@ def _apply_manual_review_locked(
                 t.get(
                     "log_mr_telemetry_failed",
                     "[manual_review] télémétrie non enregistrée pour {0} : {1}",
-                ).format(series_name, safe_exc_str(exc))
+                ).format(label, safe_exc_str(exc))
             )
     return True, ("NEEDS_RELOCK" if write_status == "NEEDS_RELOCK" else t.get("msg_success", "Succès")), {
         "preview": built.get("preview_fields"),

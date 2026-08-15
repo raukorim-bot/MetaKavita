@@ -7,10 +7,11 @@ par série n'ouvrait aucune ligne avant son bilan — impossible de savoir laque
 était en cours, ni si l'attente venait du fournisseur, de la traduction ou de
 l'écriture.
 
-Deux règles sont vérifiées ici. Une série se nomme par son titre, l'identifiant
-n'étant qu'un repli annoncé comme tel. Et chaque phase longue porte une ligne
-d'ouverture *et* une ligne de clôture avec sa durée, faute de quoi une phase
-bloquée est indiscernable d'une phase jamais démarrée.
+Deux règles sont vérifiées ici. Une série se nomme par son titre **et** son
+identifiant Kavita (`« Blacksad » (1)`) ; l'identifiant seul n'est qu'un repli
+annoncé comme tel. Et chaque phase longue porte une ligne d'ouverture *et* une
+ligne de clôture avec sa durée, faute de quoi une phase bloquée est
+indiscernable d'une phase jamais démarrée.
 """
 from __future__ import annotations
 
@@ -130,7 +131,7 @@ def test_une_passe_nomme_ses_series(wired, caplog):
     assert _wait_idle(), "la passe doit se terminer"
 
     lignes = _lignes(caplog)
-    assert any("« Blacksad »" in ligne for ligne in lignes), lignes
+    assert any("« Blacksad » (1)" in ligne for ligne in lignes), lignes
     assert not [ligne for ligne in lignes if IDENTIFIANT_NU.search(ligne)], (
         "aucune ligne ne doit désigner une série par son seul identifiant"
     )
@@ -164,8 +165,8 @@ def test_le_bilan_d_ecriture_nomme_la_serie(wired, caplog):
     apply_plan(api, 1, plan)
 
     lignes = _lignes(caplog)
-    assert any("« Blacksad » : écriture" in ligne for ligne in lignes), lignes
-    assert any("« Blacksad » : 1 tome(s) traité(s)" in ligne for ligne in lignes), lignes
+    assert any("« Blacksad » (1) : écriture" in ligne for ligne in lignes), lignes
+    assert any("« Blacksad » (1) : 1 tome(s) traité(s)" in ligne for ligne in lignes), lignes
     assert not [ligne for ligne in lignes if IDENTIFIANT_NU.search(ligne)]
 
 
@@ -235,9 +236,10 @@ def test_une_passe_annulee_le_dit_dans_son_bilan(wired, caplog):
 # ===== Les étiquettes elles-mêmes =====
 
 
-def test_l_etiquette_de_serie_prefere_toujours_le_titre():
-    assert series_label("Blacksad", 6429) == "« Blacksad »"
-    assert series_label("  Blacksad  ", 6429) == "« Blacksad »"
+def test_l_etiquette_de_serie_porte_le_titre_et_l_identifiant():
+    assert series_label("Blacksad", 6429) == "« Blacksad » (6429)"
+    assert series_label("  Blacksad  ", 6429) == "« Blacksad » (6429)"
+    assert series_label("Blacksad") == "« Blacksad »"
     assert series_label("", 6429) == "« série 6429 »"
     assert series_label(None) == "« série inconnue »"
 

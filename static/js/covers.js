@@ -240,7 +240,10 @@ function applyCover(seriesId, coverUrl) {
     fetch(getRootPath() + "/api/series/" + seriesId + "/update-cover", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cover_url: coverUrl })
+        body: JSON.stringify({
+            cover_url: coverUrl,
+            series_name: currentCoverModalSeriesName || ""
+        })
     })
         .then(function (r) {
             if (!r.ok) throw new Error("HTTP " + r.status);

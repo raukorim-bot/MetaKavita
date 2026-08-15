@@ -1,3 +1,21 @@
+## [1.7.1] - 2026-08-15 (Live Logs name the series, Manga-News finds the VF fiche)
+
+EN
+### ✨ What's new
+* **C84. The live log names the series, with its Kavita id beside it** — This patch sits on **1.7.0**. Picking a cover still wrote `[5605]` in the live log, and a webhook that replaced a queued job wrote the raw id. You do not know your library by Kavita's numbers. Every live line now reads `« One Piece » (5605)` — title first, id in brackets so you can still recoup with the API. When Kavita has no title, it says `« series 5605 »`, announced as an identifier, so the number is never mistaken for a name. The cover picker and the Companion send the title with the request; if they cannot, the server asks Kavita. Scraping, the status broadcast and the dashboard row are untouched: only the log changes. Tests: `tests/test_volume_enrichment_journal.py`, `tests/test_routes_series_cover.py`, `tests/test_sync_queue_priority.py`.
+
+### 🐛 Bug Fixes
+* **BF171. Manga-News: an English Kavita title finds the French record, and a mixed-slug banner no longer empties the volume list** — Kavita often stores the English title (`Delicious in Dungeon`, `Attack on Titan`). Manga-News only knows the French fiche: the search returned nothing, and the volume pass wrote nothing. Known English titles now retry as their French names (`Gloutons et Dragons`, `L'Attaque des Titans`, …). Separately, a series page whose volume banner used English paths (`Demon-Slayer`) while the fiche itself was French (`Rodeurs-de-la-nuit-les`) dropped every volume; the majority slug in the banner is kept, stray links to another series are still ignored, trailing junk on a slug (`Frieren-:`) is treated as the same series, and a page with no banner (Hellsing) follows `/serie/editions/` instead of returning empty. Tests: `tests/test_scraper_manganews_volume_index.py`.
+
+FR
+### ✨ Nouveautés
+* **C84. Le journal nomme la série, avec son identifiant Kavita à côté** — Ce correctif s'appuie sur la **1.7.0**. Choisir une couverture écrivait encore `[5605]` dans le journal, et un webhook qui remplaçait un job en attente n'y mettait que l'identifiant nu. Vous ne connaissez pas votre bibliothèque par les numéros de Kavita. Chaque ligne se lit désormais `« One Piece » (5605)` — le titre d'abord, l'identifiant entre parenthèses pour recouper avec l'API. Quand Kavita n'a pas de titre, elle dit `« série 5605 »`, annoncé comme un identifiant, pour que le numéro ne se lise jamais comme un nom. Le sélecteur de couvertures et le Companion envoient le titre avec la requête ; s'ils ne le peuvent pas, le serveur le demande à Kavita. Le scrape, le statut diffusé et la ligne du dashboard ne bougent pas : seul le journal change. Tests : `tests/test_volume_enrichment_journal.py`, `tests/test_routes_series_cover.py`, `tests/test_sync_queue_priority.py`.
+
+### 🐛 Correctifs
+* **BF171. Manga-News : un titre anglais Kavita retrouve la fiche VF, et un bandeau aux slugs mélangés ne vide plus la liste des tomes** — Kavita stocke souvent le titre anglais (`Delicious in Dungeon`, `Attack on Titan`). Manga-News ne connaît que la fiche VF : la recherche ne rendait rien, et la passe par tome n'écrivait rien. Les titres anglais connus sont désormais relancés sous leur nom français (`Gloutons et Dragons`, `L'Attaque des Titans`, …). Par ailleurs, une fiche dont le bandeau des tomes utilisait des chemins anglais (`Demon-Slayer`) alors que la série elle-même était en VF (`Rodeurs-de-la-nuit-les`) faisait tomber tous les tomes ; le slug majoritaire du bandeau est conservé, un lien parasite vers une autre série est toujours ignoré, un slug avec un déchet en trop (`Frieren-:`) est traité comme la même série, et une page sans bandeau (Hellsing) suit `/serie/editions/` au lieu de rendre une liste vide. Tests : `tests/test_scraper_manganews_volume_index.py`.
+
+---
+
 ## [1.7.0] - 2026-08-13 (Library Inventory, per-volume metadata, and a hardening campaign on Kavita writes, provider pacing and manual review)
 
 EN

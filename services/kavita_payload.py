@@ -24,6 +24,7 @@ from scrapers.utils import MATCH_SCORE_KEY
 from kavita_api import lock_keys_from_payload
 from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP
 from translations import get_ui_translations
+from secure_logging import series_label
 
 
 # Rôles de staff. Les fournisseurs écrivent des rôles composés — « Story & Art »
@@ -545,10 +546,11 @@ def _schedule_seal_retry(series_id, series_name, delay_s=2.0, lock_keys=None):
     def _run():
         from services.enrichment_engine import _processing_lock, _processing_series_ids
         t = get_ui_translations()
+        label = series_label(series_name, series_id)
 
         with _processing_lock:
             if series_id in _processing_series_ids:
-                logging.info(t.get("log_seal_retry_skip", "[{0}] ⏭️ Retry seal ignoré : série déjà en cours de traitement.").format(series_name))
+                logging.info(t.get("log_seal_retry_skip", "[{0}] ⏭️ Retry seal ignoré : série déjà en cours de traitement.").format(label))
                 return
             _processing_series_ids.add(series_id)
 
@@ -559,17 +561,17 @@ def _schedule_seal_retry(series_id, series_name, delay_s=2.0, lock_keys=None):
             config = load_config()
             api = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
             if not api.authenticate():
-                logging.warning(t.get("log_seal_retry_auth", "[{0}] ⚠️ Retry seal : auth Kavita échouée").format(series_name))
+                logging.warning(t.get("log_seal_retry_auth", "[{0}] ⚠️ Retry seal : auth Kavita échouée").format(label))
                 return
             ok, msg = api.seal_series_locks(series_id, lock_keys=lock_keys)
             if ok:
                 update_status(series_id, "COMPLETED")
                 _emit_series_status(series_id, "COMPLETED", series_name)
-                logging.info(t.get("log_seal_retry_ok", "[{0}] ✅ Retry seal OK — statut COMPLETED").format(series_name))
+                logging.info(t.get("log_seal_retry_ok", "[{0}] ✅ Retry seal OK — statut COMPLETED").format(label))
             else:
-                logging.warning(t.get("log_seal_retry_fail", "[{0}] ⚠️ Retry seal échoué : {1}").format(series_name, msg))
+                logging.warning(t.get("log_seal_retry_fail", "[{0}] ⚠️ Retry seal échoué : {1}").format(label, msg))
         except Exception as exc:
-            logging.warning(t.get("log_seal_retry_crash", "[{0}] ⚠️ Retry seal crash : {1}").format(series_name, exc))
+            logging.warning(t.get("log_seal_retry_crash", "[{0}] ⚠️ Retry seal crash : {1}").format(label, exc))
         finally:
             with _processing_lock:
                 _processing_series_ids.discard(series_id)
@@ -596,6 +598,7 @@ def apply_kavita_payload(
     msg vaut ``NEEDS_RELOCK`` si écriture OK mais verrous non posés.
     """
     series_id = int(series_id)
+    label = series_label(series_name, series_id)
     meta = built.get("metadata") or {}
     localized_name = built.get("localized_name")
     cover_url = built.get("cover_url")
@@ -603,7 +606,7 @@ def apply_kavita_payload(
     active = list(active_fields or [])
     used = list(used_providers or [])
 
-    logging.info(t.get("log_sending").format(series_name))
+    logging.info(t.get("log_sending").format(label))
 
     ids_ok = True
     ids_msg = ""
@@ -616,7 +619,7 @@ def apply_kavita_payload(
                     t.get(
                         "log_kavita_refused",
                         "[{0}] ❌ Kavita a refusé la mise à jour : {1}",
-                    ).format(series_name, t.get("log_external_ids_label", "IDs externes: {0}").format(ids_msg))
+                    ).format(label, t.get("log_external_ids_label", "IDs externes: {0}").format(ids_msg))
                 )
 
     success, msg, meta_sealed = kavita.update_series_metadata(meta)
@@ -645,20 +648,20 @@ def apply_kavita_payload(
                 t.get(
                     "log_kavita_refused",
                     "[{0}] ❌ Kavita a refusé la mise à jour : {1}",
-                ).format(series_name, t.get("log_general_fields_label", "champs généraux: {0}").format(general_msg))
+                ).format(label, t.get("log_general_fields_label", "champs généraux: {0}").format(general_msg))
             )
 
     if success and general_ok:
         sealed = bool(meta_sealed and general_sealed)
         final_status = "COMPLETED" if sealed else "NEEDS_RELOCK"
 
-        logging.info(t.get("log_success").format(series_name))
+        logging.info(t.get("log_success").format(label))
         if not sealed:
             logging.warning(
                 t.get(
                     "log_needs_relock",
                     "[{0}] ⚠️ Écriture OK mais verrous non posés — statut À sceller.",
-                ).format(series_name)
+                ).format(label)
             )
 
         # Provenance relue à l'écriture : un choix manuel survenu pendant le run
@@ -674,12 +677,12 @@ def apply_kavita_payload(
             and not cover_protected
             and (config.get("AUTO_COVER") or explicit_cover)
         ):
-            logging.info(t.get("log_cover_upload").format(series_name))
+            logging.info(t.get("log_cover_upload").format(label))
             cover_success, cover_msg = kavita.upload_series_cover(series_id, cover_url)
             if not cover_success:
-                logging.warning(t.get("log_cover_fail").format(series_name, cover_msg))
+                logging.warning(t.get("log_cover_fail").format(label, cover_msg))
             else:
-                logging.info(t.get("log_cover_success").format(series_name))
+                logging.info(t.get("log_cover_success").format(label))
                 if explicit_cover:
                     # Choix explicite (cover pick MR / edit cover_url) : même
                     # protection que le modal dashboard `/update-cover`.
@@ -688,7 +691,7 @@ def apply_kavita_payload(
                         t.get(
                             "log_cover_marked_manual",
                             "🔒 [{0}] Couverture marquée comme choix manuel (protégée des scrapings automatiques).",
-                        ).format(series_name)
+                        ).format(label)
                     )
                 elif cover_manual:
                     # Écrasement assumé via l'interrupteur : la couverture
@@ -698,10 +701,10 @@ def apply_kavita_payload(
                         t.get(
                             "log_cover_manual_overwritten",
                             "⚠️ [{0}] Couverture manuelle écrasée (« Écraser les couvertures manuelles » est actif).",
-                        ).format(series_name)
+                        ).format(label)
                     )
         elif "cover" in active and cover_url and cover_protected:
-            logging.info(t.get("log_cover_manual_protected", "[{0}] ⏭️ Couverture ignorée : choix manuel protégé.").format(series_name))
+            logging.info(t.get("log_cover_manual_protected", "[{0}] ⏭️ Couverture ignorée : choix manuel protégé.").format(label))
 
         # BF124 : IDs externes refusés = écriture incomplète. Tout ce qui a réussi
         # (metadata, généraux, couverture) reste écrit, mais on ne pose AUCUN statut
@@ -732,8 +735,8 @@ def apply_kavita_payload(
         return True, t.get("msg_success", "Succès"), used
 
     if success and not general_ok:
-        logging.error(t.get("log_meta_ok_general_fail", "[{0}] Métadonnées OK mais champs généraux refusés : {1}").format(series_name, general_msg))
+        logging.error(t.get("log_meta_ok_general_fail", "[{0}] Métadonnées OK mais champs généraux refusés : {1}").format(label, general_msg))
         return False, t.get("msg_general_fields_error", "Erreur champs généraux: {0}").format(general_msg), used
 
-    logging.error(t.get("log_kavita_refused").format(series_name, msg))
+    logging.error(t.get("log_kavita_refused").format(label, msg))
     return False, t.get("msg_error", "Erreur: {0}").format(msg), used

@@ -20,7 +20,7 @@ from db_manager import (
     update_pending_review,
 )
 from metadata_fetcher import merge_candidates
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 from translations import get_ui_translations
 
 # Marqueur interne : résumé déjà passé par translate_text (évite double trad. à l'apply).
@@ -431,6 +431,7 @@ def finalize_streaming_review(
     preview).
     """
     t = get_ui_translations()
+    label = series_label(series_name, series_id)
     row = get_pending_review(review_id)
     if not row:
         # Skip / purge pendant la collecte : re-parker recréerait la review ET
@@ -439,7 +440,7 @@ def finalize_streaming_review(
             t.get(
                 "log_mr_finalize_dropped",
                 "[manual_review] review {0} disparue pendant la collecte ({1}) — résultats abandonnés",
-            ).format(review_id, series_name or series_id)
+            ).format(review_id, label)
         )
         return review_id
 
@@ -455,14 +456,14 @@ def finalize_streaming_review(
                 t.get(
                     "log_mr_summaries_translated",
                     "[manual_review] {0} résumé(s) traduit(s) avant pick ({1})",
-                ).format(n_tr, series_name or series_id)
+                ).format(n_tr, label)
             )
     except Exception as exc:
         logging.warning(
             t.get(
                 "log_mr_summaries_fail",
                 "[manual_review] traduction des résumés échouée pour {0} : {1}",
-            ).format(series_name or series_id, exc)
+            ).format(label, exc)
         )
     if isinstance(payload, dict):
         payload.pop("streaming", None)
@@ -481,7 +482,7 @@ def finalize_streaming_review(
             t.get(
                 "log_mr_finalize_dropped",
                 "[manual_review] review {0} disparue pendant la collecte ({1}) — résultats abandonnés",
-            ).format(review_id, series_name or series_id)
+            ).format(review_id, label)
         )
         return review_id
 
@@ -499,7 +500,7 @@ def finalize_streaming_review(
                 t.get(
                     "log_mr_finalize_dropped",
                     "[manual_review] review {0} disparue pendant la collecte ({1}) — résultats abandonnés",
-                ).format(review_id, series_name or series_id)
+                ).format(review_id, label)
             )
             return review_id
         state, fields, expected_state = _finalize_write_plan(
@@ -551,6 +552,7 @@ def create_review_from_candidates(
     """
     review_id = str(uuid.uuid4())
     t = get_ui_translations()
+    label = series_label(series_name, series_id)
     payload = candidates_payload if isinstance(candidates_payload, dict) else {
         "above": [],
         "below": [],
@@ -559,9 +561,9 @@ def create_review_from_candidates(
     try:
         payload, n_tr = translate_candidate_summaries(payload)
         if n_tr:
-            logging.info(t.get("log_mr_summaries_translated", "[manual_review] {0} résumé(s) traduit(s) avant pick ({1})").format(n_tr, series_name or series_id))
+            logging.info(t.get("log_mr_summaries_translated", "[manual_review] {0} résumé(s) traduit(s) avant pick ({1})").format(n_tr, label))
     except Exception as exc:
-        logging.warning(t.get("log_mr_summaries_fail", "[manual_review] traduction des résumés échouée pour {0} : {1}").format(series_name or series_id, exc))
+        logging.warning(t.get("log_mr_summaries_fail", "[manual_review] traduction des résumés échouée pour {0} : {1}").format(label, exc))
     park_pending_review(
         review_id=review_id,
         series_id=int(series_id),
@@ -610,6 +612,7 @@ def create_confirm_from_auto(
 
     review_id = str(uuid.uuid4())
     t = get_ui_translations()
+    label = series_label(series_name, series_id)
     provider = (actual_provider or "Inconnu").strip() or "Inconnu"
     data = copy.deepcopy(provider_data) if isinstance(provider_data, dict) else {}
     data["_provider_used"] = provider
@@ -663,7 +666,7 @@ def create_confirm_from_auto(
         },
     )
     emit_pending_count()
-    logging.info(t.get("log_confirm_parked", "[{0}] ✏️ CONFIRM_BEFORE_WRITE — preview parkée (provider={1})").format(series_name or series_id, provider))
+    logging.info(t.get("log_confirm_parked", "[{0}] ✏️ CONFIRM_BEFORE_WRITE — preview parkée (provider={1})").format(label, provider))
     return review_id
 
 

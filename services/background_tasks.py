@@ -16,7 +16,7 @@ import time
 from config_manager import load_config, is_library_enabled
 from db_manager import get_all_cached_data, clean_orphaned_cache
 from kavita_api import KavitaAPI
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 from translations import translations
 from services.enrichment_engine import enrich_series
 
@@ -474,10 +474,10 @@ def _worker():
                 bq.mark_running(series_id)
                 with _batch_progress_lock:
                     remaining = max(0, _batch_total - _batch_done - 1)
-                logging.info(t.get('log_worker_start').format(series_name, remaining))
+                logging.info(t.get('log_worker_start').format(series_label(series_name, series_id), remaining))
                 broadcast_batch_progress(remaining, active=series_name)
             else:
-                logging.info(t.get('log_worker_start').format(series_name, sync_queue.qsize()))
+                logging.info(t.get('log_worker_start').format(series_label(series_name, series_id), sync_queue.qsize()))
 
             _ok, _msg, _used = enrich_series(
                 series_id,

@@ -164,7 +164,7 @@ def apply_entry(
             # déjà écrit, mais il doit se voir.
             logging.info(
                 "[Tomes] %s %s : couverture refusée — %s",
-                label or f"« série {series_id} »",
+                label or series_label(None, series_id),
                 unit_label(entry),
                 message,
             )
@@ -174,7 +174,7 @@ def apply_entry(
     result["status"] = "DONE" if written else "SKIPPED"
     logging.debug(
         "[Tomes] %s %s écrit : %s",
-        label or f"« série {series_id} »",
+        label or series_label(None, series_id),
         unit_label(entry),
         _format_marks(marks),
     )

@@ -1253,10 +1253,12 @@ async function releaseSeriesCover(seriesId, btn) {
     var item = btn ? btn.closest('.series-item') : null;
     if (btn) btn.disabled = true;
     try {
+        var seriesName = (item && item.dataset.seriesName) || '';
         var res = await fetch(getRootPath() + '/api/series/' + encodeURIComponent(seriesId) + '/release-cover', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            credentials: 'same-origin'
+            credentials: 'same-origin',
+            body: JSON.stringify({ series_name: seriesName })
         });
         var data = await res.json().catch(function () { return {}; });
         if (!res.ok || !data.success) {

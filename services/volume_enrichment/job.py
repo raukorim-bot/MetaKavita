@@ -426,6 +426,7 @@ def _enrich_one_series_locked(
         should_cancel=should_cancel,
         experimental=experimental,
         config=config,
+        kavita_series_id=series_id,
     )
     if not index:
         # Personne ne connaît cette série. C'est un résultat, et il se retient :

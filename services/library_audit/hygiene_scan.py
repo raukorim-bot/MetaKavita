@@ -229,7 +229,7 @@ def _run_scan(
         if series_ids:
             targets = []
             for sid in series_ids:
-                s = api.get_series(int(sid)) or {"id": int(sid), "name": str(sid)}
+                s = api.get_series(int(sid)) or {"id": int(sid)}
                 if not scan_all:
                     s.setdefault("libraryId", library_id)
                 targets.append(s)
@@ -270,7 +270,8 @@ def _run_scan(
                 logging.info("[Inventaire] annulation demandée — arrêt du scan")
                 break
             sid = int(s["id"])
-            name = s.get("name") or str(sid)
+            kavita_name = (s.get("name") or "").strip()
+            name = kavita_name or str(sid)
             with _lock:
                 _state["current_name"] = name
                 _state["phase"] = "metadata"
@@ -366,7 +367,7 @@ def _run_scan(
                     "[Inventaire] %s/%s %s — %s",
                     _state["done"] + 1,
                     _state["total"],
-                    name,
+                    series_label(kavita_name, sid),
                     badge,
                 )
             except Exception as e:
@@ -379,7 +380,7 @@ def _run_scan(
                 failed_count += 1
                 logging.warning(
                     "[Inventaire] %s : analyse en échec — %s",
-                    series_label(name, sid),
+                    series_label(kavita_name, sid),
                     safe_exc_str(e),
                 )
 

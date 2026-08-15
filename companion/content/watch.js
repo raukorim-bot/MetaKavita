@@ -525,6 +525,7 @@
             const apply = await chrome.runtime.sendMessage({
               type: "applyCover",
               seriesId,
+              seriesName,
               coverUrl: cover.url,
             });
             if (apply && apply.ok) {

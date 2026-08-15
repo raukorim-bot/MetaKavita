@@ -1,6 +1,8 @@
 import logging
 import re
-from typing import Dict, Any, List, Optional
+from collections import Counter
+from typing import Dict, Any, List, Optional, Tuple
+from urllib.parse import unquote
 from bs4 import BeautifulSoup
 from curl_cffi import requests
 from .base import BaseScraper
@@ -25,6 +27,19 @@ _MOIS = {
     "avril": "04", "mai": "05", "juin": "06", "juillet": "07",
     "août": "08", "aout": "08", "septembre": "09", "octobre": "10",
     "novembre": "11", "décembre": "12", "decembre": "12",
+}
+
+# Titre Kavita (souvent EN) → requête que le catalogue VF connaît.
+# Clé = normalize_str(titre). On ne cherche l'alias que si le titre EN rate.
+_TITLE_ALIASES = {
+    "delicious in dungeon": ("Gloutons et Dragons",),
+    "dungeon meshi": ("Gloutons et Dragons",),
+    "attack on titan": ("L'Attaque des Titans",),
+    "komi can t communicate": ("Komi cherche ses mots",),
+    "kaguya sama": ("Kaguya-sama - Love is War",),
+    "the apothecary diaries": ("Les Carnets de l'Apothicaire",),
+    "apothecary diaries": ("Les Carnets de l'Apothicaire",),
+    "goodnight punpun": ("Bonne nuit Punpun", "Bonne nuit Punpun!"),
 }
 
 def extract_meaningful_words(title: str) -> set:
@@ -55,10 +70,11 @@ class MangaNewsScraper(BaseScraper):
     rate_limit = 6.0
     # 40 × 6 s = quatre minutes. Au-delà, une série-fleuve mangerait la passe.
     VOLUME_INDEX_MAX = 40
-    # 1.2.0 : index des tomes VF (titre, résumé, ISBN, date) et cadence portée
-    # à 6 s. La montée de version est ce qui autorise l'image à remplacer la
-    # copie 1.1.x déjà installée sous data/.
-    version = "1.2.0"
+    # 1.3.0 : le bandeau `#serieVolumes` peut porter un slug EN (Demon-Slayer)
+    # alors que la fiche est en VF (Rodeurs-de-la-nuit-les) ; on garde le slug
+    # majoritaire du bloc au lieu de tout jeter. Sans bandeau, on suit
+    # `/serie/editions/`. Alias EN→VF pour la recherche Kavita.
+    version = "1.3.0"
     proxy_domains = ["manga-news.com", "www.manga-news.com"]
     has_direct_id_support = True
     requires_proxy = False
@@ -283,86 +299,17 @@ class MangaNewsScraper(BaseScraper):
             if not cleaned: return None
 
             logging.info(self.t("search_title").format(cleaned))
-            search_url = "https://www.manga-news.com/index.php/recherche/"
-            params = {"q": cleaned}
+            last_score = -1.0
+            for search_q in self._search_queries(cleaned):
+                hit, last_score = self._best_from_search(
+                    session, headers, search_q, existing_metadata
+                )
+                if hit:
+                    logging.info(self.t("matched").format(hit.get("title"), int(last_score * 100)))
+                    return attach_match_score(hit, last_score)
 
-            res = self._http_get(session, search_url, params=params, headers=headers, timeout=12)
-            if not response_is_ok(self, res, context="recherche"): return None
-
-            soup = self._soup(res)
-            result_links = soup.find_all('a', href=re.compile(r'/index\.php/serie/'))
-            if not result_links: return None
-
-            query_keywords = extract_meaningful_words(cleaned)
-
-            candidates = {}
-            for a in result_links:
-                href = a.get('href', '')
-                if not href or any(ign in href for ign in ["/critique/", "/vol-", "/preview/"]):
-                    continue
-
-                raw_title = a.get_text(strip=True) or a.get('title', '')
-                if not raw_title and a.find('img'):
-                    raw_title = a.find('img').get('alt', '') or a.find('img').get('title', '')
-
-                if not raw_title: continue
-
-                cand_title = clean_result_title(raw_title)
-                full_url = href if href.startswith('http') else f"https://www.manga-news.com{href}"
-                candidates[full_url] = cand_title
-
-            # Pré-filtre bon marché (texte de la page de résultats, sans requête HTTP en plus) :
-            # la liste de recherche Manga-News ne donne ni auteur ni staff (uniquement titre +
-            # URL), il faut la fiche détaillée pour ça. On classe donc d'abord les candidats par
-            # ressemblance de titre.
-            prefiltered = []
-            for cand_url, cand_title in candidates.items():
-                item_score = calculate_similarity(cleaned, cand_title)
-                if query_keywords:
-                    cand_words = extract_meaningful_words(cand_title)
-                    missing = query_keywords - cand_words
-                    if missing:
-                        item_score -= (0.25 * len(missing))
-                if item_score > 0.0:
-                    prefiltered.append((item_score, cand_url))
-
-            if not prefiltered:
-                logging.warning(self.t("no_match").format(cleaned, 0))
-                return None
-
-            prefiltered.sort(key=lambda x: x[0], reverse=True)
-
-            # On ne récupère la fiche complète (staff inclus) que pour les 3 candidats les plus
-            # plausibles au pré-filtre, pas pour toute la liste : Manga-News est du scraping HTML
-            # protégé Cloudflare (curl_cffi) — multiplier les requêtes de fiche détaillée par le
-            # nombre de résultats de recherche augmenterait nettement la latence et le risque de
-            # blocage. 3 est un compromis entre la protection anti-homonyme (qui nécessite
-            # l'auteur, disponible uniquement sur la fiche détaillée) et la charge imposée au site.
-            best_candidate = None
-            best_score = -1.0
-
-            for _, cand_url in prefiltered[:3]:
-                # Plus de pause explicite ici : `_http_get` garantit le `rate_limit`
-                # requête par requête, y compris pour la recherche qui précède.
-                detail_res = self._http_get(session, cand_url, headers=headers, timeout=12)
-                if not response_is_ok(self, detail_res, context="fiche d'un candidat"):
-                    continue
-
-                candidate = self._parse_html_page(self._raw_html(detail_res), cand_url)
-                if not candidate or not candidate.get("title"):
-                    continue
-
-                score = score_candidate(candidate, cleaned, existing_metadata)
-                if score > best_score:
-                    best_score = score
-                    best_candidate = candidate
-
-            if not best_candidate or best_score < get_match_accept_threshold():
-                logging.warning(self.t("no_match").format(cleaned, int(best_score*100)))
-                return None
-
-            logging.info(self.t("matched").format(best_candidate.get("title"), int(best_score*100)))
-            return attach_match_score(best_candidate, best_score)
+            logging.warning(self.t("no_match").format(cleaned, int(max(last_score, 0) * 100)))
+            return None
 
         except Exception as e:
             logging.error(self.t("err").format(e))
@@ -380,6 +327,96 @@ class MangaNewsScraper(BaseScraper):
             "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8",
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
         }
+
+    @staticmethod
+    def _search_queries(cleaned: str) -> List[str]:
+        """Titre Kavita, puis alias VF si le catalogue ne connaît que le français."""
+        seen = {normalize_str(cleaned)}
+        out = [cleaned]
+        key = normalize_str(cleaned)
+        for stored, aliases in _TITLE_ALIASES.items():
+            hit = key == stored or (len(stored) >= 10 and key.startswith(stored + " "))
+            if not hit:
+                continue
+            for alias in aliases:
+                folded = normalize_str(alias)
+                if not folded or folded in seen:
+                    continue
+                seen.add(folded)
+                out.append(alias)
+        return out
+
+    def _best_from_search(
+        self,
+        session,
+        headers,
+        cleaned: str,
+        existing_metadata: Optional[Dict[str, Any]],
+    ) -> Tuple[Optional[Dict[str, Any]], float]:
+        """Meilleure fiche pour une requête, ou (None, score)."""
+        res = self._http_get(
+            session,
+            "https://www.manga-news.com/index.php/recherche/",
+            params={"q": cleaned},
+            headers=headers,
+            timeout=12,
+        )
+        if not response_is_ok(self, res, context="recherche"):
+            return None, -1.0
+
+        soup = self._soup(res)
+        result_links = soup.find_all("a", href=re.compile(r"/index\.php/serie/"))
+        if not result_links:
+            return None, -1.0
+
+        query_keywords = extract_meaningful_words(cleaned)
+        candidates = {}
+        for a in result_links:
+            href = a.get("href", "")
+            if not href or any(ign in href for ign in ("/critique/", "/vol-", "/preview/")):
+                continue
+            raw_title = a.get_text(strip=True) or a.get("title", "")
+            if not raw_title and a.find("img"):
+                raw_title = a.find("img").get("alt", "") or a.find("img").get("title", "")
+            if not raw_title:
+                continue
+            cand_title = clean_result_title(raw_title)
+            full_url = href if href.startswith("http") else f"https://www.manga-news.com{href}"
+            candidates[full_url] = cand_title
+
+        # Pré-filtre bon marché (texte de la page de résultats, sans requête HTTP
+        # en plus) : la liste Manga-News ne donne ni auteur ni staff.
+        prefiltered = []
+        for cand_url, cand_title in candidates.items():
+            item_score = calculate_similarity(cleaned, cand_title)
+            if query_keywords:
+                missing = query_keywords - extract_meaningful_words(cand_title)
+                if missing:
+                    item_score -= 0.25 * len(missing)
+            if item_score > 0.0:
+                prefiltered.append((item_score, cand_url))
+        if not prefiltered:
+            return None, 0.0
+        prefiltered.sort(key=lambda x: x[0], reverse=True)
+
+        # Trois fiches max : Cloudflare, une page HTML chacune.
+        best_candidate = None
+        best_score = -1.0
+        for _, cand_url in prefiltered[:3]:
+            detail_res = self._http_get(session, cand_url, headers=headers, timeout=12)
+            if not response_is_ok(self, detail_res, context="fiche d'un candidat"):
+                continue
+            candidate = self._parse_html_page(self._raw_html(detail_res), cand_url)
+            if not candidate or not candidate.get("title"):
+                continue
+            score = score_candidate(candidate, cleaned, existing_metadata)
+            if score > best_score:
+                best_score = score
+                best_candidate = candidate
+
+        if not best_candidate or best_score < get_match_accept_threshold():
+            return None, best_score
+        return best_candidate, best_score
 
     @staticmethod
     def _absolute(url: str) -> str:
@@ -439,6 +476,13 @@ class MangaNewsScraper(BaseScraper):
         cleaned = clean_title(query, library_type=library_type)
         if not cleaned:
             return None
+        for search_q in self._search_queries(cleaned):
+            url = self._serie_url_from_search(session, headers, search_q)
+            if url:
+                return url
+        return None
+
+    def _serie_url_from_search(self, session, headers, cleaned: str) -> Optional[str]:
         res = self._http_get(
             session,
             "https://www.manga-news.com/index.php/recherche/",
@@ -474,13 +518,39 @@ class MangaNewsScraper(BaseScraper):
         return best_url
 
     @staticmethod
+    def _norm_slug(raw: str) -> str:
+        """`Frieren-:` et `Frieren` sont la même série ; `%3A` aussi."""
+        text = unquote(raw or "")
+        return re.sub(r"[-_.:]+$", "", text).casefold()
+
+    @staticmethod
+    def _slugs_compatible(serie: str, volume: str) -> bool:
+        a, b = MangaNewsScraper._norm_slug(serie), MangaNewsScraper._norm_slug(volume)
+        if not a or not b:
+            return False
+        return a == b or a.startswith(b) or b.startswith(a)
+
+    @staticmethod
+    def _editions_url(soup, serie_url: str = "") -> str:
+        """Page `/serie/editions/…` — Hellsing n'a pas de `#serieVolumes` sinon."""
+        if soup is not None:
+            for a in soup.find_all("a", href=True):
+                href = a.get("href") or ""
+                if "/serie/editions/" in href:
+                    return MangaNewsScraper._absolute(href)
+        match = re.search(r"/serie/([^/?#]+)", serie_url or "")
+        if match and "/editions/" not in (serie_url or ""):
+            return f"https://www.manga-news.com/index.php/serie/editions/{match.group(1)}"
+        return ""
+
+    @staticmethod
     def _volume_links_from_serie(soup, serie_url: str = "") -> List[Dict[str, str]]:
         """Liens des tomes, lus uniquement dans `#serieVolumes`.
 
         Le reste de la page est plein de `/vol-` (critiques, VO, suggestions) :
         les suivre multiplierait le coût et écrirait le mauvais manga. Le slug
-        de la série, quand on l'a, écarte en plus un lien étranger qui se
-        serait glissé dans le bandeau.
+        de la série, quand il matche, écarte un lien étranger. S'il ne matche
+        aucun tome (fiche VF, chemins EN), on garde le slug majoritaire du bloc.
         """
         if soup is None:
             return []
@@ -491,19 +561,13 @@ class MangaNewsScraper(BaseScraper):
         slug_match = re.search(r"/serie/(?:editions/)?([^/?#]+)", serie_url or "")
         if slug_match:
             slug = slug_match.group(1)
-        out: List[Dict[str, str]] = []
-        seen = set()
+
+        collected: List[Tuple[str, str, str, str, str]] = []
         for a in block.find_all("a", href=True):
             href = a["href"]
             match = _VOL_HREF.search(href)
             if not match or "/critique/" in href:
                 continue
-            if slug and match.group(1).lower() != slug.lower():
-                continue
-            number = album_number_key(match.group(2))
-            if number is None or number in seen:
-                continue
-            seen.add(number)
             img = a.find("img")
             cover = ""
             if img and img.get("src"):
@@ -511,6 +575,25 @@ class MangaNewsScraper(BaseScraper):
             label = (a.get("title") or "").strip()
             if not label and img is not None:
                 label = (img.get("alt") or "").strip()
+            collected.append((match.group(1), match.group(2), href, cover, label))
+
+        compatible = [
+            row for row in collected
+            if slug and MangaNewsScraper._slugs_compatible(slug, row[0])
+        ]
+        chosen = compatible
+        if not chosen and collected:
+            counts = Counter(MangaNewsScraper._norm_slug(row[0]) for row in collected)
+            top = counts.most_common(1)[0][0]
+            chosen = [row for row in collected if MangaNewsScraper._norm_slug(row[0]) == top]
+
+        out: List[Dict[str, str]] = []
+        seen = set()
+        for _vol_slug, raw_number, href, cover, label in chosen:
+            number = album_number_key(raw_number)
+            if number is None or number in seen:
+                continue
+            seen.add(number)
             out.append({
                 "number": number,
                 "url": MangaNewsScraper._absolute(href),
@@ -592,9 +675,8 @@ class MangaNewsScraper(BaseScraper):
     ) -> Optional[Dict[str, Any]]:
         """`{numéro: payload}` en lisant la liste `#serieVolumes`, puis chaque fiche.
 
-        Une requête pour la série, une par tome, à `rate_limit`. On ne visite
-        pas la page « tous les volumes » : elle porte les mêmes liens, sans
-        résumé.
+        Une requête pour la série, une par tome, à `rate_limit`. Sans bandeau
+        (Hellsing), on suit `/serie/editions/` — jamais un `/vol-` hors bloc.
         """
         session = requests.Session(impersonate="chrome110")
         headers = self._headers()
@@ -607,7 +689,18 @@ class MangaNewsScraper(BaseScraper):
             res = self._http_get(session, serie_url, headers=headers, timeout=15)
             if not response_is_ok(self, res, context="fiche série (tomes)"):
                 return None
-            links = self._volume_links_from_serie(self._soup(res), serie_url=serie_url)
+            soup = self._soup(res)
+            links = self._volume_links_from_serie(soup, serie_url=serie_url)
+            if not links:
+                editions_url = self._editions_url(soup, serie_url)
+                if editions_url and editions_url.rstrip("/") != serie_url.rstrip("/"):
+                    ed_res = self._http_get(
+                        session, editions_url, headers=headers, timeout=15
+                    )
+                    if response_is_ok(self, ed_res, context="page éditions (tomes)"):
+                        links = self._volume_links_from_serie(
+                            self._soup(ed_res), serie_url=editions_url
+                        )
             if not links:
                 return None
 
