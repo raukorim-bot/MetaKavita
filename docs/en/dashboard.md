@@ -4,7 +4,7 @@
 
 ← [Documentation](README.md)
 
-![MetaKavita dashboard](../../assets/dashboard.png)
+![MetaKavita dashboard](../../assets/docs-dashboard.png)
 
 The interface uses a 100% AJAX layout with zero page reloads. The left sidebar handles active strategic options, while the main panel presents your library. Local storage remembers your selected library, status filter, hide-ignored state, and search query. **Batch checkboxes** are remembered per library (`mk_batch_selection:*`) so you can resume after a refresh or network drop.
 
