@@ -1303,14 +1303,15 @@ def _apply_manual_review_locked(
         if built.get("preview_fields") is not None:
             built["preview_fields"]["localized_name"] = edited_preview.get("localized_name") or ""
 
-    # Couverture choisie explicitement (phase cover / edit) → upload même sans AUTO_COVER
-    explicit_cover = bool(force_cover_upload)
-    if not explicit_cover and isinstance(edited_preview, dict) and edited_preview.get("cover_url"):
-        explicit_cover = True
+    # Confirm MR = la couverture assemblée part, même sans phase cover picker
+    # et même si AUTO_COVER est off. Case d'envoi / masque série sans cover → non.
     if "cover" not in active_fields:
-        explicit_cover = False
         built.pop("force_cover_upload", None)
-    elif explicit_cover:
+    elif built.get("cover_url"):
+        built["force_cover_upload"] = True
+    elif force_cover_upload or (
+        isinstance(edited_preview, dict) and edited_preview.get("cover_url")
+    ):
         built["force_cover_upload"] = True
 
     ok, msg, used = apply_kavita_payload(

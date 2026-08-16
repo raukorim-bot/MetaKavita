@@ -261,5 +261,5 @@ def test_la_derniere_version_dit_depuis_quand_elle_compte():
     bloc = "\n".join(_bloc_derniere_version())
 
     assert bloc.count("1.7.0") >= 2  # une mention par langue
-    for code in ("C84", "C85", "C86", "C87", "BF171", "1.0.28"):
+    for code in ("C84", "C85", "C86", "C87", "BF171", "BF172", "1.0.28"):
         assert code in bloc
