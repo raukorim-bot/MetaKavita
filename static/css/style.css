@@ -2621,9 +2621,9 @@ body[data-ui-hidden~="volumes"] .so-cat[data-so-cat="volumes"] {
     max-width: 11rem;
 }
 .audit-dup-actions {
-    margin-top: 0.55rem;
-    padding-top: 0.5rem;
-    border-top: 1px solid color-mix(in srgb, var(--border, #334) 55%, transparent);
+    margin-top: 0.6rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid color-mix(in srgb, var(--warning) 18%, var(--border-color));
     display: flex;
     gap: 0.4rem;
     flex-wrap: wrap;
@@ -2702,6 +2702,7 @@ body[data-ui-hidden~="volumes"] .so-cat[data-so-cat="volumes"] {
    elle jure avec le dégradé derrière elle. */
 .modal-header--changelog h3 .mk-ico { color: var(--warning); }
 .modal-header--providers h3 .mk-ico { color: #8b5cf6; }
+.modal-header--duplicates h3 .mk-ico { color: var(--warning); }
 /* État vide / erreur : une illustration vaut mieux qu'une phrase seule perdue
    dans une modale de 1180 px. */
 .audit-state {
@@ -2790,6 +2791,10 @@ body[data-ui-hidden~="volumes"] .so-cat[data-so-cat="volumes"] {
 }
 .audit-dup-threshold > .audit-hint { flex: 1 1 14rem; }
 .audit-dup-threshold select { max-width: 11rem; }
+.audit-dup-count {
+    margin: 0 0 0.75rem;
+    font-size: 0.88rem;
+}
 /* Cartes de stats plutôt qu'un ruban « label: valeur » à la ligne. */
 /* Flex plutôt que grille : la grille `auto-fit` réservait cinq colonnes et
    laissait donc deux trous à droite quand le rapport n'a que trois cartes, puis
@@ -3038,57 +3043,258 @@ body[data-ui-hidden~="volumes"] .so-cat[data-so-cat="volumes"] {
 }
 
 .audit-dup-group {
-    border: 1px solid color-mix(in srgb, var(--border, #334) 70%, transparent);
-    border-radius: 10px;
-    padding: 0.6rem 0.75rem;
-    margin-bottom: 0.65rem;
-    background: color-mix(in srgb, var(--bg-input) 45%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border-color));
+    border-left: 3px solid var(--warning);
+    border-radius: 12px;
+    padding: 0.7rem 0.8rem 0.65rem;
+    margin-bottom: 0.85rem;
+    background:
+        linear-gradient(135deg,
+            color-mix(in srgb, var(--warning) 9%, var(--bg-card)),
+            color-mix(in srgb, var(--bg-card) 94%, transparent));
+    box-shadow: var(--shadow-sm);
 }
 .audit-dup-head {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 0.35rem 0.5rem;
-    margin-bottom: 0.5rem;
+    gap: 0.35rem 0.45rem;
+    margin-bottom: 0.55rem;
     font-size: 0.78rem;
     color: var(--text-muted);
 }
-.audit-dup-id { font-weight: 700; color: var(--text-main); }
-.audit-dup-tag {
-    padding: 0.05rem 0.4rem;
+.audit-dup-id {
+    font-weight: 700;
+    color: var(--text-main);
+    padding: 0.08rem 0.5rem;
     border-radius: 999px;
-    border: 1px solid color-mix(in srgb, var(--border, #334) 80%, transparent);
-    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+    background: color-mix(in srgb, var(--warning) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
 }
-/* Chaque série sur sa ligne, actions à droite : la liste à puces d'origine
-   laissait les boutons retomber n'importe où selon la longueur du titre. */
+.audit-dup-tag {
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+    font-weight: 600;
+}
+.audit-dup-tag--score {
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    color: var(--warning);
+}
+.audit-dup-tag--exact {
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+}
+.audit-dup-tag[data-reason*="id"] {
+    border-color: color-mix(in srgb, var(--violet) 40%, transparent);
+    background: color-mix(in srgb, var(--violet) 14%, transparent);
+    color: var(--violet);
+}
+.audit-dup-tag[data-reason*="title"] {
+    border-color: color-mix(in srgb, var(--sky) 40%, transparent);
+    background: color-mix(in srgb, var(--sky) 14%, transparent);
+    color: var(--sky);
+}
+/* Chaque série est une carte : titre à gauche, actions à droite, chemin dessous. */
 .audit-dup-row {
-    display: flex;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 0.4rem 0.6rem;
-    padding: 0.3rem 0;
-    border-top: 1px dashed color-mix(in srgb, var(--border, #334) 55%, transparent);
+    gap: 0.35rem 0.7rem;
+    padding: 0.55rem 0.65rem;
+    margin-top: 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-input) 72%, var(--bg-card));
 }
-.audit-dup-row:first-of-type { border-top: 0; }
+.audit-dup-row:first-of-type { margin-top: 0.1rem; }
+.audit-dup-row:has(.audit-dup-drop-cb:checked) {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, var(--bg-card));
+}
 .audit-dup-name {
-    flex: 1 1 12rem;
     min-width: 0;
     text-align: left;
     overflow-wrap: anywhere;
+    font-weight: 600;
+    text-decoration: none;
 }
+.audit-dup-name:hover { text-decoration: underline; }
 .audit-dup-row-actions {
     display: flex;
     align-items: center;
-    gap: 0.35rem;
+    gap: 0.4rem;
     flex: 0 0 auto;
+}
+.audit-dup-path {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-width: 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.audit-dup-path code {
+    flex: 1 1 12rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.74rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-app) 55%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+.audit-dup-drop {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.76rem;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    color: var(--danger);
+}
+.audit-dup-drop:has(input:checked) {
+    background: color-mix(in srgb, var(--danger) 82%, #000);
+    border-color: transparent;
+    color: #fff;
+}
+.audit-dup-drop input {
+    accent-color: var(--danger);
+    margin: 0;
+}
+.audit-dup-drop.is-locked,
+.audit-dup-drop:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.audit-dup-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+}
+.audit-dup-settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem 0.75rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--warning) 22%, var(--border-color));
+    background: color-mix(in srgb, var(--warning) 6%, var(--bg-input));
+}
+.audit-dup-settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    margin: 0;
+}
+.audit-dup-settings-field > span:first-child {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.audit-dup-settings-field input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font: inherit;
+    font-size: 0.82rem;
+}
+.audit-dup-settings-field input[type="text"]:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary) 55%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.audit-dup-settings-hint {
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+.audit-dup-settings .so-hint-preview {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 0.72rem;
+}
+.audit-dup-footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.audit-dup-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    margin-right: auto;
+}
+@media (max-width: 720px) {
+    .audit-dup-settings { grid-template-columns: 1fr; }
+    .audit-dup-row {
+        grid-template-columns: 1fr;
+    }
+    .audit-dup-row-actions { justify-content: flex-start; }
+}
+.so-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.25rem;
+    margin: 0.5rem 0 0.1rem;
+    padding: 0 8px;
+}
+.so-field > span {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--text-main);
+}
+.so-field input[type="text"],
+.so-field input[type="url"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.35rem 0.5rem;
+    border-radius: 6px;
+    border: 1px solid var(--border, #334);
+    background: var(--bg-input, #1e2430);
+    color: var(--text-main);
+    font: inherit;
+    font-size: 0.82rem;
+}
+.so-hint-preview {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
 }
 .audit-dup-group .btn-opt,
 .audit-dup-group .btn-warning,
 .audit-dup-group .btn-secondary {
-    padding: 0.18rem 0.5rem;
+    padding: 0.22rem 0.6rem;
     font-size: 0.76rem;
     line-height: 1.5;
     white-space: nowrap;
+    border-radius: 8px;
+}
+.audit-dup-group .audit-not-dup {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+}
+.audit-dup-group .audit-ignore-dup {
+    color: var(--text-muted);
 }
 button.linkish {
     background: none;
@@ -4585,6 +4791,11 @@ textarea.mr-edit-input[data-field="summary"] {
 .modal-header--providers {
     background: linear-gradient(135deg, rgba(139, 92, 246, 0.16), rgba(59, 130, 246, 0.12));
     border-bottom-color: rgba(139, 92, 246, 0.4);
+}
+
+.modal-header--duplicates {
+    background: linear-gradient(135deg, rgba(245, 158, 11, 0.16), rgba(244, 63, 94, 0.08));
+    border-bottom-color: rgba(245, 158, 11, 0.38);
 }
 
 .modal-scroll-body {

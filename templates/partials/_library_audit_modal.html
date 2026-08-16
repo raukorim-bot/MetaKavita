@@ -33,7 +33,7 @@
 <div id="duplicatesModal" class="modal-overlay" style="display:none;" aria-hidden="true"
      onclick="if(event.target===this) closeDuplicatesModal()">
     <div class="modal-content modal-shell modal-wide audit-modal-content" role="dialog" aria-labelledby="duplicatesModalTitle">
-        <div class="modal-header">
+        <div class="modal-header modal-header--duplicates">
             <h3 id="duplicatesModalTitle"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-duplicates"></use></svg>{{ t.audit_duplicates }}</h3>
             <button type="button" class="close-btn" onclick="closeDuplicatesModal()" aria-label="Close">&times;</button>
         </div>
@@ -41,9 +41,42 @@
             <p class="muted audit-hint">{{ t.audit_duplicates_hint }}</p>
             <div id="duplicatesBody" class="audit-body">{{ t.audit_loading }}</div>
         </div>
-        <div class="modal-footer audit-footer">
-            <a id="duplicatesCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
-            <a id="duplicatesTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
+        <div class="modal-footer audit-footer audit-dup-footer">
+            <div class="audit-dup-settings">
+                <label class="audit-dup-settings-field" for="dupFolderPathPrefix">
+                    <span>{{ t.inventory_folder_path_prefix }}</span>
+                    <input type="text" id="dupFolderPathPrefix"
+                           value="{{ config.get('INVENTORY_FOLDER_PATH_PREFIX', '') }}"
+                           placeholder="/mnt/media"
+                           autocomplete="off"
+                           title="{{ t.inventory_folder_path_prefix_hint }}"
+                           aria-describedby="inventoryFolderPrefixPreview">
+                    <span class="audit-dup-settings-hint">{{ t.audit_dup_prefix_short }}</span>
+                </label>
+                <label class="audit-dup-settings-field" for="dupFolderTrash">
+                    <span>{{ t.inventory_folder_trash }}</span>
+                    <input type="text" id="dupFolderTrash"
+                           value="{{ config.get('INVENTORY_FOLDER_TRASH', '') }}"
+                           placeholder="/mnt/media/corbeille-doublons"
+                           autocomplete="off"
+                           title="{{ t.inventory_folder_trash_hint }}">
+                    <span class="audit-dup-settings-hint">{{ t.audit_dup_trash_short }}</span>
+                </label>
+                <p class="audit-hint so-hint-preview" id="inventoryFolderPrefixPreview" hidden></p>
+            </div>
+            <div class="audit-dup-footer-actions">
+                <label class="audit-dup-mode">
+                    <span>{{ t.audit_dup_script_mode }}</span>
+                    <select id="dupScriptMode" class="toolbar-select">
+                        <option value="trash" selected>{{ t.audit_dup_script_trash }}</option>
+                        <option value="delete">{{ t.audit_dup_script_delete }}</option>
+                    </select>
+                </label>
+                <button type="button" class="btn-opt" id="dupCopyScript">{{ t.audit_dup_copy_script }}</button>
+                <button type="button" class="btn-opt" id="dupDownloadScript">{{ t.audit_dup_download_script }}</button>
+                <a id="duplicatesCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
+                <a id="duplicatesTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
+            </div>
         </div>
     </div>
 </div>

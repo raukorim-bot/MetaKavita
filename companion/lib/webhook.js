@@ -6,9 +6,9 @@ function truthyResponse(res) {
 
 export async function testConnection(settings) {
   const base = normalizeBaseUrl(settings.metaBaseUrl);
-  if (!base || !settings.webhookToken) {
-    return { ok: false, reason: "config" };
-  }
+  const token = String(settings.webhookToken || "").trim();
+  if (!base) return { ok: false, reason: "no_url" };
+  if (!token) return { ok: false, reason: "no_token" };
   try {
     const health = await fetch(`${base}/healthz`, { method: "GET" });
     if (!health.ok) return { ok: false, reason: "healthz", status: health.status };
@@ -16,7 +16,7 @@ export async function testConnection(settings) {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "X-Webhook-Token": settings.webhookToken,
+        "X-Webhook-Token": token,
       },
       // Server accepts probe without seriesId (no warning log).
       body: JSON.stringify({ probe: true }),

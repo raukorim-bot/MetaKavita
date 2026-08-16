@@ -10,7 +10,7 @@ import requests
 from metadata_fetcher import throttle_provider
 from scrapers import ScraperRegistry
 from scrapers.utils import calculate_similarity
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 
 from .series_identity import extract_provider_ids, merge_series_identity
 
@@ -411,6 +411,8 @@ def resolve_catalog_expected(
     )
     lib = (identity.get("libraryType") or library_type or "Manga").strip()
     name = identity.get("name") or series_name or ""
+    sid = (series or {}).get("id") or identity.get("id")
+    label = series_label(name, sid)
 
     cascade = _cascade_providers(config, lib)
     tried: Set[str] = set()
@@ -456,10 +458,10 @@ def resolve_catalog_expected(
         first_backup = backup_chain[0]
         logging.info(
             "[Inventaire] cascade %s (%s) n'a pas fourni d'attendu volumes "
-            "pour « %s » — secours %s (chaîne: %s)",
+            "pour %s — secours %s (chaîne: %s)",
             lib,
             cascade_label,
-            name or "?",
+            label,
             first_backup,
             "→".join(backup_chain),
         )
@@ -486,19 +488,19 @@ def resolve_catalog_expected(
                     _int_or_none(out.get("expected_chapters")) or best_chapters
                 )
                 logging.info(
-                    "[Inventaire] secours %s a fourni l'attendu=%s pour « %s »",
+                    "[Inventaire] secours %s a fourni l'attendu=%s pour %s",
                     prov,
                     out.get("expected"),
-                    name or "?",
+                    label,
                 )
                 return out
     elif cascade:
         logging.info(
-            "[Inventaire] cascade %s (%s) sans attendu pour « %s » — "
+            "[Inventaire] cascade %s (%s) sans attendu pour %s — "
             "aucun secours restant (déjà tentés: %s)",
             lib,
             cascade_label,
-            name or "?",
+            label,
             "→".join(sorted(tried)) or "—",
         )
 

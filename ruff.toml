@@ -40,5 +40,6 @@ select = [
 "tests/fixtures/scrapers/*" = ["F401", "F541"]
 # `sys.path` doit être complété avant d'importer les modules du dépôt.
 "tests/conftest.py" = ["E402"]
+"tests/run_manganews_smoke.py" = ["E402"]
 # `eventlet.monkey_patch()` doit précéder tous les autres imports.
 "app.py" = ["E402"]

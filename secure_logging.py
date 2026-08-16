@@ -31,24 +31,25 @@ def redact_secrets(text: str) -> str:
 
 
 def series_label(name: Any, series_id: Any = None) -> str:
-    """Comment une série se nomme dans le journal : « Blacksad ».
+    """Comment une série se nomme dans le journal : « Blacksad » (6429).
 
-    Les passes affichaient l'identifiant Kavita. C'est lisible pour la base de
-    données et illisible pour qui suit une passe de trente séries et cherche
-    laquelle prend une minute : personne ne connaît par cœur le numéro de ses
-    séries. L'identifiant ne sert plus que de repli, quand Kavita n'a pas rendu
-    de titre — et il est alors annoncé comme tel, faute de quoi « 6429 » se
-    lirait comme un titre.
+    Le titre est ce que l'utilisateur cherche des yeux. L'identifiant Kavita
+    permet de recouper avec l'API et le dashboard. Les deux figurent donc dès
+    qu'ils sont connus. Sans titre, l'identifiant est annoncé comme tel
+    (`« série 6429 »`), faute de quoi « 6429 » se lirait comme un titre.
 
     Ici et non dans un module de tomes : l'Inventaire, la passe par tome et
     l'enrichissement série écrivent dans le même journal, et l'utilisateur n'a
     aucune raison d'y trouver trois façons de nommer la même série.
     """
     text = str(name or "").strip()
+    sid = str(series_id).strip() if series_id is not None else ""
+    if text and sid:
+        return f"« {text} » ({sid})"
     if text:
         return f"« {text} »"
-    if series_id is not None:
-        return f"« série {series_id} »"
+    if sid:
+        return f"« série {sid} »"
     return "« série inconnue »"
 
 

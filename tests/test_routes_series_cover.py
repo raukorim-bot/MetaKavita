@@ -115,3 +115,55 @@ def test_apply_cover_defaults_to_pending_when_series_never_cached(client, isolat
     cached = isolated_db.get_all_cached_data()[999]
     assert cached["status"] == "PENDING"
     assert cached["cover_manual"] is True
+
+
+def test_apply_cover_log_names_the_series(client, isolated_db, mock_kavita_api, caplog):
+    """Live Logs doivent porter le titre et l'id, pas seulement [101]."""
+    import logging
+    from secure_logging import series_label
+
+    caplog.set_level(logging.INFO)
+    _seed_series(isolated_db, 101, "COMPLETED")
+    response = client.post(
+        "/api/series/101/update-cover",
+        json={
+            "cover_url": "https://example.com/cover.jpg",
+            "series_name": "One Piece",
+        },
+    )
+    assert response.status_code == 200
+    assert series_label("One Piece", 101) in caplog.text
+    assert "[101]" not in caplog.text or "« One Piece » (101)" in caplog.text
+
+
+def test_release_cover_log_names_the_series(client, isolated_db, mock_kavita_api, caplog):
+    import logging
+    from secure_logging import series_label
+
+    caplog.set_level(logging.INFO)
+    _seed_series(isolated_db, 105, "COMPLETED")
+    client.post(
+        "/api/series/105/update-cover",
+        json={"cover_url": "https://example.com/cover.jpg", "series_name": "Vinland Saga"},
+    )
+    response = client.post(
+        "/api/series/105/release-cover",
+        json={"series_name": "Vinland Saga"},
+    )
+    assert response.status_code == 200
+    assert series_label("Vinland Saga", 105) in caplog.text
+
+
+def test_apply_cover_log_falls_back_to_kavita_name(client, isolated_db, mock_kavita_api, caplog):
+    """Sans series_name dans le POST, le titre vient de Kavita — jamais l'id nu."""
+    import logging
+    from secure_logging import series_label
+
+    caplog.set_level(logging.INFO)
+    response = client.post(
+        "/api/series/999/update-cover",
+        json={"cover_url": "https://example.com/cover.jpg"},
+    )
+    assert response.status_code == 200
+    # mock_kavita_api.get_series rend toujours « Test Series »
+    assert series_label("Test Series", 999) in caplog.text

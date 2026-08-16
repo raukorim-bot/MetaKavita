@@ -251,12 +251,15 @@ def test_une_version_jamais_publiee_na_pas_de_titre_a_elle():
     comparer des notes de version pour savoir ce qu'il reçoit."""
     versions = re.findall(r"^## \[([0-9.]+)\]", CHANGELOG, flags=re.M)
 
-    assert versions[:2] == ["1.7.0", "1.6.5"]
+    assert versions[:2] == ["1.7.1", "1.7.0"]
+    assert "1.6.6" not in versions
 
 
 def test_la_derniere_version_dit_depuis_quand_elle_compte():
+    """Un correctif nomme la version sur laquelle il s'appuie, pour que l'on
+    sache ce que l'on a déjà."""
     bloc = "\n".join(_bloc_derniere_version())
 
-    assert bloc.count("1.6.5") >= 2  # une mention par langue
-    for heritee in ("C66", "C67", "C68", "C65"):
-        assert heritee in bloc
+    assert bloc.count("1.7.0") >= 2  # une mention par langue
+    for code in ("C84", "C85", "BF171", "1.0.28"):
+        assert code in bloc

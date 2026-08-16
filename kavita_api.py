@@ -1328,38 +1328,6 @@ class KavitaAPI:
         volumes, _err = self.fetch_series_volumes(series_id)
         return volumes or []
 
-    def delete_series(self, series_id) -> bool:
-        """
-        Supprime une série dans Kavita (admin). DELETE /api/Series/{seriesId}.
-        Ne touche pas aux fichiers disque côté Meta — récupération = rescan Kavita.
-        """
-        try:
-            res = self._send(
-                "delete", f"{self.url}/api/Series/{int(series_id)}", timeout=30
-            )
-            if res is None:
-                return False
-            if res.status_code == 200:
-                body = (res.text or "").strip().lower()
-                # Kavita may return JSON true / "true" / empty 200
-                if body in ("", "true"):
-                    return True
-                try:
-                    return bool(res.json()) is True or res.json() is True
-                except Exception:
-                    return True
-            logging.error(
-                self.t.get("log_kavita_delete_err", "[Erreur Delete Series] {0}").format(
-                    res.status_code
-                )
-            )
-            return False
-        except Exception as e:
-            logging.error(
-                self.t.get("log_kavita_delete_err", "[Erreur Delete Series] {0}").format(e)
-            )
-            return False
-
     def get_series_isbn(self, series_id) -> str:
         """
         Premier ISBN trouvé dans les chapitres d'une série, nettoyé (sans espaces ni tirets).

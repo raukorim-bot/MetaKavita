@@ -41,8 +41,17 @@ class _Session:
         self.urls = []
 
     def get(self, url, headers=None, params=None, timeout=None, allow_redirects=None):
-        self.urls.append(url)
+        label = url
+        if params and params.get("q"):
+            label = f"{url}?q={params['q']}"
+        self.urls.append(label)
+        if params and params.get("q") is not None:
+            key = f"search:{params['q']}"
+            if key in self.pages:
+                return _Response(self.pages[key], 200, url)
         for fragment, html in self.pages.items():
+            if fragment.startswith("search:"):
+                continue
             if fragment in url:
                 return _Response(html, 200, url)
         return _Response(self.default, 404 if self.default == "" else 200, url)
@@ -223,3 +232,134 @@ def test_french_publication_date_and_subtitle():
     assert scraper._volume_release_date("Date de publication : 05 Juillet 2003") == "2003-07-05"
     assert scraper._volume_isbn("EAN : 9782871295358 Code prix") == "9782871295358"
     assert scraper._volume_title("Naruto Vol.7La voie a suivre !!") == "La voie a suivre !!"
+
+
+_DEMON = """
+<html><body>
+<h1 class="entry-page-title">Demon Slayer</h1>
+<div id="serieVolumes">
+  <a href="https://www.manga-news.com/index.php/manga/Demon-Slayer/vol-1" title="Demon Slayer Vol.1">
+    <img src="https://www.manga-news.com/public/images/vols/ds1_medium.jpg"/>
+  </a>
+  <a href="https://www.manga-news.com/index.php/manga/Demon-slayer/vol-4" title="Demon Slayer Vol.4">
+    <img src="https://www.manga-news.com/public/images/vols/ds4_medium.jpg"/>
+  </a>
+  <a href="https://www.manga-news.com/index.php/manga/Bleach/vol-7" title="Bleach Vol.7">hors liste</a>
+</div>
+</body></html>
+"""
+
+_FRIEREN = """
+<html><body>
+<div id="serieVolumes">
+  <a href="https://www.manga-news.com/index.php/manga/Frieren/vol-1" title="Frieren Vol.1">
+    <img src="x.jpg"/>
+  </a>
+</div>
+</body></html>
+"""
+
+_HELLSING_SERIE = """
+<html><body>
+<h1 class="entry-page-title">Hellsing</h1>
+<a class="title-all-link" href="https://www.manga-news.com/index.php/serie/editions/Hellsing">Voir tous</a>
+<a href="https://www.manga-news.com/index.php/manga/critique/Love-of-Kill/vol-13">hors bloc</a>
+</body></html>
+"""
+
+_HELLSING_EDITIONS = """
+<html><body>
+<div id="serieVolumes">
+  <a href="https://www.manga-news.com/index.php/manga/Hellsing/vol-1" title="Hellsing Vol.1">
+    <img alt="Hellsing Vol.1" src="https://www.manga-news.com/public/images/vols/h1_medium.jpg"/>
+  </a>
+  <a href="https://www.manga-news.com/index.php/manga/Hellsing/vol-2" title="Hellsing Vol.2">
+    <img alt="Hellsing Vol.2" src="https://www.manga-news.com/public/images/vols/h2_medium.jpg"/>
+  </a>
+</div>
+</body></html>
+"""
+
+
+def test_indexes_when_volume_slug_differs_from_serie():
+    """Fiche VF `Rodeurs-de-la-nuit-les`, tomes EN `Demon-Slayer`."""
+    _, scraper, session = _scraper({
+        "/index.php/serie/Rodeurs-de-la-nuit-les": _DEMON,
+        "/manga/Demon-Slayer/vol-": _TOME,
+        "/manga/Demon-slayer/vol-": _TOME,
+        "/manga/Bleach/vol-": "<html><h1>Bleach</h1></html>",
+    })
+
+    index = scraper.fetch_volume_index(
+        "Demon Slayer",
+        series_id="https://www.manga-news.com/index.php/serie/Rodeurs-de-la-nuit-les",
+    )
+
+    assert sorted(index) == ["1", "4"]
+    assert not any("Bleach" in url for url in session.urls)
+
+
+def test_indexes_when_serie_slug_has_trailing_junk():
+    """`/serie/Frieren-:` vs `/manga/Frieren/vol-1`."""
+    _, scraper, _ = _scraper({
+        "/index.php/serie/Frieren-:": _FRIEREN,
+        "/manga/Frieren/vol-": _TOME,
+    })
+
+    index = scraper.fetch_volume_index(
+        "Frieren",
+        series_id="https://www.manga-news.com/index.php/serie/Frieren-:",
+    )
+
+    assert list(index) == ["1"]
+
+
+def test_follows_editions_page_when_bandeau_is_missing():
+    """Hellsing : pas de `#serieVolumes` sur la fiche, tout est sous /editions/."""
+    _, scraper, session = _scraper({
+        "/index.php/serie/Hellsing": _HELLSING_SERIE,
+        "/index.php/serie/editions/Hellsing": _HELLSING_EDITIONS,
+        "/manga/Hellsing/vol-": _TOME,
+    })
+
+    index = scraper.fetch_volume_index(
+        "Hellsing",
+        series_id="https://www.manga-news.com/index.php/serie/Hellsing",
+    )
+
+    assert sorted(index) == ["1", "2"]
+    assert any("/serie/editions/Hellsing" in url for url in session.urls)
+    assert not any("Love-of-Kill" in url for url in session.urls)
+
+
+def test_searches_vf_alias_when_english_title_misses():
+    fiche = """
+    <html><body>
+    <h1 class="entry-page-title">Gloutons et Dragons</h1>
+    <h2 class="entry-page-title-trad">Delicious in Dungeon</h2>
+    <div id="summary"><div class="bigsize">Laios et son groupe explorent un donjon infesté de monstres comestibles.</div></div>
+    <img class="entryPicture" src="https://www.manga-news.com/x.jpg"/>
+    </body></html>
+    """
+    _, scraper, session = _scraper({
+        "search:Delicious in Dungeon": "<html><body><p>aucun</p></body></html>",
+        "search:Gloutons et Dragons": (
+            '<html><body>'
+            '<a href="/index.php/serie/Gloutons-et-Dragons">Gloutons et Dragons</a>'
+            "</body></html>"
+        ),
+        "/index.php/serie/Gloutons-et-Dragons": fiche,
+    })
+
+    found = scraper.fetch("Delicious in Dungeon")
+
+    assert found is not None
+    assert found["title"] == "Gloutons et Dragons"
+    assert any("Gloutons" in url for url in session.urls)
+
+
+def test_norm_slug_strips_trailing_junk():
+    _, scraper, _ = _scraper({})
+    assert scraper._norm_slug("Frieren-:") == "frieren"
+    assert scraper._slugs_compatible("Frieren-:", "Frieren")
+    assert not scraper._slugs_compatible("Rodeurs-de-la-nuit-les", "Demon-Slayer")

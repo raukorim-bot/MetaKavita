@@ -18,6 +18,7 @@ from flask import Blueprint, request, jsonify, Response
 from config_manager import load_config
 from db_manager import get_all_cached_data, reset_errors
 from kavita_api import KavitaAPI
+from secure_logging import series_label
 from translations import translations
 from services.background_tasks import (
     set_batch_enqueue_enabled,
@@ -106,8 +107,8 @@ def force_sync():
     logging.info(
         t.get(
             "log_force_sync_queued",
-            "⚡ Série '{0}' (ID: {1}) placée en tête de la file de synchronisation.",
-        ).format(series_name, series_id_int)
+            "⚡ Série {0} placée en tête de la file de synchronisation.",
+        ).format(series_label(series_name, series_id_int))
     )
     return jsonify(
         success=True,
@@ -426,8 +427,8 @@ def webhook():
                 logging.warning(
                     t.get(
                         "log_webhook_kavita_unreachable",
-                        "⚠️ [Webhook] Kavita injoignable pour résoudre seriesId={0} ({1}).",
-                    ).format(series_id_int, resolve_err)
+                        "⚠️ [Webhook] Kavita injoignable pour résoudre {0} ({1}).",
+                    ).format(series_label(None, series_id_int), resolve_err)
                 )
                 return jsonify(
                     success=False,
@@ -440,8 +441,8 @@ def webhook():
             logging.warning(
                 t.get(
                     "log_webhook_series_not_found",
-                    "⚠️ [Webhook] Série introuvable côté Kavita (ID: {0}).",
-                ).format(series_id_int)
+                    "⚠️ [Webhook] Série introuvable côté Kavita : {0}.",
+                ).format(series_label(None, series_id_int))
             )
             return jsonify(
                 success=False,
@@ -483,15 +484,15 @@ def webhook():
     logging.info(
         t.get(
             "log_webhook_received",
-            "⚡ [Webhook] Événement reçu ! Série '{0}' (ID: {1}){2} ajoutée à la file.",
-        ).format(series_name, series_id_int, mode_str)
+            "⚡ [Webhook] Événement reçu ! Série {0}{1} ajoutée à la file.",
+        ).format(series_label(series_name, series_id_int), mode_str)
     )
     if replaced:
         logging.info(
             t.get(
                 "log_webhook_replaced",
                 "⚡ [Webhook] Série {0} : {1} job(s) en attente remplacé(s) par Companion.",
-            ).format(series_id_int, replaced)
+            ).format(series_label(series_name, series_id_int), replaced)
         )
     return jsonify(
         success=True,

@@ -166,7 +166,10 @@ def test_webhook_super_goes_front(webhook_client, isolated_queue):
     assert _drain_ids(isolated_queue) == [99, 1, 2]
 
 
-def test_webhook_super_replaces_batch_pending(webhook_client, isolated_queue, monkeypatch):
+def test_webhook_super_replaces_batch_pending(webhook_client, isolated_queue, monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO)
     cancelled = []
     monkeypatch.setattr(
         "services.batch_queue.cancel_queued_by_series",
@@ -184,6 +187,7 @@ def test_webhook_super_replaces_batch_pending(webhook_client, isolated_queue, mo
     assert res.get_json()["replaced_pending"] == 1
     assert cancelled == [42]
     assert _drain_ids(isolated_queue) == [42, 1]
+    assert "« Target » (42)" in caplog.text
 
 
 def test_webhook_plain_stays_fifo(webhook_client, isolated_queue):

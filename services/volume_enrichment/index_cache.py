@@ -235,6 +235,7 @@ def resolve_index_cached(
         should_cancel=should_cancel,
         experimental=experimental,
         config=config,
+        kavita_series_id=series_id,
     )
     if not (should_cancel and should_cancel()):
         _remember(key, provider, index)

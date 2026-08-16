@@ -6,6 +6,13 @@ from .volume_report import (
     resolve_completion_state,
 )
 from .duplicates import cluster_duplicate_series, score_duplicate_pair, dup_group_key
+from .dup_script import (
+    build_duplicate_folder_script,
+    inventory_folder_path_prefix_from_config,
+    normalize_inventory_folder_path_prefix,
+    normalize_inventory_folder_trash,
+    resolve_script_folder_path,
+)
 from .external_ids import series_has_external_id
 from .catalog_count import (
     resolve_catalog_expected,
@@ -17,6 +24,7 @@ from .series_identity import (
     extract_provider_ids,
     build_score_candidate_from_identity,
     identity_has_external_id,
+    series_folder_path,
 )
 from .export_csv import (
     volume_report_to_csv,
@@ -34,6 +42,12 @@ __all__ = [
     "cluster_duplicate_series",
     "score_duplicate_pair",
     "dup_group_key",
+    "build_duplicate_folder_script",
+    "inventory_folder_path_prefix_from_config",
+    "normalize_inventory_folder_path_prefix",
+    "normalize_inventory_folder_trash",
+    "resolve_script_folder_path",
+    "series_folder_path",
     "series_has_external_id",
     "resolve_catalog_expected",
     "missing_volume_numbers",

@@ -29,8 +29,24 @@ export function normalizeBaseUrl(url) {
       !hostname.includes(".");
     u = (isLocal ? "http://" : "https://") + u.replace(/^\/+/, "");
   }
+  // Config shows the webhook URL (`…/webhook?token=`). Pasted here it must
+  // become the instance root, or Test hits `/webhook/healthz` and fails.
+  u = u.split("#")[0];
+  const q = u.indexOf("?");
+  if (q !== -1) u = u.slice(0, q);
   u = u.replace(/\/+$/, "");
+  u = u.replace(/\/webhook$/i, "");
   return u;
+}
+
+/** Token from a pasted Meta webhook URL (`?token=`). Empty if none. */
+export function tokenFromPastedUrl(url) {
+  try {
+    const m = String(url || "").trim().match(/[?&]token=([^&]+)/i);
+    return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : "";
+  } catch {
+    return "";
+  }
 }
 
 export function originFromUrl(url) {

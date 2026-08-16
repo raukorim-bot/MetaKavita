@@ -2,7 +2,7 @@
  * Node self-check for isMetaKavitaUrl (issue #34) and normalizeBaseUrl.
  * Usage: node companion/scripts/selfcheck-url-match.mjs
  */
-import { isMetaKavitaUrl, normalizeBaseUrl, originFromUrl } from "../lib/storage.js";
+import { isMetaKavitaUrl, normalizeBaseUrl, originFromUrl, tokenFromPastedUrl } from "../lib/storage.js";
 
 function assert(cond, msg) {
   if (!cond) throw new Error(msg);
@@ -39,6 +39,8 @@ const NORMALIZED = [
   ["meta.example.com/metakavita/", "https://meta.example.com/metakavita"],
   ["http://localhost:5011/", "http://localhost:5011"],
   ["https://meta.example.com", "https://meta.example.com"],
+  ["https://example.com/metakavita/webhook", "https://example.com/metakavita"],
+  ["https://example.com/metakavita/webhook?token=abc", "https://example.com/metakavita"],
 ];
 for (const [input, expected] of NORMALIZED) {
   const got = normalizeBaseUrl(input);
@@ -50,5 +52,10 @@ for (const [input, expected] of NORMALIZED) {
   );
 }
 assert(normalizeBaseUrl("") === "", "chaîne vide inchangée");
+assert(
+  tokenFromPastedUrl("https://example.com/metakavita/webhook?token=s3cret") === "s3cret",
+  "tokenFromPastedUrl lit ?token=",
+);
+assert(tokenFromPastedUrl("https://example.com/metakavita") === "", "pas de jeton → vide");
 
 console.log("selfcheck-url-match: ok");

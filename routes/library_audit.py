@@ -1,4 +1,4 @@
-"""Library hygiene APIs — volume report, duplicates, catalogue, scan, dismiss, delete."""
+"""Library hygiene APIs — volume report, duplicates, catalogue, scan, dismiss, script."""
 
 from __future__ import annotations
 
@@ -31,9 +31,11 @@ from kavita_api import KavitaAPI
 from routes.volume_enrichment import volume_enrichment_enabled
 from secure_logging import safe_exc_str
 from services.library_audit import (
+    build_duplicate_folder_script,
     build_volume_report,
     duplicates_to_csv,
     duplicates_to_txt,
+    inventory_folder_path_prefix_from_config,
     volume_report_to_csv,
     volume_report_to_txt,
 )
@@ -248,6 +250,7 @@ def _duplicates_json(library_id, groups, *, cached: bool, series_ids=None):
     for g in groups or []:
         member_ids.extend(g.get("series_ids") or [])
     meta = get_hygiene_library_meta(library_id)
+    cfg = load_config() or {}
     return {
         "success": True,
         "library_id": library_id,
@@ -257,6 +260,8 @@ def _duplicates_json(library_id, groups, *, cached: bool, series_ids=None):
         "member_ids": [int(x) for x in member_ids],
         "flags": _duplicate_flags_payload(series_ids),
         "meta": meta,
+        "folder_path_prefix": inventory_folder_path_prefix_from_config(cfg),
+        "folder_trash": cfg.get("INVENTORY_FOLDER_TRASH") or "",
     }
 
 
@@ -632,38 +637,55 @@ def hygiene_catalog_overrides():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
-@library_audit_bp.route("/api/series/<int:series_id>/kavita-delete", methods=["POST"])
-def series_kavita_delete(series_id: int):
+@library_audit_bp.route("/api/libraries/<library_id>/duplicates/script", methods=["POST"])
+def library_duplicates_script(library_id):
+    """Rend un script bash à copier ou télécharger. Meta n'exécute rien."""
     t = _t()
     payload = request.get_json(silent=True) or {}
-    if payload.get("confirm") is not True:
+    series_ids = payload.get("series_ids") or []
+    mode = (payload.get("mode") or "trash").strip().lower()
+    try:
+        if not has_duplicate_groups_cache(library_id):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": t.get(
+                        "audit_err_run_analyser",
+                        "Lancez Analyser la bibliothèque pour scanner les doublons.",
+                    ),
+                }
+            ), 404
+        groups = get_duplicate_groups_cache(library_id)
+        cfg = load_config() or {}
+        script, meta = build_duplicate_folder_script(
+            groups,
+            series_ids,
+            mode=mode,
+            trash_dir=cfg.get("INVENTORY_FOLDER_TRASH") or "",
+            path_prefix=inventory_folder_path_prefix_from_config(cfg),
+        )
+        if meta.get("empty"):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": t.get(
+                        "audit_dup_script_empty",
+                        "Aucune ligne Jeter n'a de dossier à déplacer.",
+                    ),
+                    **meta,
+                }
+            ), 400
+        return jsonify({"success": True, "script": script, **meta})
+    except ValueError:
         return jsonify(
             {
                 "success": False,
                 "error": t.get(
-                    "audit_err_delete_confirm",
-                    "Confirmation requise (confirm: true).",
+                    "audit_dup_script_empty",
+                    "Cochez au moins une série à jeter.",
                 ),
             }
         ), 400
-    try:
-        api = _api()
-        ok = api.delete_series(series_id)
-        if not ok:
-            return jsonify(
-                {
-                    "success": False,
-                    "error": t.get("audit_err_delete_failed", "Suppression Kavita échouée"),
-                }
-            ), 502
-        purge_series_hygiene_cache(series_id)
-        try:
-            from app import socketio
-
-            socketio.emit("series_deleted", {"series_id": series_id})
-        except Exception:
-            pass
-        return jsonify({"success": True, "series_id": series_id})
     except Exception as e:
-        logging.error("kavita-delete failed: %s", safe_exc_str(e))
+        logging.error("duplicates-script failed: %s", safe_exc_str(e))
         return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500

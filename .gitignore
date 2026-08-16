@@ -42,3 +42,7 @@ __pycache__/
 # Fichiers macOS / Windows (toujours utile)
 .DS_Store
 Thumbs.db
+
+# Batteries live (artefacts)
+tests/_manganews_*
+tests/_fandom_*

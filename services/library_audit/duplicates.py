@@ -21,6 +21,7 @@ from services.cooperative import yield_to_worker
 from .series_identity import (
     build_score_candidate_from_identity,
     merge_series_identity,
+    series_folder_path,
 )
 
 
@@ -49,7 +50,11 @@ def _identity_as_existing_metadata(identity: dict) -> dict:
 
 def _as_identity(series: dict) -> dict:
     if series.get("ids") is not None and series.get("name") is not None and "raw_series" in series:
-        return series
+        if series.get("folder_path"):
+            return series
+        filled = dict(series)
+        filled["folder_path"] = series_folder_path(series)
+        return filled
     meta = series.get("raw_metadata") if isinstance(series.get("raw_metadata"), dict) else {}
     if not meta and isinstance(series.get("metadata"), dict):
         meta = series["metadata"]
@@ -314,6 +319,7 @@ def cluster_duplicate_series(
                 "group_key": gkey,
                 "series_ids": series_ids,
                 "names": [items[i].get("name") or "" for i in members],
+                "folder_paths": [items[i].get("folder_path") or "" for i in members],
                 "score": round(best, 3),
                 "reasons": sorted(reasons),
             }

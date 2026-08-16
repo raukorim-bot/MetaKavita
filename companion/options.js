@@ -1,5 +1,5 @@
 import { applyI18n, setUiLang, t } from "./lib/i18n.js";
-import { originFromUrl, normalizeBaseUrl, isMetaKavitaUrl } from "./lib/storage.js";
+import { originFromUrl, normalizeBaseUrl, isMetaKavitaUrl, tokenFromPastedUrl } from "./lib/storage.js";
 import { requestOriginPermission } from "./lib/permissions.js";
 
 async function load() {
@@ -19,13 +19,24 @@ function metaOriginFromForm() {
   return originFromUrl(normalizeBaseUrl(document.getElementById("metaUrl").value));
 }
 
-function testFailMessage(reason) {
+function testFailMessage(result) {
+  const reason = result && result.reason;
   if (reason === "permission") return t("toastPermissionDenied");
+  if (reason === "no_url") return t("toastTestFailNoUrl");
+  if (reason === "no_token" || reason === "config") return t("toastTestFailNoToken");
   if (reason === "token") return t("toastTestFailToken");
   if (reason === "healthz") return t("toastTestFailHealth");
   if (reason === "network") return t("toastTestFailNetwork");
-  if (reason === "config") return t("toastNeedConfig");
+  if (reason === "unexpected") {
+    return t("toastTestFailUnexpected").replace("$1$", String((result && result.status) || "?"));
+  }
   return t("toastTestFail");
+}
+
+function tokenFromForm() {
+  const typed = (document.getElementById("token").value || "").trim();
+  const pasted = tokenFromPastedUrl(document.getElementById("metaUrl").value);
+  return typed || pasted;
 }
 
 document.getElementById("btnSave").addEventListener("click", async () => {
@@ -37,7 +48,7 @@ document.getElementById("btnSave").addEventListener("click", async () => {
     type: "saveSettings",
     settings: {
       metaBaseUrl: document.getElementById("metaUrl").value,
-      webhookToken: document.getElementById("token").value,
+      webhookToken: tokenFromForm(),
       showActionFabs: document.getElementById("showFabs").checked,
       cacheBustOnConfirm: document.getElementById("cacheBust").checked,
       uiLang: document.getElementById("uiLang").value,
@@ -60,14 +71,25 @@ document.getElementById("btnSave").addEventListener("click", async () => {
 document.getElementById("btnTest").addEventListener("click", async () => {
   const status = document.getElementById("status");
   const metaOrigin = metaOriginFromForm();
+  const stored = await chrome.runtime.sendMessage({ type: "getSettings" });
+  const tokenField = document.getElementById("token");
+  const webhookToken =
+    tokenFromForm() || ((stored && stored.settings && stored.settings.webhookToken) || "").trim();
+  if (!tokenField.value && webhookToken) tokenField.value = webhookToken;
+  const trial = {
+    metaBaseUrl: document.getElementById("metaUrl").value,
+    webhookToken,
+  };
+  if (!normalizeBaseUrl(trial.metaBaseUrl)) {
+    status.textContent = t("toastTestFailNoUrl");
+    return;
+  }
+  if (!webhookToken) {
+    status.textContent = t("toastTestFailNoToken");
+    return;
+  }
   // Persist before the permission prompt (popup may close).
-  await chrome.runtime.sendMessage({
-    type: "saveSettings",
-    settings: {
-      metaBaseUrl: document.getElementById("metaUrl").value,
-      webhookToken: document.getElementById("token").value,
-    },
-  });
+  await chrome.runtime.sendMessage({ type: "saveSettings", settings: trial });
   if (metaOrigin) {
     const granted = await requestOriginPermission(metaOrigin);
     if (!granted) {
@@ -77,14 +99,10 @@ document.getElementById("btnTest").addEventListener("click", async () => {
   }
   const res = await chrome.runtime.sendMessage({
     type: "testConnection",
-    settings: {
-      metaBaseUrl: document.getElementById("metaUrl").value,
-      webhookToken: document.getElementById("token").value,
-    },
+    settings: trial,
   });
-  const reason = res && res.result && res.result.reason;
   status.textContent =
-    res && res.result && res.result.ok ? t("toastTestOk") : testFailMessage(reason);
+    res && res.result && res.result.ok ? t("toastTestOk") : testFailMessage(res && res.result);
 });
 
 document.getElementById("btnEnableSite").addEventListener("click", async () => {

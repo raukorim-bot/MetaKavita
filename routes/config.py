@@ -201,6 +201,28 @@ def save_config_ajax():
             config['LIBRARY_INVENTORY_ENABLED'] = (
                 request.form.get('LIBRARY_INVENTORY_ENABLED') == 'true'
             )
+        if (
+            'INVENTORY_FOLDER_PATH_PREFIX' in request.form
+            or 'INVENTORY_FOLDER_URL_PREFIX' in request.form
+        ):
+            from services.library_audit.dup_script import (
+                inventory_folder_path_prefix_from_config,
+                normalize_inventory_folder_trash,
+            )
+            config['INVENTORY_FOLDER_PATH_PREFIX'] = inventory_folder_path_prefix_from_config({
+                'INVENTORY_FOLDER_PATH_PREFIX': request.form.get('INVENTORY_FOLDER_PATH_PREFIX'),
+                'INVENTORY_FOLDER_URL_PREFIX': request.form.get('INVENTORY_FOLDER_URL_PREFIX'),
+            })
+            config.pop('INVENTORY_FOLDER_URL_PREFIX', None)
+            if 'INVENTORY_FOLDER_TRASH' in request.form:
+                config['INVENTORY_FOLDER_TRASH'] = normalize_inventory_folder_trash(
+                    request.form.get('INVENTORY_FOLDER_TRASH')
+                )
+        elif 'INVENTORY_FOLDER_TRASH' in request.form:
+            from services.library_audit.dup_script import normalize_inventory_folder_trash
+            config['INVENTORY_FOLDER_TRASH'] = normalize_inventory_folder_trash(
+                request.form.get('INVENTORY_FOLDER_TRASH')
+            )
         # Enrichissement par tome : chaque interrupteur n'est lu que s'il est
         # présent, pour qu'un formulaire partiel (la sidebar en envoie un par
         # bloc) n'éteigne pas les deux autres au passage.

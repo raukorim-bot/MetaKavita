@@ -16,10 +16,27 @@ from kavita_api import KavitaAPI
 from models import SeriesOverride
 from services.cover_search import collect_covers_http
 from services.kavita_payload import mark_cover_manual, release_cover_manual
-from secure_logging import safe_exc_str
+from secure_logging import safe_exc_str, series_label
 from translations import translations
 
 series_bp = Blueprint('series', __name__)
+
+
+def _series_log_label(series_id, name=None, kavita=None):
+    """Étiquette Live Logs : nom + id, avec repli Kavita si le front n'a pas envoyé le titre."""
+    text = str(name or "").strip()
+    if not text and kavita is not None:
+        try:
+            series = kavita.get_series(series_id) or {}
+            text = (
+                series.get("name")
+                or series.get("Name")
+                or series.get("originalName")
+                or ""
+            ).strip()
+        except Exception:
+            text = ""
+    return series_label(text, series_id)
 
 
 @series_bp.route('/save-override', methods=['POST'])
@@ -97,7 +114,8 @@ def get_series_covers(series_id):
 
 @series_bp.route('/api/series/<int:series_id>/update-cover', methods=['POST'])
 def apply_series_cover(series_id):
-    cover_url = request.json.get('cover_url')
+    body = request.get_json(silent=True) or {}
+    cover_url = body.get('cover_url')
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
@@ -112,7 +130,7 @@ def apply_series_cover(series_id):
             t.get(
                 "log_cover_marked_manual",
                 "🔒 [{0}] Couverture marquée comme choix manuel (protégée des scrapings automatiques).",
-            ).format(series_id)
+            ).format(_series_log_label(series_id, body.get("series_name"), kavita))
         )
 
     return jsonify({"success": success, "msg": msg, "cover_manual": bool(success)})
@@ -128,11 +146,15 @@ def release_series_cover(series_id):
     release_cover_manual(series_id)
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+    body = request.get_json(silent=True) or {}
+    kavita = None
+    if not str(body.get("series_name") or "").strip():
+        kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
     logging.info(
         t.get(
             "log_cover_released",
             "🔓 [{0}] Couverture rendue à la gestion automatique.",
-        ).format(series_id)
+        ).format(_series_log_label(series_id, body.get("series_name"), kavita))
     )
     return jsonify({"success": True, "cover_manual": False})
 
