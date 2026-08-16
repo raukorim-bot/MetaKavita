@@ -3635,12 +3635,18 @@ button.linkish {
 .mr-show-below-row {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 10px 16px;
     margin: 0 0 8px;
 }
 .mr-show-below-label {
     font-size: 12px;
     font-weight: 600;
     color: var(--text-muted);
+}
+.mr-show-below-label:has(input:disabled) {
+    opacity: 0.55;
+    cursor: not-allowed;
 }
 .mr-hidden-below-hint {
     margin: 0 0 8px;
@@ -3753,6 +3759,7 @@ button.linkish {
     border-radius: 10px;
     background: color-mix(in srgb, var(--bg-card) 88%, #fff 4%);
     color: var(--text-main);
+    font: inherit;
     cursor: pointer;
     transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
@@ -3820,6 +3827,12 @@ button.linkish {
     color: var(--text-main);
     line-height: 1.35;
 }
+.mr-title.mr-field-hit {
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    cursor: pointer;
+}
 .mr-meta {
     display: flex;
     flex-wrap: wrap;
@@ -3838,6 +3851,41 @@ button.linkish {
     border: 1px solid var(--border-color);
     border-radius: 6px;
     padding: 3px 7px;
+}
+.mr-chip.is-picked {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--accent) 12%, var(--bg-input));
+}
+.mr-chip.mr-field-hit {
+    align-items: center;
+    cursor: pointer;
+}
+.mr-field-hit input[data-mr-field] {
+    margin: 0;
+    width: 13px;
+    height: 13px;
+    accent-color: var(--accent);
+    flex-shrink: 0;
+}
+.mr-cover-pick {
+    position: relative;
+    display: block;
+    width: 72px;
+    cursor: pointer;
+    border-radius: 6px;
+}
+.mr-cover-pick input[data-mr-field] {
+    position: absolute;
+    top: 4px;
+    left: 4px;
+    z-index: 1;
+    margin: 0;
+    width: 14px;
+    height: 14px;
+    accent-color: var(--accent);
+}
+.mr-cover-pick.is-picked .mr-cover {
+    box-shadow: 0 0 0 2px var(--accent);
 }
 .mr-chip-missing {
     color: #fecaca;
@@ -3864,6 +3912,26 @@ button.linkish {
     max-height: 14em;
     overflow-y: auto;
     padding-right: 4px;
+}
+.mr-summary.mr-field-hit {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    cursor: pointer;
+    padding: 6px 8px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+}
+.mr-summary.mr-field-hit.is-picked {
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--border-color));
+    background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+.mr-summary.mr-field-hit input[data-mr-field] {
+    margin-top: 3px;
+}
+.mr-summary-text {
+    flex: 1;
+    min-width: 0;
 }
 .mr-candidate.is-selected .mr-summary {
     max-height: 28em;
@@ -4132,13 +4200,51 @@ button.linkish {
     font-size: 10px;
 }
 .mr-edit-label {
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin: 0;
     font-size: 11px;
     font-weight: 650;
     letter-spacing: 0.03em;
     text-transform: none;
     color: color-mix(in srgb, var(--text-muted) 70%, var(--text-main));
+}
+.mr-edit-send {
+    flex: 0 0 auto;
+    margin: 0;
+    accent-color: var(--accent, #2dd4bf);
+    cursor: pointer;
+}
+.mr-edit-send:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+}
+.mr-edit-label-text {
+    min-width: 0;
+}
+.mr-edit-lock {
+    flex: 0 0 auto;
+    font-size: 11px;
+    line-height: 1;
+    opacity: 0.8;
+}
+.mr-edit-field.is-send-off .mr-edit-input,
+.mr-edit-field.is-write-locked .mr-edit-input,
+.mr-edit-field.is-display-only .mr-edit-input,
+.mr-edit-fiche.is-cover-send-off .mr-edit-cover-thumb,
+.mr-edit-fiche.is-cover-send-off .mr-edit-cover-url {
+    opacity: 0.5;
+}
+.mr-edit-field.is-write-locked,
+.mr-edit-field.is-display-only,
+.mr-edit-cover-col.is-write-locked {
+    cursor: not-allowed;
+}
+.mr-edit-send-hint {
+    margin: 0 0 10px;
+    font-size: 12px;
+    color: var(--text-muted);
 }
 input.mr-edit-input[type="text"],
 textarea.mr-edit-input,
@@ -4449,6 +4555,7 @@ textarea.mr-edit-input[data-field="summary"] {
     .mr-candidate { grid-template-columns: 64px minmax(0, 1fr); }
     .mr-candidate-aside { grid-column: 1 / -1; align-items: flex-start; }
     .mr-cover { width: 64px; height: 92px; }
+    .mr-cover-pick { width: 64px; }
     .mr-summary { max-height: 12em; }
     .mr-candidate.is-selected .mr-summary { max-height: 22em; }
     .mr-edit-fiche-top {

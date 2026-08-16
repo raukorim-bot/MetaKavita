@@ -41,6 +41,8 @@
 ---
 
 ### ✨ Latest Releases (v1.5.6 to v1.7.1)
+- [x] **C87. Adjust before send: per-field send ticks (v1.7.1):** Recap checkboxes choose what is written; unchecked leaves Kavita as-is. Series targeted-fields override locks the box; sidebar batch mask stays Auto-only.
+- [x] **C86. Manual Review field picks + list merge (#38) (v1.7.1):** Modal options **Manual completion** (one winner per field; Master starts checked) and **Merge fields** (lists only, concatenate, no extra dedup). Source boxes hidden; Master badge stays. Auto Smart Completion unchanged.
 - [x] **C85. Inventory duplicates: folder path + bash script, Kavita delete removed (v1.7.1):** `folderPath` on each row, POSIX path prefix and trash folder in the Duplicates modal, Keep/Trash then copy or download a `mv`/`rm` script. At least one series per group stays unticked. Dismissing a group keeps the Trash ticks. Meta never executes the script. The old delete button was a promise the next Kavita scan broke.
 - [x] **C84. Live log names the series with its Kavita id (v1.7.1):** `series_label()` renders `« Blacksad » (6429)` on every live line (covers, webhook, inventory, volumes, enrichment). Fallback `« series 6429 »` when there is no title.
 - [x] **BF171. Manga-News 1.3.0 EN→VF aliases and mixed-slug volume banners (v1.7.1):** English Kavita titles retry as known French names; the volume index keeps the majority banner slug, and follows `/serie/editions/` when there is no banner.
@@ -258,6 +260,8 @@
 ---
 
 ### ✨ Dernières Nouveautés (v1.5.6 à v1.7.1)
+- [x] **C87. Ajuster avant envoi : cases d'envoi par champ (v1.7.1) :** Les cases du récap choisissent ce qui est écrit ; décocher laisse Kavita tel quel. L'override série verrouille la case ; le masque batch sidebar reste de l'Auto.
+- [x] **C86. Review manuelle : cases par champ + fusion de listes (#38) (v1.7.1) :** Options de modale **Complétion manuelle** (un gagnant par champ ; master tout coché) et **Fusionner les champs** (listes seulement, concaténation, pas de dédup en plus). Cases Source cachées ; badge Master conservé. Complétion intelligente Auto inchangée.
 - [x] **C85. Doublons Inventaire : chemin dossier + script bash, delete Kavita retiré (v1.7.1) :** `folderPath` sur chaque ligne, préfixe POSIX et corbeille dans la modale Doublons, Garder/Jeter puis copier ou télécharger un script `mv`/`rm`. Une série au moins reste décochée par groupe. « Pas un doublon » garde les cases Jeter. Meta n'exécute rien. L'ancien bouton Supprimer promettait ce que le scan Kavita défaisait.
 - [x] **C84. Le journal nomme la série avec son identifiant Kavita (v1.7.1) :** `series_label()` rend `« Blacksad » (6429)` sur chaque ligne du journal (couvertures, webhook, inventaire, tomes, enrichissement). Repli `« série 6429 »` sans titre.
 - [x] **BF171. Manga-News 1.3.0 alias EN→VF et bandeaux aux slugs mélangés (v1.7.1) :** un titre anglais Kavita est relancé sous son nom français ; l'index des tomes garde le slug majoritaire du bandeau, et suit `/serie/editions/` quand il n'y a pas de bandeau.

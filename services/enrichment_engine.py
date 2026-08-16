@@ -67,6 +67,18 @@ ALL_TARGETED_FIELDS = [
     "status", "publisher", "age", "weblinks", "alt_titles", "language",
 ]
 
+# Champs que la fiche « Ajuster avant envoi » peut cocher / décocher (C87).
+# weblinks + language n'y figurent pas : ils suivent uniquement l'override série.
+MR_EDIT_SENDABLE_FIELDS = frozenset({
+    "summary", "cover", "staff", "genres", "tags", "year",
+    "status", "publisher", "age", "alt_titles",
+})
+_SEND_FIELD_ALIASES = {
+    "age_rating": "age",
+    "cover_url": "cover",
+    "localized_name": "alt_titles",
+}
+
 
 def resolve_active_fields(targeted_fields_raw, override=None):
     """
@@ -85,6 +97,47 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     if raw == "NONE":
         return []
     return [f.strip() for f in str(raw).split(",") if f.strip()]
+
+
+def normalize_send_fields(raw):
+    """C87 : ``None`` = clé absente (legacy). Liste (même vide) = choix explicite."""
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out = []
+    seen = set()
+    for item in raw:
+        key = str(item or "").strip()
+        key = _SEND_FIELD_ALIASES.get(key, key)
+        if key not in ALL_TARGETED_FIELDS or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def resolve_mr_write_fields(targeted_fields_raw, send_fields=None):
+    """
+    Masque d'écriture d'un confirm MR / SMR.
+
+    Override série uniquement (pas le granulaire batch sidebar). ``send_fields``
+    ``None`` = comportement historique. Les jetons de la fiche (cover, âge…)
+    s'intersectent avec le masque ; weblinks / language restent ceux de la série.
+    """
+    series = resolve_active_fields(targeted_fields_raw)
+    wanted = normalize_send_fields(send_fields)
+    if wanted is None:
+        return series
+    wanted_set = set(wanted)
+    out = []
+    for field in series:
+        if field in MR_EDIT_SENDABLE_FIELDS:
+            if field in wanted_set:
+                out.append(field)
+        else:
+            out.append(field)
+    return out
 
 
 def _providers_from_config(config, library_type, series_name, series_id=None):
@@ -1026,6 +1079,7 @@ def enrich_series(
                 query=search_query,
                 force_update=force_update,
                 library_id=kavita.get_cached_library_id(series_id),
+                active_fields=active_fields,
             )
             _emit_series_status(series_id, "PENDING_REVIEW", series_name)
             return True, "PENDING_REVIEW", used_providers or []
@@ -1053,11 +1107,16 @@ def apply_manual_review(
     weak_pick=False,
     super_review=False,
     force_cover_upload=False,
+    field_picks=None,
+    merge_fields=False,
+    manual_completion=None,
+    send_fields=None,
 ):
     """
     Applique un choix de review manuelle : merge → (overlay edits) → build → write Kavita.
 
     Retourne (success: bool, message: str, detail: dict|None).
+    ``send_fields`` ``None`` = masque série seul (bulk / apply direct / vieux clients).
     """
     from services.manual_review import (
         choice_and_merge,
@@ -1090,6 +1149,10 @@ def apply_manual_review(
             weak_pick=weak_pick,
             super_review=super_review,
             force_cover_upload=force_cover_upload,
+            field_picks=field_picks,
+            merge_fields=merge_fields,
+            manual_completion=manual_completion,
+            send_fields=send_fields,
             choice_and_merge=choice_and_merge,
             confirm_pending_review=confirm_pending_review,
             revert_pick_after_failed_write=revert_pick_after_failed_write,
@@ -1112,6 +1175,10 @@ def _apply_manual_review_locked(
     weak_pick,
     super_review,
     force_cover_upload,
+    field_picks,
+    merge_fields,
+    manual_completion,
+    send_fields,
     choice_and_merge,
     confirm_pending_review,
     revert_pick_after_failed_write,
@@ -1121,24 +1188,45 @@ def _apply_manual_review_locked(
     # État avant le pick : lui seul dit si l'avancement vers `awaiting_confirm`
     # a été décidé par cet appel (donc annulable) ou par l'utilisateur avant lui.
     prior_state = review.get("state") or "awaiting_pick"
+    try:
+        prev = json.loads(review.get("preview_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        prev = {}
+    if not isinstance(prev, dict):
+        prev = {}
     # Mode manuel : les cases « Fusionner » pilotent seules le comblement des trous.
     # Indépendant du toggle sidebar SMART_COMPLETION (batch auto).
     # include_providers is None → client omitted the key → restore from preview.
     # include_providers [] → intentional base-only (clear Sources).
     if include_providers is None:
-        try:
-            prev = json.loads(review.get("preview_json") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            prev = {}
         includes = [
-            p for p in ((prev or {}).get("_fusion_providers") or [])
+            p for p in (prev.get("_fusion_providers") or [])
             if p and p != base_provider
-        ] if isinstance(prev, dict) else []
+        ]
     else:
         includes = [p for p in include_providers if p and p != base_provider]
-    smart_fusion = bool(includes)
+    # False = complétion manuelle décochée : jamais restaurer un ancien _field_picks.
+    # None + preview C86 = restore. True / dict = chemin cases par champ.
+    if manual_completion is False:
+        field_picks = None
+        merge_fields = False
+    elif field_picks is None and prev.get("_manual_completion"):
+        field_picks = prev.get("_field_picks")
+        if not isinstance(field_picks, dict):
+            field_picks = {}
+        merge_fields = bool(prev.get("_merge_fields"))
+    elif field_picks is not None and not isinstance(field_picks, dict):
+        field_picks = {}
+    smart_fusion = bool(includes) and field_picks is None
     if fused is None:
-        fused = smart_fusion
+        if field_picks is not None:
+            fused = any(
+                p and p != base_provider
+                for picked in (field_picks or {}).values()
+                for p in (picked if isinstance(picked, (list, tuple)) else [picked])
+            )
+        else:
+            fused = smart_fusion
     else:
         fused = bool(fused)
 
@@ -1160,6 +1248,8 @@ def _apply_manual_review_locked(
         base_provider,
         include_providers=includes,
         smart_fusion=smart_fusion,
+        field_picks=field_picks,
+        merge_fields=bool(merge_fields) if field_picks is not None else False,
     )
     if not provider_data:
         return False, t.get("msg_merge_impossible", "Fusion impossible (provider invalide)."), None
@@ -1185,7 +1275,10 @@ def _apply_manual_review_locked(
     series_name = review.get("series_name") or str(series_id)
     label = series_label(review.get("series_name"), series_id)
     cache_data = get_all_cached_data().get(series_id, {})
-    active_fields = resolve_active_fields(cache_data.get("targeted_fields", "ALL"))
+    active_fields = resolve_mr_write_fields(
+        cache_data.get("targeted_fields", "ALL"),
+        send_fields,
+    )
 
     kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
     if not kavita.authenticate():
@@ -1200,7 +1293,12 @@ def _apply_manual_review_locked(
     )
 
     # Si preview édité porte localized_name sans passer par provider overlay
-    if edited_preview and isinstance(edited_preview, dict) and "localized_name" in edited_preview:
+    if (
+        "alt_titles" in active_fields
+        and edited_preview
+        and isinstance(edited_preview, dict)
+        and "localized_name" in edited_preview
+    ):
         built["localized_name"] = edited_preview.get("localized_name") or None
         if built.get("preview_fields") is not None:
             built["preview_fields"]["localized_name"] = edited_preview.get("localized_name") or ""
@@ -1209,7 +1307,10 @@ def _apply_manual_review_locked(
     explicit_cover = bool(force_cover_upload)
     if not explicit_cover and isinstance(edited_preview, dict) and edited_preview.get("cover_url"):
         explicit_cover = True
-    if explicit_cover:
+    if "cover" not in active_fields:
+        explicit_cover = False
+        built.pop("force_cover_upload", None)
+    elif explicit_cover:
         built["force_cover_upload"] = True
 
     ok, msg, used = apply_kavita_payload(
@@ -1272,12 +1373,19 @@ def _apply_manual_review_locked(
     }
 
 
-def preview_manual_review(review_id, base_provider, include_providers=None):
+def preview_manual_review(
+    review_id,
+    base_provider,
+    include_providers=None,
+    field_picks=None,
+    merge_fields=False,
+    manual_completion=None,
+):
     """
     Merge + build preview sans écrire Kavita. Stocke preview_json sur la review.
     Retourne (ok, preview_fields|error_msg, built_or_none).
     """
-    from services.manual_review import choice_and_merge
+    from services.manual_review import choice_and_merge, normalize_field_picks
     from db_manager import update_pending_review
 
     config = load_config()
@@ -1288,12 +1396,20 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
 
     # Mode manuel : fusion = cases cochées uniquement (pas SMART_COMPLETION sidebar).
     includes = [p for p in (include_providers or []) if p and p != base_provider]
-    smart_fusion = bool(includes)
+    if manual_completion is False:
+        use_field_picks = False
+        field_picks = None
+        merge_fields = False
+    else:
+        use_field_picks = field_picks is not None
+    smart_fusion = bool(includes) and not use_field_picks
     provider_data = choice_and_merge(
         review_id,
         base_provider,
         include_providers=includes,
         smart_fusion=smart_fusion,
+        field_picks=field_picks if use_field_picks else None,
+        merge_fields=bool(merge_fields) if use_field_picks else False,
     )
     if not provider_data:
         return False, t.get("msg_merge_impossible", "Fusion impossible (provider invalide)."), None
@@ -1319,6 +1435,13 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
     # Conservés hors build_kavita_payload (poppés avant envoi Kavita) pour le bandeau edit.
     preview["_provider_used"] = provider_data.get("_provider_used") or base_provider
     preview["_fusion_providers"] = list(provider_data.get("_fusion_providers") or [])
+    preview["_active_fields"] = list(active_fields)
+    if use_field_picks:
+        preview["_manual_completion"] = True
+        preview["_merge_fields"] = bool(merge_fields)
+        preview["_field_picks"] = normalize_field_picks(
+            field_picks, merge_fields=bool(merge_fields)
+        )
     update_pending_review(review_id, preview_json=preview, state="awaiting_confirm")
     return True, preview, built
 

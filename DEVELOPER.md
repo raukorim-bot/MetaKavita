@@ -136,7 +136,7 @@ When Manual Review is **off**, the same « Éditer avant confirmation » toggle 
 | `services/enrichment_engine.py` | Manual branch in `enrich_series`, `preview_manual_review` / `apply_manual_review` / `research_manual_review` (apply shares `_processing_lock`); `seal_series_locks` for `NEEDS_RELOCK` |
 | `routes/manual_review.py` | `GET/POST /api/manual-reviews…` (list, choice, confirm, research, skip, purge) |
 | `db_manager.py` | `pending_reviews` table — **UNIQUE(`series_id`)**, `park_pending_review` / `close_pending_review` single-txn |
-| `static/js/manual_review.js` + `_manual_review_modal.html` | Modal: pick / edit / **cover** / recap, fusion checkboxes, keyboard dock, queue sync |
+| `static/js/manual_review.js` + `_manual_review_modal.html` | Modal: pick / edit / **cover** / recap, Source checkboxes or C86 `field_picks`, C87 send ticks on the recap, keyboard dock, queue sync |
 
 **Integrity rules (do not regress):**
 * One pending row per `series_id` — re-park replaces, never stacks.
@@ -151,6 +151,10 @@ When Manual Review is **off**, the same « Éditer avant confirmation » toggle 
 **List view & bulk-accept (v1.6.1 hotfix)** — `📋` header button (`mrToggleListView()`) overlays a queue list on top of whatever pick/edit/cover panel is showing (restored as-is via `setPhase(phase)` on close). `mrBulkAccept()` posts to `POST /api/manual-reviews/bulk-accept` (`routes/manual_review.py`), which walks every `awaiting_pick` review, applies the exact "confirm without editing" path (`apply_manual_review(review_id, provider, include_providers=[])`, same as `/choice` when `MANUAL_REVIEW_EDIT` is off) for any whose `above[0]` score clears a user-supplied threshold (default `get_match_accept_threshold()`, clamped `[0.30, 1]`), and leaves everything else — including `awaiting_confirm` rows still being hand-edited — untouched in the queue. It never re-scrapes; `/batch-sync` remains the only automatic scraping entry point. The response's `failed` array (`{review_id, error}`) used to be silently dropped by `mrBulkAccept()`, which only surfaced `accepted`/`skipped` — a Kavita write failing mid-operation disappeared into the "skipped" count with no explanation. It's now rendered in `mrListFeedback`, matched against the freshly-reloaded `queue` to show a series name instead of a bare review id.
 
 **Kavita verification link (v1.6.1 hotfix)** — the pick/cover/edit header shows a "🔗 View in Kavita" link (`updateKavitaLink()` in `manual_review.js`, `window.KAVITA_UI_URL` global) so you can open the candidate's actual Kavita series page before confirming a match. Backed by `pending_reviews.library_id` (nullable column, `NULL` for rows parked before this migration or if the ID was never resolved — the link is simply omitted). Populated for free from `KavitaAPI.get_cached_library_id(series_id)`, a **class-level** cache filled by the same `GET /api/Series/{id}` call `get_library_type_for_series()` already makes — no extra HTTP round-trip. `research_manual_review` does not backfill it (only `candidates_json` changes on re-search); a stale `library_id` (series moved to another Kavita library without a MetaKavita restart) only self-heals on process restart, since `get_all_series()` purges the type cache but not this one.
+
+**C86 field picks** — `/choice` and `/confirm` accept `manual_completion`, `merge_fields`, `field_picks` (`{cover: ["AniList"], tags: ["MAL", "MU"]}`). When `field_picks` is present, `choice_and_merge` uses `apply_field_picks` (overwrite / list concat) instead of Source hole-fill. Preview stores `_field_picks` / `_merge_fields` / `_manual_completion` for reopen. Bulk-accept still sends `include_providers=[]` with no picks. Tests: `tests/test_manual_completion_field_picks.py`.
+
+**C87 send_fields** — `/confirm` accepts `send_fields` (targeted-field tokens: `summary`, `cover`, `age`…). `None` (key omitted) keeps the historical series-mask write — bulk-accept, cover-only confirm, old clients. A list intersects `MR_EDIT_SENDABLE_FIELDS` with the **series** `targeted_fields` (never the sidebar batch mask). `weblinks` / `language` are not on the edit fiche and stay on the series mask. Preview stores `_active_fields` so the recap can lock boxes. Tests: `tests/test_mr_send_fields.py`.
 
 Config flags (sidebar): `MANUAL_REVIEW_MODE`, `MANUAL_REVIEW_EDIT`, `MANUAL_REVIEW_SUPER`, `MANUAL_REVIEW_SOUNDS`. Tests: `tests/test_manual_review.py`, `tests/test_needs_relock.py`, `tests/test_manual_review_bulk_accept.py`, `tests/test_manual_review_queue_api.py`.
 
@@ -826,7 +830,7 @@ Quand Manual Review est **off**, la même case « Éditer avant confirmation » 
 | `services/enrichment_engine.py` | Branche manuelle dans `enrich_series`, `preview_manual_review` / `apply_manual_review` / `research_manual_review` (apply partage `_processing_lock`) ; `seal_series_locks` pour `NEEDS_RELOCK` |
 | `routes/manual_review.py` | `GET/POST /api/manual-reviews…` (liste, choice, confirm, research, skip, purge) |
 | `db_manager.py` | Table `pending_reviews` — **UNIQUE(`series_id`)**, `park_pending_review` / `close_pending_review` en une txn |
-| `static/js/manual_review.js` + `_manual_review_modal.html` | Modale pick / edit / **cover** / recap, fusion, dock clavier, sync file |
+| `static/js/manual_review.js` + `_manual_review_modal.html` | Modale pick / edit / **cover** / recap, fusion, dock clavier, sync file ; C87 cases d'envoi sur la fiche |
 
 **Règles d’intégrité (ne pas régresser) :**
 * Une seule ligne par `series_id` — un re-park remplace, n’empile jamais.
@@ -837,6 +841,8 @@ Quand Manual Review est **off**, la même case « Éditer avant confirmation » 
 * Ignore et `clean_orphaned_cache` effacent les reviews de la série.
 * Frontend : sérialiser `loadQueue`, ancrer sur `currentReviewId`, gardes in-flight ; gérer `manual_review_confirmed` / `_skipped` / `_refreshed` / compteur→0.
 * **Vider la file pendant qu'un batch tourne encore affiche le masque d'attente, pas le récap (hotfix v1.6.1)** — `showRecapIfEmpty()` vérifie le global `batchProgressTotal` (`batch.js`) avant de basculer sur `recap` ; si un batch est encore actif, elle bascule sur la phase `waiting` déjà existante, et le chemin déjà câblé `mrOnBatchProgress()` → `settleWaitingAfterWork()` prend le relais une fois le batch réellement terminé (ou affiche d'abord la prochaine review garée). Sans ça, une file vide en plein batch affichait le récap quelques secondes avant que la série suivante scrapée ne ramène brutalement la modale sur `pick`. Garde `phase !== "waiting"` pour ne pas se réappliquer sur l'appel qui sort déjà de `waiting` (`batchProgressTotal` ne retombe à 0 qu'~1,5 s après la fin réelle — voir `applyBatchProgressPayload()`).
+
+**C87 `send_fields`** — `/confirm` accepte `send_fields`. Clé absente = écriture historique (masque série seul). Une liste s'intersecte avec l'override série, jamais le masque batch sidebar. Tests : `tests/test_mr_send_fields.py`.
 
 Flags config (sidebar) : `MANUAL_REVIEW_MODE`, `MANUAL_REVIEW_EDIT`, `MANUAL_REVIEW_SUPER`, `MANUAL_REVIEW_SOUNDS`. Tests : `tests/test_manual_review.py`, `tests/test_needs_relock.py`.
 

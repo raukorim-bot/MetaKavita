@@ -38,6 +38,39 @@ def _parse_json():
     return request.get_json(silent=True) or {}
 
 
+def _parse_field_picks(data):
+    """C86 : ``(field_picks, merge_fields, manual_completion)``.
+
+    ``manual_completion`` :
+    * ``True`` — cases par champ (dict vide = master seul)
+    * ``False`` — chemin Source, ne jamais restaurer un ancien ``_field_picks``
+    * ``None`` — clé absente, l'apply peut restaurer depuis le preview
+    """
+    if "manual_completion" in data:
+        if not data.get("manual_completion"):
+            return None, False, False
+        raw = data.get("field_picks")
+        if not isinstance(raw, dict):
+            raw = {}
+        return raw, bool(data.get("merge_fields")), True
+    if "field_picks" in data:
+        raw = data.get("field_picks")
+        if not isinstance(raw, dict):
+            raw = {}
+        return raw, bool(data.get("merge_fields")), True
+    return None, False, None
+
+
+def _parse_send_fields(data):
+    """C87 : ``None`` si la clé est absente (legacy / bulk). Liste même vide = choix."""
+    if "send_fields" not in data:
+        return None
+    raw = data.get("send_fields")
+    if not isinstance(raw, list):
+        return []
+    return raw
+
+
 def _t():
     """Traductions de l'UI courante — les erreurs de ces routes finissent en `alert()`."""
     return translations.get(load_config().get("UI_LANG", "fr"), translations["fr"])
@@ -148,6 +181,7 @@ def api_manual_review_choice(review_id):
     t = _t()
     base_provider = (data.get("base_provider") or "").strip()
     include_providers = data.get("include_providers") or []
+    field_picks, merge_fields, manual_completion = _parse_field_picks(data)
     if not base_provider:
         return jsonify(success=False, error=t.get("err_base_provider_required", "base_provider requis")), 400
     if not isinstance(include_providers, list):
@@ -165,7 +199,12 @@ def api_manual_review_choice(review_id):
 
     if use_edit:
         ok, preview_or_err, _built = preview_manual_review(
-            review_id, base_provider, include_providers=include_providers
+            review_id,
+            base_provider,
+            include_providers=include_providers,
+            field_picks=field_picks,
+            merge_fields=merge_fields,
+            manual_completion=manual_completion,
         )
         if not ok:
             return jsonify(success=False, error=preview_or_err), 400
@@ -175,6 +214,8 @@ def api_manual_review_choice(review_id):
             preview=preview_or_err,
             base_provider=base_provider,
             include_providers=include_providers,
+            field_picks=(preview_or_err or {}).get("_field_picks") if isinstance(preview_or_err, dict) else field_picks,
+            merge_fields=merge_fields,
         )
 
     ok, msg, detail = apply_manual_review(
@@ -186,6 +227,9 @@ def api_manual_review_choice(review_id):
         fused=bool(data.get("fused")) if "fused" in data else None,
         weak_pick=bool(data.get("weak_pick")),
         super_review=bool(data.get("super_review")),
+        field_picks=field_picks,
+        merge_fields=merge_fields,
+        manual_completion=manual_completion,
     )
     if not ok:
         return jsonify(success=False, error=msg), 400
@@ -208,6 +252,8 @@ def api_manual_review_confirm(review_id):
             include_providers = [include_providers] if include_providers else []
     else:
         include_providers = None
+    field_picks, merge_fields, manual_completion = _parse_field_picks(data)
+    send_fields = _parse_send_fields(data)
     if not base_provider:
         return jsonify(success=False, error=t.get("err_base_provider_required", "base_provider requis")), 400
 
@@ -227,6 +273,10 @@ def api_manual_review_confirm(review_id):
         weak_pick=bool(data.get("weak_pick")),
         super_review=bool(data.get("super_review")),
         force_cover_upload=bool(data.get("cover_picked") or data.get("force_cover_upload")),
+        field_picks=field_picks,
+        merge_fields=merge_fields,
+        manual_completion=manual_completion,
+        send_fields=send_fields,
     )
     if not ok:
         return jsonify(success=False, error=msg), 400

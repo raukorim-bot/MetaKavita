@@ -7,6 +7,7 @@ L'écriture Kavita (apply) reste hors de ce module jusqu'aux phases UI/preview.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import uuid
@@ -19,7 +20,7 @@ from db_manager import (
     get_pending_review,
     update_pending_review,
 )
-from metadata_fetcher import merge_candidates
+from metadata_fetcher import apply_explicit_label_age, merge_candidates
 from secure_logging import safe_exc_str, series_label
 from translations import get_ui_translations
 
@@ -599,6 +600,7 @@ def create_confirm_from_auto(
     query: str = "",
     force_update: bool = False,
     library_id: Optional[int] = None,
+    active_fields: Optional[Sequence[str]] = None,
 ) -> str:
     """
     Park auto-batch result as `awaiting_confirm` (pas de pick).
@@ -640,6 +642,8 @@ def create_confirm_from_auto(
     preview["_provider_used"] = provider
     preview["_fusion_providers"] = list(fusions)
     preview["_flow"] = "auto_confirm"
+    if active_fields is not None:
+        preview["_active_fields"] = [str(f).strip() for f in active_fields if f and str(f).strip()]
 
     park_pending_review(
         review_id=review_id,
@@ -682,11 +686,223 @@ def _cards_by_provider(candidates_payload: Dict[str, Any]) -> Dict[str, dict]:
     return by_provider
 
 
+# Complétion manuelle (C86) : un gagnant par champ, ou une union de listes.
+# Les clés UI (`cover`) se distinguent parfois de la clé data (`cover_url`).
+FIELD_PICK_KEYS = (
+    "title",
+    "cover",
+    "year",
+    "status",
+    "format",
+    "publisher",
+    "age_rating",
+    "localized_name",
+    "summary",
+    "genres",
+    "tags",
+    "staff",
+)
+LIST_FIELD_PICKS = frozenset({"genres", "tags", "staff"})
+_FIELD_DATA_KEY = {
+    "title": "title",
+    "cover": "cover_url",
+    "year": "year",
+    "status": "status",
+    "format": "format",
+    "publisher": "publisher",
+    "age_rating": "age_rating",
+    "localized_name": "localized_name",
+    "summary": "summary",
+    "genres": "genres",
+    "tags": "tags",
+    "staff": "staff",
+}
+_STAFF_ROLE_KEYS = (
+    "staff",
+    "writers",
+    "pencillers",
+    "colorists",
+    "editors",
+    "inkers",
+    "letterers",
+    "cover_artists",
+)
+
+
+def normalize_field_picks(
+    raw: Any,
+    *,
+    merge_fields: bool,
+    known_providers: Optional[Sequence[str]] = None,
+) -> Dict[str, List[str]]:
+    """Valide le payload UI : clés connues, listes de providers, scalaires à 1."""
+    if not isinstance(raw, dict):
+        return {}
+    allowed = set(known_providers) if known_providers is not None else None
+    out: Dict[str, List[str]] = {}
+    for key, val in raw.items():
+        if key not in FIELD_PICK_KEYS:
+            continue
+        if isinstance(val, str):
+            providers = [val.strip()] if val.strip() else []
+        elif isinstance(val, (list, tuple)):
+            providers = [str(p).strip() for p in val if p and str(p).strip()]
+        else:
+            continue
+        if allowed is not None:
+            providers = [p for p in providers if p in allowed]
+        seen: set = set()
+        uniq: List[str] = []
+        for provider in providers:
+            if provider in seen:
+                continue
+            seen.add(provider)
+            uniq.append(provider)
+        if not uniq:
+            continue
+        if not (merge_fields and key in LIST_FIELD_PICKS):
+            uniq = uniq[:1]
+        out[key] = uniq
+    return out
+
+
+def _card_data(card: dict) -> dict:
+    data = card.get("data") if isinstance(card.get("data"), dict) else {}
+    return data
+
+
+def _raw_field(card: dict, data_key: str) -> Any:
+    """Valeur brute du blob `data`, sinon le champ top-level de la carte UI."""
+    data = _card_data(card)
+    if data_key in data and data[data_key] not in (None, "", []):
+        return copy.deepcopy(data[data_key])
+    top = card.get(data_key)
+    if top not in (None, "", []):
+        return copy.deepcopy(top)
+    return None
+
+
+def _list_field_items(card: dict, data_key: str) -> list:
+    """Items d'une liste à concaténer — aucun dédoublonnage (C86)."""
+    data = _card_data(card)
+    raw = data.get(data_key)
+    if raw in (None, "", False):
+        raw = card.get(data_key)
+    if raw in (None, "", False):
+        return []
+    if isinstance(raw, list):
+        return copy.deepcopy(raw)
+    if isinstance(raw, tuple):
+        return list(raw)
+    if isinstance(raw, str):
+        return [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
+    return [copy.deepcopy(raw)]
+
+
+def _copy_staff_payload(card: dict) -> Dict[str, Any]:
+    """Staff brut (edges ou labels) + seaux de rôles si c'est tout ce que la carte a."""
+    data = _card_data(card)
+    if isinstance(data.get("staff"), list) and data["staff"]:
+        return {"staff": copy.deepcopy(data["staff"])}
+    out: Dict[str, Any] = {}
+    for key in _STAFF_ROLE_KEYS:
+        if data.get(key):
+            out[key] = copy.deepcopy(data[key])
+    if out:
+        return out
+    top = card.get("staff")
+    if isinstance(top, list) and top:
+        return {"staff": copy.deepcopy(top)}
+    return {}
+
+
+def apply_field_picks(
+    base_provider: str,
+    by_provider: Dict[str, dict],
+    field_picks: Any,
+    merge_fields: bool = False,
+) -> Optional[dict]:
+    """
+    Assemble un payload à partir des cases par champ (complétion manuelle).
+
+    Le master est la base. Chaque champ listé dans `field_picks` est remplacé
+    par le gagnant (scalaire / exclusif) ou concaténé (listes + merge_fields).
+    Un champ absent des picks reste celui du master. Pas de hole-fill Source.
+    """
+    if base_provider not in by_provider:
+        return None
+    master_card = by_provider[base_provider]
+    master = copy.deepcopy(_card_data(master_card) or {})
+    if not isinstance(master, dict):
+        master = {}
+    master["_provider_used"] = base_provider
+
+    picks = normalize_field_picks(
+        field_picks,
+        merge_fields=merge_fields,
+        known_providers=list(by_provider.keys()),
+    )
+    fusion: List[str] = []
+
+    def _note(providers: Sequence[str]) -> None:
+        for provider in providers:
+            if provider and provider != base_provider and provider not in fusion:
+                fusion.append(provider)
+
+    for field, providers in picks.items():
+        cards = [by_provider[p] for p in providers if p in by_provider]
+        if not cards:
+            continue
+        data_key = _FIELD_DATA_KEY[field]
+        if field == "staff":
+            if merge_fields and len(cards) > 1:
+                combined: list = []
+                for card in cards:
+                    payload = _copy_staff_payload(card)
+                    combined.extend(payload.get("staff") or _list_field_items(card, "staff"))
+                for key in _STAFF_ROLE_KEYS:
+                    master.pop(key, None)
+                master["staff"] = combined
+            else:
+                payload = _copy_staff_payload(cards[0])
+                if not payload:
+                    continue
+                for key in _STAFF_ROLE_KEYS:
+                    master.pop(key, None)
+                master.update(payload)
+            _note(providers)
+            continue
+        if field in LIST_FIELD_PICKS and merge_fields and len(cards) > 1:
+            combined = []
+            for card in cards:
+                combined.extend(_list_field_items(card, data_key))
+            master[data_key] = combined
+            _note(providers)
+            continue
+        value = _raw_field(cards[0], data_key)
+        if value is None and field == "localized_name":
+            value = cards[0].get("localized_name")
+        if value is None:
+            continue
+        master[data_key] = value
+        if field == "localized_name":
+            titles = _raw_field(cards[0], "titles")
+            if titles is not None:
+                master["titles"] = titles
+        _note(providers)
+
+    master["_fusion_providers"] = fusion
+    master = apply_explicit_label_age(master) or master
+    return master
+
+
 def choice_and_merge(
     review_id: str,
     base_provider: str,
     include_providers: Optional[Sequence[str]] = None,
     smart_fusion: bool = False,
+    field_picks: Optional[dict] = None,
+    merge_fields: bool = False,
 ) -> Optional[dict]:
     """
     Merge selon le choix UI : `base_provider` = master.
@@ -696,6 +912,10 @@ def choice_and_merge(
     active `smart_fusion` dès qu'au moins une source est cochée — indépendamment
     du toggle sidebar SMART_COMPLETION. Contrairement à l'Auto (BF69), les
     Sources MR peuvent aussi combler ``age_rating`` (choix explicite).
+
+    `field_picks` (C86, ``None`` = chemin Source historique) remplace le
+    hole-fill : chaque champ a un gagnant, ou une concaténation de listes si
+    `merge_fields`. Les cases Source sont alors ignorées.
 
     Met à jour la review en `awaiting_confirm` (preview_json laissé vide —
     construit plus tard par la couche apply/preview).
@@ -714,22 +934,27 @@ def choice_and_merge(
         logging.warning(get_ui_translations().get("log_mr_provider_missing", "[manual_review] base_provider {0} introuvable pour review {1}").format(base_provider, review_id))
         return None
 
-    ordered: List[tuple] = [(base_provider, by_provider[base_provider].get("data") or {})]
-    seen = {base_provider}
-    for provider in include_providers or []:
-        if not provider or provider in seen:
-            continue
-        card = by_provider.get(provider)
-        if not card:
-            continue
-        ordered.append((provider, card.get("data") or {}))
-        seen.add(provider)
+    if field_picks is not None:
+        master = apply_field_picks(
+            base_provider, by_provider, field_picks, merge_fields=merge_fields
+        )
+    else:
+        ordered: List[tuple] = [(base_provider, by_provider[base_provider].get("data") or {})]
+        seen = {base_provider}
+        for provider in include_providers or []:
+            if not provider or provider in seen:
+                continue
+            card = by_provider.get(provider)
+            if not card:
+                continue
+            ordered.append((provider, card.get("data") or {}))
+            seen.add(provider)
 
-    # MR Sources = max info (tout âge). Auto SMART_COMPLETION : fill_age_rating=False
-    # → BF102 non-adult only (voir metadata_fetcher._fusion_can_fill).
-    master = merge_candidates(
-        ordered, smart_fusion=smart_fusion, fill_age_rating=bool(smart_fusion)
-    )
+        # MR Sources = max info (tout âge). Auto SMART_COMPLETION : fill_age_rating=False
+        # → BF102 non-adult only (voir metadata_fetcher._fusion_can_fill).
+        master = merge_candidates(
+            ordered, smart_fusion=smart_fusion, fill_age_rating=bool(smart_fusion)
+        )
     if not master:
         return None
 
