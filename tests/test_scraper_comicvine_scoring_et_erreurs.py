@@ -129,6 +129,69 @@ def test_le_nombre_dalbums_ne_peut_plus_ecraser_le_bareme():
     assert retenu["id"] == _SCORPION_EXACT["id"]
 
 
+def test_un_start_year_exact_bat_un_voisin_plus_long():
+    """#40 : ±1 ne doit plus égaler l'année exacte. Un Avengers 2010 plus
+    fourni ne doit pas gagner sur le run 2011 nommé dans Kavita."""
+    scraper = cv.ComicVineScraper()
+    vol_2011 = {
+        "id": 2011,
+        "name": "Avengers",
+        "count_of_issues": 12,
+        "publisher": {"name": "Marvel"},
+        "start_year": "2011",
+    }
+    vol_2010 = {
+        "id": 2010,
+        "name": "Avengers",
+        "count_of_issues": 200,
+        "publisher": {"name": "Marvel"},
+        "start_year": "2010",
+    }
+    vol_2012 = {
+        "id": 2012,
+        "name": "Avengers",
+        "count_of_issues": 80,
+        "publisher": {"name": "Marvel"},
+        "start_year": "2012",
+    }
+
+    for ordre in (
+        [vol_2010, vol_2012, vol_2011],
+        [vol_2011, vol_2010, vol_2012],
+        [vol_2012, vol_2010, vol_2011],
+    ):
+        retenu = scraper._evaluate_volume_candidates(
+            ordre, "Avengers", year_hint=2011, library_type="Comic"
+        )
+        assert retenu["id"] == 2011, (
+            f"le run {retenu.get('start_year')} a été retenu pour un hint 2011"
+        )
+
+
+def test_un_voisin_bat_un_run_lointain_quand_lannee_exacte_manque():
+    """Sans volume à l'année pile, ±1 reste un indice contre 1940."""
+    scraper = cv.ComicVineScraper()
+    voisin = {
+        "id": 2010,
+        "name": "Batman",
+        "count_of_issues": 18,
+        "publisher": {"name": "DC Comics"},
+        "start_year": "2010",
+    }
+    historique = {
+        "id": 1940,
+        "name": "Batman",
+        "count_of_issues": 1000,
+        "publisher": {"name": "DC Comics"},
+        "start_year": "1940",
+    }
+
+    retenu = scraper._evaluate_volume_candidates(
+        [historique, voisin], "Batman", year_hint=2011, library_type="Comic"
+    )
+    assert retenu["id"] == 2010
+
+
 def test_le_bonus_editeur_ne_sapplique_pas_a_une_bibliotheque_manga():
     """Le catalogue ComicVine est celui du comic américain : sa notoriété
     d'éditeur ne dit rien de la pertinence d'un candidat pour une bibliothèque

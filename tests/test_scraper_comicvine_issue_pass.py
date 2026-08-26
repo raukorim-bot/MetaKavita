@@ -115,6 +115,30 @@ def comicvine(monkeypatch):
     )
 
 
+def test_la_passe_issue_prefere_lannee_exacte_a_un_voisin(comicvine):
+    """Même barème que les volumes : une cover 2010 ne doit plus égaler 2011."""
+    result = comicvine.scraper._evaluate_issue_candidates(
+        [
+            {
+                "id": 1,
+                "name": "Avengers",
+                "cover_date": "2010-05-01",
+                "volume": {"id": 10, "name": "Avengers"},
+            },
+            {
+                "id": 2,
+                "name": "Avengers",
+                "cover_date": "2011-07-01",
+                "volume": {"id": 11, "name": "Avengers"},
+            },
+        ],
+        "Avengers",
+        year_hint=2011,
+    )
+    assert result is not None
+    assert result["id"] == 2
+
+
 def test_la_passe_issue_respecte_lannee_du_run(comicvine):
     result = comicvine.scraper.fetch("Batman (2011)", library_type="Comic")
 
