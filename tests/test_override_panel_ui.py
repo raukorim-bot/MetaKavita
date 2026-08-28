@@ -108,7 +108,28 @@ def test_override_panel_sid_rewrite_produces_stable_ids():
     assert "__SID__" not in panel.group(0)
 
 
-def test_series_row_exposes_override_data_attributes():
+def test_series_row_and_js_expose_override_chips():
+    row = _read("templates/partials/_series_row.html")
+    js = _read("static/js/overrides.js")
+    virt = _read("static/js/series_list.js")
+    assert "badge-override-provider" in row
+    assert "badge-override-fields" in row
+    assert "badge-override-alt" in row
+    assert "badge-override-pub" in row
+    assert "badge-override-langs" in row
+    assert "openSeriesOverride" in row
+    assert "PROVIDER_LABELS" in _read("templates/index.html")
+    assert "override_fields_badge" in _read("templates/index.html")
+    assert "override_alt_title_badge_hint" in _read("templates/index.html")
+    assert "function isGranularTargetedFields" in js
+    assert "function altTitleIsOverride" in js
+    assert "function publisherPrefIsOverride" in js
+    assert "function altLangsIsOverride" in js
+    assert "function openSeriesOverride" in js
+    assert "function syncSeriesOverrideBadges" in js
+    assert "overrideBadgesHtml" in virt
+    assert "bindOverrideBadge" in virt
+    assert "checked.length === TARGETED_FIELD_KEYS.length ? 'ALL'" in js
     html = _read("templates/partials/_series_row.html")
     for attr in (
         "data-forced-id=",
@@ -137,7 +158,7 @@ def test_overrides_js_fills_and_saves_magic_alt_title_provider():
 
     assert "function saveOverride" in js
     save_start = js.index("function saveOverride")
-    save_body = js[save_start: save_start + 2500]
+    save_body = js[save_start: save_start + 4500]
     assert "alternative_title=" in save_body
     assert "forced_provider=" in save_body
     assert "forced_id=" in save_body
@@ -366,6 +387,85 @@ def test_dashboard_series_row_reflects_saved_overrides(
     assert 'data-targeted-fields="summary,cover"' in html
     assert 'data-publisher-pref="ORIGINAL"' in html
     assert 'data-alt-langs="en,ja-ro"' in html
+    assert "badge-override-provider" in html
+    assert "badge-override-fields" in html
+    assert "badge-override-alt" in html
+    assert "badge-override-pub" in html
+    assert "badge-override-langs" in html
+    assert "Le Collège Fou Fou Fou" in html
+    assert ">VO<" in html
+    assert "en, ja-ro" in html
+    assert "Granulaire" in html
+
+
+def _series_status_html(html, series_id):
+    m = re.search(
+        rf'data-series-id="{series_id}"[\s\S]*?<div class="series-status">([\s\S]*?)</div>\s*<div class="series-actions">',
+        html,
+    )
+    assert m, f"series {series_id} row missing"
+    return m.group(1)
+
+
+def test_dashboard_any_options_setting_gets_a_chip(
+    pages_client, isolated_db, monkeypatch
+):
+    """Titre = nom Kavita : pas de cartouche. Toute autre option Options : oui."""
+    isolated_db.save_series_override(
+        SeriesOverride(series_id=1, alternative_title="One Piece")
+    )
+    isolated_db.save_series_override(
+        SeriesOverride(series_id=2, alternative_title="Titre VF")
+    )
+    isolated_db.save_series_override(
+        SeriesOverride(series_id=3, publisher_pref="LOCALIZED")
+    )
+    isolated_db.save_series_override(
+        SeriesOverride(series_id=4, alt_title_langs="ja")
+    )
+    monkeypatch.setattr(
+        "routes.pages.load_config",
+        lambda: {
+            "UI_LANG": "fr",
+            "KAVITA_URL": "http://kavita.test",
+            "KAVITA_API_KEY": "key",
+        },
+    )
+    monkeypatch.setattr(
+        "routes.pages.KavitaAPI",
+        _fake_kavita(
+            [
+                {"id": 1, "name": "One Piece", "libraryId": 1},
+                {"id": 2, "name": "English Title", "libraryId": 1},
+                {"id": 3, "name": "Publisher Only", "libraryId": 1},
+                {"id": 4, "name": "Langs Only", "libraryId": 1},
+            ]
+        ),
+    )
+
+    res = pages_client.get("/")
+    assert res.status_code == 200
+    html = res.get_data(as_text=True)
+
+    same_name = _series_status_html(html, 1)
+    assert "badge-override-alt" not in same_name
+    assert "badge-override" not in same_name
+
+    alt_only = _series_status_html(html, 2)
+    assert "badge-override-alt" in alt_only
+    assert "Titre VF" in alt_only
+    assert "badge-override-provider" not in alt_only
+    assert "badge-override-fields" not in alt_only
+
+    pub_only = _series_status_html(html, 3)
+    assert "badge-override-pub" in pub_only
+    assert "VF/VA" in pub_only
+    assert "badge-override-alt" not in pub_only
+
+    langs_only = _series_status_html(html, 4)
+    assert "badge-override-langs" in langs_only
+    assert ">ja<" in langs_only
+    assert "badge-override-alt" not in langs_only
 
 
 def test_dashboard_series_index_json_includes_override_fields(

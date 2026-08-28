@@ -120,6 +120,9 @@
                   escAttr(tr.audit_excluded_badge_hint || '') + '">' +
                   esc(tr.audit_excluded_badge || '') + '</span>'
                 : '') +
+            (typeof overrideBadgesHtml === 'function'
+                ? overrideBadgesHtml(s)
+                : '') +
             (s.cover_manual
                 ? '<button type="button" class="badge badge-cover-manual" data-action="release-cover" title="' +
                   escAttr(tr.cover_manual_badge_hint || '') + '">🔒 ' + esc(tr.cover_manual_badge || '') + '</button>'
@@ -155,6 +158,9 @@
         var releaseCoverBtn = el.querySelector('[data-action="release-cover"]');
         if (releaseCoverBtn) releaseCoverBtn.addEventListener('click', function () {
             if (typeof releaseSeriesCover === 'function') releaseSeriesCover(sid, releaseCoverBtn);
+        });
+        el.querySelectorAll('[data-action="open-options"]').forEach(function (btn) {
+            if (typeof bindOverrideBadge === 'function') bindOverrideBadge(btn, sid);
         });
         // Re-attach cached open panel after virtual recycle (innerHTML wipe).
         if (pinnedPanelIds.has(sid) && typeof reattachOverridePanelIfAny === 'function') {

@@ -360,3 +360,74 @@ def test_first_provider_context_is_shared_with_the_parallel_wave(monkeypatch):
         "parallèle suivante, pour préserver la protection anti-homonyme sur les séries "
         "sans métadonnées Kavita pré-existantes."
     )
+
+
+def test_return_candidates_parallel_when_scoring_is_off(monkeypatch):
+    """Manual / Super Review : vague 2 parallèle même si Smart Scoring est off."""
+    lock = threading.Lock()
+    starts = {}
+    ends = {}
+
+    def make_fetch(name, delay):
+        def _fetch(query, library_type="Manga", is_id=False, existing_metadata=None):
+            with lock:
+                starts[name] = time.time()
+            time.sleep(delay)
+            with lock:
+                ends[name] = time.time()
+            return {"title": name, "summary": "S", "_match_score": 0.70}
+        return _fetch
+
+    delay = 0.25
+    scrapers = {
+        "P1": _make_scraper("P1", make_fetch("P1", delay)),
+        "P2": _make_scraper("P2", make_fetch("P2", delay)),
+        "P3": _make_scraper("P3", make_fetch("P3", delay)),
+    }
+    _install_fake_registry(monkeypatch, scrapers)
+
+    t0 = time.time()
+    result, used = metadata_fetcher.fetch_metadata(
+        query="Query",
+        providers_list=["P1", "P2", "P3"],
+        smart_fusion=False,
+        library_type="Manga",
+        existing_metadata={},
+        smart_scoring=False,
+        return_candidates=True,
+    )
+    elapsed = time.time() - t0
+    assert isinstance(result, dict)
+    assert set(used) == {"P1", "P2", "P3"}
+    assert elapsed < (delay * 3) - 0.15
+    assert abs(starts["P2"] - starts["P3"]) < 0.15
+    assert starts["P2"] >= ends["P1"] - 0.05
+
+
+def test_cascade_blobs_are_attached_for_mapping_reuse(monkeypatch):
+    def p1_fetch(query, library_type="Manga", is_id=False, existing_metadata=None):
+        return {"title": "A", "summary": "from P1", "_match_score": 0.70}
+
+    def p2_fetch(query, library_type="Manga", is_id=False, existing_metadata=None):
+        return {"title": "B", "summary": "from P2", "cover_url": "http://p2.jpg", "_match_score": 0.90}
+
+    scrapers = {
+        "P1": _make_scraper("P1", p1_fetch),
+        "P2": _make_scraper("P2", p2_fetch),
+    }
+    _install_fake_registry(monkeypatch, scrapers)
+
+    result, used = metadata_fetcher.fetch_metadata(
+        query="Query",
+        providers_list=["P1", "P2"],
+        smart_fusion=False,
+        library_type="Manga",
+        existing_metadata={},
+        smart_scoring=True,
+    )
+    blobs = (result or {}).get("_cascade_blobs") or {}
+    assert set(used) >= {"P2"}
+    assert "P2" in blobs
+    assert blobs["P2"]["blob"]["cover_url"] == "http://p2.jpg"
+    assert blobs["P2"]["is_id"] is False
+    assert blobs["P2"]["query"] == "Query"

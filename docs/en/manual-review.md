@@ -8,7 +8,7 @@ Sidebar **Manual Review** block: the batch scrapes providers as usual but **does
 
 ![Scraping options — Manual Review](../../assets/docs-manual-review.png)
 
-**Super Manual Review** expands every usable scraper (not only the three cascade slots) — better coverage, a bit slower because of rate limits. **Cover picker** lets you choose a cover before confirm. **Review sounds** play short UI tones. **Purge queue** clears parked series.
+**Super Manual Review** expands every usable scraper (not only the three cascade slots). After provider #1 seeds ISBN/authors, the others run in parallel — still one series at a time, and each scraper's timer still applies. **Cover picker** lets you choose a cover before confirm. **Review sounds** play short UI tones. **Purge queue** clears parked series.
 
 Open the review modal from the topbar badge. **Search** re-queries under another title; **View in Kavita** opens the series. Cards sit **Above threshold** (or **Show below threshold**); tick **Source** to fuse empty fields onto the teal **Master**. **Manual completion** (in the modal) shows a box on each field: Master starts fully checked; ticking a field on another card takes that field from Master — so you can keep MangaBaka's publisher and take AniList's cover. **Merge fields** (only with Manual completion on) lets list fields — tags, genres, staff — be ticked on several cards; values are concatenated, without extra dedup. Scalars stay one-winner. Source boxes are hidden while this is on; the Master badge stays. Clean the result in **Adjust before send** before it goes to Kavita. **List** jumps to another parked series. Footer: **Purge queue**, **Skip**, **Pick** — keys `1`–`9`, arrows, `Enter`, `Esc`.
 
@@ -28,4 +28,4 @@ Turning the mode off clears any stranded queue so series are not left frozen out
 
 Hiding Manual Review in [Light mode](dashboard.md#light-mode) also switches the mode off and empties the queue.
 
-Related settings: `MANUAL_REVIEW_MODE`, `MANUAL_REVIEW_EDIT`, `MANUAL_REVIEW_SUPER`, `MANUAL_REVIEW_SOUNDS` — see [Configuration](configuration.md).
+Related settings: `MANUAL_REVIEW_MODE`, `MANUAL_REVIEW_EDIT`, `MANUAL_REVIEW_SUPER`, `MANUAL_REVIEW_SOUNDS` — see [Configuration](configuration.md). The Auto [per-field map](dashboard.md) does not apply here.

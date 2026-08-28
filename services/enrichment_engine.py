@@ -99,6 +99,41 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     return [f.strip() for f in str(raw).split(",") if f.strip()]
 
 
+def targeted_fields_is_granular(raw) -> bool:
+    """True dès qu'un masque série n'écrit plus *tous* les champs (un seul décoché suffit)."""
+    return set(resolve_active_fields(raw)) != set(ALL_TARGETED_FIELDS)
+
+
+def alt_title_is_override(alternative_title, series_name) -> bool:
+    """Le panneau préremplit le nom Kavita : ce n'est un override que s'il diffère."""
+    alt = str(alternative_title or "").strip()
+    name = str(series_name or "").strip()
+    return bool(alt) and alt.casefold() != name.casefold()
+
+
+def publisher_pref_is_override(raw) -> bool:
+    v = str(raw or "GLOBAL").strip().upper()
+    return v not in ("", "GLOBAL")
+
+
+def alt_langs_is_override(raw) -> bool:
+    return bool(str(raw or "").strip())
+
+
+def alt_langs_chip_label(raw) -> str:
+    parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
+    return ", ".join(parts)
+
+
+def publisher_pref_chip_label(raw) -> str:
+    v = str(raw or "GLOBAL").strip().upper()
+    if v in ("ORIGINAL", "VO"):
+        return "VO"
+    if v in ("LOCALIZED", "VF", "VA", "VF/VA"):
+        return "VF/VA"
+    return str(raw or "").strip()
+
+
 def normalize_send_fields(raw):
     """C87 : ``None`` = clé absente (legacy). Liste (même vide) = choix explicite."""
     if raw is None:
@@ -253,6 +288,174 @@ def _has_useful_provider_data(data):
         data.get('summary') or data.get('genres') or data.get('cover_url')
         or data.get('staff') or data.get('year')
     )
+
+
+def mapping_applies_here(config, *, forced_provider, manual_mode) -> bool:
+    from services.field_mapping import mapping_should_run
+
+    return mapping_should_run(
+        config, forced_provider=forced_provider, manual_mode=manual_mode
+    )
+
+
+def field_mapping_log_line(label, assembled) -> str:
+    sources = (assembled or {}).get("_field_sources") or {}
+    base = (assembled or {}).get("_provider_used") or "?"
+    extra = " ".join(f"{field}={provider}" for field, provider in sources.items())
+    line = f"Base: {base}"
+    if extra:
+        line += " " + extra
+    return line
+
+
+def attach_mapping_preview(preview, assembled):
+    if not isinstance(preview, dict):
+        preview = {}
+    sources = (assembled or {}).get("_field_sources") if isinstance(assembled, dict) else None
+    if sources:
+        preview["_field_sources"] = dict(sources)
+        preview["_field_picks"] = {field: [provider] for field, provider in sources.items()}
+    return preview
+
+
+def _filter_id_capable(providers, search_query, is_forced_id):
+    if not (
+        is_forced_id
+        and not (str(search_query).startswith("http://") or str(search_query).startswith("https://"))
+    ):
+        return list(providers or [])
+    return [
+        p for p in (providers or [])
+        if getattr(ScraperRegistry.get(p), "has_direct_id_support", False)
+    ]
+
+
+def fetch_auto_series_metadata(
+    *,
+    search_query,
+    providers_list,
+    smart_completion,
+    fetch_kwargs,
+    library_type,
+    forced_provider,
+    config,
+    series_name,
+    series_id,
+    is_forced_id,
+    existing_metadata,
+    smart_scoring,
+    fallback_query,
+    t,
+    label,
+):
+    """Auto fetch : cascade actuelle si mapping off, sinon run_mapping_wave."""
+    from metadata_fetcher import fetch_metadata
+    from services.field_mapping import resolve_mapping_plan
+    from services.field_mapping_fetch import run_mapping_wave
+
+    if not mapping_applies_here(
+        config, forced_provider=forced_provider, manual_mode=False
+    ):
+        provider_data, used_providers = fetch_metadata(
+            search_query,
+            providers_list,
+            smart_completion,
+            **fetch_kwargs,
+        )
+        if (
+            library_type == "ComicFlexible"
+            and forced_provider == "AUTO"
+            and not _has_useful_provider_data(provider_data)
+        ):
+            manga_providers = _filter_id_capable(
+                _providers_from_config(config, "Manga", series_name, series_id),
+                search_query,
+                is_forced_id,
+            )
+            if manga_providers:
+                logging.info(
+                    t.get(
+                        "log_flexible_manga_fallback",
+                        "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
+                    ).format(label, " > ".join(manga_providers))
+                )
+                manga_data, manga_used = fetch_metadata(
+                    search_query,
+                    manga_providers,
+                    smart_completion,
+                    fallback_query=fallback_query,
+                    library_type="Manga",
+                    is_forced_id=is_forced_id,
+                    forced_provider=forced_provider,
+                    existing_metadata=existing_metadata,
+                    smart_scoring=smart_scoring,
+                )
+                used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
+                if _has_useful_provider_data(manga_data):
+                    provider_data = manga_data
+        return provider_data, used_providers
+
+    wave_kwargs = dict(
+        smart_fusion=smart_completion,
+        config=config,
+        fallback_query=fallback_query,
+        is_forced_id=is_forced_id,
+        forced_provider=forced_provider,
+        existing_metadata=existing_metadata,
+        smart_scoring=smart_scoring,
+    )
+
+    if library_type == "ComicFlexible":
+        comic_providers = _filter_id_capable(
+            _providers_from_config(config, "Comic", series_name, series_id),
+            search_query,
+            is_forced_id,
+        )
+        plan_c = resolve_mapping_plan(config, "ComicFlexible", flexible_wave="comic")
+        w1 = run_mapping_wave(
+            plan_c,
+            search_query,
+            providers_list=comic_providers,
+            library_type="Comic",
+            **wave_kwargs,
+        )
+        if w1.score_tie or w1.useful:
+            return w1.data, w1.used
+        manga_providers = _filter_id_capable(
+            _providers_from_config(config, "Manga", series_name, series_id),
+            search_query,
+            is_forced_id,
+        )
+        if not manga_providers:
+            return w1.data, w1.used
+        logging.info(
+            t.get(
+                "log_flexible_manga_fallback",
+                "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
+            ).format(label, " > ".join(manga_providers))
+        )
+        plan_m = resolve_mapping_plan(config, "ComicFlexible", flexible_wave="manga")
+        w2 = run_mapping_wave(
+            plan_m,
+            search_query,
+            providers_list=manga_providers,
+            library_type="Manga",
+            **wave_kwargs,
+        )
+        used = list(dict.fromkeys((w1.used or []) + (w2.used or [])))
+        if w2.useful or w2.score_tie:
+            return w2.data, used
+        return w1.data or w2.data, used
+
+    plan = resolve_mapping_plan(config, library_type)
+    wave = run_mapping_wave(
+        plan,
+        search_query,
+        providers_list=providers_list,
+        library_type=fetch_kwargs.get("library_type") or plan.fetch_library_type,
+        **wave_kwargs,
+    )
+    return wave.data, wave.used
 
 
 def _candidates_empty(payload):
@@ -756,7 +959,6 @@ def enrich_series(
                 if forced_provider == 'AUTO':
                     detected = detect_provider_from_url(search_query)
                     if detected:
-                        forced_provider = detected
                         scraper = ScraperRegistry.get(detected)
                         display = (
                             scraper.display_name
@@ -769,6 +971,11 @@ def enrich_series(
                                 "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.",
                             ).format(label, display)
                         )
+                        from services.field_mapping import url_detect_should_pin_provider
+                        if url_detect_should_pin_provider(
+                            config, manual_mode=manual_mode
+                        ):
+                            forced_provider = detected
             else:
                 # ID brut : filtre ID-capable uniquement hors Super (Super expand all ensuite)
                 if forced_provider == 'AUTO' and not super_review:
@@ -940,47 +1147,23 @@ def enrich_series(
             return True, "PENDING_REVIEW", used_providers or []
 
         # ========== MODE AUTO ==========
-        provider_data, used_providers = fetch_metadata(
-            search_query,
-            providers_list,
-            smart_completion,
-            **fetch_kwargs,
+        provider_data, used_providers = fetch_auto_series_metadata(
+            search_query=search_query,
+            providers_list=providers_list,
+            smart_completion=smart_completion,
+            fetch_kwargs=fetch_kwargs,
+            library_type=library_type,
+            forced_provider=forced_provider,
+            config=config,
+            series_name=series_name,
+            series_id=series_id,
+            is_forced_id=is_forced_id,
+            existing_metadata=existing_metadata,
+            smart_scoring=smart_scoring,
+            fallback_query=fallback_query,
+            t=t,
+            label=label,
         )
-
-        # C35 : Comic Flexible — si la vague Comic échoue et qu'aucun provider n'est forcé,
-        # bascule sur la cascade Manga (PROVIDER_*).
-        if (
-            library_type == "ComicFlexible"
-            and forced_provider == 'AUTO'
-            and not _has_useful_provider_data(provider_data)
-        ):
-            manga_providers = _providers_from_config(config, "Manga", series_name, series_id)
-            if is_forced_id and not (search_query.startswith('http://') or search_query.startswith('https://')):
-                manga_providers = [
-                    p for p in manga_providers
-                    if getattr(ScraperRegistry.get(p), 'has_direct_id_support', False)
-                ]
-            if manga_providers:
-                logging.info(
-                    t.get(
-                        'log_flexible_manga_fallback',
-                        "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1})."
-                    ).format(label, " > ".join(manga_providers))
-                )
-                manga_data, manga_used = fetch_metadata(
-                    search_query,
-                    manga_providers,
-                    smart_completion,
-                    fallback_query=fallback_query,
-                    library_type="Manga",
-                    is_forced_id=is_forced_id,
-                    forced_provider=forced_provider,
-                    existing_metadata=existing_metadata,
-                    smart_scoring=smart_scoring,
-                )
-                used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
-                if _has_useful_provider_data(manga_data):
-                    provider_data = manga_data
 
         if not provider_data:
             logging.warning(t.get('log_not_found').format(label, "API(s)"))
@@ -991,6 +1174,8 @@ def enrich_series(
 
         actual_provider = provider_data.pop('_provider_used', 'Inconnu')
         fusion_providers = provider_data.pop('_fusion_providers', [])
+        field_sources = provider_data.pop('_field_sources', None)
+        provider_data.pop('_cascade_blobs', None)
         # Purement diagnostique (Smart Scoring, voir metadata_fetcher.py) : jamais lu ni
         # envoyé à Kavita, mais on l'enlève pour ne pas polluer les dumps de debug.
         chosen_score = provider_data.pop(MATCH_SCORE_KEY, None)
@@ -1005,6 +1190,15 @@ def enrich_series(
             if safe_fusion:
                 msg_found += f" + 🧩 Fusion ({', '.join(safe_fusion)})"
         logging.info(msg_found)
+        if field_sources:
+            logging.info(
+                "[%s] %s",
+                label,
+                field_mapping_log_line(
+                    label,
+                    {"_provider_used": actual_provider, "_field_sources": field_sources},
+                ),
+            )
 
         # BF102: diagnostic âge / champs ciblés (évite le piège « age décoché »).
         prov_age = str((provider_data or {}).get("age_rating") or "").strip() or "—"
@@ -1068,11 +1262,16 @@ def enrich_series(
             from services.manual_review import create_confirm_from_auto
 
             data_for_park = copy.deepcopy(provider_data)
+            preview_fields = built.get("preview_fields") or {}
+            attach_mapping_preview(
+                preview_fields,
+                {"_field_sources": field_sources or {}},
+            )
             create_confirm_from_auto(
                 series_id,
                 series_name,
                 data_for_park,
-                built.get("preview_fields") or {},
+                preview_fields,
                 actual_provider=actual_provider,
                 fusion_providers=fusion_providers,
                 chosen_score=chosen_score,

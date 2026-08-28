@@ -122,6 +122,31 @@
                             </div>
                         </details>
 
+                        <details class="so-cat" id="scrapingCatMapping" data-so-cat="mapping">
+                            <summary class="so-cat-summary">
+                                <span class="so-chevron" aria-hidden="true"></span>
+                                <span class="so-cat-title">{{ t.scraping_cat_mapping }}</span>
+                                <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
+                            </summary>
+                            <div class="so-cat-body so-anim-body">
+                                <div class="so-anim-inner so-cat-panel">
+                                    <label class="so-switch so-switch--lab">
+                                        <input type="checkbox" id="sidebar_field_mapping" value="true"
+                                               {% if config.get('FIELD_MAPPING_ENABLED') %}checked{% endif %}
+                                               onchange="saveConfig()">
+                                        <span class="so-switch-track" aria-hidden="true"><span class="so-switch-thumb"></span></span>
+                                        <span class="so-switch-icon" aria-hidden="true">🧩</span>
+                                        <span class="so-switch-text">{{ t.field_mapping_enabled }}</span>
+                                    </label>
+                                    <p class="so-hint">{{ t.field_mapping_enabled_hint }}</p>
+                                    <button type="button" class="btn-primary w-100 so-btn so-btn-providers" id="btnOpenFieldMapping" disabled
+                                            onclick="openFieldMappingModal()">
+                                        {{ t.open_field_mapping_modal }}
+                                    </button>
+                                </div>
+                            </div>
+                        </details>
+
                         <details class="so-cat" id="scrapingCatManual" data-so-cat="manual" open>
                             <summary class="so-cat-summary">
                                 <span class="so-chevron" aria-hidden="true"></span>
@@ -374,11 +399,25 @@
                 </div>
                 {% endif %}
                 
-                <!-- BLOC 3: TERMINAL DE LOGS -->
-                <div class="logs-container card card-tint-sky" style="flex: 1; display: flex; flex-direction: column; min-height: 250px;">
-                    <h3 class="section-title m-0 mb-2">{{ t.live_logs }}</h3>
-                    <div id="log-console" class="log-console" style="flex: 1;">
-                        <div class="log-line text-muted">{{ t.waiting }}</div>
+                <!-- BLOC 3: JOURNAL LIVE -->
+                <div class="logs-container card card-tint-sky">
+                    <div class="logs-head">
+                        <h3 class="section-title logs-title">{{ t.live_logs }}</h3>
+                        <div class="logs-actions">
+                            <button type="button" id="logFollowBtn" class="logs-action is-active"
+                                    data-pause="{{ t.live_logs_pause }}"
+                                    data-resume="{{ t.live_logs_resume }}"
+                                    title="{{ t.live_logs_pause_hint }}"
+                                    aria-pressed="false">{{ t.live_logs_pause }}</button>
+                            <button type="button" id="logClearBtn" class="logs-action"
+                                    title="{{ t.live_logs_clear }}">{{ t.live_logs_clear }}</button>
+                        </div>
+                    </div>
+                    <p class="logs-paused" id="logPausedHint" hidden>{{ t.live_logs_paused }}</p>
+                    <div id="log-console" class="log-console" role="log" aria-live="polite" aria-relevant="additions" data-waiting="{{ t.waiting }}">
+                        <div class="log-line log-placeholder">
+                            <span class="log-msg">{{ t.waiting }}</span>
+                        </div>
                     </div>
                 </div>
 

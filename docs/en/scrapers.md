@@ -6,7 +6,7 @@
 
 ## Provider cascades
 
-**Scrapers → Provider cascades** (or the sidebar **Scraper cascades** button) sets search order per library type. #1 is primary; #2 and #3 are fallbacks, and Smart Scoring / Smart Completion sources. Inventory (missing volumes / expected count) reuses these cascades; if no expected count is found, backup scrapers (AniList, MAL, ComicVine) run automatically.
+**Scrapers → Provider cascades** (or the sidebar **Scraper cascades** button) sets search order per library type. #1 is primary; #2 and #3 are fallbacks, and Smart Scoring / Smart Completion sources. Inventory (missing volumes / expected count) reuses these cascades; if no expected count is found, backup scrapers (AniList, MAL, ComicVine) run automatically. Auto can also use a [per-field map](dashboard.md) (experimental, off by default) instead of one master plus hole-fill.
 
 ![Provider Cascades modal](../../assets/docs-provider-cascades.png)
 

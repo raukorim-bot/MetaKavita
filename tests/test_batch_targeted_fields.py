@@ -1,7 +1,16 @@
 """
 Granularité batch : resolve_active_fields + enqueue targeted_fields override.
 """
-from services.enrichment_engine import ALL_TARGETED_FIELDS, resolve_active_fields
+from services.enrichment_engine import (
+    ALL_TARGETED_FIELDS,
+    alt_langs_chip_label,
+    alt_langs_is_override,
+    alt_title_is_override,
+    publisher_pref_chip_label,
+    publisher_pref_is_override,
+    resolve_active_fields,
+    targeted_fields_is_granular,
+)
 
 
 def test_resolve_active_fields_defaults_and_override():
@@ -13,6 +22,37 @@ def test_resolve_active_fields_defaults_and_override():
     assert resolve_active_fields("summary,cover,staff", override="summary") == ["summary"]
     assert resolve_active_fields("summary", override="ALL") == list(ALL_TARGETED_FIELDS)
     assert resolve_active_fields("ALL", override="NONE") == []
+
+
+def test_targeted_fields_is_granular_from_the_first_unticked_box():
+    assert targeted_fields_is_granular("ALL") is False
+    assert targeted_fields_is_granular(None) is False
+    assert targeted_fields_is_granular("") is False
+    assert targeted_fields_is_granular(",".join(ALL_TARGETED_FIELDS)) is False
+    assert targeted_fields_is_granular("summary,cover") is True
+    assert targeted_fields_is_granular("NONE") is True
+    almost = [f for f in ALL_TARGETED_FIELDS if f != "language"]
+    assert targeted_fields_is_granular(",".join(almost)) is True
+
+
+def test_options_override_helpers_match_chip_rules():
+    assert alt_title_is_override("", "One Piece") is False
+    assert alt_title_is_override("One Piece", "One Piece") is False
+    assert alt_title_is_override("one piece", "One Piece") is False
+    assert alt_title_is_override("  One Piece  ", "One Piece") is False
+    assert alt_title_is_override("Le Collège Fou Fou Fou", "Le College Fou Fou Fou") is True
+
+    assert publisher_pref_is_override("GLOBAL") is False
+    assert publisher_pref_is_override("") is False
+    assert publisher_pref_is_override(None) is False
+    assert publisher_pref_is_override("ORIGINAL") is True
+    assert publisher_pref_is_override("LOCALIZED") is True
+    assert publisher_pref_chip_label("ORIGINAL") == "VO"
+    assert publisher_pref_chip_label("LOCALIZED") == "VF/VA"
+
+    assert alt_langs_is_override("") is False
+    assert alt_langs_is_override("en,ja-ro") is True
+    assert alt_langs_chip_label("en,ja-ro") == "en, ja-ro"
 
 
 def test_batch_sync_enqueues_fields_override(monkeypatch, isolated_db):

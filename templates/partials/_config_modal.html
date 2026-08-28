@@ -83,7 +83,7 @@
                                 </label>
                                 <p class="field-hint m-0">{{ t.ui_show_inventory_desc }}</p>
                             </div>
-                            <div class="config-option-card config-option-card--primary m-0">
+                            <div class="config-option-card config-option-card--primary">
                                 <label class="checkbox-label">
                                     <input type="checkbox" id="config_ui_show_volumes" value="true"
                                            {% if config.get('UI_SHOW_VOLUMES', True) %}checked{% endif %}
@@ -92,6 +92,16 @@
                                     <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
                                 </label>
                                 <p class="field-hint m-0">{{ t.ui_show_volumes_desc }}</p>
+                            </div>
+                            <div class="config-option-card config-option-card--primary m-0">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="config_ui_show_field_mapping" value="true"
+                                           {% if config.get('UI_SHOW_FIELD_MAPPING') %}checked{% endif %}
+                                           onchange="onUiSectionToggle(this, 'mapping')">
+                                    <strong>{{ t.ui_show_field_mapping }}</strong>
+                                    <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
+                                </label>
+                                <p class="field-hint m-0">{{ t.ui_show_field_mapping_desc }}</p>
                             </div>
                         </div>
                     </div>

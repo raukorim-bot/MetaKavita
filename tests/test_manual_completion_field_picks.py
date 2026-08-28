@@ -304,3 +304,34 @@ def test_parse_field_picks_omitted_vs_manual():
     assert _parse_field_picks({"manual_completion": False, "field_picks": {"cover": ["X"]}}) == (
         None, False, False
     )
+
+
+def test_mal_hentai_genres_do_not_rewrite_comicvine_age(isolated_db):
+    """C88 A3 : bump par blob, pas après mix — genres MAL ≠ âge ComicVine."""
+    rid = _park(
+        3810,
+        "AgeMix",
+        [
+            _card(
+                "COMICVINE",
+                0.9,
+                summary="cv",
+                age_rating="mature",
+                genres=["Superhero"],
+            ),
+            _card(
+                "MAL",
+                0.8,
+                summary="mal",
+                age_rating="",
+                genres=["Hentai"],
+            ),
+        ],
+    )
+    master = mr.choice_and_merge(
+        rid,
+        "COMICVINE",
+        field_picks={"age_rating": ["COMICVINE"], "genres": ["MAL"]},
+    )
+    assert master["age_rating"] == "mature"
+    assert master["genres"] == ["Hentai"]

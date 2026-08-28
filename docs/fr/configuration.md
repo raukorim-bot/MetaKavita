@@ -72,4 +72,16 @@ La plupart des réglages ci-dessous se retrouvent aussi dans la **Configuration 
 | `UI_SHOW_MANUAL_REVIEW` | Afficher les réglages de la relecture manuelle dans la barre latérale. Décoché, la catégorie disparaît **et** le mode s'éteint, file d'attente vidée. | `true` |
 | `UI_SHOW_INVENTORY` | Afficher les réglages de l'Inventaire dans la barre latérale. Décoché, la catégorie disparaît **et** l'Inventaire s'éteint. | `true` |
 | `UI_SHOW_VOLUMES` | Afficher les réglages de l'enrichissement par tome dans la barre latérale. Décoché, la catégorie disparaît **et** la passe s'éteint. | `true` |
+| `UI_SHOW_FIELD_MAPPING` | Afficher les réglages du mapping par champ dans la barre latérale. Décoché, la catégorie disparaît **et** le mapping s'éteint (l'Auto reprend la cascade actuelle). Masqué par défaut. | `false` |
+| `FIELD_MAPPING_ENABLED` | Utiliser la carte par champ en Auto / lots. Ignoré si la catégorie est masquée, si la Review manuelle est allumée, ou si une série a un fournisseur forcé. | `false` |
+| `FIELD_MAPPING_DEFAULT_MANGA` | Source par défaut des champs Auto manga : `CASCADE` ou un id de fournisseur manga. | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_COMIC` | Source par défaut des champs Auto comic strict. | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_BOOK` | Source par défaut des champs Auto book. | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_COMICFLEXIBLE` | Source par défaut de la vague comics de Comic (Flexible). | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_COMICFLEXIBLE_MANGA` | Source par défaut du repli manga de Comic (Flexible). | `CASCADE` |
+| `FIELD_PROVIDER_MAP_MANGA` | Overrides par champ pour le manga (`cover` → `ANILIST`, …). Clé absente = suivre le défaut. | `{}` |
+| `FIELD_PROVIDER_MAP_COMIC` | Overrides par champ pour les bibliothèques comic strictes. | `{}` |
+| `FIELD_PROVIDER_MAP_BOOK` | Overrides par champ pour les bibliothèques book. | `{}` |
+| `FIELD_PROVIDER_MAP_COMICFLEXIBLE` | Overrides par champ de la vague comics Flexible. | `{}` |
+| `FIELD_PROVIDER_MAP_COMICFLEXIBLE_MANGA` | Overrides par champ du repli manga Flexible. | `{}` |
 ---

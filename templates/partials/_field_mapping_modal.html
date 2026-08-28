@@ -1,0 +1,80 @@
+    <!-- MODAL MAPPING PAR CHAMP (C88) -->
+    <div id="fieldMappingModal" class="modal-overlay" onclick="if(event.target===this) closeFieldMappingModal()">
+        <div class="modal-content modal-large modal-shell">
+            <div class="modal-header modal-header--mapping">
+                <h3 class="m-0"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-puzzle"></use></svg>{{ t.field_mapping_modal_title }}</h3>
+                <button type="button" class="close-btn" onclick="closeFieldMappingModal()">&times;</button>
+            </div>
+            <div class="fm-tabs" role="tablist" aria-label="{{ t.field_mapping_modal_title }}">
+                <button type="button" class="fm-tab is-active" role="tab" aria-selected="true" data-lib="manga" onclick="switchLibraryTab('manga')">{{ t.field_mapping_tab_manga }}</button>
+                <button type="button" class="fm-tab" role="tab" aria-selected="false" data-lib="comic" onclick="switchLibraryTab('comic')">{{ t.field_mapping_tab_comic }}</button>
+                <button type="button" class="fm-tab" role="tab" aria-selected="false" data-lib="book" onclick="switchLibraryTab('book')">{{ t.field_mapping_tab_book }}</button>
+                <button type="button" class="fm-tab" role="tab" aria-selected="false" data-lib="comicflexible" onclick="switchLibraryTab('comicflexible')">{{ t.field_mapping_tab_flexible }}</button>
+            </div>
+            <form id="fieldMappingForm" class="modal-form" onsubmit="event.preventDefault(); if (typeof saveFieldMapping === 'function') saveFieldMapping();">
+                <div class="modal-scroll-body">
+                    <p class="field-hint fm-hint">{{ t.field_mapping_force_hint }}</p>
+                    <p class="fm-loading" hidden>{{ t.field_mapping_loading }}</p>
+                    <p class="fm-error" hidden data-default="{{ t.field_mapping_error }}">{{ t.field_mapping_error }}</p>
+                    <p class="fm-empty" hidden>{{ t.field_mapping_empty }}</p>
+
+                    {% set fm_fields = [
+                        ('cover', t.field_cover),
+                        ('year', t.field_year),
+                        ('status', t.field_status),
+                        ('publisher', t.field_publisher),
+                        ('age_rating', t.field_age),
+                        ('localized_name', t.field_alt_titles),
+                        ('summary', t.field_summary),
+                        ('genres', t.field_genres),
+                        ('tags', t.field_tags),
+                        ('staff', t.field_staff),
+                    ] %}
+                    {% macro fm_wave(plan, block, label, hint, default_id, wave='') %}
+                    <div class="fm-wave cascade-block cascade-block--{{ block }}" data-plan="{{ plan }}" data-wave="{{ wave }}">
+                        <div class="cascade-block-label">{{ label }}</div>
+                        {% if hint %}<p class="field-hint fm-hint">{{ hint }}</p>{% endif %}
+                        <div class="fm-default">
+                            <label for="{{ default_id }}">{{ t.field_mapping_default }}</label>
+                            <select id="{{ default_id }}" class="fm-default-select" data-role="default">
+                                <option value="CASCADE" selected>{{ t.field_mapping_default_cascade }}</option>
+                                <option value="ANILIST">AniList</option>
+                                <option value="MAL">MAL</option>
+                            </select>
+                        </div>
+                        <div class="fm-grid">
+                            {% for field, label in fm_fields %}
+                            <div class="fm-field" data-field="{{ field }}">
+                                <label for="fm-{{ plan }}-{{ field }}">{{ label }}</label>
+                                <select id="fm-{{ plan }}-{{ field }}" data-role="override" data-field="{{ field }}">
+                                    <option value="" selected>{{ t.field_mapping_follow_default }}</option>
+                                    <option value="ANILIST">AniList</option>
+                                    <option value="MAL">MAL</option>
+                                </select>
+                            </div>
+                            {% endfor %}
+                        </div>
+                    </div>
+                    {% endmacro %}
+
+                    <div class="fm-panel is-active" data-lib="manga">
+                        {{ fm_wave('MANGA', 'manga', t.field_mapping_tab_manga, none, 'fm-default-MANGA') }}
+                    </div>
+                    <div class="fm-panel" data-lib="comic" hidden>
+                        {{ fm_wave('COMIC', 'comic', t.field_mapping_tab_comic, none, 'fm-default-COMIC') }}
+                    </div>
+                    <div class="fm-panel" data-lib="book" hidden>
+                        {{ fm_wave('BOOK', 'book', t.field_mapping_tab_book, none, 'fm-default-BOOK') }}
+                    </div>
+                    <div class="fm-panel" data-lib="comicflexible" hidden>
+                        {{ fm_wave('COMICFLEXIBLE', 'comic', t.field_mapping_wave_comic, t.field_mapping_wave_comic_hint, 'fm-default-COMICFLEXIBLE', 'comic') }}
+                        {{ fm_wave('COMICFLEXIBLE_MANGA', 'manga', t.field_mapping_wave_manga, t.field_mapping_wave_manga_hint, 'fm-default-COMICFLEXIBLE_MANGA', 'manga') }}
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn-secondary" onclick="closeFieldMappingModal()">{{ t.cancel }}</button>
+                    <button type="submit" class="btn-primary" id="fmSaveBtn" disabled>{{ t.field_mapping_save }}</button>
+                </div>
+            </form>
+        </div>
+    </div>

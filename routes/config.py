@@ -1,7 +1,9 @@
 """
-Blueprint de configuration globale : /save-config, /regenerate-webhook-token.
+Blueprint de configuration globale : /save-config, /regenerate-webhook-token,
+GET/POST /api/config/field-mapping.
 
-⚠️ Endpoints réels : 'config.save_config_ajax' et 'config.regenerate_webhook_token'.
+⚠️ Endpoints réels : 'config.save_config_ajax', 'config.regenerate_webhook_token',
+'config.get_field_mapping', 'config.save_field_mapping'.
 """
 
 import logging
@@ -20,6 +22,16 @@ from config_manager import (
 from scrapers import ScraperRegistry
 from kavita_api import KavitaAPI
 from translations import get_ui_translations
+from services.field_assembly import AUTO_FIELD_PICK_KEYS
+from services.field_mapping import (
+    CASCADE,
+    PLAN_SPECS,
+    dropdown_providers,
+    parse_mapping_default,
+    parse_provider_map,
+    resolve_mapping_plan,
+    usable_ids_for_fetch_type,
+)
 
 config_bp = Blueprint('config', __name__)
 
@@ -245,9 +257,12 @@ def save_config_ajax():
         # Mode léger (C80) : trois cases qui retirent une catégorie de la barre
         # latérale. Lues seulement si présentes, comme les interrupteurs
         # ci-dessus, pour qu'un formulaire partiel n'en masque aucune au passage.
-        for key in ('UI_SHOW_MANUAL_REVIEW', 'UI_SHOW_INVENTORY', 'UI_SHOW_VOLUMES'):
+        for key in ('UI_SHOW_MANUAL_REVIEW', 'UI_SHOW_INVENTORY', 'UI_SHOW_VOLUMES',
+                    'UI_SHOW_FIELD_MAPPING'):
             if key in request.form:
                 config[key] = request.form.get(key) == 'true'
+        if 'FIELD_MAPPING_ENABLED' in request.form:
+            config['FIELD_MAPPING_ENABLED'] = request.form.get('FIELD_MAPPING_ENABLED') == 'true'
         # Masquée veut dire éteinte. L'interface éteint déjà la fonctionnalité au
         # moment où l'on décoche, mais la règle est réappliquée ici pour que
         # l'état enregistré soit cohérent quel que soit le formulaire reçu — et
@@ -373,3 +388,61 @@ def regenerate_webhook_token():
         )
     )
     return jsonify(success=True, new_token=new_token)
+
+
+def _serialize_mapping_wave(config, plan_id, library_type, wave):
+    plan = resolve_mapping_plan(config, library_type, flexible_wave=wave)
+    return {
+        "plan": plan_id,
+        "default": plan.default,
+        "overrides": dict(plan.overrides),
+        "providers": dropdown_providers(config, plan.fetch_library_type),
+        "fetch_library_type": plan.fetch_library_type,
+    }
+
+
+@config_bp.route("/api/config/field-mapping", methods=["GET"])
+def get_field_mapping():
+    config = load_config()
+    plans = {}
+    for plan_id, library_type, wave, _default_key, _map_key in PLAN_SPECS:
+        plans[plan_id] = _serialize_mapping_wave(config, plan_id, library_type, wave)
+    return jsonify(success=True, plans=plans)
+
+
+@config_bp.route("/api/config/field-mapping", methods=["POST"])
+def save_field_mapping():
+    body = request.get_json(silent=True)
+    if not isinstance(body, dict):
+        return jsonify(success=False, msg="JSON required"), 400
+    incoming = body.get("plans")
+    if not isinstance(incoming, dict):
+        incoming = {}
+
+    with CONFIG_LOCK:
+        config = load_config()
+        for plan_id, library_type, wave, default_key, map_key in PLAN_SPECS:
+            if plan_id not in incoming:
+                continue
+            spec = incoming.get(plan_id) or {}
+            if not isinstance(spec, dict):
+                spec = {}
+            fetch_lt = resolve_mapping_plan(
+                config, library_type, flexible_wave=wave
+            ).fetch_library_type
+            allowed = usable_ids_for_fetch_type(config, fetch_lt)
+            default = parse_mapping_default(spec.get("default"))
+            if default != CASCADE and default not in {p.upper() for p in allowed}:
+                default = CASCADE
+            overrides = parse_provider_map(
+                spec.get("overrides") or {},
+                allowed_fields=AUTO_FIELD_PICK_KEYS,
+                allowed_providers=allowed,
+            )
+            if default != CASCADE:
+                overrides = {f: p for f, p in overrides.items() if p != default}
+            config[default_key] = default
+            config[map_key] = overrides
+        save_config(config)
+
+    return jsonify(success=True)

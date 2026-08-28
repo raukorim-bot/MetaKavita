@@ -161,6 +161,7 @@ def merge_candidates(
     *,
     fill_age_rating: bool = False,
     skip_adult_label_fill: bool = False,
+    skip_keys=None,
 ):
     """
     Fusionne une liste ordonnée `(provider_id, data_dict)`.
@@ -172,7 +173,10 @@ def merge_candidates(
     Défaut False = Auto BF102 : seulement ``safe`` / ``suggestive`` / ``mature``.
     ``skip_adult_label_fill=True`` : Auto — refuse genres/tags depuis un secondaire
     explicit-adult vers un master non-adult.
+    ``skip_keys`` : clés data à ne pas hole-fill (C88 mapping). Défaut None =
+    comportement actuel. N'empêche pas l'absorb d'identifiants.
     """
+    blocked = skip_keys or ()
     if not ordered_entries:
         return None
 
@@ -197,6 +201,8 @@ def merge_candidates(
         filled_something = False
         for key, value in data.items():
             if key in _FUSION_SKIP_KEYS:
+                continue
+            if key in blocked:
                 continue
             if key == 'titles' and isinstance(value, list):
                 from localized_titles import merge_title_entries
@@ -479,7 +485,91 @@ def _submit_in_context(executor, fn, *args):
     return executor.submit(contextvars.copy_context().run, fn, *args)
 
 
-def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO", existing_metadata=None, smart_scoring=None, return_candidates=False, on_candidate=None):
+def call_scraper(
+    provider_id,
+    query,
+    *,
+    library_type,
+    is_id,
+    existing_metadata,
+    forced_provider="AUTO",
+    ui_translations=None,
+):
+    """Appelle UN scraper. Retour `(id, data|None)`. Throttle + erreurs inchangés."""
+    t = ui_translations
+    if t is None:
+        config = load_config()
+        ui_lang = config.get("UI_LANG", "fr")
+        t = translations.get(ui_lang, translations["fr"])
+    p = provider_id
+    scraper = ScraperRegistry.get(p)
+    if not scraper:
+        return p, None
+
+    if library_type not in scraper.supported_types and "Manga" not in scraper.supported_types:
+        if forced_provider == p or is_id:
+            msg = t.get("log_scraper_type_bypass", "⚠️ [Scraper {0}] Forçage du type '{1}'")
+            logging.warning(msg.format(p, library_type))
+        else:
+            return p, None
+
+    if is_id:
+        raw_input = query
+        if str(raw_input).startswith("http://") or str(raw_input).startswith("https://"):
+            extracted_id = scraper.extract_id_from_url(raw_input)
+            if extracted_id:
+                provider_query = extracted_id
+                is_id_search = True
+            else:
+                msg_skip = t.get("log_url_not_recognized", "⏭️ [Scraper {0}] URL non reconnue, on passe.")
+                logging.info(msg_skip.format(p))
+                return p, None
+        else:
+            provider_query = raw_input
+            is_id_search = True
+    else:
+        provider_query = query
+        is_id_search = False
+
+    if not provider_query:
+        return p, None
+
+    throttle_provider(scraper)
+
+    with provider_error_scope() as provider_errors:
+        try:
+            data = scraper.fetch(
+                provider_query,
+                library_type=library_type,
+                is_id=is_id_search,
+                existing_metadata=existing_metadata,
+            )
+        except Exception as e:
+            logging.error(
+                t.get(
+                    "log_scraper_fetch_err",
+                    "❌ [Scraper {0}] Erreur lors de la récupération pour '{1}': {2}",
+                ).format(p, provider_query, e)
+            )
+            data = None
+
+        if data is None and provider_errors:
+            kinds = sorted({str(err.get("kind") or "") for err in provider_errors})
+            details = "; ".join(
+                str(err.get("detail") or "") for err in provider_errors if err.get("detail")
+            )
+            logging.warning(
+                "🚫 [Scraper %s] Aucune donnée : le fournisseur a refusé la requête "
+                "(%s) — ce n'est pas une absence de correspondance. %s",
+                p,
+                ", ".join(k for k in kinds if k) or "http",
+                details,
+            )
+
+    return p, data
+
+
+def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=None, library_type="Manga", is_forced_id=False, forced_provider="AUTO", existing_metadata=None, smart_scoring=None, return_candidates=False, on_candidate=None, skip_keys=None):
     """
     Orchestre la cascade multi-fournisseurs.
 
@@ -500,15 +590,21 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
 
     `smart_scoring=None` lit la valeur depuis `config.json` (`SMART_SCORING`).
 
-    `return_candidates=True` (mode manuel) : ne construit pas de master_data.
-    Collecte tous les candidats utiles (seuil scrapers abaissé à 0.0 pour CE
-    contexte d'exécution seulement, voir `match_accept_threshold_scope`),
-    partitionne above/below selon le vrai seuil UI, retourne
+    `return_candidates=True` (mode manuel / Super Review) : ne construit pas de
+    master_data. Collecte tous les candidats utiles (seuil scrapers abaissé à
+    0.0 pour CE contexte d'exécution seulement, voir
+    `match_accept_threshold_scope`), partitionne above/below selon le vrai
+    seuil UI, retourne
     `({"above": [...], "below": [...], "query": query}, used_providers)`.
+    Même avec Smart Scoring off, la collecte manuelle utilise la vague à deux
+    temps (#1 puis le reste en parallèle) : on n'attend pas un provider pour
+    lancer les autres. Auto scoring-off reste séquentiel (contexte ISBN
+    transmis d'un provider au suivant).
 
     `on_candidate(card, band)` (optionnel, return_candidates only) : appelé dès
     qu'un scraper utile répond — même pattern que le stream covers — pour que
     l'UI affiche les cartes au fur et à mesure.
+    `skip_keys` (C88) : optionnel, passé à la fusion `apply_accepted`.
     """
     config = load_config()
     ui_lang = config.get('UI_LANG', 'fr')
@@ -527,6 +623,7 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
     base_provider_set = False
     collected = []  # [(idx, p, data), ...] — mode return_candidates uniquement
     streamed_providers = set()  # évite les doublons si fallback rejoue un provider
+    cascade_blobs = {}  # C91 : {pid: {blob, query, is_id}} pour réemploi mapping
 
     accumulated_ids = {'anilist_id': None, 'mal_id': None, 'mangabaka_id': None}
     accumulated_links = set()
@@ -542,69 +639,15 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         return base_provider_set
 
     def call_provider(p, current_query, is_id_search_forced, existing_ctx):
-        """Appelle UN provider et retourne (p, data|None). Isolé de la boucle pour être
-        utilisable aussi bien pour l'appel séquentiel du provider #1 que pour les appels
-        parallèles des providers suivants (soumis au ThreadPoolExecutor)."""
-        scraper = ScraperRegistry.get(p)
-        if not scraper:
-            return p, None
-
-        if library_type not in scraper.supported_types and "Manga" not in scraper.supported_types:
-            if forced_provider == p or is_id_search_forced:
-                msg = t.get('log_scraper_type_bypass', "⚠️ [Scraper {0}] Forçage du type '{1}'")
-                logging.warning(msg.format(p, library_type))
-            else:
-                return p, None
-
-        if is_id_search_forced:
-            raw_input = current_query
-            if str(raw_input).startswith("http://") or str(raw_input).startswith("https://"):
-                extracted_id = scraper.extract_id_from_url(raw_input)
-                if extracted_id:
-                    provider_query = extracted_id
-                    is_id_search = True
-                else:
-                    msg_skip = t.get('log_url_not_recognized', "⏭️ [Scraper {0}] URL non reconnue, on passe.")
-                    logging.info(msg_skip.format(p))
-                    return p, None
-            else:
-                provider_query = raw_input
-                is_id_search = True
-        else:
-            provider_query = current_query
-            is_id_search = False
-
-        if not provider_query:
-            return p, None
-
-        # Reste en place malgré `BaseScraper._http_get` : un scraper
-        # communautaire n'est pas obligé d'y passer, et sa cadence doit être
-        # respectée quand même.
-        throttle_provider(scraper)
-
-        # Distinguer « ce fournisseur n'a rien trouvé » de « ce fournisseur nous
-        # a refusé l'accès » : une clé révoquée, un jeton expiré ou un quota
-        # dépassé rendent tous `None`, et l'utilisateur n'avait aucun moyen de
-        # savoir qu'il devait renouveler une clé plutôt que renommer sa série.
-        with provider_error_scope() as provider_errors:
-            try:
-                data = scraper.fetch(provider_query, library_type=library_type, is_id=is_id_search, existing_metadata=existing_ctx)
-            except Exception as e:
-                logging.error(t.get("log_scraper_fetch_err", "❌ [Scraper {0}] Erreur lors de la récupération pour '{1}': {2}").format(p, provider_query, e))
-                data = None
-
-            if data is None and provider_errors:
-                kinds = sorted({str(err.get("kind") or "") for err in provider_errors})
-                details = "; ".join(
-                    str(err.get("detail") or "") for err in provider_errors if err.get("detail")
-                )
-                logging.warning(
-                    "🚫 [Scraper %s] Aucune donnée : le fournisseur a refusé la requête "
-                    "(%s) — ce n'est pas une absence de correspondance. %s",
-                    p, ", ".join(k for k in kinds if k) or "http", details,
-                )
-
-        return p, data
+        return call_scraper(
+            p,
+            current_query,
+            library_type=library_type,
+            is_id=is_id_search_forced,
+            existing_metadata=existing_ctx,
+            forced_provider=forced_provider,
+            ui_translations=t,
+        )
 
     def absorb_candidate(data):
         """Fusionne dans le contexte partagé (ISBN/auteurs/IDs externes/liens) les
@@ -672,6 +715,8 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                     for key, value in data.items():
                         if key in _FUSION_SKIP_KEYS:
                             continue
+                        if skip_keys and key in skip_keys:
+                            continue
                         if key == 'titles' and isinstance(value, list):
                             from localized_titles import merge_title_entries
                             merged = merge_title_entries(master_data.get('titles') or [], value)
@@ -696,46 +741,28 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         if master_data:
             master_data = apply_explicit_label_age(master_data) or master_data
 
-    def run_cascade(current_query, is_id_search_forced):
-        nonlocal base_provider_set, master_data
+    def remember_cascade_blob(p, data, query, is_id):
+        if data and p:
+            cascade_blobs[p] = {
+                "blob": data,
+                "query": str(query or "").strip(),
+                "is_id": bool(is_id),
+            }
 
-        if not providers_list:
-            return
-
-        # --- MODE FALLBACK CLASSIQUE (SMART_SCORING désactivé) ---
-        # Séquentiel strict dans l'ordre de la liste : le 1er résultat utile devient
-        # la base ; SMART_COMPLETION comble ensuite dans cet ordre, sans tri par score.
-        if not smart_scoring:
-            for idx, p in enumerate(providers_list):
-                _, data = call_provider(p, current_query, is_id_search_forced, current_existing)
-                if not data or not has_useful_data(data):
-                    continue
-                # BF81: hentai/futanari → x18 (does not affect match selection here).
-                data = apply_explicit_label_age(data) or data
-                apply_accepted([(idx, p, data)])
-                # Continuer la boucle uniquement pour la fusion / accumulation d'IDs ;
-                # sans smart_fusion, absorb_candidate a déjà été fait et master_data
-                # est figé — on continue quand même pour glaner ISBN/IDs/liens.
-            return
-
-        # --- MODE SMART SCORING ---
-        accepted = []  # [(index_fallback, provider_id, data), ...]
-
-        # Vague 1 (séquentielle) : le provider #1 amorce le contexte (ISBN/auteurs).
+    def collect_two_waves(current_query, is_id_search_forced):
+        """#1 séquentiel (ISBN/auteurs), le reste en parallèle. Une série à la fois."""
+        accepted = []
         p0 = providers_list[0]
         _, p0_data = call_provider(p0, current_query, is_id_search_forced, current_existing)
         if p0_data and has_useful_data(p0_data):
             p0_data = apply_explicit_label_age(p0_data) or p0_data
             accepted.append((0, p0, p0_data))
-            # Snapshot obligatoire pour le contexte wave-2 (ISBN/auteurs/IDs).
-            # apply_accepted() en fin de run ré-absorbe aussi — double absorb
-            # intentionnel et idempotent (ne pas retirer ce bloc).
+            if not return_candidates:
+                remember_cascade_blob(p0, p0_data, current_query, is_id_search_forced)
             absorb_candidate(p0_data)
-            # Stream immediately (covers-like) so Companion can open on first hit.
             if return_candidates:
                 stream_candidate(0, p0, p0_data)
 
-        # Vague 2 (parallèle) : providers restants sur un instantané figé du contexte.
         rest = providers_list[1:]
         if rest:
             context_snapshot = dict(current_existing)
@@ -756,10 +783,31 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
                     if data and has_useful_data(data):
                         data = apply_explicit_label_age(data) or data
                         accepted.append((idx, p, data))
+                        if not return_candidates:
+                            remember_cascade_blob(p, data, current_query, is_id_search_forced)
                         if return_candidates:
-                            # Progressive emit — do not wait for the whole wave.
                             stream_candidate(idx, p, data)
+        return accepted
 
+    def run_cascade(current_query, is_id_search_forced):
+        nonlocal base_provider_set, master_data
+
+        if not providers_list:
+            return
+
+        # Auto + Smart Scoring off : séquentiel, pour que P2 voie l'ISBN de P1,
+        # P3 celui de P2, etc. La Review manuelle n'a pas besoin de ça.
+        if not smart_scoring and not return_candidates:
+            for idx, p in enumerate(providers_list):
+                _, data = call_provider(p, current_query, is_id_search_forced, current_existing)
+                if not data or not has_useful_data(data):
+                    continue
+                data = apply_explicit_label_age(data) or data
+                remember_cascade_blob(p, data, current_query, is_id_search_forced)
+                apply_accepted([(idx, p, data)])
+            return
+
+        accepted = collect_two_waves(current_query, is_id_search_forced)
         if not accepted:
             return
 
@@ -903,6 +951,8 @@ def fetch_metadata(query, providers_list, smart_fusion=False, fallback_query=Non
         for id_key, id_val in accumulated_ids.items():
             if id_val: master_data[id_key] = id_val
         master_data['accumulated_links'] = list(accumulated_links)
+        if cascade_blobs:
+            master_data['_cascade_blobs'] = cascade_blobs
         return master_data, used_providers
 
     return None, used_providers

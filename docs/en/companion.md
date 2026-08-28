@@ -28,4 +28,4 @@ Full guide: [`companion/README.md`](../../companion/README.md) (also Help menu).
 
 Both archives are also offered by the **card under the top bar**. Its cross hides it for that browser; **Help → Download Companion** brings it back.
 
-Webhook flags used by the extension are documented in [Automation](automation.md).
+Webhook flags used by the extension are documented in [Automation](automation.md). Companion **Auto** follows the same Auto mapping as the dashboard when it is enabled; **Super Review** does not.

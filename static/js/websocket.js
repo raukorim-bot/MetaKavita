@@ -23,23 +23,146 @@
 })();
 var socket = window.socket;
 var logConsole = document.getElementById('log-console');
-socket.on('connect', function() {
+var LOG_MAX_LINES = 300;
+var LOG_TIME_RE = /^(\d{2}:\d{2}:\d{2})\s*\|\s*/;
+var LOG_SERIES_RE = /^(?:\[)?(«\s*[^»]+?\s*»(?:\s*\(\d+\))?)(?:\])?\s*/;
+var _logFollow = true;
+var _logPausedExplicit = false;
+var _logLastSeries = '';
+
+function parseLiveLog(raw) {
+    var text = String(raw == null ? '' : raw);
+    var time = '';
+    var stamped = text.match(LOG_TIME_RE);
+    if (stamped) {
+        time = stamped[1];
+        text = text.slice(stamped[0].length);
+    }
+    var series = '';
+    var named = text.match(LOG_SERIES_RE);
+    if (named) {
+        series = named[1].replace(/\s+/g, ' ').trim();
+        text = text.slice(named[0].length);
+    }
+    var kind = 'info';
+    var hay = String(raw == null ? '' : raw);
+    if (/ERROR|❌|💥|🚫/.test(hay)) kind = 'error';
+    else if (/WARNING|⚠️|⚠/.test(hay)) kind = 'warning';
+    else if (/✅|✔️/.test(hay)) kind = 'ok';
+    return { time: time, series: series, message: text || hay, kind: kind };
+}
+
+function _logNearBottom() {
+    if (!logConsole) return true;
+    return logConsole.scrollHeight - logConsole.scrollTop - logConsole.clientHeight < 48;
+}
+
+function _syncLogFollowUi() {
+    var paused = !_logFollow;
+    var box = document.querySelector('.logs-container');
+    if (box) box.classList.toggle('is-paused', paused);
+    var hint = document.getElementById('logPausedHint');
+    if (hint) hint.hidden = !paused;
+    var btn = document.getElementById('logFollowBtn');
+    if (!btn) return;
+    var pauseLabel = btn.getAttribute('data-pause') || 'Pause';
+    var resumeLabel = btn.getAttribute('data-resume') || 'Resume';
+    btn.textContent = paused ? resumeLabel : pauseLabel;
+    btn.classList.toggle('is-active', !paused);
+    btn.setAttribute('aria-pressed', paused ? 'true' : 'false');
+}
+
+function appendLiveLog(raw) {
     if (!logConsole) return;
+    var parsed = parseLiveLog(raw);
+    var placeholder = logConsole.querySelector('.log-placeholder');
+    if (placeholder) placeholder.remove();
+
+    var row = document.createElement('div');
+    var sameSeries = !!(parsed.series && parsed.series === _logLastSeries);
+    row.className = 'log-line log-' + parsed.kind;
+    if (parsed.series && !sameSeries) row.classList.add('has-series');
+
+    if (parsed.time) {
+        var timeEl = document.createElement('time');
+        timeEl.className = 'log-time';
+        timeEl.textContent = parsed.time;
+        row.appendChild(timeEl);
+    }
+
+    var body = document.createElement('div');
+    body.className = 'log-body';
+    if (parsed.series && !sameSeries) {
+        var seriesEl = document.createElement('span');
+        seriesEl.className = 'log-series';
+        seriesEl.textContent = parsed.series;
+        seriesEl.title = parsed.series;
+        body.appendChild(seriesEl);
+    }
+    var msgEl = document.createElement('span');
+    msgEl.className = 'log-msg';
+    msgEl.textContent = parsed.message;
+    body.appendChild(msgEl);
+    row.appendChild(body);
+    logConsole.appendChild(row);
+
+    _logLastSeries = parsed.series || '';
+
+    while (logConsole.querySelectorAll('.log-line').length > LOG_MAX_LINES) {
+        var oldest = logConsole.querySelector('.log-line');
+        if (!oldest) break;
+        oldest.remove();
+    }
+    if (_logFollow) logConsole.scrollTop = logConsole.scrollHeight;
+}
+
+function clearLiveLog() {
+    if (!logConsole) return;
+    logConsole.replaceChildren();
+    _logLastSeries = '';
+    var row = document.createElement('div');
+    row.className = 'log-line log-placeholder';
+    var msg = document.createElement('span');
+    msg.className = 'log-msg';
+    var waiting = (logConsole.getAttribute('data-waiting') || '').trim();
+    if (!waiting && window.AppTranslations && window.AppTranslations.waiting) {
+        waiting = window.AppTranslations.waiting;
+    }
+    msg.textContent = waiting;
+    row.appendChild(msg);
+    logConsole.appendChild(row);
+}
+
+(function wireLiveLogControls() {
+    if (!logConsole) return;
+    logConsole.addEventListener('scroll', function () {
+        if (_logPausedExplicit) return;
+        _logFollow = _logNearBottom();
+        _syncLogFollowUi();
+    });
+    var followBtn = document.getElementById('logFollowBtn');
+    if (followBtn) {
+        followBtn.addEventListener('click', function () {
+            _logPausedExplicit = _logFollow;
+            _logFollow = !_logFollow;
+            if (_logFollow) {
+                _logPausedExplicit = false;
+                logConsole.scrollTop = logConsole.scrollHeight;
+            }
+            _syncLogFollowUi();
+        });
+    }
+    var clearBtn = document.getElementById('logClearBtn');
+    if (clearBtn) clearBtn.addEventListener('click', clearLiveLog);
+    _syncLogFollowUi();
+})();
+
+socket.on('connect', function() {
     var ready = (window.AppTranslations && window.AppTranslations.terminal_ready) || 'Ready';
-    logConsole.innerHTML += '<div class="log-line" style="color: var(--primary);">' + ready + '</div>';
+    appendLiveLog(ready);
 });
 socket.on('log_update', function(msg) {
-    if (!logConsole) return;
-    var newLog = document.createElement('div');
-    newLog.className = 'log-line';
-    newLog.textContent = msg.data;
-    if (msg.data.includes('ERROR') || msg.data.includes('❌') || msg.data.includes('💥')) {
-        newLog.className += ' log-error';
-    } else if (msg.data.includes('WARNING') || msg.data.includes('⚠️')) {
-        newLog.className += ' log-warning';
-    }
-    logConsole.appendChild(newLog);
-    logConsole.scrollTop = logConsole.scrollHeight;
+    appendLiveLog(msg && msg.data != null ? msg.data : '');
 });
 
 function _handleHygieneProgress(payload) {

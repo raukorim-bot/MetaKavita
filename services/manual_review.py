@@ -22,6 +22,11 @@ from db_manager import (
 )
 from metadata_fetcher import apply_explicit_label_age, merge_candidates
 from secure_logging import safe_exc_str, series_label
+from services.field_assembly import (
+    FIELD_PICK_KEYS,
+    apply_field_picks,
+    normalize_field_picks,
+)
 from translations import get_ui_translations
 
 # Marqueur interne : résumé déjà passé par translate_text (évite double trad. à l'apply).
@@ -686,216 +691,6 @@ def _cards_by_provider(candidates_payload: Dict[str, Any]) -> Dict[str, dict]:
     return by_provider
 
 
-# Complétion manuelle (C86) : un gagnant par champ, ou une union de listes.
-# Les clés UI (`cover`) se distinguent parfois de la clé data (`cover_url`).
-FIELD_PICK_KEYS = (
-    "title",
-    "cover",
-    "year",
-    "status",
-    "format",
-    "publisher",
-    "age_rating",
-    "localized_name",
-    "summary",
-    "genres",
-    "tags",
-    "staff",
-)
-LIST_FIELD_PICKS = frozenset({"genres", "tags", "staff"})
-_FIELD_DATA_KEY = {
-    "title": "title",
-    "cover": "cover_url",
-    "year": "year",
-    "status": "status",
-    "format": "format",
-    "publisher": "publisher",
-    "age_rating": "age_rating",
-    "localized_name": "localized_name",
-    "summary": "summary",
-    "genres": "genres",
-    "tags": "tags",
-    "staff": "staff",
-}
-_STAFF_ROLE_KEYS = (
-    "staff",
-    "writers",
-    "pencillers",
-    "colorists",
-    "editors",
-    "inkers",
-    "letterers",
-    "cover_artists",
-)
-
-
-def normalize_field_picks(
-    raw: Any,
-    *,
-    merge_fields: bool,
-    known_providers: Optional[Sequence[str]] = None,
-) -> Dict[str, List[str]]:
-    """Valide le payload UI : clés connues, listes de providers, scalaires à 1."""
-    if not isinstance(raw, dict):
-        return {}
-    allowed = set(known_providers) if known_providers is not None else None
-    out: Dict[str, List[str]] = {}
-    for key, val in raw.items():
-        if key not in FIELD_PICK_KEYS:
-            continue
-        if isinstance(val, str):
-            providers = [val.strip()] if val.strip() else []
-        elif isinstance(val, (list, tuple)):
-            providers = [str(p).strip() for p in val if p and str(p).strip()]
-        else:
-            continue
-        if allowed is not None:
-            providers = [p for p in providers if p in allowed]
-        seen: set = set()
-        uniq: List[str] = []
-        for provider in providers:
-            if provider in seen:
-                continue
-            seen.add(provider)
-            uniq.append(provider)
-        if not uniq:
-            continue
-        if not (merge_fields and key in LIST_FIELD_PICKS):
-            uniq = uniq[:1]
-        out[key] = uniq
-    return out
-
-
-def _card_data(card: dict) -> dict:
-    data = card.get("data") if isinstance(card.get("data"), dict) else {}
-    return data
-
-
-def _raw_field(card: dict, data_key: str) -> Any:
-    """Valeur brute du blob `data`, sinon le champ top-level de la carte UI."""
-    data = _card_data(card)
-    if data_key in data and data[data_key] not in (None, "", []):
-        return copy.deepcopy(data[data_key])
-    top = card.get(data_key)
-    if top not in (None, "", []):
-        return copy.deepcopy(top)
-    return None
-
-
-def _list_field_items(card: dict, data_key: str) -> list:
-    """Items d'une liste à concaténer — aucun dédoublonnage (C86)."""
-    data = _card_data(card)
-    raw = data.get(data_key)
-    if raw in (None, "", False):
-        raw = card.get(data_key)
-    if raw in (None, "", False):
-        return []
-    if isinstance(raw, list):
-        return copy.deepcopy(raw)
-    if isinstance(raw, tuple):
-        return list(raw)
-    if isinstance(raw, str):
-        return [part.strip() for part in raw.replace(";", ",").split(",") if part.strip()]
-    return [copy.deepcopy(raw)]
-
-
-def _copy_staff_payload(card: dict) -> Dict[str, Any]:
-    """Staff brut (edges ou labels) + seaux de rôles si c'est tout ce que la carte a."""
-    data = _card_data(card)
-    if isinstance(data.get("staff"), list) and data["staff"]:
-        return {"staff": copy.deepcopy(data["staff"])}
-    out: Dict[str, Any] = {}
-    for key in _STAFF_ROLE_KEYS:
-        if data.get(key):
-            out[key] = copy.deepcopy(data[key])
-    if out:
-        return out
-    top = card.get("staff")
-    if isinstance(top, list) and top:
-        return {"staff": copy.deepcopy(top)}
-    return {}
-
-
-def apply_field_picks(
-    base_provider: str,
-    by_provider: Dict[str, dict],
-    field_picks: Any,
-    merge_fields: bool = False,
-) -> Optional[dict]:
-    """
-    Assemble un payload à partir des cases par champ (complétion manuelle).
-
-    Le master est la base. Chaque champ listé dans `field_picks` est remplacé
-    par le gagnant (scalaire / exclusif) ou concaténé (listes + merge_fields).
-    Un champ absent des picks reste celui du master. Pas de hole-fill Source.
-    """
-    if base_provider not in by_provider:
-        return None
-    master_card = by_provider[base_provider]
-    master = copy.deepcopy(_card_data(master_card) or {})
-    if not isinstance(master, dict):
-        master = {}
-    master["_provider_used"] = base_provider
-
-    picks = normalize_field_picks(
-        field_picks,
-        merge_fields=merge_fields,
-        known_providers=list(by_provider.keys()),
-    )
-    fusion: List[str] = []
-
-    def _note(providers: Sequence[str]) -> None:
-        for provider in providers:
-            if provider and provider != base_provider and provider not in fusion:
-                fusion.append(provider)
-
-    for field, providers in picks.items():
-        cards = [by_provider[p] for p in providers if p in by_provider]
-        if not cards:
-            continue
-        data_key = _FIELD_DATA_KEY[field]
-        if field == "staff":
-            if merge_fields and len(cards) > 1:
-                combined: list = []
-                for card in cards:
-                    payload = _copy_staff_payload(card)
-                    combined.extend(payload.get("staff") or _list_field_items(card, "staff"))
-                for key in _STAFF_ROLE_KEYS:
-                    master.pop(key, None)
-                master["staff"] = combined
-            else:
-                payload = _copy_staff_payload(cards[0])
-                if not payload:
-                    continue
-                for key in _STAFF_ROLE_KEYS:
-                    master.pop(key, None)
-                master.update(payload)
-            _note(providers)
-            continue
-        if field in LIST_FIELD_PICKS and merge_fields and len(cards) > 1:
-            combined = []
-            for card in cards:
-                combined.extend(_list_field_items(card, data_key))
-            master[data_key] = combined
-            _note(providers)
-            continue
-        value = _raw_field(cards[0], data_key)
-        if value is None and field == "localized_name":
-            value = cards[0].get("localized_name")
-        if value is None:
-            continue
-        master[data_key] = value
-        if field == "localized_name":
-            titles = _raw_field(cards[0], "titles")
-            if titles is not None:
-                master["titles"] = titles
-        _note(providers)
-
-    master["_fusion_providers"] = fusion
-    master = apply_explicit_label_age(master) or master
-    return master
-
-
 def choice_and_merge(
     review_id: str,
     base_provider: str,
@@ -935,6 +730,10 @@ def choice_and_merge(
         return None
 
     if field_picks is not None:
+        for card in by_provider.values():
+            data = card.get("data")
+            if isinstance(data, dict):
+                apply_explicit_label_age(data)
         master = apply_field_picks(
             base_provider, by_provider, field_picks, merge_fields=merge_fields
         )

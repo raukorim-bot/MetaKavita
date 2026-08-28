@@ -16,6 +16,8 @@ Technical infrastructure fields live in the **Global Configuration** modal (⚙�
 
 The left sidebar **Scraping Options** card (click the title to collapse; open by default) is grouped by category. **Matching** opens [Provider cascades](scrapers.md#provider-cascades) and toggles Smart Scoring, Smart Completion, edit-before-confirm, and the optional reliability barometer (`0.30`–`1.00`, default `0.60`).
 
+**Per-field mapping** (experimental, hidden in Light mode, off by default) lets Auto pick one provider per field: a default source (the cascade, or one provider) plus overrides, including a dedicated Comic (Flexible) tab with two waves. Without Force update, a field already filled in Kavita is not overwritten. A per-series forced provider ignores the map. Manual Review is unchanged. Mapping reuses a scraper already fetched in the cascade only if that call used the same query and id flag the override would send (a Magic ID is not kept as another provider's cover), and only calls the ones still missing, in parallel (one series at a time).
+
 ![Scraping options — Matching](../../assets/docs-scraping-matching.png)
 
 The same card also holds [Manual Review](manual-review.md).
@@ -49,7 +51,11 @@ The 🖼️ button on a series row opens **Choose cover**. The search box starts
 
 A cover you pick by hand is marked **🔒 Manual cover** and is not overwritten by a later automatic scrape. Click the chip to hand it back, or tick **Overwrite manual covers** (`COVER_FORCE_OVERWRITE`) for one run.
 
-During a batch, the active series pulses and scrolls into view. A progress bar shows `done / total`. Successful series auto-uncheck. The topbar shows lifetime counters plus a session counter. The console streams sanitized logs over WebSockets.
+During a batch, the active series pulses and scrolls into view. A progress bar shows `done / total`. Successful series auto-uncheck. The topbar shows lifetime counters plus a session counter.
+
+A series with its own Options — a forced provider, a Magic ID, a targeted-fields mask that is not “all” (one unticked box is enough), an alternative title different from the Kavita name, a publisher pref other than Auto (VF/VA or VO), or localized-title language tags — shows a chip on the row. Click it to open Options. The Options panel prefills the Kavita name, so a title chip is not shown when the saved value is the same as the series name. A forced provider skips Auto per-field mapping.
+
+The **Live log** in the left sidebar uses the same type as the rest of the app. Time sits to the left; the series (`« One Piece » (5605)`) is named once, then the following lines stay with it; errors and warnings have a coloured rail. **Pause** (or scrolling up) stops the pane jumping to the bottom so you can read back; **Clear** empties it. Sanitized lines still arrive over WebSockets.
 
 ## Needs seal (`NEEDS_RELOCK`)
 
@@ -63,7 +69,7 @@ Optional (default on via `ENABLE_PLAYFUL_STATS`). The landing is **Your library,
 
 ## Light mode
 
-`UI_SHOW_MANUAL_REVIEW`, `UI_SHOW_INVENTORY`, `UI_SHOW_VOLUMES` in the configuration modal remove those families from the sidebar. **Hiding a section also switches that feature off** (Manual Review also empties the queue). Tick a section back and it returns switched off. A pass already running keeps its block on screen until it ends (the Cancel button lives there).
+`UI_SHOW_MANUAL_REVIEW`, `UI_SHOW_INVENTORY`, `UI_SHOW_VOLUMES`, `UI_SHOW_FIELD_MAPPING` in the configuration modal remove those families from the sidebar. **Hiding a section also switches that feature off** (Manual Review also empties the queue). Tick a section back and it returns switched off. Per-field mapping is hidden by default. A pass already running keeps its block on screen until it ends (the Cancel button lives there).
 
 ## Enriched metadata fields
 
