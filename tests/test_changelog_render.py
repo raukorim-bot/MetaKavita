@@ -230,6 +230,26 @@ def test_aucune_entree_nest_numerotee_deux_fois():
     assert not doublons
 
 
+def test_la_derniere_version_tient_en_quelques_phrases():
+    """Un titre se survole ; le corps n'est pas un mode d'emploi."""
+    from services.changelog_service import _strip_tests_tail
+
+    trop = []
+    for ligne in _bloc_derniere_version():
+        if not ligne.startswith("* **"):
+            continue
+        texte = _strip_tests_tail(ligne)
+        if "** — " in texte:
+            corps = texte.split("** — ", 1)[1]
+        elif " — " in texte:
+            corps = texte.split(" — ", 1)[1]
+        else:
+            continue
+        if len(corps) > 560:
+            trop.append((len(corps), texte[:70]))
+    assert not trop, trop
+
+
 def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
     """Les bugs d'une fonctionnalité jamais publiée n'ont été vus par personne :
     ils appartiennent au DEVELOPER, pas aux notes de version."""
