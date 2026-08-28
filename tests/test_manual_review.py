@@ -1322,8 +1322,8 @@ def test_apply_manual_review_force_cover_upload_without_auto_cover(isolated_db, 
     assert cached["status"] in ("COMPLETED", "NEEDS_RELOCK")
 
 
-def test_apply_manual_review_no_cover_upload_without_auto_or_pick(isolated_db, mocker):
-    """Sans AUTO_COVER ni cover_picked : pas d'upload même si le provider a une cover."""
+def test_apply_manual_review_forces_cover_upload_without_auto_or_pick(isolated_db, mocker):
+    """Confirm MR avec une cover provider → upload même sans AUTO_COVER ni cover picker."""
     payload = {
         "above": [
             {
@@ -1371,4 +1371,5 @@ def test_apply_manual_review_no_cover_upload_without_auto_or_pick(isolated_db, m
         force_cover_upload=False,
     )
     assert ok is True, msg
-    upload.assert_not_called()
+    upload.assert_called_once()
+    assert upload.call_args[0][1] == "https://cdn.example/prov.jpg"

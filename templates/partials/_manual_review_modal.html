@@ -65,6 +65,16 @@
                         <input type="checkbox" id="mrShowBelow">
                         {{ t.mr_show_below }}
                     </label>
+                    <label class="checkbox-label mr-show-below-label" for="mrManualCompletion"
+                           title="{{ t.mr_manual_completion_title }}">
+                        <input type="checkbox" id="mrManualCompletion">
+                        {{ t.mr_manual_completion }}
+                    </label>
+                    <label class="checkbox-label mr-show-below-label" for="mrMergeFields"
+                           title="{{ t.mr_merge_fields_title }}">
+                        <input type="checkbox" id="mrMergeFields" disabled>
+                        {{ t.mr_merge_fields }}
+                    </label>
                 </div>
                 <p id="mrHiddenBelowHint" class="mr-hidden-below-hint" style="display:none;" aria-live="polite"></p>
                 <div id="mrAboveLabel" class="mr-band-label" style="display:none;">{{ t.mr_above }}</div>
@@ -108,6 +118,7 @@
 
             <div id="mrEditPanel" class="modal-scroll-body mr-edit-panel" style="display:none;">
                 <h4 class="mr-edit-title">{{ t.mr_edit_title }}</h4>
+                <p class="mr-edit-send-hint">{{ t.mr_edit_send_hint }}</p>
                 <div id="mrEditFusionBar" class="mr-fusion-bar mr-fusion-bar-edit" style="display:none;" aria-live="polite"></div>
                 <div id="mrEditFields" class="mr-edit-grid"></div>
             </div>

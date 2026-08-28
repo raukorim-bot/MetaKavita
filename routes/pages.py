@@ -29,6 +29,14 @@ from scrapers.utils import get_dup_accept_threshold, get_match_accept_threshold
 from translations import translations
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version
+from services.enrichment_engine import (
+    alt_langs_chip_label,
+    alt_langs_is_override,
+    alt_title_is_override,
+    publisher_pref_chip_label,
+    publisher_pref_is_override,
+    targeted_fields_is_granular,
+)
 from services.mr_achievements import evaluate_from_lifetime
 from services.stats_service import compute_playful_stats
 from services.scraper_diagnostics import list_scrapers_inventory
@@ -121,6 +129,12 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
             s['forced_provider'] = item_cache.get('forced_provider') or 'AUTO'
             s['publisher_pref'] = item_cache.get('publisher_pref') or 'GLOBAL'
             s['alt_title_langs'] = item_cache.get('alt_title_langs') or ''
+            s['fields_override'] = targeted_fields_is_granular(s['targeted_fields'])
+            s['alt_title_override'] = alt_title_is_override(s['alternative_title'], s.get('name'))
+            s['publisher_override'] = publisher_pref_is_override(s['publisher_pref'])
+            s['publisher_chip'] = publisher_pref_chip_label(s['publisher_pref']) if s['publisher_override'] else ''
+            s['alt_langs_override'] = alt_langs_is_override(s['alt_title_langs'])
+            s['alt_langs_chip'] = alt_langs_chip_label(s['alt_title_langs']) if s['alt_langs_override'] else ''
             s['cover_manual'] = bool(item_cache.get('cover_manual'))
             s['inventory_excluded'] = bool(item_cache.get('inventory_excluded'))
             if hygiene_meta and not s['inventory_excluded']:
@@ -183,9 +197,11 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     # proposer un réglage que la cascade ignorerait.
     volume_provider_choices = list_volume_provider_choices()
 
+    _series_scrapers = list(ScraperRegistry.get_all(scope="series"))
+    provider_labels = {s.id: s.localized_display_name for s in _series_scrapers}
     magic_scrapers = [
         {"id": s.id, "display_name": s.localized_display_name, "supported_types": list(s.supported_types)}
-        for s in ScraperRegistry.get_all(scope="series")
+        for s in _series_scrapers
         if getattr(s, 'has_direct_id_support', False)
     ]
 
@@ -241,6 +257,7 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            book_providers=book_providers,
                            volume_provider_choices=volume_provider_choices,
                            magic_scrapers=magic_scrapers,
+                           provider_labels=provider_labels,
                            scrapers_with_keys=scrapers_with_keys,
                            has_kavita_api_key=has_kavita_api_key,
                            has_deepl_api_key=has_deepl_api_key,

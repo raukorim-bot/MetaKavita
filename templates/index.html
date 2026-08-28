@@ -59,6 +59,14 @@
             cover_manual_badge: {{ t.cover_manual_badge|tojson }},
             cover_manual_badge_hint: {{ t.cover_manual_badge_hint|tojson }},
             cover_release_fail: {{ t.cover_release_fail|tojson }},
+            override_provider_badge_hint: {{ t.override_provider_badge_hint|tojson }},
+            override_id_badge: {{ t.override_id_badge|tojson }},
+            override_id_badge_hint: {{ t.override_id_badge_hint|tojson }},
+            override_fields_badge: {{ t.override_fields_badge|tojson }},
+            override_fields_badge_hint: {{ t.override_fields_badge_hint|tojson }},
+            override_alt_title_badge_hint: {{ t.override_alt_title_badge_hint|tojson }},
+            override_publisher_badge_hint: {{ t.override_publisher_badge_hint|tojson }},
+            override_langs_badge_hint: {{ t.override_langs_badge_hint|tojson }},
             account_fill_all: "{{ t.account_fill_all }}",
             account_err_mismatch: "{{ t.account_err_mismatch }}",
             filter_completed: "{{ t.filter_completed }}",
@@ -103,6 +111,17 @@
 			mr_include: "{{ t.mr_include }}",
 			mr_master: "{{ t.mr_master }}",
 			mr_source: "{{ t.mr_source }}",
+			mr_manual_completion: "{{ t.mr_manual_completion }}",
+			mr_manual_completion_title: "{{ t.mr_manual_completion_title }}",
+			mr_merge_fields: "{{ t.mr_merge_fields }}",
+			mr_merge_fields_title: "{{ t.mr_merge_fields_title }}",
+			mr_merge_fields_needs_manual: "{{ t.mr_merge_fields_needs_manual }}",
+			mr_pick_field: "{{ t.mr_pick_field }}",
+			mr_edit_send_hint: "{{ t.mr_edit_send_hint }}",
+			mr_edit_send: "{{ t.mr_edit_send }}",
+			mr_edit_send_title: "{{ t.mr_edit_send_title }}",
+			mr_edit_send_locked: "{{ t.mr_edit_send_locked }}",
+			mr_edit_never_writable: "{{ t.mr_edit_never_writable }}",
 			mr_fusion_bar_solo: "{{ t.mr_fusion_bar_solo }}",
 			mr_fusion_bar_with: "{{ t.mr_fusion_bar_with }}",
 			mr_meta_year: "{{ t.mr_meta_year }}",
@@ -247,8 +266,10 @@
 			cover_send_failed: "{{ t.cover_send_failed }}",
 			cover_send_network: "{{ t.cover_send_network }}",
 			cover_live_search_for: "{{ t.cover_live_search_for }}",
-			changelog_loading: "{{ t.changelog_loading }}"
+            changelog_loading: "{{ t.changelog_loading }}"
         };
+
+        window.PROVIDER_LABELS = {{ provider_labels|default({})|tojson }};
 
         /* Inventaire et enrichissement par tome : injectés en bloc plutôt que clé
            par clé, car library_audit.js compose des clés dynamiques
@@ -267,10 +288,10 @@
    pas ajouter trois attributs qui ressembleraient à s'y tromper aux deux
    ci-dessus — ceux-là disent qu'une fonctionnalité est éteinte, celui-ci dit
    qu'une catégorie de réglages est cachée. #}
-{%- set ui_sections = [('manual', 'UI_SHOW_MANUAL_REVIEW'), ('inventory', 'UI_SHOW_INVENTORY'), ('volumes', 'UI_SHOW_VOLUMES')] -%}
+{%- set ui_sections = [('manual', 'UI_SHOW_MANUAL_REVIEW'), ('inventory', 'UI_SHOW_INVENTORY'), ('volumes', 'UI_SHOW_VOLUMES'), ('mapping', 'UI_SHOW_FIELD_MAPPING')] -%}
 <body data-inventory="{{ '1' if inventory_enabled|default(true) else '0' }}"
       data-volumes="{{ '1' if config.get('VOLUME_ENRICHMENT_ENABLED', False) else '0' }}"
-      data-ui-hidden="{% for section, key in ui_sections %}{% if not config.get(key, True) %}{{ section }} {% endif %}{% endfor %}">
+      data-ui-hidden="{% for section, key in ui_sections %}{% if not config.get(key, section != 'mapping') %}{{ section }} {% endif %}{% endfor %}">
     {# Sprite en tête de document : la barre du haut et l'encart Companion
        affichent des icônes au premier rendu, or <use> ne trouve un symbole
        déclaré plus bas qu'après l'analyse complète de la page. #}
@@ -604,6 +625,8 @@
 
     {% include "partials/_providers_modal.html" %}
 
+    {% include "partials/_field_mapping_modal.html" %}
+
     {% include "partials/_cover_modal.html" %}
 
     {% include "partials/_changelog_modal.html" %}
@@ -632,6 +655,7 @@
     <script src="{{ url_for('static', filename='js/overrides.js') }}"></script>
     <script src="{{ url_for('static', filename='js/covers.js') }}"></script>
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/field_mapping.js') }}"></script>
     <script src="{{ url_for('static', filename='js/batch.js') }}"></script>
     <script src="{{ url_for('static', filename='js/series_list.js') }}"></script>
     <script src="{{ url_for('static', filename='js/library_audit.js') }}"></script>

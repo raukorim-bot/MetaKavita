@@ -6,7 +6,7 @@
 
 ## Cascades de providers
 
-**Scrapers → Cascades de providers** (ou le bouton **Cascades** de la sidebar) fixe l'ordre de recherche par type de bibliothèque. Le #1 est le primaire ; #2 et #3 sont des fallbacks, et des sources pour Smart Scoring / Complétion intelligente. L'Inventaire (tomes manquants / attendu) réutilise ces cascades ; si aucun attendu n'est trouvé, des scrapers de secours (AniList, MAL, ComicVine) partent automatiquement.
+**Scrapers → Cascades de providers** (ou le bouton **Cascades** de la sidebar) fixe l'ordre de recherche par type de bibliothèque. Le #1 est le primaire ; #2 et #3 sont des fallbacks, et des sources pour Smart Scoring / Complétion intelligente. L'Inventaire (tomes manquants / attendu) réutilise ces cascades ; si aucun attendu n'est trouvé, des scrapers de secours (AniList, MAL, ComicVine) partent automatiquement. L'Auto peut aussi utiliser une [carte par champ](dashboard.md) (expérimental, éteint par défaut) à la place d'un master plus le comblement des trous.
 
 ![Modal Cascades de providers](../../assets/docs-provider-cascades.png)
 

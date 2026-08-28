@@ -48,6 +48,31 @@ function closeProvidersModal() {
     if (modal) modal.style.display = 'none';
 }
 
+function openFieldMappingModal() {
+    const modal = document.getElementById('fieldMappingModal');
+    if (modal) modal.style.display = 'flex';
+}
+
+function closeFieldMappingModal() {
+    const modal = document.getElementById('fieldMappingModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function switchLibraryTab(lib) {
+    const modal = document.getElementById('fieldMappingModal');
+    if (!modal) return;
+    modal.querySelectorAll('.fm-tab').forEach(function (tab) {
+        const on = tab.getAttribute('data-lib') === lib;
+        tab.classList.toggle('is-active', on);
+        tab.setAttribute('aria-selected', on ? 'true' : 'false');
+    });
+    modal.querySelectorAll('.fm-panel').forEach(function (panel) {
+        const on = panel.getAttribute('data-lib') === lib;
+        panel.classList.toggle('is-active', on);
+        panel.hidden = !on;
+    });
+}
+
 function resetDiagInlinePill(selectName) {
     const pill = document.querySelector(`.diag-inline-pill[data-for="${selectName}"]`);
     if (!pill) return;
@@ -304,6 +329,11 @@ function turnUiSectionFeatureOff(section) {
         const vol = document.getElementById('sidebar_volume_enrichment');
         if (vol) vol.checked = false;
         if (document.body) document.body.setAttribute('data-volumes', '0');
+        return;
+    }
+    if (section === 'mapping') {
+        const map = document.getElementById('sidebar_field_mapping');
+        if (map) map.checked = false;
     }
 }
 
@@ -372,6 +402,8 @@ function saveConfig(options) {
     if (coverForceOverwrite) formData.append('COVER_FORCE_OVERWRITE', coverForceOverwrite.checked ? 'true' : 'false');
     const inventoryEnabled = document.getElementById('sidebar_library_inventory');
     if (inventoryEnabled) formData.append('LIBRARY_INVENTORY_ENABLED', inventoryEnabled.checked ? 'true' : 'false');
+    const fieldMappingEnabled = document.getElementById('sidebar_field_mapping');
+    if (fieldMappingEnabled) formData.append('FIELD_MAPPING_ENABLED', fieldMappingEnabled.checked ? 'true' : 'false');
     const folderPrefix = document.getElementById('dupFolderPathPrefix');
     if (folderPrefix) formData.append('INVENTORY_FOLDER_PATH_PREFIX', folderPrefix.value || '');
     const folderTrash = document.getElementById('dupFolderTrash');
@@ -409,6 +441,7 @@ function saveConfig(options) {
         ['config_ui_show_manual_review', 'UI_SHOW_MANUAL_REVIEW'],
         ['config_ui_show_inventory', 'UI_SHOW_INVENTORY'],
         ['config_ui_show_volumes', 'UI_SHOW_VOLUMES'],
+        ['config_ui_show_field_mapping', 'UI_SHOW_FIELD_MAPPING'],
     ].forEach(function (pair) {
         const el = document.getElementById(pair[0]);
         if (el) formData.append(pair[1], el.checked ? 'true' : 'false');

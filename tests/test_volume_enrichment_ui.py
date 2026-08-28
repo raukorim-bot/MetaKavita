@@ -367,7 +367,7 @@ def test_the_help_modal_has_one_section_per_sidebar_category():
     ).read_text(encoding="utf-8")
     sidebar = _render({"VOLUME_ENRICHMENT_ENABLED": True})["sidebar"]
 
-    for key in ("scraping_cat_match", "scraping_cat_manual", "scraping_cat_write",
+    for key in ("scraping_cat_match", "scraping_cat_mapping", "scraping_cat_manual", "scraping_cat_write",
                 "scraping_cat_inventory", "scraping_cat_volumes"):
         assert f"t.{key}" in help_modal, f"aucune section d'aide pour {key}"
         assert _translations()["fr"][key] in sidebar
@@ -763,8 +763,8 @@ def test_l_aide_porte_la_meme_etiquette_sur_les_memes_sections():
         if h.select_one(".lab-tag")
     ]
 
-    assert len(marquees) == 2, f"deux sections attendues, trouvé {marquees}"
-    for cle in ("scraping_cat_inventory", "scraping_cat_volumes"):
+    assert len(marquees) == 3, f"trois sections attendues, trouvé {marquees}"
+    for cle in ("scraping_cat_mapping", "scraping_cat_inventory", "scraping_cat_volumes"):
         assert any(cle in titre for titre in marquees), f"{cle} sans étiquette"
     assert t["badge_experimental"] and t["badge_experimental_hint"]
 

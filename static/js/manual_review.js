@@ -7,6 +7,26 @@
     var currentReviewId = null;
     var selectedProvider = null;
     var includeProviders = [];
+    var manualCompletion = false;
+    var mergeFields = false;
+    var fieldPicks = null;
+    var FIELD_PICK_KEYS = [
+        "title", "cover", "year", "status", "format", "publisher",
+        "age_rating", "localized_name", "summary", "genres", "tags", "staff"
+    ];
+    var LIST_FIELD_PICKS = { genres: true, tags: true, staff: true };
+    var ALL_TARGETED_FIELD_KEYS = [
+        "summary", "cover", "staff", "genres", "tags", "year",
+        "status", "publisher", "age", "weblinks", "alt_titles", "language"
+    ];
+    var EDIT_SEND_ALIASES = {
+        cover_url: "cover",
+        age_rating: "age",
+        localized_name: "alt_titles",
+        staff: "staff",
+        writers: "staff",
+        pencillers: "staff"
+    };
     // Companion embed: scope the whole queue to a single series so the user only
     // ever reviews the series opened from the Kavita page (never the first in the
     // global pending queue, and no auto-advance into other series).
@@ -463,35 +483,299 @@
         return String(value).trim() !== "";
     }
 
+    function cardFieldValue(card, field) {
+        if (!card) return null;
+        if (field === "cover") return card.cover_url;
+        if (field === "summary") return card.summary || card.summary_excerpt;
+        return card[field];
+    }
+
+    function findCard(review, provider) {
+        if (!review || !provider) return null;
+        var bands = [review.above || [], review.below || []];
+        var b, i, card;
+        for (b = 0; b < bands.length; b++) {
+            for (i = 0; i < bands[b].length; i++) {
+                card = bands[b][i];
+                if (card && card.provider === provider) return card;
+            }
+        }
+        return null;
+    }
+
+    function defaultFieldPicks(review, masterProvider) {
+        var picks = {};
+        var card = findCard(review, masterProvider);
+        if (!card) return picks;
+        FIELD_PICK_KEYS.forEach(function (field) {
+            if (fieldHasValue(cardFieldValue(card, field))) {
+                picks[field] = [masterProvider];
+            }
+        });
+        return picks;
+    }
+
+    function ensureFieldPicks(review) {
+        if (!manualCompletion || !selectedProvider) return;
+        if (!fieldPicks) fieldPicks = defaultFieldPicks(review, selectedProvider);
+    }
+
+    function resetFieldPicks() {
+        fieldPicks = null;
+    }
+
+    function selectMaster(provider) {
+        var changed = provider !== selectedProvider;
+        selectedProvider = provider;
+        includeProviders = includeProviders.filter(function (p) { return p !== selectedProvider; });
+        if (manualCompletion && changed) resetFieldPicks();
+    }
+
+    function fieldIsPicked(field, provider) {
+        if (!fieldPicks || !fieldPicks[field]) return false;
+        return fieldPicks[field].indexOf(provider) >= 0;
+    }
+
+    function fusionProvidersFromPicks(picks) {
+        var seen = {};
+        var out = [];
+        Object.keys(picks || {}).forEach(function (field) {
+            (picks[field] || []).forEach(function (p) {
+                if (!p || p === selectedProvider || seen[p]) return;
+                seen[p] = true;
+                out.push(p);
+            });
+        });
+        return out;
+    }
+
+    function pickRequestExtras() {
+        if (!manualCompletion) {
+            var fusionList = includeProviders.filter(function (p) {
+                return p && p !== selectedProvider;
+            });
+            return {
+                include_providers: fusionList,
+                fused: fusionList.length > 0,
+                manual_completion: false
+            };
+        }
+        var picks = fieldPicks || {};
+        var fromPicks = fusionProvidersFromPicks(picks);
+        return {
+            include_providers: fromPicks,
+            manual_completion: true,
+            merge_fields: !!mergeFields,
+            field_picks: picks,
+            fused: fromPicks.length > 0
+        };
+    }
+
+    function fieldPickLabel(field) {
+        var keys = {
+            title: "mr_field_title",
+            cover: "mr_meta_cover",
+            year: "mr_meta_year",
+            status: "mr_meta_status",
+            format: "mr_meta_format",
+            publisher: "mr_meta_publisher",
+            age_rating: "mr_meta_age",
+            localized_name: "mr_meta_localized",
+            summary: "mr_field_summary",
+            genres: "mr_meta_genres",
+            tags: "mr_meta_tags",
+            staff: "mr_meta_staff"
+        };
+        return t(keys[field] || field, field);
+    }
+
+    function fieldPickInput(field, provider, hasValue) {
+        if (!manualCompletion || !hasValue || !provider) return "";
+        var picked = fieldIsPicked(field, provider);
+        var locked = !!(mergeFields && LIST_FIELD_PICKS[field] &&
+            provider === selectedProvider && picked);
+        var label = t("mr_pick_field", "Use this {0}").replace("{0}", fieldPickLabel(field));
+        return '<input type="checkbox" data-mr-field="' + escapeHtml(field) +
+            '" data-mr-provider="' + escapeHtml(provider) + '"' +
+            (picked ? " checked" : "") +
+            (locked ? " disabled" : "") +
+            ' aria-label="' + escapeHtml(label) + '">';
+    }
+
+    function fieldHitAttrs(field, provider) {
+        return ' data-mr-field-hit data-mr-chip-field="' + escapeHtml(field) +
+            '" data-mr-chip-provider="' + escapeHtml(provider || "") + '"';
+    }
+
+    function onFieldPickChange(field, provider, checked) {
+        var review = currentReview();
+        ensureFieldPicks(review);
+        if (!fieldPicks) fieldPicks = {};
+        var current = (fieldPicks[field] || []).slice();
+        var masterCard = findCard(review, selectedProvider);
+        var masterHas = !!(masterCard && fieldHasValue(cardFieldValue(masterCard, field)));
+        if (mergeFields && LIST_FIELD_PICKS[field]) {
+            if (provider === selectedProvider) {
+                if (masterHas && current.indexOf(selectedProvider) < 0) {
+                    current.unshift(selectedProvider);
+                }
+                fieldPicks[field] = current;
+            } else if (checked) {
+                if (current.indexOf(provider) < 0) current.push(provider);
+                if (masterHas && current.indexOf(selectedProvider) < 0) {
+                    current.unshift(selectedProvider);
+                }
+                fieldPicks[field] = current;
+            } else {
+                fieldPicks[field] = current.filter(function (p) { return p !== provider; });
+                if (masterHas && fieldPicks[field].indexOf(selectedProvider) < 0) {
+                    fieldPicks[field].unshift(selectedProvider);
+                }
+            }
+        } else if (checked) {
+            fieldPicks[field] = [provider];
+        } else if (masterHas) {
+            fieldPicks[field] = [selectedProvider];
+        } else if (current.length) {
+            fieldPicks[field] = current;
+        } else {
+            delete fieldPicks[field];
+        }
+        syncFieldPickUi();
+    }
+
+    function syncFieldPickUi() {
+        var panel = document.getElementById("mrPickPanel");
+        if (!panel) return;
+        var inputs = panel.querySelectorAll("input[data-mr-field]");
+        var i, input, field, provider, picked, locked;
+        for (i = 0; i < inputs.length; i++) {
+            input = inputs[i];
+            field = input.getAttribute("data-mr-field");
+            provider = input.getAttribute("data-mr-provider");
+            picked = fieldIsPicked(field, provider);
+            input.checked = picked;
+            locked = !!(mergeFields && LIST_FIELD_PICKS[field] &&
+                provider === selectedProvider && picked);
+            input.disabled = locked;
+        }
+        var chips = panel.querySelectorAll("[data-mr-chip-field]");
+        for (i = 0; i < chips.length; i++) {
+            picked = fieldIsPicked(
+                chips[i].getAttribute("data-mr-chip-field"),
+                chips[i].getAttribute("data-mr-chip-provider")
+            );
+            chips[i].classList.toggle("is-picked", picked);
+        }
+        renderFusionBar();
+    }
+
+    function bindFieldPickInputs(root) {
+        if (!root) return;
+        var blockers = root.querySelectorAll("[data-mr-aside], [data-mr-field-hit]");
+        var b;
+        for (b = 0; b < blockers.length; b++) {
+            ["click", "mousedown", "pointerdown"].forEach(function (type) {
+                blockers[b].addEventListener(type, function (ev) {
+                    ev.stopPropagation();
+                });
+            });
+        }
+        var inputs = root.querySelectorAll("input[data-mr-field]");
+        var i, input;
+        for (i = 0; i < inputs.length; i++) {
+            input = inputs[i];
+            input.addEventListener("change", function (ev) {
+                ev.stopPropagation();
+                onFieldPickChange(
+                    this.getAttribute("data-mr-field"),
+                    this.getAttribute("data-mr-provider"),
+                    this.checked
+                );
+            });
+        }
+    }
+
+    function syncManualCompletionControls() {
+        var manualCb = document.getElementById("mrManualCompletion");
+        var mergeCb = document.getElementById("mrMergeFields");
+        if (manualCb) manualCb.checked = !!manualCompletion;
+        if (mergeCb) {
+            mergeCb.checked = !!(manualCompletion && mergeFields);
+            mergeCb.disabled = !manualCompletion;
+            mergeCb.title = manualCompletion
+                ? t("mr_merge_fields_title", "")
+                : t("mr_merge_fields_needs_manual", "Turn on Manual completion first.");
+        }
+    }
+
+    function restorePicksFromPreview(preview) {
+        if (!preview || !preview._manual_completion || !preview._field_picks) return;
+        manualCompletion = true;
+        mergeFields = !!preview._merge_fields;
+        fieldPicks = preview._field_picks;
+        syncManualCompletionControls();
+    }
+
+    function renderCover(c) {
+        var coverSrc = safeCoverUrl(c.cover_url);
+        var img = coverSrc
+            ? '<img class="mr-cover" src="' + escapeHtml(coverSrc) + '" alt="" loading="lazy">'
+            : '<div class="mr-cover mr-cover-empty" aria-hidden="true"></div>';
+        var input = fieldPickInput("cover", c.provider, fieldHasValue(c.cover_url));
+        if (!input) return img;
+        return '<label class="mr-cover-pick' +
+            (fieldIsPicked("cover", c.provider) ? " is-picked" : "") + '"' +
+            fieldHitAttrs("cover", c.provider) + ">" + input + img + "</label>";
+    }
+
+    function renderTitle(c) {
+        var text = escapeHtml(c.title || "—");
+        var input = fieldPickInput("title", c.provider, fieldHasValue(c.title));
+        if (!input) return '<div class="mr-title">' + text + "</div>";
+        return '<label class="mr-title mr-field-hit' +
+            (fieldIsPicked("title", c.provider) ? " is-picked" : "") + '"' +
+            fieldHitAttrs("title", c.provider) + ">" + input + text + "</label>";
+    }
+
     function renderMetaChips(c) {
         var chips = [];
-        function push(label, value, isList, onlyIfMissing) {
+        function push(field, label, value, isList, onlyIfMissing) {
             var present = fieldHasValue(value);
             if (onlyIfMissing && present) return;
             var display = present
                 ? (isList ? joinList(value, 8) : String(value))
                 : "—";
+            var pickable = !!(manualCompletion && present);
+            var picked = pickable && fieldIsPicked(field, c.provider);
+            var tag = pickable ? "label" : "span";
             chips.push(
-                '<span class="mr-chip' + (present ? "" : " mr-chip-missing") + '"' +
+                "<" + tag + ' class="mr-chip' +
+                (present ? "" : " mr-chip-missing") +
+                (pickable ? " mr-field-hit" : "") +
+                (picked ? " is-picked" : "") + '"' +
+                (pickable ? fieldHitAttrs(field, c.provider) : "") +
                 (present ? "" : ' title="' + escapeHtml(t("mr_field_missing", "Champ manquant")) + '"') +
-                '><span class="mr-chip-label">' +
+                ">" +
+                fieldPickInput(field, c.provider, present) +
+                '<span class="mr-chip-label">' +
                 escapeHtml(label) +
                 "</span> " +
                 escapeHtml(display) +
-                "</span>"
+                "</" + tag + ">"
             );
         }
-        // Cover déjà visible à gauche : chip rouge seulement si absente
-        push(t("mr_meta_cover", "Cover"), c.cover_url, false, true);
-        push(t("mr_meta_year", "Year"), c.year, false, false);
-        push(t("mr_meta_status", "Status"), c.status, false, false);
-        push(t("mr_meta_format", "Format"), c.format, false, false);
-        push(t("mr_meta_publisher", "Publisher"), c.publisher, false, false);
-        push(t("mr_meta_age", "Age"), c.age_rating, false, false);
-        push(t("mr_meta_localized", "Localized"), c.localized_name, false, false);
-        push(t("mr_meta_genres", "Genres"), c.genres, true, false);
-        push(t("mr_meta_tags", "Tags"), c.tags, true, false);
-        push(t("mr_meta_staff", "Staff"), c.staff, true, false);
+        // Cover : chip rouge si absente ; chip cliquable si complétion (l'image l'est aussi)
+        push("cover", t("mr_meta_cover", "Cover"), c.cover_url, false, !manualCompletion);
+        push("year", t("mr_meta_year", "Year"), c.year, false, false);
+        push("status", t("mr_meta_status", "Status"), c.status, false, false);
+        push("format", t("mr_meta_format", "Format"), c.format, false, false);
+        push("publisher", t("mr_meta_publisher", "Publisher"), c.publisher, false, false);
+        push("age_rating", t("mr_meta_age", "Age"), c.age_rating, false, false);
+        push("localized_name", t("mr_meta_localized", "Localized"), c.localized_name, false, false);
+        push("genres", t("mr_meta_genres", "Genres"), c.genres, true, false);
+        push("tags", t("mr_meta_tags", "Tags"), c.tags, true, false);
+        push("staff", t("mr_meta_staff", "Staff"), c.staff, true, false);
         return '<div class="mr-meta">' + chips.join("") + "</div>";
     }
 
@@ -502,7 +786,15 @@
                 escapeHtml(t("mr_no_summary", "No summary available")) +
                 "</div>";
         }
-        return '<div class="mr-summary">' + escapeHtml(summary) + "</div>";
+        var input = fieldPickInput("summary", c.provider, true);
+        if (!input) {
+            return '<div class="mr-summary">' + escapeHtml(summary) + "</div>";
+        }
+        return '<label class="mr-summary mr-field-hit' +
+            (fieldIsPicked("summary", c.provider) ? " is-picked" : "") + '"' +
+            fieldHitAttrs("summary", c.provider) + ">" +
+            input +
+            '<span class="mr-summary-text">' + escapeHtml(summary) + "</span></label>";
     }
 
     function formatFusionBarText(master, sources) {
@@ -524,7 +816,9 @@
             bar.textContent = "";
             return;
         }
-        var sources = includeProviders.filter(function (p) { return p && p !== selectedProvider; });
+        var sources = manualCompletion
+            ? fusionProvidersFromPicks(fieldPicks)
+            : includeProviders.filter(function (p) { return p && p !== selectedProvider; });
         bar.style.display = "";
         bar.innerHTML = "<strong>" + escapeHtml(formatFusionBarText(selectedProvider, sources)) + "</strong>";
     }
@@ -898,9 +1192,11 @@
                     return p !== selectedProvider;
                 });
             }
+            if (manualCompletion) resetFieldPicks();
         }
         if (!selectedProvider && all.length) {
             selectedProvider = all[0].card.provider;
+            if (manualCompletion) resetFieldPicks();
         }
     }
 
@@ -985,7 +1281,7 @@
         }
     }
 
-    function renderCandidates() {
+    function renderCandidates(opts) {
         var review = currentReview();
         var aboveEl = document.getElementById("mrAboveList");
         var belowEl = document.getElementById("mrBelowList");
@@ -994,8 +1290,12 @@
         var aboveLabel = document.getElementById("mrAboveLabel");
         var belowLabel = document.getElementById("mrBelowLabel");
         var emptyEl = document.getElementById("mrNoCandidates");
+        var pickPanel = document.getElementById("mrPickPanel");
+        var keepScroll = !!(opts && opts.keepScroll);
+        var savedScroll = (keepScroll && pickPanel) ? pickPanel.scrollTop : 0;
         if (!aboveEl || !belowEl) return;
         syncShowBelowCheckbox();
+        syncManualCompletionControls();
         ensureStreamStatusBar(review);
 
         aboveEl.innerHTML = "";
@@ -1028,22 +1328,21 @@
         }
         if (emptyEl) emptyEl.style.display = all.length ? "none" : "";
 
-        var showMerge = all.length > 1;
+        var showMerge = all.length > 1 && !manualCompletion;
+        ensureFieldPicks(review);
 
         all.forEach(function (entry, idx) {
             var c = entry.card;
-            var el = document.createElement("button");
-            el.type = "button";
+            var el = document.createElement("div");
             el.className = "mr-candidate" + (entry.weak ? " mr-weak" : "") +
                 (c.provider === selectedProvider ? " is-selected" : "");
             el.dataset.provider = c.provider;
             el.dataset.index = String(idx + 1);
+            el.setAttribute("role", "button");
+            el.tabIndex = 0;
             el.setAttribute("aria-pressed", c.provider === selectedProvider ? "true" : "false");
 
-            var coverSrc = safeCoverUrl(c.cover_url);
-            var cover = coverSrc
-                ? '<img class="mr-cover" src="' + escapeHtml(coverSrc) + '" alt="" loading="lazy">'
-                : '<div class="mr-cover mr-cover-empty" aria-hidden="true"></div>';
+            var cover = renderCover(c);
             var score = (typeof c.score === "number") ? c.score.toFixed(2) : "—";
             var included = includeProviders.indexOf(c.provider) >= 0;
             var isMaster = c.provider === selectedProvider;
@@ -1051,19 +1350,21 @@
                 ? '<span class="mr-hotkey">' + (idx + 1) + "</span>"
                 : "";
             var aside;
-            if (!showMerge) {
+            if (all.length <= 1) {
                 aside = '<div class="mr-candidate-aside"></div>';
             } else if (isMaster) {
-                aside = '<div class="mr-candidate-aside">' +
+                aside = '<div class="mr-candidate-aside" data-mr-aside>' +
                     '<span class="mr-master-badge">' + escapeHtml(t("mr_master", "Master")) + "</span>" +
                     "</div>";
-            } else {
-                aside = '<div class="mr-candidate-aside">' +
-                    '<label class="mr-include" onclick="event.stopPropagation()">' +
+            } else if (showMerge) {
+                aside = '<div class="mr-candidate-aside" data-mr-aside>' +
+                    '<label class="mr-include">' +
                     '<input type="checkbox" ' + (included ? "checked" : "") +
                     ' data-include="' + escapeHtml(c.provider) + '"> ' +
                     escapeHtml(t("mr_source", "Source")) +
                     "</label></div>";
+            } else {
+                aside = '<div class="mr-candidate-aside"></div>';
             }
 
             el.innerHTML =
@@ -1074,7 +1375,7 @@
                 '<span class="mr-provider">' + escapeHtml(c.provider || "") + "</span>" +
                 '<span class="mr-score ' + scoreClass(c.score) + '">' + score + "</span>" +
                 "</div>" +
-                '<div class="mr-title">' + escapeHtml(c.title || "—") + "</div>" +
+                renderTitle(c) +
                 renderMetaChips(c) +
                 renderSummary(c) +
                 (entry.weak
@@ -1083,9 +1384,10 @@
                 "</div>" +
                 aside;
 
-            el.addEventListener("click", function () {
-                selectedProvider = c.provider;
-                includeProviders = includeProviders.filter(function (p) { return p !== selectedProvider; });
+            el.addEventListener("click", function (ev) {
+                if (ev.target.closest("[data-mr-aside], [data-mr-field-hit]")) return;
+                if (c.provider === selectedProvider) return;
+                selectMaster(c.provider);
                 renderCandidates();
             });
             var cb = el.querySelector("input[data-include]");
@@ -1100,10 +1402,15 @@
                     renderFusionBar();
                 });
             }
+            bindFieldPickInputs(el);
             (entry.weak ? belowEl : aboveEl).appendChild(el);
         });
         renderFusionBar();
-        scrollSelectedCandidateIntoView();
+        if (keepScroll && pickPanel) {
+            pickPanel.scrollTop = savedScroll;
+        } else {
+            scrollSelectedCandidateIntoView();
+        }
     }
 
     function scrollSelectedCandidateIntoView() {
@@ -1142,6 +1449,7 @@
         currentIndex -= 1;
         selectedProvider = null;
         includeProviders = [];
+        resetFieldPicks();
         baselinePreview = null;
         showCurrentReview();
         return true;
@@ -1156,6 +1464,7 @@
         currentIndex += 1;
         selectedProvider = null;
         includeProviders = [];
+        resetFieldPicks();
         baselinePreview = null;
         showCurrentReview();
         return true;
@@ -1424,6 +1733,54 @@
         return t("mr_field_" + key, FIELD_LABEL_FALLBACKS[key] || key);
     }
 
+    function editSendKey(fieldKey) {
+        if (!fieldKey) return null;
+        if (fieldKey === "title" || fieldKey === "format") return null;
+        if (EDIT_SEND_ALIASES[fieldKey]) return EDIT_SEND_ALIASES[fieldKey];
+        if (ALL_TARGETED_FIELD_KEYS.indexOf(fieldKey) >= 0) return fieldKey;
+        return null;
+    }
+
+    function seriesWriteFields(preview) {
+        var raw = preview && preview._active_fields;
+        // Clé absente (vieux preview) = ALL. Tableau vide = override NONE : tout geler.
+        if (!Array.isArray(raw)) {
+            return ALL_TARGETED_FIELD_KEYS.slice();
+        }
+        return raw.slice();
+    }
+
+    function fieldIsWriteLocked(sendKey, preview) {
+        if (!sendKey) return false;
+        return seriesWriteFields(preview).indexOf(sendKey) < 0;
+    }
+
+    function setEditSendEnabled(sendKey, enabled) {
+        var wrap = document.getElementById("mrEditFields");
+        if (!wrap || !sendKey) return;
+        wrap.querySelectorAll("[data-field]").forEach(function (el) {
+            if (editSendKey(el.getAttribute("data-field")) !== sendKey) return;
+            el.disabled = !enabled;
+            var field = el.closest(".mr-edit-field");
+            if (field) field.classList.toggle("is-send-off", !enabled);
+        });
+        if (sendKey === "cover") {
+            wrap.classList.toggle("is-cover-send-off", !enabled);
+        }
+    }
+
+    function collectSendFields() {
+        var seen = {};
+        var out = [];
+        document.querySelectorAll("#mrEditFields input[data-mr-send]").forEach(function (cb) {
+            var key = cb.getAttribute("data-mr-send");
+            if (!key || seen[key]) return;
+            seen[key] = true;
+            if (cb.checked && !cb.disabled) out.push(key);
+        });
+        return out;
+    }
+
     function previewFieldString(preview, key) {
         var val = preview ? preview[key] : "";
         if (val == null) val = "";
@@ -1437,15 +1794,51 @@
     function buildEditField(key, opts) {
         opts = opts || {};
         var val = previewFieldString(baselinePreview, key);
+        var sendKey = opts.sendKey !== undefined ? opts.sendKey : editSendKey(key);
+        var displayOnly = !!opts.displayOnly || sendKey === null;
+        var locked = !displayOnly && fieldIsWriteLocked(sendKey, baselinePreview);
+        var sendOn = !displayOnly && !locked && opts.sendOn !== false;
         var group = document.createElement("div");
         group.className = "mr-edit-field" + (opts.compact ? " mr-edit-compact" : "")
             + (opts.wide ? " mr-edit-wide" : "")
             + (opts.extraClass ? (" " + opts.extraClass) : "");
-        var label = document.createElement("label");
-        label.className = "mr-edit-label";
-        label.htmlFor = "mr-field-" + key;
-        label.textContent = fieldLabel(key);
-        group.appendChild(label);
+        if (displayOnly) group.classList.add("is-display-only");
+        if (locked) group.classList.add("is-write-locked");
+        if (!displayOnly && !sendOn) group.classList.add("is-send-off");
+
+        var head = document.createElement("div");
+        head.className = "mr-edit-label";
+        if (!displayOnly && sendKey && !opts.hideSend) {
+            var cb = document.createElement("input");
+            cb.type = "checkbox";
+            cb.className = "mr-edit-send";
+            cb.setAttribute("data-mr-send", sendKey);
+            cb.checked = sendOn;
+            cb.disabled = locked;
+            cb.title = locked
+                ? t("mr_edit_send_locked", "Not in this series' targeted fields — Kavita will be left as-is.")
+                : t("mr_edit_send_title", "Checked: this field is written to Kavita. Unchecked: Kavita is left as-is.");
+            cb.setAttribute("aria-label", t("mr_edit_send", "Send {0}").replace("{0}", fieldLabel(key)));
+            cb.addEventListener("change", function () {
+                setEditSendEnabled(sendKey, cb.checked && !cb.disabled);
+            });
+            head.appendChild(cb);
+        }
+        var name = document.createElement("span");
+        name.className = "mr-edit-label-text";
+        name.textContent = fieldLabel(key);
+        head.appendChild(name);
+        if (locked || displayOnly) {
+            var lock = document.createElement("span");
+            lock.className = "mr-edit-lock";
+            lock.setAttribute("aria-hidden", "true");
+            lock.textContent = "🔒";
+            head.appendChild(lock);
+            head.title = displayOnly
+                ? t("mr_edit_never_writable", "Kavita does not accept this field — display only.")
+                : t("mr_edit_send_locked", "Not in this series' targeted fields — Kavita will be left as-is.");
+        }
+        group.appendChild(head);
 
         var control;
         if (key === "age_rating") {
@@ -1487,6 +1880,9 @@
             control.spellcheck = false;
             control.autocomplete = "off";
             control.value = val;
+        }
+        if (displayOnly || locked || !sendOn) {
+            control.disabled = true;
         }
         group.appendChild(control);
         return group;
@@ -1531,6 +1927,37 @@
 
         var coverCol = document.createElement("div");
         coverCol.className = "mr-edit-cover-col";
+        var coverLocked = fieldIsWriteLocked("cover", baselinePreview);
+        var coverHead = document.createElement("div");
+        coverHead.className = "mr-edit-label";
+        var coverCb = document.createElement("input");
+        coverCb.type = "checkbox";
+        coverCb.className = "mr-edit-send";
+        coverCb.setAttribute("data-mr-send", "cover");
+        coverCb.checked = !coverLocked;
+        coverCb.disabled = coverLocked;
+        coverCb.title = coverLocked
+            ? t("mr_edit_send_locked", "Not in this series' targeted fields — Kavita will be left as-is.")
+            : t("mr_edit_send_title", "Checked: this field is written to Kavita. Unchecked: Kavita is left as-is.");
+        coverCb.setAttribute("aria-label", t("mr_edit_send", "Send {0}").replace("{0}", fieldLabel("cover_url")));
+        coverCb.addEventListener("change", function () {
+            setEditSendEnabled("cover", coverCb.checked && !coverCb.disabled);
+        });
+        coverHead.appendChild(coverCb);
+        var coverName = document.createElement("span");
+        coverName.className = "mr-edit-label-text";
+        coverName.textContent = fieldLabel("cover_url");
+        coverHead.appendChild(coverName);
+        if (coverLocked) {
+            var coverLock = document.createElement("span");
+            coverLock.className = "mr-edit-lock";
+            coverLock.setAttribute("aria-hidden", "true");
+            coverLock.textContent = "🔒";
+            coverHead.appendChild(coverLock);
+            coverHead.title = t("mr_edit_send_locked", "Not in this series' targeted fields — Kavita will be left as-is.");
+            coverCol.classList.add("is-write-locked");
+        }
+        coverCol.appendChild(coverHead);
         var thumbWrap = document.createElement("div");
         thumbWrap.className = "mr-edit-cover-thumb-wrap";
         var thumb = document.createElement("img");
@@ -1548,7 +1975,11 @@
         var coverSummary = document.createElement("summary");
         coverSummary.textContent = t("mr_cover_url_toggle", "Cover URL");
         coverDetails.appendChild(coverSummary);
-        var coverField = buildEditField("cover_url", { rows: 2, extraClass: "mr-edit-cover-url-field" });
+        var coverField = buildEditField("cover_url", {
+            rows: 2,
+            extraClass: "mr-edit-cover-url-field",
+            hideSend: true
+        });
         // Label déjà dans summary — on masque le label interne du champ
         var coverLabel = coverField.querySelector(".mr-edit-label");
         if (coverLabel) coverLabel.style.display = "none";
@@ -1589,13 +2020,19 @@
             var staffDual = document.createElement("div");
             staffDual.className = "mr-edit-dual";
             if (baselinePreview.writers) staffDual.appendChild(buildEditField("writers", { rows: 2 }));
-            if (baselinePreview.pencillers) staffDual.appendChild(buildEditField("pencillers", { rows: 2 }));
+            if (baselinePreview.pencillers) {
+                staffDual.appendChild(buildEditField("pencillers", {
+                    rows: 2,
+                    hideSend: !!baselinePreview.writers
+                }));
+            }
             body.appendChild(staffDual);
         } else {
             body.appendChild(buildEditField("staff", { rows: 2, wide: true }));
         }
         wrap.appendChild(body);
 
+        if (coverLocked) wrap.classList.add("is-cover-send-off");
         var coverInput = wrap.querySelector('[data-field="cover_url"]');
         syncEditCoverThumb(thumb, coverInput ? coverInput.value : baselinePreview.cover_url);
         if (coverInput) {
@@ -1611,6 +2048,7 @@
         var edited = {};
         var fieldEdits = 0;
         document.querySelectorAll("#mrEditFields [data-field]").forEach(function (el) {
+            if (el.disabled) return;
             var key = el.getAttribute("data-field");
             var raw = el.value;
             var base = baselinePreview ? baselinePreview[key] : "";
@@ -1706,6 +2144,7 @@
             // same fusion (reopen / queue jump used to wipe includeProviders).
             includeProviders = ((review.preview && review.preview._fusion_providers) || [])
                 .filter(function (p) { return p && p !== selectedProvider; });
+            restorePicksFromPreview(review.preview);
             var nameEl = document.getElementById("mrSeriesQuery");
             var posEl = document.getElementById("mrQueuePos");
             if (nameEl && document.activeElement !== nameEl) {
@@ -1733,6 +2172,7 @@
         removeFromQueue(reviewId);
         selectedProvider = null;
         includeProviders = [];
+        resetFieldPicks();
         baselinePreview = null;
         coverPicked = false;
         providerCoverUrl = "";
@@ -1854,6 +2294,7 @@
         currentReviewId = reviewId;
         selectedProvider = null;
         includeProviders = [];
+        resetFieldPicks();
         baselinePreview = null;
         coverPicked = false;
         providerCoverUrl = "";
@@ -2177,15 +2618,21 @@
         var review = currentReview();
         if (!review || !selectedProvider || actionInFlight) return;
         syncOptionsFromSidebar();
-        var fusionList = includeProviders.filter(function (p) { return p && p !== selectedProvider; });
+        var extras = pickRequestExtras();
+        var fusionList = extras.include_providers || [];
         var body = {
             base_provider: selectedProvider,
             include_providers: fusionList,
             prefer_edit: !!(editEnabled || coverPickEnabled),
-            fused: fusionList.length > 0,
+            fused: extras.fused,
             weak_pick: isSelectedWeak(review, selectedProvider),
             super_review: isSuperReviewOn()
         };
+        body.manual_completion = !!extras.manual_completion;
+        if (extras.manual_completion) {
+            body.merge_fields = !!extras.merge_fields;
+            body.field_picks = extras.field_picks || {};
+        }
         setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/choice", {
             method: "POST",
@@ -2203,6 +2650,7 @@
                 review.base_provider = data.base_provider || selectedProvider;
                 includeProviders = (data.include_providers || fusionList || [])
                     .filter(function (p) { return p && p !== selectedProvider; });
+                restorePicksFromPreview(data.preview || baselinePreview);
                 if (coverPickEnabled) {
                     enterCoverPhase(baselinePreview);
                     return;
@@ -2242,21 +2690,34 @@
                 }
             }
         }
-        var fusionList = includeProviders.filter(function (p) { return p && p !== selectedProvider; });
+        var extras = pickRequestExtras();
+        var fusionList = extras.include_providers || [];
+        var sendFields = (phase === "edit") ? collectSendFields() : null;
+        var coverWanted = !sendFields || sendFields.indexOf("cover") >= 0;
+        if (!coverWanted) {
+            if (packed.edited) delete packed.edited.cover_url;
+        }
+        var confirmBody = {
+            base_provider: selectedProvider,
+            include_providers: fusionList,
+            edited_fields: packed.edited,
+            field_edits: packed.field_edits,
+            fused: extras.fused,
+            weak_pick: isSelectedWeak(review, selectedProvider),
+            super_review: isSuperReviewOn(),
+            cover_picked: !!(coverPicked && coverWanted)
+        };
+        if (sendFields !== null) confirmBody.send_fields = sendFields;
+        confirmBody.manual_completion = !!extras.manual_completion;
+        if (extras.manual_completion) {
+            confirmBody.merge_fields = !!extras.merge_fields;
+            confirmBody.field_picks = extras.field_picks || {};
+        }
         setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/confirm", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                base_provider: selectedProvider,
-                include_providers: fusionList,
-                edited_fields: packed.edited,
-                field_edits: packed.field_edits,
-                fused: fusionList.length > 0,
-                weak_pick: isSelectedWeak(review, selectedProvider),
-                super_review: isSuperReviewOn(),
-                cover_picked: !!coverPicked
-            })
+            body: JSON.stringify(confirmBody)
         }).then(function (data) {
             playTone("confirm");
             recordSessionConfirm(review, data.detail, packed.field_edits, fusionList.length);
@@ -2330,6 +2791,7 @@
             }
             selectedProvider = null;
             includeProviders = [];
+            resetFieldPicks();
             baselinePreview = null;
             session.researches = (session.researches || 0) + 1;
             researchInFlight = false;
@@ -2490,8 +2952,7 @@
             idx = e.key === "ArrowDown"
                 ? Math.min(visible.length - 1, idx + 1)
                 : Math.max(0, idx - 1);
-            selectedProvider = visible[idx].provider;
-            includeProviders = includeProviders.filter(function (p) { return p !== selectedProvider; });
+            selectMaster(visible[idx].provider);
             renderCandidates();
             return;
         }
@@ -2526,10 +2987,7 @@
             var visAbove = rev.above || [];
             var visibleList = visAbove.length ? visAbove : (rev.below || []);
             if (visibleList[keyIdx]) {
-                selectedProvider = visibleList[keyIdx].provider;
-                includeProviders = includeProviders.filter(function (p) {
-                    return p !== selectedProvider;
-                });
+                selectMaster(visibleList[keyIdx].provider);
                 renderCandidates();
             }
         }
@@ -2876,8 +3334,50 @@
         });
     }
 
+    function wireManualCompletionControls() {
+        var manualCb = document.getElementById("mrManualCompletion");
+        var mergeCb = document.getElementById("mrMergeFields");
+        if (manualCb && !manualCb.__mkManualWired) {
+            manualCb.__mkManualWired = true;
+            manualCb.addEventListener("change", function () {
+                manualCompletion = !!manualCb.checked;
+                if (!manualCompletion) {
+                    mergeFields = false;
+                    resetFieldPicks();
+                } else {
+                    resetFieldPicks();
+                    includeProviders = [];
+                }
+                syncManualCompletionControls();
+                if (isModalOpen()) renderCandidates();
+            });
+        }
+        if (mergeCb && !mergeCb.__mkMergeWired) {
+            mergeCb.__mkMergeWired = true;
+            mergeCb.addEventListener("change", function () {
+                if (!manualCompletion) {
+                    mergeCb.checked = false;
+                    return;
+                }
+                mergeFields = !!mergeCb.checked;
+                if (!mergeFields && fieldPicks) {
+                    Object.keys(fieldPicks).forEach(function (field) {
+                        if (LIST_FIELD_PICKS[field] && fieldPicks[field] && fieldPicks[field].length > 1) {
+                            fieldPicks[field] = fieldPicks[field].indexOf(selectedProvider) >= 0
+                                ? [selectedProvider]
+                                : fieldPicks[field].slice(0, 1);
+                        }
+                    });
+                }
+                if (isModalOpen()) renderCandidates({ keepScroll: true });
+            });
+        }
+        syncManualCompletionControls();
+    }
+
     onDomReady(function () {
         wireShowBelowCheckbox();
+        wireManualCompletionControls();
         syncQueueBadge();
         startCompanionEmbedBootstrap();
     });

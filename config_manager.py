@@ -191,6 +191,19 @@ def load_config():
             "UI_SHOW_MANUAL_REVIEW": True,
             "UI_SHOW_INVENTORY": True,
             "UI_SHOW_VOLUMES": True,
+            # C88 — mapping par champ (Auto). Masqué et éteint par défaut.
+            "UI_SHOW_FIELD_MAPPING": False,
+            "FIELD_MAPPING_ENABLED": False,
+            "FIELD_MAPPING_DEFAULT_MANGA": "CASCADE",
+            "FIELD_MAPPING_DEFAULT_COMIC": "CASCADE",
+            "FIELD_MAPPING_DEFAULT_BOOK": "CASCADE",
+            "FIELD_MAPPING_DEFAULT_COMICFLEXIBLE": "CASCADE",
+            "FIELD_MAPPING_DEFAULT_COMICFLEXIBLE_MANGA": "CASCADE",
+            "FIELD_PROVIDER_MAP_MANGA": {},
+            "FIELD_PROVIDER_MAP_COMIC": {},
+            "FIELD_PROVIDER_MAP_BOOK": {},
+            "FIELD_PROVIDER_MAP_COMICFLEXIBLE": {},
+            "FIELD_PROVIDER_MAP_COMICFLEXIBLE_MANGA": {},
         }
 
         file_config = {}
@@ -382,10 +395,28 @@ def load_config():
             "VOLUME_ENRICHMENT_ENABLED", "VOLUME_FORCE_OVERWRITE", "VOLUME_ENRICH_CREDITS",
             "VOLUME_ENRICH_EXPERIMENTAL",
             "UI_SHOW_MANUAL_REVIEW", "UI_SHOW_INVENTORY", "UI_SHOW_VOLUMES",
+            "UI_SHOW_FIELD_MAPPING", "FIELD_MAPPING_ENABLED",
         ]:
             config[bool_key] = _resolve_bool(
                 file_config, bool_key, default=bool(config.get(bool_key, False))
             )
+
+        for key in FIELD_MAPPING_DEFAULT_KEYS:
+            raw = file_config.get(key, config.get(key, "CASCADE"))
+            if isinstance(raw, str) and raw.strip():
+                config[key] = raw.strip().upper()
+            else:
+                config[key] = "CASCADE"
+        for key in FIELD_PROVIDER_MAP_KEYS:
+            raw = file_config.get(key, config.get(key, {}))
+            if isinstance(raw, dict):
+                config[key] = {
+                    str(field): str(provider).strip().upper()
+                    for field, provider in raw.items()
+                    if field and provider
+                }
+            else:
+                config[key] = {}
 
         apply_light_mode(config)
 
@@ -463,7 +494,23 @@ LIGHT_MODE_FEATURES = {
     ),
     "UI_SHOW_INVENTORY": ("LIBRARY_INVENTORY_ENABLED",),
     "UI_SHOW_VOLUMES": ("VOLUME_ENRICHMENT_ENABLED",),
+    "UI_SHOW_FIELD_MAPPING": ("FIELD_MAPPING_ENABLED",),
 }
+
+FIELD_MAPPING_DEFAULT_KEYS = (
+    "FIELD_MAPPING_DEFAULT_MANGA",
+    "FIELD_MAPPING_DEFAULT_COMIC",
+    "FIELD_MAPPING_DEFAULT_BOOK",
+    "FIELD_MAPPING_DEFAULT_COMICFLEXIBLE",
+    "FIELD_MAPPING_DEFAULT_COMICFLEXIBLE_MANGA",
+)
+FIELD_PROVIDER_MAP_KEYS = (
+    "FIELD_PROVIDER_MAP_MANGA",
+    "FIELD_PROVIDER_MAP_COMIC",
+    "FIELD_PROVIDER_MAP_BOOK",
+    "FIELD_PROVIDER_MAP_COMICFLEXIBLE",
+    "FIELD_PROVIDER_MAP_COMICFLEXIBLE_MANGA",
+)
 
 
 def apply_light_mode(config: dict) -> dict:

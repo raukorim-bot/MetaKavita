@@ -244,6 +244,21 @@ def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
     for fondu in ("BF127", "BF131", "BF132", "BF139"):
         assert fondu not in bloc
 
+    # 1.7.1 : rustines du mapping / fetch jamais sortis, et le refrain interne
+    # « this patch sits on » — le lecteur a « Avant de mettre à jour ».
+    for phrase in (
+        "This patch sits on",
+        "Ce correctif s'appuie",
+        "is_id",
+        "_cascade_blobs",
+        "slots #2",
+        "MAL Hentai",
+        "folderPath",
+        "all-v2",
+        "start_year",
+    ):
+        assert phrase not in bloc
+
 
 def test_une_version_jamais_publiee_na_pas_de_titre_a_elle():
     """La 1.6.6 est restée sur dev : pour qui met à jour depuis la 1.6.5, tout ce
@@ -261,5 +276,5 @@ def test_la_derniere_version_dit_depuis_quand_elle_compte():
     bloc = "\n".join(_bloc_derniere_version())
 
     assert bloc.count("1.7.0") >= 2  # une mention par langue
-    for code in ("C84", "C85", "BF171", "1.0.28"):
+    for code in ("C84", "C85", "C86", "C87", "C88", "C89", "C90", "C91", "BF171", "BF172", "BF173", "1.0.28"):
         assert code in bloc

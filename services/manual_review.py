@@ -7,6 +7,7 @@ L'écriture Kavita (apply) reste hors de ce module jusqu'aux phases UI/preview.
 
 from __future__ import annotations
 
+import copy
 import json
 import logging
 import uuid
@@ -19,8 +20,9 @@ from db_manager import (
     get_pending_review,
     update_pending_review,
 )
-from metadata_fetcher import merge_candidates
+from metadata_fetcher import apply_explicit_label_age, merge_candidates
 from secure_logging import safe_exc_str, series_label
+from services.field_assembly import apply_field_picks
 from translations import get_ui_translations
 
 # Marqueur interne : résumé déjà passé par translate_text (évite double trad. à l'apply).
@@ -599,6 +601,7 @@ def create_confirm_from_auto(
     query: str = "",
     force_update: bool = False,
     library_id: Optional[int] = None,
+    active_fields: Optional[Sequence[str]] = None,
 ) -> str:
     """
     Park auto-batch result as `awaiting_confirm` (pas de pick).
@@ -606,8 +609,6 @@ def create_confirm_from_auto(
     Réutilise la file `pending_reviews` + panneau d'édition UI. Le worker
     continue ; l'écriture Kavita attend `/confirm`.
     """
-    import copy
-
     from metadata_fetcher import build_candidate_card
 
     review_id = str(uuid.uuid4())
@@ -640,6 +641,8 @@ def create_confirm_from_auto(
     preview["_provider_used"] = provider
     preview["_fusion_providers"] = list(fusions)
     preview["_flow"] = "auto_confirm"
+    if active_fields is not None:
+        preview["_active_fields"] = [str(f).strip() for f in active_fields if f and str(f).strip()]
 
     park_pending_review(
         review_id=review_id,
@@ -687,6 +690,8 @@ def choice_and_merge(
     base_provider: str,
     include_providers: Optional[Sequence[str]] = None,
     smart_fusion: bool = False,
+    field_picks: Optional[dict] = None,
+    merge_fields: bool = False,
 ) -> Optional[dict]:
     """
     Merge selon le choix UI : `base_provider` = master.
@@ -696,6 +701,10 @@ def choice_and_merge(
     active `smart_fusion` dès qu'au moins une source est cochée — indépendamment
     du toggle sidebar SMART_COMPLETION. Contrairement à l'Auto (BF69), les
     Sources MR peuvent aussi combler ``age_rating`` (choix explicite).
+
+    `field_picks` (C86, ``None`` = chemin Source historique) remplace le
+    hole-fill : chaque champ a un gagnant, ou une concaténation de listes si
+    `merge_fields`. Les cases Source sont alors ignorées.
 
     Met à jour la review en `awaiting_confirm` (preview_json laissé vide —
     construit plus tard par la couche apply/preview).
@@ -714,22 +723,31 @@ def choice_and_merge(
         logging.warning(get_ui_translations().get("log_mr_provider_missing", "[manual_review] base_provider {0} introuvable pour review {1}").format(base_provider, review_id))
         return None
 
-    ordered: List[tuple] = [(base_provider, by_provider[base_provider].get("data") or {})]
-    seen = {base_provider}
-    for provider in include_providers or []:
-        if not provider or provider in seen:
-            continue
-        card = by_provider.get(provider)
-        if not card:
-            continue
-        ordered.append((provider, card.get("data") or {}))
-        seen.add(provider)
+    if field_picks is not None:
+        for card in by_provider.values():
+            data = card.get("data")
+            if isinstance(data, dict):
+                apply_explicit_label_age(data)
+        master = apply_field_picks(
+            base_provider, by_provider, field_picks, merge_fields=merge_fields
+        )
+    else:
+        ordered: List[tuple] = [(base_provider, by_provider[base_provider].get("data") or {})]
+        seen = {base_provider}
+        for provider in include_providers or []:
+            if not provider or provider in seen:
+                continue
+            card = by_provider.get(provider)
+            if not card:
+                continue
+            ordered.append((provider, card.get("data") or {}))
+            seen.add(provider)
 
-    # MR Sources = max info (tout âge). Auto SMART_COMPLETION : fill_age_rating=False
-    # → BF102 non-adult only (voir metadata_fetcher._fusion_can_fill).
-    master = merge_candidates(
-        ordered, smart_fusion=smart_fusion, fill_age_rating=bool(smart_fusion)
-    )
+        # MR Sources = max info (tout âge). Auto SMART_COMPLETION : fill_age_rating=False
+        # → BF102 non-adult only (voir metadata_fetcher._fusion_can_fill).
+        master = merge_candidates(
+            ordered, smart_fusion=smart_fusion, fill_age_rating=bool(smart_fusion)
+        )
     if not master:
         return None
 

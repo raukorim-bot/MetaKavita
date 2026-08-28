@@ -284,6 +284,7 @@ def build_kavita_payload(provider_data, metadata, active_fields, config, cache_d
     pd.pop(MATCH_SCORE_KEY, None)
     pd.pop("_score_tie", None)
     pd.pop("_tie_review_payload", None)
+    pd.pop("_cascade_blobs", None)
     edited_localized = pd.pop("_edited_localized_name", None)
     summary_already_translated = bool(pd.pop("_summary_translated", None))
 

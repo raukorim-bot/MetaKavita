@@ -43,6 +43,31 @@ PRIMARY_PUBLISHER_BONUS = 40.0
 # doit être — un départage entre candidats par ailleurs équivalents.
 ISSUES_COUNT_BONUS_MAX = 30.0
 FOREIGN_PUBLISHER_MALUS = 400.0
+# BF54 donnait +200 à toute année à ±1 du hint. Sur Batman / Avengers / Superman
+# les trois runs voisins portent le même titre exact et le même éditeur : le
+# voisin plus long (plafond d'issues) gagnait. L'exact doit rester hors de
+# portée du plafond ; ±1 reste un indice, pas une égalité.
+EXACT_YEAR_BONUS = 200.0
+ADJACENT_YEAR_BONUS = 40.0
+FAR_YEAR_MALUS = 100.0
+FAR_YEAR_ISSUE_MALUS = 150.0
+
+
+def _year_run_bonus(candidate_year, year_hint, far_malus: float) -> float:
+    """Prime (ou malus) d'année de run : exact > voisin > loin."""
+    if year_hint is None or candidate_year is None:
+        return 0.0
+    try:
+        delta = abs(int(candidate_year) - int(year_hint))
+    except (TypeError, ValueError):
+        return 0.0
+    if delta == 0:
+        return EXACT_YEAR_BONUS
+    if delta == 1:
+        return ADJACENT_YEAR_BONUS
+    if delta > 5:
+        return -far_malus
+    return 0.0
 
 def normalize_str(s):
     if not s: return ""
@@ -125,11 +150,12 @@ class ComicVineScraper(BaseScraper):
     # `volume` (issue #27) : /api/issues/ ramène cent albums par requête, ce qui
     # met un run de 150 numéros à deux appels au lieu de 150.
     scopes = {"series", "volume"}
+    # 1.2.1 : année de run exacte devant ±1 (BF173 / #40).
     # 1.2.0 : cadence appliquée à chaque requête (et non à la seule première),
     # causes d'erreur API journalisées, barème de sélection rééquilibré. La
-    # montée de version est ce qui autorise l'image à remplacer la copie 1.1.x
-    # déjà installée sous data/.
-    version = "1.2.0"
+    # montée de version est ce qui autorise l'image à remplacer la copie déjà
+    # installée sous data/.
+    version = "1.2.1"
     rate_limit = 1.2
     # API + CDN image historique ComicVine (pas le domaine parent gamespot.com).
     proxy_domains = ["comicvine.gamespot.com", "static.comicvine.com"]
@@ -265,18 +291,7 @@ class ComicVineScraper(BaseScraper):
                     score -= FOREIGN_PUBLISHER_MALUS
 
                 # Run year (Kavita Flexible "(YYYY)" / existing_metadata) vs ComicVine start_year.
-                if year_hint is not None:
-                    start_raw = vol.get("start_year")
-                    try:
-                        start_year = int(start_raw) if start_raw is not None else None
-                    except (TypeError, ValueError):
-                        start_year = None
-                    if start_year is not None:
-                        delta = abs(start_year - int(year_hint))
-                        if delta <= 1:
-                            score += 200.0
-                        elif delta > 5:
-                            score -= 100.0
+                score += _year_run_bonus(vol.get("start_year"), year_hint, FAR_YEAR_MALUS)
 
                 candidates.append((score, vol))
 
@@ -317,12 +332,7 @@ class ComicVineScraper(BaseScraper):
                     _year_from_date(issue.get("cover_date"))
                     or extract_year_from_title(parent.get("name") or "")
                 )
-                if issue_year is not None:
-                    delta = abs(issue_year - int(year_hint))
-                    if delta <= 1:
-                        score += 200.0
-                    elif delta > 5:
-                        score -= 150.0
+                score += _year_run_bonus(issue_year, year_hint, FAR_YEAR_ISSUE_MALUS)
 
             # Comparaison stricte : à égalité, l'ordre de pertinence ComicVine
             # reste celui qui décide.

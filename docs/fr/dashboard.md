@@ -16,6 +16,8 @@ Les champs d'infrastructure sont dans la **Configuration globale** (⚙️ Confi
 
 La carte **Options de scraping** (pliable, ouverte par défaut) est groupée par catégorie. **Matching** ouvre les [cascades de providers](scrapers.md#cascades-de-providers) et les interrupteurs Smart Scoring, Complétion intelligente, édition avant confirm, et le baromètre de fiabilité optionnel (`0.30`–`1.00`, défaut `0.60`).
 
+Le **mapping par champ** (expérimental, masqué en mode léger, éteint par défaut) laisse l'Auto choisir un fournisseur par champ : une source par défaut (la cascade, ou un fournisseur) plus des overrides, y compris un onglet Comic (Flexible) à deux vagues. Sans Force update, un champ déjà rempli dans Kavita n'est pas écrasé. Un fournisseur forcé sur une série ignore la carte. La Review manuelle ne change pas. Le mapping ne réutilise un scraper déjà répondu dans la cascade que si l'appel a utilisé la même query et le même flag id que l'override (un ID magique n'est pas gardé comme couverture d'un autre fournisseur), et n'appelle en parallèle que ceux qui manquent encore (une série à la fois).
+
 ![Options de scraping — Matching](../../assets/docs-scraping-matching.png)
 
 La même carte contient aussi la [Review manuelle](manual-review.md).
@@ -49,7 +51,11 @@ Le bouton 🖼️ d'une série ouvre **Choix de la couverture**. Le champ part d
 
 Une couverture choisie à la main est marquée **🔒 Couverture manuelle** et n'est plus écrasée. Clique la cartouche pour la rendre, ou coche **Écraser les couvertures manuelles** (`COVER_FORCE_OVERWRITE`) le temps d'un run.
 
-Pendant un lot, la série active pulse et défile. Une barre affiche `fait / total`. Une série OK se décoche. La topbar montre les compteurs lifetime et session. La console stream des logs épurés.
+Pendant un lot, la série active pulse et défile. Une barre affiche `fait / total`. Une série OK se décoche. La topbar montre les compteurs lifetime et session.
+
+Une série qui a ses propres Options — fournisseur forcé, ID magique, masque de champs qui n'est plus « tout » (une case décochée suffit), titre alternatif différent du nom Kavita, préférence d'éditeur autre qu'Auto (VF/VA ou VO), ou tags de langue du titre localisé — porte une cartouche sur la ligne. Cliquez pour ouvrir les Options. Le panneau préremplit le nom Kavita, donc pas de cartouche titre si la valeur enregistrée est le nom de la série. Un fournisseur forcé ignore le mapping Auto par champ.
+
+Le **Journal** de la barre latérale reprend la police du reste de l'app. L'heure est à gauche ; la série (`« One Piece » (5605)`) est nommée une fois, puis les lignes suivantes restent avec elle ; erreurs et alertes ont un liséré. **Pause** (ou un défilement vers le haut) arrête le saut pour relire ; **Vider** vide le volet. Les lignes épurées arrivent toujours par WebSockets.
 
 ## À sceller (`NEEDS_RELOCK`)
 
@@ -63,7 +69,7 @@ Optionnel (défaut on via `ENABLE_PLAYFUL_STATS`). L'accueil est **Ta bibliothè
 
 ## Mode léger
 
-`UI_SHOW_MANUAL_REVIEW`, `UI_SHOW_INVENTORY`, `UI_SHOW_VOLUMES` retirent ces familles de la sidebar. **Masquer une section éteint aussi la fonctionnalité** (la Review vide aussi la file). Recochez : elle revient éteinte. Une passe en cours garde son cartouche jusqu'à la fin (bouton **Annuler**).
+`UI_SHOW_MANUAL_REVIEW`, `UI_SHOW_INVENTORY`, `UI_SHOW_VOLUMES`, `UI_SHOW_FIELD_MAPPING` retirent ces familles de la sidebar. **Masquer une section éteint aussi la fonctionnalité** (la Review vide aussi la file). Recochez : elle revient éteinte. Le mapping par champ est masqué par défaut. Une passe en cours garde son cartouche jusqu'à la fin (bouton **Annuler**).
 
 ## Métadonnées enrichies
 

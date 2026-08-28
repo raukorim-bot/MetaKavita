@@ -28,4 +28,4 @@ Guide : [`companion/README.md`](../../companion/README.md) (aussi menu Aide). Pa
 
 Les deux archives sont aussi proposées par l'**encart sous la barre du haut**. Sa croix le masque pour ce navigateur ; **Aide → Télécharger le Companion** le fait revenir.
 
-Les flags webhook de l'extension sont dans [Automation](automation.md).
+Les flags webhook de l'extension sont dans [Automation](automation.md). Le Companion **Auto** suit le même mapping Auto que le dashboard quand il est allumé ; **Super Review** ne le suit pas.

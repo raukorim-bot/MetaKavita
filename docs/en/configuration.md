@@ -72,4 +72,16 @@ Most settings below are also editable in the **Global Configuration** modal (⚙
 | `UI_SHOW_MANUAL_REVIEW` | Show the manual review settings in the sidebar. Off hides the category **and** switches the mode off, queue emptied. | `true` |
 | `UI_SHOW_INVENTORY` | Show the Inventory settings in the sidebar. Off hides the category **and** switches the Inventory off. | `true` |
 | `UI_SHOW_VOLUMES` | Show the volume enrichment settings in the sidebar. Off hides the category **and** switches the pass off. | `true` |
+| `UI_SHOW_FIELD_MAPPING` | Show the per-field mapping settings in the sidebar. Off hides the category **and** switches mapping off (Auto falls back to the current cascade). Hidden by default. | `false` |
+| `FIELD_MAPPING_ENABLED` | Use the per-field map on Auto / batch. Ignored when the category is hidden, when Manual Review is on, or when a series has a forced provider. | `false` |
+| `FIELD_MAPPING_DEFAULT_MANGA` | Default source for manga Auto fields: `CASCADE` or a manga provider id. | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_COMIC` | Default source for strict-comic Auto fields. | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_BOOK` | Default source for book Auto fields. | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_COMICFLEXIBLE` | Default source for the comics wave of Comic (Flexible). | `CASCADE` |
+| `FIELD_MAPPING_DEFAULT_COMICFLEXIBLE_MANGA` | Default source for the manga fallback wave of Comic (Flexible). | `CASCADE` |
+| `FIELD_PROVIDER_MAP_MANGA` | Per-field overrides for manga (`cover` → `ANILIST`, …). Empty key = follow the default. | `{}` |
+| `FIELD_PROVIDER_MAP_COMIC` | Per-field overrides for strict comic libraries. | `{}` |
+| `FIELD_PROVIDER_MAP_BOOK` | Per-field overrides for book libraries. | `{}` |
+| `FIELD_PROVIDER_MAP_COMICFLEXIBLE` | Per-field overrides for the Flexible comics wave. | `{}` |
+| `FIELD_PROVIDER_MAP_COMICFLEXIBLE_MANGA` | Per-field overrides for the Flexible manga fallback wave. | `{}` |
 ---

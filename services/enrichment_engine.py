@@ -67,6 +67,18 @@ ALL_TARGETED_FIELDS = [
     "status", "publisher", "age", "weblinks", "alt_titles", "language",
 ]
 
+# Champs que la fiche « Ajuster avant envoi » peut cocher / décocher (C87).
+# weblinks + language n'y figurent pas : ils suivent uniquement l'override série.
+MR_EDIT_SENDABLE_FIELDS = frozenset({
+    "summary", "cover", "staff", "genres", "tags", "year",
+    "status", "publisher", "age", "alt_titles",
+})
+_SEND_FIELD_ALIASES = {
+    "age_rating": "age",
+    "cover_url": "cover",
+    "localized_name": "alt_titles",
+}
+
 
 def resolve_active_fields(targeted_fields_raw, override=None):
     """
@@ -85,6 +97,82 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     if raw == "NONE":
         return []
     return [f.strip() for f in str(raw).split(",") if f.strip()]
+
+
+def targeted_fields_is_granular(raw) -> bool:
+    """True dès qu'un masque série n'écrit plus *tous* les champs (un seul décoché suffit)."""
+    return set(resolve_active_fields(raw)) != set(ALL_TARGETED_FIELDS)
+
+
+def alt_title_is_override(alternative_title, series_name) -> bool:
+    """Le panneau préremplit le nom Kavita : ce n'est un override que s'il diffère."""
+    alt = str(alternative_title or "").strip()
+    name = str(series_name or "").strip()
+    return bool(alt) and alt.casefold() != name.casefold()
+
+
+def publisher_pref_is_override(raw) -> bool:
+    v = str(raw or "GLOBAL").strip().upper()
+    return v not in ("", "GLOBAL")
+
+
+def alt_langs_is_override(raw) -> bool:
+    return bool(str(raw or "").strip())
+
+
+def alt_langs_chip_label(raw) -> str:
+    parts = [p.strip() for p in str(raw or "").split(",") if p.strip()]
+    return ", ".join(parts)
+
+
+def publisher_pref_chip_label(raw) -> str:
+    v = str(raw or "GLOBAL").strip().upper()
+    if v in ("ORIGINAL", "VO"):
+        return "VO"
+    if v in ("LOCALIZED", "VF", "VA", "VF/VA"):
+        return "VF/VA"
+    return str(raw or "").strip()
+
+
+def normalize_send_fields(raw):
+    """C87 : ``None`` = clé absente (legacy). Liste (même vide) = choix explicite."""
+    if raw is None:
+        return None
+    if not isinstance(raw, (list, tuple)):
+        return []
+    out = []
+    seen = set()
+    for item in raw:
+        key = str(item or "").strip()
+        key = _SEND_FIELD_ALIASES.get(key, key)
+        if key not in ALL_TARGETED_FIELDS or key in seen:
+            continue
+        seen.add(key)
+        out.append(key)
+    return out
+
+
+def resolve_mr_write_fields(targeted_fields_raw, send_fields=None):
+    """
+    Masque d'écriture d'un confirm MR / SMR.
+
+    Override série uniquement (pas le granulaire batch sidebar). ``send_fields``
+    ``None`` = comportement historique. Les jetons de la fiche (cover, âge…)
+    s'intersectent avec le masque ; weblinks / language restent ceux de la série.
+    """
+    series = resolve_active_fields(targeted_fields_raw)
+    wanted = normalize_send_fields(send_fields)
+    if wanted is None:
+        return series
+    wanted_set = set(wanted)
+    out = []
+    for field in series:
+        if field in MR_EDIT_SENDABLE_FIELDS:
+            if field in wanted_set:
+                out.append(field)
+        else:
+            out.append(field)
+    return out
 
 
 def _providers_from_config(config, library_type, series_name, series_id=None):
@@ -200,6 +288,174 @@ def _has_useful_provider_data(data):
         data.get('summary') or data.get('genres') or data.get('cover_url')
         or data.get('staff') or data.get('year')
     )
+
+
+def mapping_applies_here(config, *, forced_provider, manual_mode) -> bool:
+    from services.field_mapping import mapping_should_run
+
+    return mapping_should_run(
+        config, forced_provider=forced_provider, manual_mode=manual_mode
+    )
+
+
+def field_mapping_log_line(label, assembled) -> str:
+    sources = (assembled or {}).get("_field_sources") or {}
+    base = (assembled or {}).get("_provider_used") or "?"
+    extra = " ".join(f"{field}={provider}" for field, provider in sources.items())
+    line = f"Base: {base}"
+    if extra:
+        line += " " + extra
+    return line
+
+
+def attach_mapping_preview(preview, assembled):
+    if not isinstance(preview, dict):
+        preview = {}
+    sources = (assembled or {}).get("_field_sources") if isinstance(assembled, dict) else None
+    if sources:
+        preview["_field_sources"] = dict(sources)
+        preview["_field_picks"] = {field: [provider] for field, provider in sources.items()}
+    return preview
+
+
+def _filter_id_capable(providers, search_query, is_forced_id):
+    if not (
+        is_forced_id
+        and not (str(search_query).startswith("http://") or str(search_query).startswith("https://"))
+    ):
+        return list(providers or [])
+    return [
+        p for p in (providers or [])
+        if getattr(ScraperRegistry.get(p), "has_direct_id_support", False)
+    ]
+
+
+def fetch_auto_series_metadata(
+    *,
+    search_query,
+    providers_list,
+    smart_completion,
+    fetch_kwargs,
+    library_type,
+    forced_provider,
+    config,
+    series_name,
+    series_id,
+    is_forced_id,
+    existing_metadata,
+    smart_scoring,
+    fallback_query,
+    t,
+    label,
+):
+    """Auto fetch : cascade actuelle si mapping off, sinon run_mapping_wave."""
+    from metadata_fetcher import fetch_metadata
+    from services.field_mapping import resolve_mapping_plan
+    from services.field_mapping_fetch import run_mapping_wave
+
+    if not mapping_applies_here(
+        config, forced_provider=forced_provider, manual_mode=False
+    ):
+        provider_data, used_providers = fetch_metadata(
+            search_query,
+            providers_list,
+            smart_completion,
+            **fetch_kwargs,
+        )
+        if (
+            library_type == "ComicFlexible"
+            and forced_provider == "AUTO"
+            and not _has_useful_provider_data(provider_data)
+        ):
+            manga_providers = _filter_id_capable(
+                _providers_from_config(config, "Manga", series_name, series_id),
+                search_query,
+                is_forced_id,
+            )
+            if manga_providers:
+                logging.info(
+                    t.get(
+                        "log_flexible_manga_fallback",
+                        "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
+                    ).format(label, " > ".join(manga_providers))
+                )
+                manga_data, manga_used = fetch_metadata(
+                    search_query,
+                    manga_providers,
+                    smart_completion,
+                    fallback_query=fallback_query,
+                    library_type="Manga",
+                    is_forced_id=is_forced_id,
+                    forced_provider=forced_provider,
+                    existing_metadata=existing_metadata,
+                    smart_scoring=smart_scoring,
+                )
+                used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
+                if _has_useful_provider_data(manga_data):
+                    provider_data = manga_data
+        return provider_data, used_providers
+
+    wave_kwargs = dict(
+        smart_fusion=smart_completion,
+        config=config,
+        fallback_query=fallback_query,
+        is_forced_id=is_forced_id,
+        forced_provider=forced_provider,
+        existing_metadata=existing_metadata,
+        smart_scoring=smart_scoring,
+    )
+
+    if library_type == "ComicFlexible":
+        comic_providers = _filter_id_capable(
+            _providers_from_config(config, "Comic", series_name, series_id),
+            search_query,
+            is_forced_id,
+        )
+        plan_c = resolve_mapping_plan(config, "ComicFlexible", flexible_wave="comic")
+        w1 = run_mapping_wave(
+            plan_c,
+            search_query,
+            providers_list=comic_providers,
+            library_type="Comic",
+            **wave_kwargs,
+        )
+        if w1.score_tie or w1.useful:
+            return w1.data, w1.used
+        manga_providers = _filter_id_capable(
+            _providers_from_config(config, "Manga", series_name, series_id),
+            search_query,
+            is_forced_id,
+        )
+        if not manga_providers:
+            return w1.data, w1.used
+        logging.info(
+            t.get(
+                "log_flexible_manga_fallback",
+                "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1}).",
+            ).format(label, " > ".join(manga_providers))
+        )
+        plan_m = resolve_mapping_plan(config, "ComicFlexible", flexible_wave="manga")
+        w2 = run_mapping_wave(
+            plan_m,
+            search_query,
+            providers_list=manga_providers,
+            library_type="Manga",
+            **wave_kwargs,
+        )
+        used = list(dict.fromkeys((w1.used or []) + (w2.used or [])))
+        if w2.useful or w2.score_tie:
+            return w2.data, used
+        return w1.data or w2.data, used
+
+    plan = resolve_mapping_plan(config, library_type)
+    wave = run_mapping_wave(
+        plan,
+        search_query,
+        providers_list=providers_list,
+        library_type=fetch_kwargs.get("library_type") or plan.fetch_library_type,
+        **wave_kwargs,
+    )
+    return wave.data, wave.used
 
 
 def _candidates_empty(payload):
@@ -703,7 +959,6 @@ def enrich_series(
                 if forced_provider == 'AUTO':
                     detected = detect_provider_from_url(search_query)
                     if detected:
-                        forced_provider = detected
                         scraper = ScraperRegistry.get(detected)
                         display = (
                             scraper.display_name
@@ -716,6 +971,11 @@ def enrich_series(
                                 "[{0}] 🕵️ URL reconnue ! Le scraper {1} prend le relais.",
                             ).format(label, display)
                         )
+                        from services.field_mapping import url_detect_should_pin_provider
+                        if url_detect_should_pin_provider(
+                            config, manual_mode=manual_mode
+                        ):
+                            forced_provider = detected
             else:
                 # ID brut : filtre ID-capable uniquement hors Super (Super expand all ensuite)
                 if forced_provider == 'AUTO' and not super_review:
@@ -887,47 +1147,23 @@ def enrich_series(
             return True, "PENDING_REVIEW", used_providers or []
 
         # ========== MODE AUTO ==========
-        provider_data, used_providers = fetch_metadata(
-            search_query,
-            providers_list,
-            smart_completion,
-            **fetch_kwargs,
+        provider_data, used_providers = fetch_auto_series_metadata(
+            search_query=search_query,
+            providers_list=providers_list,
+            smart_completion=smart_completion,
+            fetch_kwargs=fetch_kwargs,
+            library_type=library_type,
+            forced_provider=forced_provider,
+            config=config,
+            series_name=series_name,
+            series_id=series_id,
+            is_forced_id=is_forced_id,
+            existing_metadata=existing_metadata,
+            smart_scoring=smart_scoring,
+            fallback_query=fallback_query,
+            t=t,
+            label=label,
         )
-
-        # C35 : Comic Flexible — si la vague Comic échoue et qu'aucun provider n'est forcé,
-        # bascule sur la cascade Manga (PROVIDER_*).
-        if (
-            library_type == "ComicFlexible"
-            and forced_provider == 'AUTO'
-            and not _has_useful_provider_data(provider_data)
-        ):
-            manga_providers = _providers_from_config(config, "Manga", series_name, series_id)
-            if is_forced_id and not (search_query.startswith('http://') or search_query.startswith('https://')):
-                manga_providers = [
-                    p for p in manga_providers
-                    if getattr(ScraperRegistry.get(p), 'has_direct_id_support', False)
-                ]
-            if manga_providers:
-                logging.info(
-                    t.get(
-                        'log_flexible_manga_fallback',
-                        "[{0}] 🔀 Comic Flexible : aucun hit Comic — bascule vers les providers Manga ({1})."
-                    ).format(label, " > ".join(manga_providers))
-                )
-                manga_data, manga_used = fetch_metadata(
-                    search_query,
-                    manga_providers,
-                    smart_completion,
-                    fallback_query=fallback_query,
-                    library_type="Manga",
-                    is_forced_id=is_forced_id,
-                    forced_provider=forced_provider,
-                    existing_metadata=existing_metadata,
-                    smart_scoring=smart_scoring,
-                )
-                used_providers = list(dict.fromkeys((used_providers or []) + (manga_used or [])))
-                if _has_useful_provider_data(manga_data):
-                    provider_data = manga_data
 
         if not provider_data:
             logging.warning(t.get('log_not_found').format(label, "API(s)"))
@@ -938,6 +1174,8 @@ def enrich_series(
 
         actual_provider = provider_data.pop('_provider_used', 'Inconnu')
         fusion_providers = provider_data.pop('_fusion_providers', [])
+        field_sources = provider_data.pop('_field_sources', None)
+        provider_data.pop('_cascade_blobs', None)
         # Purement diagnostique (Smart Scoring, voir metadata_fetcher.py) : jamais lu ni
         # envoyé à Kavita, mais on l'enlève pour ne pas polluer les dumps de debug.
         chosen_score = provider_data.pop(MATCH_SCORE_KEY, None)
@@ -952,6 +1190,15 @@ def enrich_series(
             if safe_fusion:
                 msg_found += f" + 🧩 Fusion ({', '.join(safe_fusion)})"
         logging.info(msg_found)
+        if field_sources:
+            logging.info(
+                "[%s] %s",
+                label,
+                field_mapping_log_line(
+                    label,
+                    {"_provider_used": actual_provider, "_field_sources": field_sources},
+                ),
+            )
 
         # BF102: diagnostic âge / champs ciblés (évite le piège « age décoché »).
         prov_age = str((provider_data or {}).get("age_rating") or "").strip() or "—"
@@ -1015,17 +1262,23 @@ def enrich_series(
             from services.manual_review import create_confirm_from_auto
 
             data_for_park = copy.deepcopy(provider_data)
+            preview_fields = built.get("preview_fields") or {}
+            attach_mapping_preview(
+                preview_fields,
+                {"_field_sources": field_sources or {}},
+            )
             create_confirm_from_auto(
                 series_id,
                 series_name,
                 data_for_park,
-                built.get("preview_fields") or {},
+                preview_fields,
                 actual_provider=actual_provider,
                 fusion_providers=fusion_providers,
                 chosen_score=chosen_score,
                 query=search_query,
                 force_update=force_update,
                 library_id=kavita.get_cached_library_id(series_id),
+                active_fields=active_fields,
             )
             _emit_series_status(series_id, "PENDING_REVIEW", series_name)
             return True, "PENDING_REVIEW", used_providers or []
@@ -1053,11 +1306,16 @@ def apply_manual_review(
     weak_pick=False,
     super_review=False,
     force_cover_upload=False,
+    field_picks=None,
+    merge_fields=False,
+    manual_completion=None,
+    send_fields=None,
 ):
     """
     Applique un choix de review manuelle : merge → (overlay edits) → build → write Kavita.
 
     Retourne (success: bool, message: str, detail: dict|None).
+    ``send_fields`` ``None`` = masque série seul (bulk / apply direct / vieux clients).
     """
     from services.manual_review import (
         choice_and_merge,
@@ -1090,6 +1348,10 @@ def apply_manual_review(
             weak_pick=weak_pick,
             super_review=super_review,
             force_cover_upload=force_cover_upload,
+            field_picks=field_picks,
+            merge_fields=merge_fields,
+            manual_completion=manual_completion,
+            send_fields=send_fields,
             choice_and_merge=choice_and_merge,
             confirm_pending_review=confirm_pending_review,
             revert_pick_after_failed_write=revert_pick_after_failed_write,
@@ -1112,6 +1374,10 @@ def _apply_manual_review_locked(
     weak_pick,
     super_review,
     force_cover_upload,
+    field_picks,
+    merge_fields,
+    manual_completion,
+    send_fields,
     choice_and_merge,
     confirm_pending_review,
     revert_pick_after_failed_write,
@@ -1121,24 +1387,45 @@ def _apply_manual_review_locked(
     # État avant le pick : lui seul dit si l'avancement vers `awaiting_confirm`
     # a été décidé par cet appel (donc annulable) ou par l'utilisateur avant lui.
     prior_state = review.get("state") or "awaiting_pick"
+    try:
+        prev = json.loads(review.get("preview_json") or "{}")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        prev = {}
+    if not isinstance(prev, dict):
+        prev = {}
     # Mode manuel : les cases « Fusionner » pilotent seules le comblement des trous.
     # Indépendant du toggle sidebar SMART_COMPLETION (batch auto).
     # include_providers is None → client omitted the key → restore from preview.
     # include_providers [] → intentional base-only (clear Sources).
     if include_providers is None:
-        try:
-            prev = json.loads(review.get("preview_json") or "{}")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            prev = {}
         includes = [
-            p for p in ((prev or {}).get("_fusion_providers") or [])
+            p for p in (prev.get("_fusion_providers") or [])
             if p and p != base_provider
-        ] if isinstance(prev, dict) else []
+        ]
     else:
         includes = [p for p in include_providers if p and p != base_provider]
-    smart_fusion = bool(includes)
+    # False = complétion manuelle décochée : jamais restaurer un ancien _field_picks.
+    # None + preview C86 = restore. True / dict = chemin cases par champ.
+    if manual_completion is False:
+        field_picks = None
+        merge_fields = False
+    elif field_picks is None and prev.get("_manual_completion"):
+        field_picks = prev.get("_field_picks")
+        if not isinstance(field_picks, dict):
+            field_picks = {}
+        merge_fields = bool(prev.get("_merge_fields"))
+    elif field_picks is not None and not isinstance(field_picks, dict):
+        field_picks = {}
+    smart_fusion = bool(includes) and field_picks is None
     if fused is None:
-        fused = smart_fusion
+        if field_picks is not None:
+            fused = any(
+                p and p != base_provider
+                for picked in (field_picks or {}).values()
+                for p in (picked if isinstance(picked, (list, tuple)) else [picked])
+            )
+        else:
+            fused = smart_fusion
     else:
         fused = bool(fused)
 
@@ -1160,6 +1447,8 @@ def _apply_manual_review_locked(
         base_provider,
         include_providers=includes,
         smart_fusion=smart_fusion,
+        field_picks=field_picks,
+        merge_fields=bool(merge_fields) if field_picks is not None else False,
     )
     if not provider_data:
         return False, t.get("msg_merge_impossible", "Fusion impossible (provider invalide)."), None
@@ -1185,7 +1474,10 @@ def _apply_manual_review_locked(
     series_name = review.get("series_name") or str(series_id)
     label = series_label(review.get("series_name"), series_id)
     cache_data = get_all_cached_data().get(series_id, {})
-    active_fields = resolve_active_fields(cache_data.get("targeted_fields", "ALL"))
+    active_fields = resolve_mr_write_fields(
+        cache_data.get("targeted_fields", "ALL"),
+        send_fields,
+    )
 
     kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
     if not kavita.authenticate():
@@ -1200,16 +1492,25 @@ def _apply_manual_review_locked(
     )
 
     # Si preview édité porte localized_name sans passer par provider overlay
-    if edited_preview and isinstance(edited_preview, dict) and "localized_name" in edited_preview:
+    if (
+        "alt_titles" in active_fields
+        and edited_preview
+        and isinstance(edited_preview, dict)
+        and "localized_name" in edited_preview
+    ):
         built["localized_name"] = edited_preview.get("localized_name") or None
         if built.get("preview_fields") is not None:
             built["preview_fields"]["localized_name"] = edited_preview.get("localized_name") or ""
 
-    # Couverture choisie explicitement (phase cover / edit) → upload même sans AUTO_COVER
-    explicit_cover = bool(force_cover_upload)
-    if not explicit_cover and isinstance(edited_preview, dict) and edited_preview.get("cover_url"):
-        explicit_cover = True
-    if explicit_cover:
+    # Confirm MR = la couverture assemblée part, même sans phase cover picker
+    # et même si AUTO_COVER est off. Case d'envoi / masque série sans cover → non.
+    if "cover" not in active_fields:
+        built.pop("force_cover_upload", None)
+    elif built.get("cover_url"):
+        built["force_cover_upload"] = True
+    elif force_cover_upload or (
+        isinstance(edited_preview, dict) and edited_preview.get("cover_url")
+    ):
         built["force_cover_upload"] = True
 
     ok, msg, used = apply_kavita_payload(
@@ -1272,11 +1573,19 @@ def _apply_manual_review_locked(
     }
 
 
-def preview_manual_review(review_id, base_provider, include_providers=None):
+def preview_manual_review(
+    review_id,
+    base_provider,
+    include_providers=None,
+    field_picks=None,
+    merge_fields=False,
+    manual_completion=None,
+):
     """
     Merge + build preview sans écrire Kavita. Stocke preview_json sur la review.
     Retourne (ok, preview_fields|error_msg, built_or_none).
     """
+    from services.field_assembly import normalize_field_picks
     from services.manual_review import choice_and_merge
     from db_manager import update_pending_review
 
@@ -1288,12 +1597,20 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
 
     # Mode manuel : fusion = cases cochées uniquement (pas SMART_COMPLETION sidebar).
     includes = [p for p in (include_providers or []) if p and p != base_provider]
-    smart_fusion = bool(includes)
+    if manual_completion is False:
+        use_field_picks = False
+        field_picks = None
+        merge_fields = False
+    else:
+        use_field_picks = field_picks is not None
+    smart_fusion = bool(includes) and not use_field_picks
     provider_data = choice_and_merge(
         review_id,
         base_provider,
         include_providers=includes,
         smart_fusion=smart_fusion,
+        field_picks=field_picks if use_field_picks else None,
+        merge_fields=bool(merge_fields) if use_field_picks else False,
     )
     if not provider_data:
         return False, t.get("msg_merge_impossible", "Fusion impossible (provider invalide)."), None
@@ -1319,6 +1636,13 @@ def preview_manual_review(review_id, base_provider, include_providers=None):
     # Conservés hors build_kavita_payload (poppés avant envoi Kavita) pour le bandeau edit.
     preview["_provider_used"] = provider_data.get("_provider_used") or base_provider
     preview["_fusion_providers"] = list(provider_data.get("_fusion_providers") or [])
+    preview["_active_fields"] = list(active_fields)
+    if use_field_picks:
+        preview["_manual_completion"] = True
+        preview["_merge_fields"] = bool(merge_fields)
+        preview["_field_picks"] = normalize_field_picks(
+            field_picks, merge_fields=bool(merge_fields)
+        )
     update_pending_review(review_id, preview_json=preview, state="awaiting_confirm")
     return True, preview, built
 

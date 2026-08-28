@@ -49,6 +49,24 @@
                                         {% if series.inventory_excluded %}
                                             <span class="badge badge-inventory-excluded" title="{{ t.audit_excluded_badge_hint }}">{{ t.audit_excluded_badge }}</span>
                                         {% endif %}
+                                        {% if series.alt_title_override %}
+                                            <button type="button" class="badge badge-override badge-override-alt" data-action="open-options" onclick="openSeriesOverride('{{ series.id }}')" title="{{ series.alternative_title }} — {{ t.override_alt_title_badge_hint }}">{{ series.alternative_title }}</button>
+                                        {% endif %}
+                                        {% if series.publisher_override %}
+                                            <button type="button" class="badge badge-override badge-override-pub" data-action="open-options" onclick="openSeriesOverride('{{ series.id }}')" title="{{ t.override_publisher_badge_hint }}">{{ series.publisher_chip }}</button>
+                                        {% endif %}
+                                        {% if series.alt_langs_override %}
+                                            <button type="button" class="badge badge-override badge-override-langs" data-action="open-options" data-open-targeted="1" onclick="openSeriesOverride('{{ series.id }}', true)" title="{{ t.override_langs_badge_hint }}">{{ series.alt_langs_chip }}</button>
+                                        {% endif %}
+                                        {% set fp = series.forced_provider or 'AUTO' %}
+                                        {% if fp != 'AUTO' %}
+                                            <button type="button" class="badge badge-override badge-override-provider" data-action="open-options" onclick="openSeriesOverride('{{ series.id }}')" title="{{ t.override_provider_badge_hint }}">{{ (provider_labels or {}).get(fp, fp) }}</button>
+                                        {% elif series.forced_id %}
+                                            <button type="button" class="badge badge-override badge-override-provider" data-action="open-options" onclick="openSeriesOverride('{{ series.id }}')" title="{{ t.override_id_badge_hint }}">{{ t.override_id_badge }}</button>
+                                        {% endif %}
+                                        {% if series.fields_override %}
+                                            <button type="button" class="badge badge-override badge-override-fields" data-action="open-options" data-open-targeted="1" onclick="openSeriesOverride('{{ series.id }}', true)" title="{{ t.override_fields_badge_hint }}">{{ t.override_fields_badge }}</button>
+                                        {% endif %}
                                         {% if series.cover_manual %}
                                             <button type="button" class="badge badge-cover-manual" data-action="release-cover" onclick="releaseSeriesCover('{{ series.id }}', this)" title="{{ t.cover_manual_badge_hint }}">🔒 {{ t.cover_manual_badge }}</button>
                                         {% endif %}

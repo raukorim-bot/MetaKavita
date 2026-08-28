@@ -82,8 +82,9 @@ def _is_cover_protected(entry: dict) -> bool:
 
 
 def _is_surgical(entry: dict) -> bool:
-    raw = (entry.get("targeted_fields") or "ALL").strip()
-    return raw not in ("ALL", "NONE", "")
+    from services.enrichment_engine import targeted_fields_is_granular
+
+    return targeted_fields_is_granular(entry.get("targeted_fields"))
 
 
 def _provider_display_name(provider_id: str) -> str:

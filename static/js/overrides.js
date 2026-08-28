@@ -10,6 +10,162 @@ const TARGETED_FIELD_KEYS = [
     'status', 'publisher', 'age', 'weblinks', 'alt_titles', 'language'
 ];
 
+function isForcedProvider(raw) {
+    var v = String(raw == null ? 'AUTO' : raw).trim();
+    return v !== '' && v.toUpperCase() !== 'AUTO';
+}
+
+function isGranularTargetedFields(raw) {
+    var v = String(raw == null ? '' : raw).trim();
+    if (!v || v.toUpperCase() === 'ALL') return false;
+    if (v.toUpperCase() === 'NONE') return true;
+    var keys = v.split(',').map(function (f) { return f.trim(); }).filter(Boolean);
+    if (!keys.length) return false;
+    if (keys.length !== TARGETED_FIELD_KEYS.length) return true;
+    return !TARGETED_FIELD_KEYS.every(function (k) { return keys.indexOf(k) >= 0; });
+}
+
+function altTitleIsOverride(altTitle, seriesName) {
+    var alt = String(altTitle == null ? '' : altTitle).trim();
+    var name = String(seriesName == null ? '' : seriesName).trim();
+    return !!alt && alt.toLowerCase() !== name.toLowerCase();
+}
+
+function publisherPrefIsOverride(raw) {
+    var v = String(raw == null ? 'GLOBAL' : raw).trim().toUpperCase();
+    return v !== '' && v !== 'GLOBAL';
+}
+
+function altLangsIsOverride(raw) {
+    return !!String(raw == null ? '' : raw).trim();
+}
+
+function publisherPrefChipLabel(raw) {
+    var v = String(raw == null ? 'GLOBAL' : raw).trim().toUpperCase();
+    if (v === 'ORIGINAL' || v === 'VO') return 'VO';
+    if (v === 'LOCALIZED' || v === 'VF' || v === 'VA' || v === 'VF/VA') return 'VF/VA';
+    return String(raw == null ? '' : raw).trim();
+}
+
+function altLangsChipLabel(raw) {
+    return String(raw == null ? '' : raw).split(',').map(function (x) {
+        return x.trim();
+    }).filter(Boolean).join(', ');
+}
+
+function providerDisplayName(id) {
+    var map = window.PROVIDER_LABELS || {};
+    return map[id] || id;
+}
+
+function _overrideChipHtml(cls, title, label, openTargeted) {
+    var extra = openTargeted ? ' data-open-targeted="1"' : '';
+    return '<button type="button" class="badge badge-override ' + cls +
+        '" data-action="open-options"' + extra + ' title="' + title + '">' +
+        label + '</button>';
+}
+
+function overrideBadgesHtml(s, forcedId, targetedFields) {
+    var series = (s && typeof s === 'object' && !Array.isArray(s))
+        ? s
+        : { forced_provider: s, forced_id: forcedId, targeted_fields: targetedFields };
+    var escFn = window.escapeHtmlText || function (t) { return String(t == null ? '' : t); };
+    var tr = window.AppTranslations || {};
+    var html = '';
+    var alt = series.alternative_title;
+    if (altTitleIsOverride(alt, series.name)) {
+        var altHint = String(alt).trim() + ' — ' + (tr.override_alt_title_badge_hint || '');
+        html += _overrideChipHtml('badge-override-alt', escFn(altHint), escFn(String(alt).trim()), false);
+    }
+    if (publisherPrefIsOverride(series.publisher_pref)) {
+        html += _overrideChipHtml(
+            'badge-override-pub',
+            escFn(tr.override_publisher_badge_hint || ''),
+            escFn(publisherPrefChipLabel(series.publisher_pref)),
+            false
+        );
+    }
+    if (altLangsIsOverride(series.alt_title_langs)) {
+        html += _overrideChipHtml(
+            'badge-override-langs',
+            escFn(tr.override_langs_badge_hint || ''),
+            escFn(altLangsChipLabel(series.alt_title_langs)),
+            true
+        );
+    }
+    var forcedProvider = series.forced_provider;
+    var fid = series.forced_id;
+    if (isForcedProvider(forcedProvider)) {
+        html += _overrideChipHtml(
+            'badge-override-provider',
+            escFn(tr.override_provider_badge_hint || ''),
+            escFn(providerDisplayName(forcedProvider)),
+            false
+        );
+    } else if (String(fid || '').trim()) {
+        html += _overrideChipHtml(
+            'badge-override-provider',
+            escFn(tr.override_id_badge_hint || ''),
+            escFn(tr.override_id_badge || 'Forced ID'),
+            false
+        );
+    }
+    if (isGranularTargetedFields(series.targeted_fields)) {
+        html += _overrideChipHtml(
+            'badge-override-fields',
+            escFn(tr.override_fields_badge_hint || ''),
+            escFn(tr.override_fields_badge || 'Targeted'),
+            true
+        );
+    }
+    return html;
+}
+
+function bindOverrideBadge(btn, seriesId) {
+    if (!btn || btn.dataset.boundOverride === '1') return;
+    btn.dataset.boundOverride = '1';
+    btn.addEventListener('click', function (ev) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        openSeriesOverride(seriesId, btn.getAttribute('data-open-targeted') === '1');
+    });
+}
+
+function syncSeriesOverrideBadges(item) {
+    if (!item) return;
+    var status = item.querySelector('.series-status');
+    if (!status) return;
+    status.querySelectorAll('.badge-override').forEach(function (el) {
+        el.remove();
+    });
+    var wrap = document.createElement('div');
+    wrap.innerHTML = overrideBadgesHtml({
+        forced_provider: item.dataset.forcedProvider,
+        forced_id: item.dataset.forcedId,
+        targeted_fields: item.dataset.targetedFields,
+        alternative_title: item.dataset.altTitle,
+        name: item.dataset.seriesName,
+        publisher_pref: item.dataset.publisherPref,
+        alt_title_langs: item.dataset.altLangs
+    });
+    var cover = status.querySelector('.badge-cover-manual');
+    var sid = item.dataset.seriesId;
+    Array.prototype.slice.call(wrap.children).forEach(function (node) {
+        if (cover) status.insertBefore(node, cover);
+        else status.appendChild(node);
+        bindOverrideBadge(node, sid);
+    });
+}
+
+function openSeriesOverride(seriesId, openTargeted) {
+    var panel = openSeriesPanel(seriesId);
+    if (openTargeted && panel) {
+        var details = panel.querySelector('.targeted-scraping-details');
+        if (details) details.open = true;
+    }
+    return panel;
+}
+
 let allPanelsExpanded = false;
 
 /** Survive virtual-list re-renders (innerHTML wipe). */
@@ -291,12 +447,15 @@ function saveOverride(seriesId, btn) {
     const altLangsInput = _panelField(panel, sid, 'alt-langs-');
     const altTitleLangs = altLangsInput ? altLangsInput.value.trim() : '';
 
-    // Aucune case cochée : 'NONE' explicite, jamais la chaîne vide — le serveur
-    // relit une chaîne vide comme « tous les champs ».
-    const activeFields = TARGETED_FIELD_KEYS.filter(f => {
+    // Aucune case cochée : 'NONE' explicite. Toutes cochées : 'ALL', pas la
+    // liste CSV, sinon le granulaire se lirait actif à tort.
+    const checked = TARGETED_FIELD_KEYS.filter(f => {
         const cb = _panelField(panel, sid, 'field-' + f + '-');
         return cb && cb.checked;
-    }).join(',') || 'NONE';
+    });
+    const activeFields = checked.length === 0
+        ? 'NONE'
+        : (checked.length === TARGETED_FIELD_KEYS.length ? 'ALL' : checked.join(','));
 
     const item = findSeriesItemById(sid);
     if (item) {
@@ -306,6 +465,7 @@ function saveOverride(seriesId, btn) {
         item.dataset.publisherPref = publisherPref;
         item.dataset.altLangs = altTitleLangs;
         item.dataset.targetedFields = activeFields;
+        syncSeriesOverrideBadges(item);
     }
     if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
         window.SeriesList.patchOverride(sid, {
