@@ -1585,7 +1585,8 @@ def preview_manual_review(
     Merge + build preview sans écrire Kavita. Stocke preview_json sur la review.
     Retourne (ok, preview_fields|error_msg, built_or_none).
     """
-    from services.manual_review import choice_and_merge, normalize_field_picks
+    from services.field_assembly import normalize_field_picks
+    from services.manual_review import choice_and_merge
     from db_manager import update_pending_review
 
     config = load_config()

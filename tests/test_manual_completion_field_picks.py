@@ -10,6 +10,7 @@ import json
 import services.enrichment_engine as enrichment_engine
 import services.manual_review as mr
 from scrapers.utils import MATCH_SCORE_KEY
+from services.field_assembly import normalize_field_picks
 
 
 def _card(provider, score, **data):
@@ -38,13 +39,13 @@ def test_normalize_field_picks_scalars_stay_exclusive():
         "unknown": ["X"],
         "publisher": "MangaBaka",
     }
-    exclusive = mr.normalize_field_picks(raw, merge_fields=False)
+    exclusive = normalize_field_picks(raw, merge_fields=False)
     assert exclusive["cover"] == ["AniList"]
     assert exclusive["tags"] == ["MAL"]
     assert exclusive["publisher"] == ["MangaBaka"]
     assert "unknown" not in exclusive
 
-    merged = mr.normalize_field_picks(raw, merge_fields=True)
+    merged = normalize_field_picks(raw, merge_fields=True)
     assert merged["cover"] == ["AniList"]
     assert merged["tags"] == ["MAL", "MU"]
 

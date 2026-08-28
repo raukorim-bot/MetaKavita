@@ -22,11 +22,7 @@ from db_manager import (
 )
 from metadata_fetcher import apply_explicit_label_age, merge_candidates
 from secure_logging import safe_exc_str, series_label
-from services.field_assembly import (
-    FIELD_PICK_KEYS,
-    apply_field_picks,
-    normalize_field_picks,
-)
+from services.field_assembly import apply_field_picks
 from translations import get_ui_translations
 
 # Marqueur interne : résumé déjà passé par translate_text (évite double trad. à l'apply).
@@ -613,8 +609,6 @@ def create_confirm_from_auto(
     Réutilise la file `pending_reviews` + panneau d'édition UI. Le worker
     continue ; l'écriture Kavita attend `/confirm`.
     """
-    import copy
-
     from metadata_fetcher import build_candidate_card
 
     review_id = str(uuid.uuid4())
