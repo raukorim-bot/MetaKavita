@@ -136,8 +136,24 @@ def test_the_buttons_show_when_the_feature_is_on():
 
     assert 'id="btnVolumeEnrich"' in rendered["toolbar"]
     assert 'id="btnVolumeEnrichCancel"' in rendered["toolbar"]
+    assert 'id="btnOpenWorkshop"' in rendered["toolbar"]
+    assert "pages.volumes" in rendered["toolbar"]
     assert 'id="volumeEnrichProgress"' in rendered["toolbar"]
     assert 'id="btnVolumePreview"' in rendered["modal"]
+
+
+def test_the_inventory_modal_links_to_the_workshop():
+    """📑 reste l'inventaire ; l'écriture se fait dans l'atelier."""
+    modal = _render({"VOLUME_ENRICHMENT_ENABLED": True})["modal"]
+    assert 'id="btnVolumePreview"' in modal
+    assert "openVolumeEnrichPreview()" not in modal
+    row = (ROOT / "templates" / "partials" / "_series_row.html").read_text(encoding="utf-8")
+    assert "btn-workshop" in row
+    assert "pages.series_volumes" in row
+    js = (ROOT / "static" / "js" / "library_audit.js").read_text(encoding="utf-8")
+    assert "/volumes" in js
+    css = _css()
+    assert "body:not([data-volumes=\"1\"]) .btn-workshop" in css
 
 
 # ===== Indépendance vis-à-vis de l'Inventaire =====
@@ -165,6 +181,8 @@ def test_the_volume_controls_do_not_live_inside_the_inventory_panel():
     assert not inventory.find(id="btnVolumeEnrich"), "la passe ne doit pas loger chez l'Inventaire"
     assert not inventory.find(id="volumeEnrichProgress")
     assert volumes.find(id="btnVolumeEnrich") is not None
+    assert volumes.find(id="btnOpenWorkshop") is not None
+    assert not inventory.find(id="btnOpenWorkshop")
     assert volumes.find(id="btnVolumeEnrichCancel") is not None
     assert volumes.find(id="volumeEnrichProgress") is not None
 
@@ -564,20 +582,14 @@ def test_the_switches_are_read_back_by_the_config_route():
 
 
 def test_an_empty_preview_says_which_kind_of_empty_it_is():
-    """Trois vides, trois causes, et un seul message jusqu'ici.
-
-    « Aucun fournisseur ne connaît cette série » s'affichait aussi quand le
-    fournisseur connaissait parfaitement la série mais que pas un de ses numéros
-    d'albums ne recoupait ceux de Kavita — le cas constaté sur « Gaston Lagaffe »,
-    dont l'Inventaire obtient pourtant 23 tomes attendus via ComicVine. Le message
-    envoyait alors vérifier une clé d'API qui fonctionnait très bien.
-    """
-    assert "vol_preview_unmatched" in JS
-    assert "counts" in JS and "matched" in JS
-    # Le fournisseur est nommé dans le message : « ComicVine connaît la série,
-    # mais… » se lit, « un fournisseur connaît la série » ne se vérifie pas.
-    assert "{0}" in _translations()["fr"]["vol_preview_unmatched_hint"]
-    assert "{0}" in _translations()["en"]["vol_preview_unmatched_hint"]
+    """Trois vides, trois causes : les messages restent dans les traductions
+    même si l'écriture se fait désormais dans l'atelier, plus dans la modale."""
+    for lang in ("fr", "en"):
+        t = _translations()[lang]
+        assert "vol_preview_unmatched" in t
+        assert "vol_preview_oneshot" in t
+        assert "vol_preview_specials" in t
+        assert "{0}" in t["vol_preview_unmatched_hint"]
 
 
 def test_the_proposed_cover_is_shown_not_described():
@@ -601,10 +613,8 @@ def test_the_row_label_shows_the_number_the_match_was_made_on():
 
 
 def test_the_preview_uses_the_states_it_asks_the_database_for():
-    """`plan["states"]` coûte une lecture en base à chaque aperçu. Calculé et
-    jamais lu, c'était une dépense pour rien ; lu, il dit à l'utilisateur quelles
-    unités la passe précédente n'a pas réussi à écrire."""
-    assert "plan.states" in JS or "states[" in JS, "les états doivent servir ou disparaître"
+    """Le helper d'échec précédent reste : une unité FAILED doit se voir."""
+    assert "_volPreviousFailure" in JS
     assert "'FAILED'" in JS or '"FAILED"' in JS
     assert "vol_state_failed_hint" in JS
 

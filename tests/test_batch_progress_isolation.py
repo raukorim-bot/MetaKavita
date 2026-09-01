@@ -180,24 +180,23 @@ def test_a_batch_item_finishing_after_a_stop_does_not_broadcast_stale_progress(m
     )
 
 
-def test_drain_sync_queue_never_drops_non_batch_items(mocker):
-    """Régression critique : un Stop batch ne doit PAS jeter les items webhook/
-    auto-sync (is_batch=False) qui traversaient la file au même moment — ils
-    doivent survivre dans la file, prêts à être traités normalement."""
+def test_drain_sync_queue_never_drops_non_batch_items(mocker, isolated_db):
+    """Stop vide les lots et l'Auto-sync ; webhook et clic ligne restent."""
     mocker.patch("services.background_tasks.broadcast_batch_progress")
     bg.register_batch_enqueue(2, new_batch=True)
     bg.sync_queue.put(bg.make_sync_item(1, "Batch A", False, is_batch=True))
-    bg.sync_queue.put(bg.make_sync_item(999, "Webhook Intruder", False, is_batch=False))
+    bg.sync_queue.put(bg.make_sync_item(999, "Webhook Intruder", False, origin="webhook"))
     bg.sync_queue.put(bg.make_sync_item(2, "Batch B", False, is_batch=True))
-    bg.sync_queue.put(bg.make_sync_item(998, "Auto-sync tick", False, is_batch=False))
+    bg.sync_queue.put(bg.make_sync_item(998, "Auto-sync tick", False, origin="auto"))
+    bg.sync_queue.put(bg.make_sync_item(997, "Row click", False, origin="row"))
 
     drained = bg.drain_sync_queue()
 
-    assert drained == 2, "seuls les 2 items de batch comptent comme drainés"
+    assert drained == 3, "2 lots + 1 auto-sync"
     remaining_ids = []
     while not bg.sync_queue.empty():
         remaining_ids.append(bg.sync_queue.get_nowait()["series_id"])
-    assert remaining_ids == [999, 998], "les items non-batch doivent rester en file, dans l'ordre"
+    assert remaining_ids == [999, 997], "webhook et clic ligne restent, dans l'ordre"
 
 
 def test_drain_sync_queue_does_not_touch_an_empty_queue(mocker):
@@ -218,3 +217,31 @@ def test_is_batch_active_reflects_in_flight_progress():
 
     bg.reset_batch_progress()
     assert bg.is_batch_active() is False
+
+
+def test_pause_does_not_drain_auto_sync_jobs(mocker):
+    mocker.patch("services.background_tasks.broadcast_batch_progress")
+    bg.sync_queue.put(bg.make_sync_item(1, "Batch", False, is_batch=True))
+    bg.sync_queue.put(bg.make_sync_item(8, "Auto", False, origin="auto"))
+
+    drained = bg.detach_batch_from_ram()
+
+    assert drained == 1
+    remaining = []
+    while not bg.sync_queue.empty():
+        remaining.append(bg.sync_queue.get_nowait()["origin"])
+    assert remaining == ["auto"]
+
+
+def test_is_auto_sync_waiting_and_origin_filter():
+    while not bg.sync_queue.empty():
+        bg.sync_queue.get_nowait()
+    assert bg.is_auto_sync_waiting() is False
+    bg.sync_queue.put(bg.make_sync_item(1, "W", False, origin="webhook"))
+    bg.sync_queue.put(bg.make_sync_item(2, "A", False, origin="auto"))
+    assert bg.is_auto_sync_waiting() is True
+    assert bg.queued_series_ids(origin="auto") == {2}
+    assert bg.queued_series_ids(origin="webhook") == {1}
+    while not bg.sync_queue.empty():
+        bg.sync_queue.get_nowait()
+    assert bg.is_auto_sync_waiting() is False

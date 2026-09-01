@@ -30,7 +30,7 @@ La même carte contient aussi la [Review manuelle](manual-review.md).
 
 **Tout sélectionner (visible)** et les compteurs d'items / batch au-dessus de **Recherche** (début de titre, ou **Dans le titre**) et **Filtres** (bibliothèque, statut, masquer les ignorés). **Déplier/Replier tout** ouvre tous les panneaux d'options ; **Enregistrer tous les forçages** les écrit ensemble.
 
-En dessous : la bande [Inventaire](inventory.md) (barre de santé, Manquants / Doublons / Sans id) et le bouton [Tomes](volumes.md) **Enrichir les tomes sélectionnés**.
+En dessous : la bande [Inventaire](inventory.md) (barre de santé, Manquants / Doublons / Sans id) et la barre [Tomes](volumes.md) : **Atelier** (page, sans choisir une série) et **Enrichir les tomes cochés**. Sur chaque ligne : 📑 inventaire, 📚 [atelier](volumes.md).
 
 ![Recherche, filtres, Inventaire et Tomes](../../assets/docs-toolbar-inventory.png)
 

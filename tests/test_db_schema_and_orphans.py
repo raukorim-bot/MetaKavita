@@ -94,6 +94,7 @@ def test_a_migration_already_played_is_not_replayed(isolated_db):
         db_manager._ensure_library_audit_tables,
         db_manager._ensure_batch_queue_tables,
         db_manager._ensure_pending_reviews_table,
+        db_manager._ensure_auto_sync_tables,
     ):
         ensure(_Boom())
 
@@ -187,6 +188,9 @@ def _seed_series(db, series_id):
     db.set_catalog_expected_override(series_id, 12)
     db.save_volume_unit_state(series_id, series_id * 10, "DONE")
     db.mark_series_pass_done(series_id)
+    db.save_volume_unit_override(series_id, series_id * 10, provider="MANGANEWS", payload={"title": f"Tome {series_id}"})
+    db.record_workshop_history(series_id, "test_event")
+    db.save_workshop_series_override(series_id, {"summary": f"Staged {series_id}"})
 
 
 def test_a_series_deleted_in_kavita_leaves_nothing_behind(isolated_db):
@@ -201,6 +205,14 @@ def test_a_series_deleted_in_kavita_leaves_nothing_behind(isolated_db):
     assert isolated_db.get_catalog_expected_override(501) is None
     assert isolated_db.get_volume_unit_states(501) == {}
     assert isolated_db.list_enriched_series_ids() == {502}
+    assert isolated_db.get_volume_unit_overrides(501) == {}
+    assert isolated_db.list_workshop_history(501) == []
+    assert isolated_db.get_workshop_series_override(501) is None
+
+    # Série conservée garde tout
+    assert isolated_db.get_volume_unit_overrides(502) != {}
+    assert isolated_db.list_workshop_history(502) != []
+    assert isolated_db.get_workshop_series_override(502) is not None
 
 
 def test_the_progress_counters_stop_counting_volumes_that_no_longer_exist(isolated_db):

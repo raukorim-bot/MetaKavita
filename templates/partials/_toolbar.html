@@ -46,6 +46,7 @@
                                         <option value="COMPLETED">{{ t.filter_completed }}</option>
                                         <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
                                         <option value="IGNORED">{{ t.filter_ignored }}</option>
+                                        <option value="AUTO_SYNC" title="{{ t.filter_auto_sync_hint }}">{{ t.filter_auto_sync }}</option>
                                     </select>
                                     <label class="checkbox-label toolbar-hide-ignored">
                                         <input type="checkbox" id="hideIgnoredCb" onclick="filterSeries()" checked>
@@ -184,6 +185,9 @@
                                     <span class="toolbar-group-label">{{ t.toolbar_group_volumes }}</span>
                                     <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
                                     <div class="hygiene-actions">
+                                        <a class="btn-secondary" id="btnOpenWorkshop"
+                                           href="{{ url_for('pages.volumes') }}"
+                                           title="{{ t.workshop_open_page_hint }}">{{ t.workshop_open }}</a>
                                         <button type="button" class="btn-opt" id="btnVolumeEnrich"
                                                 onclick="startVolumeEnrich()"
                                                 title="{{ t.vol_library_title }}">

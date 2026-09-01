@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark">
+<html lang="{{ config.get('UI_LANG', 'fr') }}" data-theme="dark" class="mk-boot">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -15,10 +15,17 @@
 		window.KAVITA_UI_URL = "{{ kavita_ui_url }}";
         window.PROXY_COVER_HOSTS = {{ proxy_cover_hosts|default([])|tojson }};
         window.DUP_ACCEPT_THRESHOLD = {{ dup_accept_threshold|default(0.92)|tojson }};
+        window.AUTO_SYNC_SERIES_IDS = {{ auto_sync_series_ids|default([])|tojson }};
         window.INVENTORY_FOLDER_PATH_PREFIX = {{ config.get('INVENTORY_FOLDER_PATH_PREFIX', '')|tojson }};
         window.INVENTORY_FOLDER_TRASH = {{ config.get('INVENTORY_FOLDER_TRASH', '')|tojson }};
 		const savedTheme = localStorage.getItem('theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
+        // mk-boot : pas de transition accordion au premier paint (BF186).
+        document.addEventListener('DOMContentLoaded', function () {
+            requestAnimationFrame(function () {
+                document.documentElement.classList.remove('mk-boot');
+            });
+        });
         window.AppTranslations = {
             save: "{{ t.save }}",
             update: "{{ t['update'] }}",
@@ -38,6 +45,7 @@
             batch_queue_remove: "{{ t.batch_queue_remove }}",
             batch_queue_clear: "{{ t.batch_queue_clear }}",
             batch_queue_clear_confirm: "{{ t.batch_queue_clear_confirm }}",
+            stop_batch_confirm: {{ t.stop_batch_confirm|tojson }},
             batch_queue_pause: "{{ t.batch_queue_pause }}",
             batch_queue_resume: "{{ t.batch_queue_resume }}",
             batch_queue_paused_badge: "{{ t.batch_queue_paused_badge }}",
@@ -72,6 +80,7 @@
             filter_completed: "{{ t.filter_completed }}",
             filter_notfound: "{{ t.filter_notfound }}",
             filter_ignored: "{{ t.filter_ignored }}",
+            filter_auto_sync: "{{ t.filter_auto_sync }}",
             filter_no_external_id: "{{ t.filter_no_external_id }}",
             ignore_btn: "{{ t.ignore_btn }}",
             unignore_btn: "{{ t.unignore_btn }}",
@@ -91,6 +100,7 @@
             save_done: "{{ t.get('save_done', 'Terminé') }}",
 			regen_webhook_confirm: "{{ t.regen_webhook_confirm }}",
 			config_key_not_saved: "{{ t.config_key_not_saved }}",
+			config_saved: "{{ t.config_saved }}",
 			err_kavita: "{{ t.err_kavita }}",
 			err_kavita_localhost: "{{ t.err_kavita_localhost }}",
 			err_kavita_unauthorized: "{{ t.err_kavita_unauthorized }}",
@@ -266,7 +276,14 @@
 			cover_send_failed: "{{ t.cover_send_failed }}",
 			cover_send_network: "{{ t.cover_send_network }}",
 			cover_live_search_for: "{{ t.cover_live_search_for }}",
-            changelog_loading: "{{ t.changelog_loading }}"
+            changelog_loading: "{{ t.changelog_loading }}",
+            auto_sync_hub_status: {{ t.auto_sync_hub_status|tojson }},
+            auto_sync_hub_idle: {{ t.auto_sync_hub_idle|tojson }},
+            auto_sync_hub_disconnected: {{ t.auto_sync_hub_disconnected|tojson }},
+            auto_sync_hub_connecting: {{ t.auto_sync_hub_connecting|tojson }},
+            auto_sync_hub_connected: {{ t.auto_sync_hub_connected|tojson }},
+            auto_sync_hub_reconnecting: {{ t.auto_sync_hub_reconnecting|tojson }},
+            auto_sync_hub_error: {{ t.auto_sync_hub_error|tojson }}
         };
 
         window.PROVIDER_LABELS = {{ provider_labels|default({})|tojson }};
@@ -276,7 +293,7 @@
            (audit_state_<état>, audit_unit_<unité>, vol_field_<champ>,
            vol_reason_<motif>). */
         Object.assign(window.AppTranslations, {
-        {%- for key, value in t.items() if key.startswith('audit_') or key.startswith('vol_') %}
+        {%- for key, value in t.items() if key.startswith('audit_') or key.startswith('vol_') or key.startswith('asr_') or key.startswith('workshop_') %}
             {{ key|tojson }}: {{ value|tojson }},
         {%- endfor %}
         });
@@ -320,6 +337,12 @@
                     <span class="live-kpi-val" id="kpiReviews">{{ stats.pending_review|default(0) }}</span>
                     <span class="live-kpi-label">{{ t.live_kpi_reviews }}</span>
                     <span class="live-kpi-cta" id="mrOpenQueueCta">{{ t.mr_open_queue }}</span>
+                </button>
+                {%- set asr = auto_sync_report|default({}) %}
+                <button type="button" class="live-kpi live-kpi-autosync{% if asr.unread %} has-unread{% endif %}{% if asr.running %} is-running{% endif %}" id="asrOpenBtn" onclick="openAutoSyncReportModal()" title="{{ t.asr_open }}" {% if not asr.visible %}hidden{% endif %}>
+                    <span class="live-kpi-val" id="kpiAutoSyncReport">{{ asr.errors if asr.errors else asr.total|default(0) }}</span>
+                    <span class="live-kpi-label">{{ t.live_kpi_autosync }}</span>
+                    <span class="live-kpi-cta" id="asrOpenCta">{{ t.asr_open }}</span>
                 </button>
                 <div class="live-kpi live-kpi-session" title="{{ t.live_kpi_session_hint }}">
                     <span class="live-kpi-val" id="kpiSession">0</span>
@@ -637,6 +660,8 @@
 
     {% include "partials/_manual_review_modal.html" %}
 
+    {% include "partials/_auto_sync_report_modal.html" %}
+
     {% include "partials/_library_audit_modal.html" %}
 
     {% include "partials/_license_nag_modal.html" %}
@@ -644,6 +669,8 @@
     {% if libraries %}
     {% include "partials/_override_panel_template.html" %}
     {% endif %}
+
+    <div id="appToast" class="bq-toast" hidden></div>
 
     <!-- Chargement par balises <script> classiques (pas de bundler, pas de type="module")
          afin de préserver les fonctions en portée globale utilisées par les attributs
@@ -657,6 +684,7 @@
     <script src="{{ url_for('static', filename='js/config.js') }}"></script>
     <script src="{{ url_for('static', filename='js/field_mapping.js') }}"></script>
     <script src="{{ url_for('static', filename='js/batch.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/auto_sync_report.js') }}"></script>
     <script src="{{ url_for('static', filename='js/series_list.js') }}"></script>
     <script src="{{ url_for('static', filename='js/library_audit.js') }}"></script>
     <script src="{{ url_for('static', filename='js/license_nag.js') }}"></script>

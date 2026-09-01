@@ -29,6 +29,40 @@ ACCENT_HEX = {
 }
 
 
+def scored_average(score_sum, score_n, reviews=0) -> float:
+    """Moyenne des scores de match (0–1) pour /stats et les hauts-faits.
+
+    `manual_score_n` a été ajouté après `manual_score_sum`. Sur une base déjà
+    remplie, la somme est lifetime et le dénominateur ne compte que les
+    confirms depuis le compteur : 12,13 / 1 → 1212 % à l'écran. Si la moyenne
+    dépasse 1 et qu'il y a plus de reviews que de n scorés, on divise par les
+    reviews. Un barème 0–100 (moyenne ≥ 2) est ramené à 0–1. Jamais au-delà de 1.
+    """
+    try:
+        total = float(score_sum or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if total != total or total <= 0:
+        return 0.0
+    try:
+        n_scored = int(score_n or 0)
+    except (TypeError, ValueError):
+        n_scored = 0
+    try:
+        n_reviews = int(reviews or 0)
+    except (TypeError, ValueError):
+        n_reviews = 0
+    n = n_scored if n_scored > 0 else n_reviews
+    if n <= 0:
+        return 0.0
+    avg = total / n
+    if avg > 1.0 and n_reviews > n:
+        avg = total / n_reviews
+    if avg >= 2.0:
+        avg = avg / 100.0
+    return min(max(avg, 0.0), 1.0)
+
+
 def lifetime_bag_from_stats(lifetime: Optional[dict]) -> Dict[str, Any]:
     """Mappe get_lifetime_stats() → bag d'évaluation (même forme que la session JS)."""
     life = lifetime or {}
@@ -56,10 +90,7 @@ def lifetime_bag_from_stats(lifetime: Optional[dict]) -> Dict[str, Any]:
 
 
 def _avg(bag: dict) -> float:
-    n = int(bag.get("score_n") or 0)
-    if n <= 0:
-        return 0.0
-    return float(bag.get("score_sum") or 0) / n
+    return scored_average(bag.get("score_sum"), bag.get("score_n"), bag.get("done"))
 
 
 def _off_podium(bag: dict) -> int:

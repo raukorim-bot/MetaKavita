@@ -19,16 +19,17 @@ quelqu'un d'autre.
 """
 from __future__ import annotations
 
+import inspect
 import logging
 import re
-from typing import Any, Callable, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Set, Tuple
 
 from secure_logging import safe_exc_str, series_label
 from services.magic_input import detect_provider_from_url, is_http_url
 from services.provider_throttle import throttle_provider
 
 #: Cascade ISBN, dans l'ordre. Les trois acceptent `existing_metadata={"isbn": …}`.
-ISBN_PROVIDERS = ("GOOGLEBOOKS", "OPENLIBRARY", "HARDCOVER")
+ISBN_PROVIDERS = ("GOOGLEBOOKS", "OPENLIBRARY", "HARDCOVER", "OPENBD")
 
 #: Fournisseurs interrogeables par titre de série + numéro de tome. Chemin
 #: expérimental : c'est une recherche, pas une correspondance d'identifiant.
@@ -80,6 +81,16 @@ _UNRANKED = 99
 #: Comic (Flexible) il reste le dernier recours manga, après les comics, à la
 #: place de MangaDex. Un fournisseur imposé (`VOLUME_PROVIDER`) reste prioritaire.
 MANGA_VOLUME_LEAD = "MANGANEWS"
+#: Complément VF du Magasin : juste derrière Manga-News, avant MangaDex.
+MANGA_VOLUME_SECOND = "MANGASANCTUARY"
+
+
+def _manga_lead_rank(scraper_id: str) -> int:
+    if scraper_id == MANGA_VOLUME_LEAD:
+        return 0
+    if scraper_id == MANGA_VOLUME_SECOND:
+        return 1
+    return 2
 
 
 def forced_volume_provider(config: Optional[dict] = None) -> str:
@@ -246,7 +257,7 @@ def volume_providers(library_type: str = "Comic", *, config: Optional[dict] = No
     # Python 3 refuse de comparer des tuples de tailles différentes.
     def _rank(scraper):
         cascade = ranks.get(scraper.id, _UNRANKED)
-        manga_lead = 0 if scraper.id == MANGA_VOLUME_LEAD else 1
+        manga_lead = _manga_lead_rank(scraper.id)
         if library_type == "Manga":
             return (0, manga_lead, cascade)
         if library_type == "ComicFlexible":
@@ -369,6 +380,149 @@ def _covers_enough(index: Dict[str, Any], units: Optional[List[Dict[str, Any]]])
     return index_coverage(index, units) >= INDEX_MIN_COVERAGE
 
 
+def _index_hit_volume_cap(scraper: Any, raw_index: Dict[str, Any]) -> bool:
+    """Vrai si ce fournisseur a rendu autant d'entrées que son plafond."""
+    cap = getattr(scraper, "VOLUME_INDEX_MAX", None)
+    try:
+        cap_n = int(cap)
+    except (TypeError, ValueError):
+        return False
+    return cap_n > 0 and len(raw_index or {}) >= cap_n
+
+
+def _unmatched_owned(index: Dict[str, Any], units: Optional[List[Dict[str, Any]]]) -> bool:
+    """Vrai s'il reste des tomes Kavita sans entrée dans l'index."""
+    if not units:
+        return False
+    from services.volume_enrichment.matching import matchable_numbers, number_key
+
+    wanted = matchable_numbers(units)
+    if not wanted:
+        return False
+    known = {key for key in (number_key(raw) for raw in (index or {})) if key is not None}
+    return bool(wanted - known)
+
+
+def _should_close_text_index(
+    scraper: Any,
+    merged: Dict[str, Any],
+    raw: Dict[str, Any],
+    units: Optional[List[Dict[str, Any]]],
+) -> bool:
+    """Un index textuel assez couvrant, et qui n'a pas été amputé par un plafond."""
+    if _is_cover_only(merged):
+        return False
+    if not _covers_enough(merged, units):
+        return False
+    if _unmatched_owned(merged, units):
+        return False
+    if _index_hit_volume_cap(scraper, raw):
+        return False
+    return True
+
+
+def _wanted_from_units(units: Optional[List[Dict[str, Any]]]) -> Optional[Set[str]]:
+    """Numéros Kavita à aller chercher, ou `None` si l'appelant n'en dit rien.
+
+    `None` (pas un set vide) : l'index se comporte comme avant T1, pour les
+    outils et l'aperçu d'un seul tome qui ne passent pas la série.
+    """
+    if not units:
+        return None
+    from services.volume_enrichment.matching import matchable_numbers
+
+    wanted = matchable_numbers(units)
+    return wanted or None
+
+
+def _call_volume_index(
+    scraper: Any,
+    query: str,
+    *,
+    library_type: str = "Comic",
+    series_id: Optional[str] = None,
+    existing_metadata: Optional[Dict[str, Any]] = None,
+    wanted_numbers: Optional[Set[str]] = None,
+    should_cancel: Optional[Callable[[], bool]] = None,
+) -> Any:
+    """Appelle `fetch_volume_index` sans casser un Magasin à quatre arguments.
+
+    Les kwargs `wanted_numbers` / `should_cancel` ne partent que si la
+    signature les accepte (ou un `**kwargs`). Un scrape qui lève reste à
+    l'appelant : `fetch_index` le journalise déjà.
+    """
+    kwargs: Dict[str, Any] = {
+        "library_type": library_type,
+        "series_id": series_id,
+        "existing_metadata": existing_metadata or {},
+    }
+    try:
+        sig = inspect.signature(scraper.fetch_volume_index)
+    except (TypeError, ValueError):
+        return scraper.fetch_volume_index(query, **kwargs)
+    params = sig.parameters
+    accepts_var_kw = any(
+        p.kind == inspect.Parameter.VAR_KEYWORD for p in params.values()
+    )
+    if accepts_var_kw or "wanted_numbers" in params:
+        kwargs["wanted_numbers"] = wanted_numbers
+    if accepts_var_kw or "should_cancel" in params:
+        kwargs["should_cancel"] = should_cancel
+    return scraper.fetch_volume_index(query, **kwargs)
+
+
+def _append_first_cover_only(
+    provider_id: str,
+    index: Dict[str, Any],
+    remaining: List[Any],
+    *,
+    series_name: str,
+    library_type: str,
+    forced_id: str,
+    forced_provider: str,
+    existing_metadata: Optional[Dict[str, Any]],
+    wanted_numbers: Optional[Set[str]],
+    should_cancel: Optional[Callable[[], bool]],
+    label: str,
+) -> Tuple[str, Dict[str, Any]]:
+    """Fusionne le premier index couvertures encore dans la cascade (MangaDex)."""
+    for scraper in remaining:
+        if not provides_volume_index(scraper):
+            continue
+        if not (
+            getattr(scraper, "VOLUME_INDEX_COVERS_ONLY", False)
+            or str(getattr(scraper, "id", "")).upper() == "MANGADEX"
+        ):
+            continue
+        if should_cancel and should_cancel():
+            break
+        try:
+            throttle_provider(scraper)
+            fetched = _call_volume_index(
+                scraper,
+                series_name,
+                library_type=library_type,
+                series_id=forced_id_for(scraper, forced_id, forced_provider),
+                existing_metadata=existing_metadata or {},
+                wanted_numbers=wanted_numbers,
+                should_cancel=should_cancel,
+            )
+        except Exception as exc:
+            logging.warning(
+                "[Tomes] %s : index indisponible pour %s (%s)",
+                scraper.id,
+                label,
+                safe_exc_str(exc),
+            )
+            continue
+        raw = usable_index(fetched, getattr(scraper, "id", ""))
+        if not raw:
+            continue
+        if _is_cover_only(raw):
+            return f"{provider_id}+{scraper.id}", merge_indexes(index, raw)
+    return provider_id, index
+
+
 def fetch_index(
     series_name: str,
     library_type: str = "Comic",
@@ -399,11 +553,11 @@ def fetch_index(
     label = series_label(series_name, kavita_series_id)
     if providers is None:
         providers = volume_providers(library_type, config=config)
+    wanted_numbers = _wanted_from_units(units)
+    queued = [s for s in providers if provides_volume_index(s)]
     partial_provider, partial_index = "", {}
     consulted: List[str] = []
-    for scraper in providers:
-        if not provides_volume_index(scraper):
-            continue
+    for i, scraper in enumerate(queued):
         consulted.append(getattr(scraper, "id", "?"))
         if should_cancel and should_cancel():
             # Un index Bédéthèque dure deux minutes : sans ce contrôle, une
@@ -411,11 +565,14 @@ def fetch_index(
             break
         try:
             throttle_provider(scraper)
-            index = scraper.fetch_volume_index(
+            fetched = _call_volume_index(
+                scraper,
                 series_name,
                 library_type=library_type,
                 series_id=forced_id_for(scraper, forced_id, forced_provider),
                 existing_metadata=existing_metadata or {},
+                wanted_numbers=wanted_numbers,
+                should_cancel=should_cancel,
             )
         except Exception as exc:
             logging.warning(
@@ -425,16 +582,34 @@ def fetch_index(
                 safe_exc_str(exc),
             )
             continue
-        index = usable_index(index, getattr(scraper, "id", ""))
-        if not index:
+        raw = usable_index(fetched, getattr(scraper, "id", ""))
+        if not raw:
             continue
         if partial_index:
             provider_id = f"{partial_provider}+{scraper.id}"
-            index = merge_indexes(partial_index, index)
+            index = merge_indexes(partial_index, raw)
         else:
             provider_id = scraper.id
-        if _covers_enough(index, units) and not _is_cover_only(index):
-            return provider_id, index
+            index = raw
+        if should_cancel and should_cancel():
+            # Index partiel déjà payé : on le garde, on ne clôt pas la cascade
+            # (MangaDex n'a rien à fusionner après un Stop).
+            partial_provider, partial_index = provider_id, index
+            break
+        if _should_close_text_index(scraper, index, raw, units):
+            return _append_first_cover_only(
+                provider_id,
+                index,
+                queued[i + 1 :],
+                series_name=series_name,
+                library_type=library_type,
+                forced_id=forced_id,
+                forced_provider=forced_provider,
+                existing_metadata=existing_metadata,
+                wanted_numbers=wanted_numbers,
+                should_cancel=should_cancel,
+                label=label,
+            )
         logging.info(
             "[Tomes] %s : index partiel pour %s (%.0f %% des tomes) — on complète",
             provider_id,
@@ -560,7 +735,7 @@ def resolve_index(
         # Un index partiel est traité comme un index sans texte : la cascade ISBN
         # peut le compléter, et elle ne coûte un appel que sur les tomes qui portent
         # un ISBN dans Kavita — aucun, sur une bibliothèque de comics.
-        if index and not _is_cover_only(index) and _covers_enough(index, units):
+        if index and not _is_cover_only(index) and _covers_enough(index, units) and not _unmatched_owned(index, units):
             return provider, index
         if should_cancel and should_cancel():
             return provider, index

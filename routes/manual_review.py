@@ -191,8 +191,9 @@ def api_manual_review_choice(review_id):
         return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
 
     config = load_config()
-    # Préférence UI (évite le décalage si saveConfig n'a pas encore flush)
-    if "prefer_edit" in data:
+    if data.get("workshop"):
+        use_edit = False
+    elif "prefer_edit" in data:
         use_edit = bool(data.get("prefer_edit"))
     else:
         use_edit = bool(config.get("MANUAL_REVIEW_EDIT", True))
@@ -230,6 +231,7 @@ def api_manual_review_choice(review_id):
         field_picks=field_picks,
         merge_fields=merge_fields,
         manual_completion=manual_completion,
+        workshop=bool(data.get("workshop")),
     )
     if not ok:
         return jsonify(success=False, error=msg), 400
@@ -277,6 +279,7 @@ def api_manual_review_confirm(review_id):
         merge_fields=merge_fields,
         manual_completion=manual_completion,
         send_fields=send_fields,
+        workshop=bool(data.get("workshop")),
     )
     if not ok:
         return jsonify(success=False, error=msg), 400
@@ -346,6 +349,11 @@ def api_manual_reviews_bulk_accept():
     `review_ids`, s'applique à toute la file `awaiting_pick`.
     """
     data = _parse_json()
+    if data.get("workshop"):
+        return jsonify(
+            success=False,
+            error="bulk_accept_unsupported_in_workshop",
+        ), 400
     try:
         threshold = float(data.get("threshold", get_match_accept_threshold()))
     except (TypeError, ValueError):

@@ -2,6 +2,8 @@ import sqlite3
 import os
 import logging
 import threading
+import time
+from typing import Optional
 
 from models import SeriesOverride
 from secure_logging import safe_exc_str
@@ -190,6 +192,8 @@ def init_db():
     _ensure_batch_queue_tables(c)
     _ensure_library_audit_tables(c)
     _ensure_volume_unit_tables(c)
+    _ensure_workshop_tables(c)
+    _ensure_auto_sync_tables(c)
     conn.commit()
     conn.close()
 
@@ -289,6 +293,50 @@ def _ensure_volume_unit_tables(c):
     _schema_done("volume_unit_tables")
 
 
+def _ensure_workshop_tables(c):
+    """Overrides Champ Magique par tome + journal borné de l'atelier."""
+    if not _schema_pending("workshop_tables"):
+        return
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS volume_unit_overrides (
+             series_id INTEGER NOT NULL,
+             chapter_id INTEGER NOT NULL,
+             provider TEXT,
+             provider_ref TEXT,
+             payload_json TEXT,
+             updated_at TEXT NOT NULL,
+             PRIMARY KEY (series_id, chapter_id)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_overrides_series "
+        "ON volume_unit_overrides(series_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS workshop_history (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             series_id INTEGER NOT NULL,
+             chapter_id INTEGER,
+             event TEXT NOT NULL,
+             detail_json TEXT,
+             created_at TEXT NOT NULL
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_workshop_history_series "
+        "ON workshop_history(series_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS workshop_series_overrides (
+             series_id INTEGER PRIMARY KEY,
+             payload_json TEXT NOT NULL,
+             cover_url TEXT,
+             updated_at TEXT NOT NULL
+           )'''
+    )
+    _schema_done("workshop_tables")
+
+
 def _ensure_lifetime_stats_table(c):
     if not _schema_pending("lifetime_stats"):
         return
@@ -339,6 +387,513 @@ def _ensure_batch_queue_tables(c):
         "INSERT OR IGNORE INTO batch_queue_meta(key, value) VALUES ('paused', '0')"
     )
     _schema_done("batch_queue_tables")
+
+
+_auto_sync_report_lock = threading.Lock()
+
+_ASR_EMPTY_BADGE = {
+    "visible": False,
+    "unread": False,
+    "running": False,
+    "total": 0,
+    "ok": 0,
+    "errors": 0,
+    "review": 0,
+    "relock": 0,
+    "stopped": 0,
+    "pending": 0,
+}
+
+
+def _ensure_auto_sync_tables(c):
+    """Snapshot d'IDs Kavita pour le trigger scan (C96) + rapport de vague (C97)."""
+    if _schema_pending("auto_sync_known_series"):
+        c.execute(
+            '''CREATE TABLE IF NOT EXISTS auto_sync_known_series (
+                 series_id INTEGER PRIMARY KEY
+               )'''
+        )
+        _schema_done("auto_sync_known_series")
+    if not _schema_pending("auto_sync_report_tables"):
+        return
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS auto_sync_runs (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             started_at REAL NOT NULL,
+             finished_at REAL,
+             trigger TEXT NOT NULL DEFAULT '',
+             unread INTEGER NOT NULL DEFAULT 0,
+             stopped INTEGER NOT NULL DEFAULT 0
+           )'''
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS auto_sync_run_items (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             run_id INTEGER NOT NULL,
+             series_id INTEGER NOT NULL,
+             series_name TEXT,
+             outcome TEXT NOT NULL DEFAULT 'pending',
+             message TEXT,
+             finished_at REAL,
+             UNIQUE(run_id, series_id)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_auto_sync_run_items_run "
+        "ON auto_sync_run_items(run_id)"
+    )
+    _schema_done("auto_sync_report_tables")
+
+
+def get_auto_sync_known_ids() -> set:
+    """IDs Kavita déjà vus par le trigger scan (snapshot)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        rows = c.execute("SELECT series_id FROM auto_sync_known_series").fetchall()
+        return {int(row[0]) for row in rows}
+    finally:
+        conn.close()
+
+
+def replace_auto_sync_known_ids(ids) -> None:
+    """Remplace le snapshot en une transaction (DELETE + INSERT, pas un merge)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    seen = set()
+    rows = []
+    for raw in ids or []:
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if sid in seen:
+            continue
+        seen.add(sid)
+        rows.append((sid,))
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        c.execute("DELETE FROM auto_sync_known_series")
+        if rows:
+            c.executemany(
+                "INSERT INTO auto_sync_known_series (series_id) VALUES (?)",
+                rows,
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def classify_auto_sync_outcome(ok, msg, status=None) -> str:
+    """Classe le résultat d'un job Auto-sync pour le rapport de vague (C97)."""
+    token = str(status or "").strip().upper()
+    message = str(msg or "").strip()
+    if token == "PENDING_REVIEW" or message == "PENDING_REVIEW":
+        return "review"
+    if token == "NEEDS_RELOCK" or message == "NEEDS_RELOCK":
+        return "relock"
+    if token == "NOT_FOUND":
+        return "error"
+    if message in ("Introuvable.", "Not found.", "Not found"):
+        return "error"
+    if not ok:
+        return "error"
+    return "completed"
+
+
+def _open_auto_sync_run_id(c):
+    row = c.execute(
+        "SELECT id FROM auto_sync_runs WHERE finished_at IS NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+def _counts_from_outcomes(outcomes) -> dict:
+    counts = {
+        "total": 0,
+        "ok": 0,
+        "errors": 0,
+        "review": 0,
+        "relock": 0,
+        "stopped": 0,
+        "pending": 0,
+    }
+    for raw in outcomes or []:
+        counts["total"] += 1
+        key = str(raw or "pending").strip().lower()
+        if key in ("completed", "relock"):
+            counts["ok"] += 1
+        if key == "error":
+            counts["errors"] += 1
+        elif key == "review":
+            counts["review"] += 1
+        elif key == "relock":
+            counts["relock"] += 1
+        elif key == "stopped":
+            counts["stopped"] += 1
+        elif key == "pending":
+            counts["pending"] += 1
+    return counts
+
+
+def _badge_from_run(run, counts, series_ids=None) -> dict:
+    ids = []
+    for raw in series_ids or []:
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not run:
+        badge = dict(_ASR_EMPTY_BADGE)
+        badge["series_ids"] = ids
+        return badge
+    running = run.get("finished_at") is None
+    unread = bool(run.get("unread")) and not running
+    badge = dict(_ASR_EMPTY_BADGE)
+    badge.update(counts or {})
+    badge["visible"] = running or unread
+    badge["unread"] = unread
+    badge["running"] = running
+    badge["series_ids"] = ids
+    return badge
+
+
+def _run_row_to_dict(row) -> dict:
+    return {
+        "id": int(row[0]),
+        "started_at": row[1],
+        "finished_at": row[2],
+        "trigger": row[3] or "",
+        "unread": bool(row[4]),
+        "stopped": bool(row[5]),
+    }
+
+
+def begin_auto_sync_run(trigger, items) -> int:
+    """Ouvre (ou réutilise) la vague courante et y pose les séries en `pending`.
+
+    Une vague encore ouverte (Stop n'a pas tout fini, un scrape tourne) reçoit
+    les nouvelles séries. Sinon on remplace le rapport précédent : l'UI ne
+    montre que la dernière vague.
+    """
+    prepared = []
+    seen = set()
+    for raw in items or []:
+        if isinstance(raw, dict):
+            sid, name = raw.get("series_id"), raw.get("series_name")
+        else:
+            try:
+                sid, name = raw[0], raw[1]
+            except (TypeError, IndexError, ValueError):
+                continue
+        try:
+            sid = int(sid)
+        except (TypeError, ValueError):
+            continue
+        if sid in seen:
+            continue
+        seen.add(sid)
+        prepared.append((sid, str(name or sid)))
+    if not prepared:
+        return 0
+    trig = str(trigger or "").strip().lower()
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            init_db()
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                c.execute("DELETE FROM auto_sync_run_items")
+                c.execute("DELETE FROM auto_sync_runs")
+                c.execute(
+                    "INSERT INTO auto_sync_runs (started_at, trigger, unread, stopped) "
+                    "VALUES (?, ?, 0, 0)",
+                    (now, trig),
+                )
+                run_id = int(c.lastrowid)
+            for sid, name in prepared:
+                c.execute(
+                    "INSERT OR IGNORE INTO auto_sync_run_items "
+                    "(run_id, series_id, series_name, outcome) VALUES (?, ?, ?, 'pending')",
+                    (run_id, sid, name),
+                )
+                c.execute(
+                    "UPDATE auto_sync_run_items SET series_name = ? "
+                    "WHERE run_id = ? AND series_id = ? AND outcome = 'pending'",
+                    (name, run_id, sid),
+                )
+            conn.commit()
+            return run_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def record_auto_sync_item(series_id, series_name, ok, msg) -> None:
+    """Enregistre le résultat d'un job `origin=auto` sur la vague ouverte."""
+    try:
+        sid = int(series_id)
+    except (TypeError, ValueError):
+        return
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                return
+            status_row = c.execute(
+                "SELECT status FROM series_cache WHERE series_id = ?",
+                (sid,),
+            ).fetchone()
+            status = status_row[0] if status_row else None
+            outcome = classify_auto_sync_outcome(ok, msg, status)
+            message = str(msg or "")
+            name = str(series_name or sid)
+            c.execute(
+                "UPDATE auto_sync_run_items "
+                "SET outcome = ?, message = ?, finished_at = ?, series_name = ? "
+                "WHERE run_id = ? AND series_id = ?",
+                (outcome, message, now, name, run_id, sid),
+            )
+            if c.rowcount == 0:
+                c.execute(
+                    "INSERT INTO auto_sync_run_items "
+                    "(run_id, series_id, series_name, outcome, message, finished_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (run_id, sid, name, outcome, message, now),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def mark_auto_sync_items_stopped(series_ids) -> int:
+    """Stop : les jobs Auto-sync encore `pending` de la vague ouverte passent en stopped."""
+    ids = []
+    seen = set()
+    for raw in series_ids or []:
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if sid in seen:
+            continue
+        seen.add(sid)
+        ids.append(sid)
+    if not ids:
+        return 0
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return 0
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                return 0
+            placeholders = ",".join("?" for _ in ids)
+            c.execute(
+                f"UPDATE auto_sync_run_items SET outcome = 'stopped', finished_at = ?, "
+                f"message = 'stopped' WHERE run_id = ? AND outcome = 'pending' "
+                f"AND series_id IN ({placeholders})",
+                [now, run_id, *ids],
+            )
+            n = c.rowcount
+            if n:
+                c.execute(
+                    "UPDATE auto_sync_runs SET stopped = 1 WHERE id = ?",
+                    (run_id,),
+                )
+            conn.commit()
+            return n
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def finish_open_auto_sync_run(*, stopped=False) -> bool:
+    """Clôt la vague ouverte et la marque non lue. False s'il n'y en avait pas."""
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return False
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                return False
+            if stopped:
+                c.execute(
+                    "UPDATE auto_sync_runs SET finished_at = ?, unread = 1, stopped = 1 "
+                    "WHERE id = ? AND finished_at IS NULL",
+                    (now, run_id),
+                )
+            else:
+                c.execute(
+                    "UPDATE auto_sync_runs SET finished_at = ?, unread = 1 "
+                    "WHERE id = ? AND finished_at IS NULL",
+                    (now, run_id),
+                )
+            changed = c.rowcount > 0
+            if changed:
+                meta = c.execute(
+                    "SELECT trigger, stopped FROM auto_sync_runs WHERE id = ?",
+                    (run_id,),
+                ).fetchone()
+                outcomes = [
+                    row[0]
+                    for row in c.execute(
+                        "SELECT outcome FROM auto_sync_run_items WHERE run_id = ?",
+                        (run_id,),
+                    ).fetchall()
+                ]
+                was_stopped = bool(stopped) or bool(meta and meta[1])
+                trigger = (meta[0] if meta else "") or ""
+                _apply_auto_sync_wave_telemetry(
+                    c, trigger=trigger, stopped=was_stopped, outcomes=outcomes
+                )
+            conn.commit()
+            return changed
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def _apply_auto_sync_wave_telemetry(c, *, trigger, stopped, outcomes) -> None:
+    """Incrémente les compteurs lifetime d'une vague Auto-sync tout juste close."""
+    counts = _counts_from_outcomes(outcomes)
+    _ensure_lifetime_stats_table(c)
+    _bump_lifetime_stat(c, "auto_sync_waves", 1)
+    if stopped:
+        _bump_lifetime_stat(c, "auto_sync_waves_stopped", 1)
+    if str(trigger or "").strip().lower() == "scan":
+        _bump_lifetime_stat(c, "auto_sync_waves_scan", 1)
+    else:
+        _bump_lifetime_stat(c, "auto_sync_waves_interval", 1)
+    _bump_lifetime_stat(c, "auto_sync_series", counts.get("total") or 0)
+    _bump_lifetime_stat(c, "auto_sync_ok", counts.get("ok") or 0)
+    _bump_lifetime_stat(c, "auto_sync_errors", counts.get("errors") or 0)
+    _bump_lifetime_stat(c, "auto_sync_review", counts.get("review") or 0)
+    _bump_lifetime_stat(c, "auto_sync_relock", counts.get("relock") or 0)
+    _bump_lifetime_stat(c, "auto_sync_stopped", counts.get("stopped") or 0)
+
+
+def mark_auto_sync_report_read() -> bool:
+    """Marque le dernier rapport terminé comme lu (cache le bouton KPI)."""
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return False
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            row = c.execute(
+                "SELECT id, finished_at FROM auto_sync_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if not row or row[1] is None:
+                return False
+            c.execute(
+                "UPDATE auto_sync_runs SET unread = 0 WHERE id = ?",
+                (int(row[0]),),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def _load_latest_auto_sync_run(c):
+    row = c.execute(
+        "SELECT id, started_at, finished_at, trigger, unread, stopped "
+        "FROM auto_sync_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None, []
+    run = _run_row_to_dict(row)
+    items = []
+    for item in c.execute(
+        "SELECT series_id, series_name, outcome, message, finished_at "
+        "FROM auto_sync_run_items WHERE run_id = ? ORDER BY series_name COLLATE NOCASE",
+        (run["id"],),
+    ).fetchall():
+        items.append({
+            "series_id": int(item[0]),
+            "series_name": item[1] or str(item[0]),
+            "outcome": item[2] or "pending",
+            "message": item[3] or "",
+            "finished_at": item[4],
+        })
+    return run, items
+
+
+def get_auto_sync_report_badge() -> dict:
+    """Pastille KPI : visible si la vague tourne ou si le dernier rapport est non lu."""
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return dict(_ASR_EMPTY_BADGE)
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run, items = _load_latest_auto_sync_run(c)
+        finally:
+            conn.close()
+    return _badge_from_run(
+        run,
+        _counts_from_outcomes(i["outcome"] for i in items),
+        [i["series_id"] for i in items],
+    )
+
+
+def get_latest_auto_sync_report() -> dict:
+    """Dernière vague + séries, ou un rapport vide si aucune n'a encore tourné."""
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return {"run": None, "items": [], "counts": dict(_ASR_EMPTY_BADGE), "badge": dict(_ASR_EMPTY_BADGE)}
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run, items = _load_latest_auto_sync_run(c)
+        finally:
+            conn.close()
+    counts = _counts_from_outcomes(i["outcome"] for i in items)
+    ids = [i["series_id"] for i in items]
+    badge = _badge_from_run(run, counts, ids)
+    return {"run": run, "items": items, "counts": counts, "badge": badge}
 
 
 def _ensure_pending_reviews_table(c):
@@ -499,6 +1054,28 @@ def get_lifetime_stats():
         "series_enriched": _as_int("series_enriched"),
         "matches_won": _as_int("matches_won"),
         "series_missed": _as_int("series_missed"),
+        "covers_applied": _as_int("covers_applied"),
+        "locks_sealed": _as_int("locks_sealed"),
+        "runs_batch": _as_int("runs_batch"),
+        "runs_webhook": _as_int("runs_webhook"),
+        "runs_auto": _as_int("runs_auto"),
+        "runs_row": _as_int("runs_row"),
+        "runs_workshop": _as_int("runs_workshop"),
+        "workshop_units": _as_int("workshop_units"),
+        "workshop_reviews": _as_int("workshop_reviews"),
+        "workshop_magic": _as_int("workshop_magic"),
+        "workshop_edits": _as_int("workshop_edits"),
+        "workshop_resets": _as_int("workshop_resets"),
+        "auto_sync_waves": _as_int("auto_sync_waves"),
+        "auto_sync_waves_stopped": _as_int("auto_sync_waves_stopped"),
+        "auto_sync_waves_scan": _as_int("auto_sync_waves_scan"),
+        "auto_sync_waves_interval": _as_int("auto_sync_waves_interval"),
+        "auto_sync_series": _as_int("auto_sync_series"),
+        "auto_sync_ok": _as_int("auto_sync_ok"),
+        "auto_sync_errors": _as_int("auto_sync_errors"),
+        "auto_sync_review": _as_int("auto_sync_review"),
+        "auto_sync_relock": _as_int("auto_sync_relock"),
+        "auto_sync_stopped": _as_int("auto_sync_stopped"),
         "manual_reviews": _as_int("manual_reviews"),
         "manual_skips": _as_int("manual_skips"),
         "manual_top1_accepts": _as_int("manual_top1_accepts"),
@@ -524,6 +1101,60 @@ def _bump_lifetime_stat(c, key, delta):
            ON CONFLICT(stat_key) DO UPDATE SET value = value + excluded.value''',
         (key, delta),
     )
+
+
+# Gestes hors enrichissement / hors review : allowlist pour ne pas inventer de clés.
+_LIFETIME_EVENT_KEYS = frozenset({
+    "covers_applied",
+    "locks_sealed",
+    "runs_batch",
+    "runs_webhook",
+    "runs_auto",
+    "runs_row",
+    "runs_workshop",
+    "workshop_units",
+    "workshop_reviews",
+    "workshop_magic",
+    "workshop_edits",
+    "workshop_resets",
+})
+
+_RUN_ORIGIN_KEYS = {
+    "batch": "runs_batch",
+    "webhook": "runs_webhook",
+    "auto": "runs_auto",
+    "row": "runs_row",
+    "workshop": "runs_workshop",
+}
+
+
+def record_lifetime_event(key, delta=1):
+    """Incrémente un compteur lifetime listé. Inconnu ou delta 0 : no-op."""
+    if key not in _LIFETIME_EVENT_KEYS:
+        return 0
+    try:
+        n = int(delta or 0)
+    except (TypeError, ValueError):
+        return 0
+    if n <= 0:
+        return 0
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_lifetime_stats_table(c)
+    _bump_lifetime_stat(c, key, n)
+    conn.commit()
+    conn.close()
+    return n
+
+
+def record_run_origin(origin):
+    """+1 sur l'origine d'une écriture Kavita (lot / webhook / auto / clic ligne)."""
+    key = _RUN_ORIGIN_KEYS.get(str(origin or "").strip().lower())
+    if not key:
+        return 0
+    return record_lifetime_event(key, 1)
 
 
 def record_manual_review_telemetry(
@@ -1099,6 +1730,10 @@ _SERIES_SCOPED_TABLES = (
     "series_audit_flags",
     "hygiene_catalog_overrides",
     "volume_unit_cache",
+    "auto_sync_known_series",
+    "volume_unit_overrides",
+    "workshop_history",
+    "workshop_series_overrides",
 )
 
 #: SQLite plafonne le nombre de paramètres liés (999 sur les builds anciens) :
@@ -1127,6 +1762,8 @@ def clean_orphaned_cache(active_ids):
     _ensure_pending_reviews_table(c)
     _ensure_library_audit_tables(c)
     _ensure_volume_unit_tables(c)
+    _ensure_workshop_tables(c)
+    _ensure_auto_sync_tables(c)
     c.execute("SELECT series_id FROM series_cache")
     cached_ids = {row[0] for row in c.fetchall()}
     orphans = cached_ids - active_ids
@@ -1141,6 +1778,13 @@ def clean_orphaned_cache(active_ids):
                     chunk,
                 )
         conn.commit()
+        try:
+            from services import kavita_cover_cache
+
+            for sid in orphan_list:
+                kavita_cover_cache.purge_series(sid)
+        except Exception:
+            pass
     conn.close()
     return len(orphans)
 
@@ -1579,6 +2223,31 @@ def get_hygiene_library_meta(library_id):
     return {"library_id": str(library_id), "scanned_at": row[0], "counts": counts}
 
 
+def list_hygiene_library_meta() -> list:
+    """Toutes les analyses Inventaire encore en base (clé `all` comprise)."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute("SELECT library_id, scanned_at, counts_json FROM hygiene_library_meta")
+    rows = []
+    for library_id, scanned_at, raw in c.fetchall():
+        try:
+            counts = json.loads(raw or "{}")
+        except (TypeError, ValueError):
+            counts = {}
+        rows.append({
+            "library_id": str(library_id),
+            "scanned_at": scanned_at,
+            "counts": counts,
+        })
+    conn.close()
+    return rows
+
+
 def save_dup_dismissal(library_id, series_ids, reason: str):
     import json
     from datetime import datetime, timezone
@@ -1814,6 +2483,60 @@ def count_volume_units_by_status(series_ids=None) -> dict:
     return out
 
 
+def count_dup_dismissals() -> int:
+    """Pardons de doublons (toutes biblios), hors ligne méta du cache."""
+    if not os.path.exists(DB_FILE):
+        return 0
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT COUNT(*) FROM hygiene_dup_dismissals WHERE group_key != ?",
+        (_DUP_META_GROUP_ID,),
+    )
+    n = int((c.fetchone() or [0])[0] or 0)
+    conn.close()
+    return n
+
+
+def summarize_volume_writes() -> dict:
+    """Unités DONE : victoires par fournisseur + champs réellement écrits.
+
+    La sentinelle de fin de série (`chapter_id` 0) est exclue. Pas de nouvel
+    enregistrement : on relit `volume_unit_cache`.
+    """
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return {"providers": {}, "fields": {}}
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    c.execute(
+        "SELECT provider, written_fields FROM volume_unit_cache "
+        "WHERE status = 'DONE' AND chapter_id != ?",
+        (SERIES_PASS_CHAPTER_ID,),
+    )
+    providers = {}
+    fields = {}
+    for provider, raw in c.fetchall():
+        pid = (provider or "").strip()
+        if pid:
+            providers[pid] = providers.get(pid, 0) + 1
+        try:
+            written = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            written = []
+        if not isinstance(written, list):
+            continue
+        for field in written:
+            key = str(field or "").strip()
+            if key:
+                fields[key] = fields.get(key, 0) + 1
+    conn.close()
+    return {"providers": providers, "fields": fields}
+
+
 def list_enriched_series_ids() -> set:
     """Séries parcourues **en entier** : la reprise repart après elles.
 
@@ -1848,8 +2571,12 @@ def list_enriched_series_ids() -> set:
     return out
 
 
-def clear_volume_unit_states(series_id=None):
-    """Efface l'état d'une série, ou de tout le monde quand on repart de zéro."""
+def clear_volume_unit_states(series_id=None, chapter_id=None):
+    """Efface l'état d'une série, d'un tome, ou de tout le monde.
+
+    `chapter_id` n'a de sens qu'avec une série : le Reset atelier d'un tome
+    doit rouvrir ce chapitre à la passe auto, sans jeter le reste de la série.
+    """
     if not os.path.exists(DB_FILE):
         return
     conn = _connect()
@@ -1857,8 +2584,267 @@ def clear_volume_unit_states(series_id=None):
     _ensure_volume_unit_tables(c)
     if series_id is None:
         c.execute("DELETE FROM volume_unit_cache")
-    else:
+    elif chapter_id is None:
         c.execute("DELETE FROM volume_unit_cache WHERE series_id = ?", (int(series_id),))
+    else:
+        c.execute(
+            "DELETE FROM volume_unit_cache WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), int(chapter_id)),
+        )
+    conn.commit()
+    conn.close()
+
+
+WORKSHOP_HISTORY_CAP = 50
+
+
+def save_volume_unit_override(
+    series_id: int,
+    chapter_id: int,
+    *,
+    provider: str = "",
+    provider_ref: str = "",
+    payload: dict = None,
+):
+    """Lien magique d'un tome : survit au reset de la passe auto."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        """INSERT OR REPLACE INTO volume_unit_overrides
+           (series_id, chapter_id, provider, provider_ref, payload_json, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            int(series_id),
+            int(chapter_id),
+            str(provider or ""),
+            str(provider_ref or ""),
+            json.dumps(payload or {}, ensure_ascii=False),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_volume_unit_overrides(series_id: int, chapter_id=None) -> dict:
+    """chapter_id -> {provider, provider_ref, payload}."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return {}
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    if chapter_id is not None:
+        c.execute(
+            """SELECT chapter_id, provider, provider_ref, payload_json
+               FROM volume_unit_overrides WHERE series_id = ? AND chapter_id = ?""",
+            (int(series_id), int(chapter_id)),
+        )
+    else:
+        c.execute(
+            """SELECT chapter_id, provider, provider_ref, payload_json
+               FROM volume_unit_overrides WHERE series_id = ?""",
+            (int(series_id),),
+        )
+    out = {}
+    for cid, provider, ref, payload in c.fetchall():
+        try:
+            body = json.loads(payload or "{}")
+        except (TypeError, ValueError):
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        out[int(cid)] = {
+            "provider": provider or "",
+            "provider_ref": ref or "",
+            "payload": body,
+        }
+    conn.close()
+    return out
+
+
+def clear_volume_unit_overrides(series_id: int, chapter_id=None):
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    if chapter_id is None:
+        c.execute(
+            "DELETE FROM volume_unit_overrides WHERE series_id = ?",
+            (int(series_id),),
+        )
+    else:
+        c.execute(
+            "DELETE FROM volume_unit_overrides WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), int(chapter_id)),
+        )
+    conn.commit()
+    conn.close()
+
+
+def save_workshop_series_override(series_id: int, payload: dict, cover_url: str = ""):
+    """Brouillon persistant de la fiche série dans l'atelier (survit au F5)."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        """INSERT OR REPLACE INTO workshop_series_overrides
+           (series_id, payload_json, cover_url, updated_at)
+           VALUES (?, ?, ?, ?)""",
+        (
+            int(series_id),
+            json.dumps(payload or {}, ensure_ascii=False),
+            str(cover_url or ""),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_workshop_series_override(series_id: int) -> Optional[dict]:
+    """Retourne {'payload': dict, 'cover_url': str} ou None."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return None
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    row = c.execute(
+        """SELECT payload_json, cover_url
+           FROM workshop_series_overrides WHERE series_id = ?""",
+        (int(series_id),),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        body = json.loads(row[0] or "{}")
+    except (TypeError, ValueError):
+        body = {}
+    return {
+        "payload": body if isinstance(body, dict) else {},
+        "cover_url": row[1] or "",
+    }
+
+
+def clear_workshop_series_override(series_id: int):
+    """Purge le brouillon de fiche série une fois envoyé à Kavita ou réinitialisé."""
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        "DELETE FROM workshop_series_overrides WHERE series_id = ?",
+        (int(series_id),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def record_workshop_history(
+    series_id: int,
+    event: str,
+    *,
+    chapter_id=None,
+    detail: dict = None,
+):
+    """Ajoute une ligne et taille le journal à 50 par série."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    body = dict(detail or {})
+    for banned in ("summary", "cover_url", "coverImage"):
+        body.pop(banned, None)
+    c.execute(
+        """INSERT INTO workshop_history
+           (series_id, chapter_id, event, detail_json, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            int(series_id),
+            int(chapter_id) if chapter_id not in (None, "") else None,
+            str(event or "").strip() or "event",
+            json.dumps(body, ensure_ascii=False),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    c.execute(
+        """DELETE FROM workshop_history WHERE series_id = ? AND id NOT IN (
+             SELECT id FROM workshop_history WHERE series_id = ?
+             ORDER BY id DESC LIMIT ?
+           )""",
+        (int(series_id), int(series_id), WORKSHOP_HISTORY_CAP),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_workshop_history(series_id: int, limit: int = WORKSHOP_HISTORY_CAP) -> list:
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return []
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        """SELECT id, chapter_id, event, detail_json, created_at
+           FROM workshop_history WHERE series_id = ?
+           ORDER BY id DESC LIMIT ?""",
+        (int(series_id), int(limit)),
+    )
+    out = []
+    for hid, chapter_id, event, detail, created in c.fetchall():
+        try:
+            body = json.loads(detail or "{}")
+        except (TypeError, ValueError):
+            body = {}
+        out.append(
+            {
+                "id": hid,
+                "chapter_id": chapter_id,
+                "event": event,
+                "detail": body if isinstance(body, dict) else {},
+                "created_at": created,
+            }
+        )
+    conn.close()
+    return out
+
+
+def clear_workshop_history(series_id: int, chapter_id=None):
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    if chapter_id is None:
+        c.execute("DELETE FROM workshop_history WHERE series_id = ?", (int(series_id),))
+    else:
+        c.execute(
+            "DELETE FROM workshop_history WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), int(chapter_id)),
+        )
     conn.commit()
     conn.close()
 

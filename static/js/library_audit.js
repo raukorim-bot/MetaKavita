@@ -145,6 +145,10 @@ function openVolumeReportModal(seriesId, seriesName) {
         txt.hidden = reduced;
     }
     if (refresh) refresh.hidden = reduced;
+    var workshopLink = document.getElementById('btnVolumePreview');
+    if (workshopLink) {
+        workshopLink.href = getRootPath() + '/series/' + encodeURIComponent(seriesId) + '/volumes';
+    }
     m.style.display = 'flex';
     m.setAttribute('aria-hidden', 'false');
     if (reduced) _loadVolumeReportUnits(seriesId);
@@ -1717,139 +1721,8 @@ function _volDuplicate(entry, tr) {
 }
 
 function openVolumeEnrichPreview() {
-    var body = document.getElementById('volumeReportBody');
-    var tr = _auditT();
-    if (!body || _volumeReportSeriesId == null) return;
-    body.innerHTML = _stateHtml('spinner', tr.vol_preview_loading || '…',
-        tr.vol_preview_loading_hint || '');
-
-    fetch(getRootPath() + '/api/series/' + encodeURIComponent(_volumeReportSeriesId) + '/volume-enrich/preview', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
-    })
-        .then(function (r) { return r.json(); })
-        .then(function (data) {
-            if (!data || !data.success) {
-                body.innerHTML = _stateHtml('alert',
-                    tr.vol_preview_error || 'Error',
-                    (data && data.error) || '', 'error');
-                return;
-            }
-            _volumePlan = data.plan || {};
-            _renderVolumeEnrichPreview(_volumePlan);
-        })
-        .catch(function () {
-            body.innerHTML = _stateHtml('alert', tr.vol_preview_error || 'Error', '', 'error');
-        });
-}
-
-function _renderVolumeEnrichPreview(plan) {
-    var body = document.getElementById('volumeReportBody');
-    var tr = _auditT();
-    if (!body) return;
-    var entries = (plan.units || []).filter(function (e) { return e.write_count > 0; });
-
-    if (!entries.length) {
-        // Trois vides très différents, qui appelaient le même message : « aucun
-        // fournisseur ne connaît cette série » s'affichait aussi quand le
-        // fournisseur connaissait parfaitement la série mais que pas un de ses
-        // numéros d'albums ne recoupait les vôtres — édition différente,
-        // numérotation décalée. Le message envoyait alors vérifier une clé d'API
-        // qui marchait très bien.
-        var matched = ((plan.counts || {}).matched) || 0;
-        var state = 'empty';
-        // Écartée avant toute recherche : ce n'est ni un échec du fournisseur ni
-        // un travail déjà fait, et le dire évite qu'on aille chercher une panne.
-        if (plan.skipped_reason) state = plan.skipped_reason === 'specials' ? 'specials' : 'oneshot';
-        else if (!plan.provider) state = 'none';
-        else if (!matched) state = 'unmatched';
-        var copy = {
-            none: ['alert', tr.vol_preview_none, tr.vol_preview_none_hint, 'error'],
-            unmatched: ['alert', tr.vol_preview_unmatched, tr.vol_preview_unmatched_hint, 'error'],
-            oneshot: ['empty', tr.vol_preview_oneshot, tr.vol_preview_oneshot_hint, ''],
-            specials: ['empty', tr.vol_preview_specials, tr.vol_preview_specials_hint, ''],
-            empty: ['complete', tr.vol_preview_empty, tr.vol_preview_empty_hint, '']
-        }[state];
-        var hint = copy[2] || '';
-        if (state === 'unmatched') {
-            hint = hint.replace('{0}', plan.provider || '?');
-        }
-        body.innerHTML = _stateHtml(copy[0], copy[1] || '—', hint, copy[3]);
-        return;
-    }
-
-    // Colonnes réduites à ce que le fournisseur propose vraiment : afficher
-    // cinq colonnes de tirets pour un index qui ne rend que des résumés
-    // donnerait l'impression que quatre champs ont échoué.
-    var cols = _VOL_FIELDS.filter(function (f) {
-        return entries.some(function (e) { return (e.changes || {})[f]; });
-    });
-
-    var head = '<th class="audit-cell-num"><input type="checkbox" id="volPickAll" checked ' +
-        'title="' + _escHtml(tr.vol_select_all || '') + '"></th>' +
-        '<th>' + _escHtml(tr.vol_col_unit || 'Vol') + '</th>' +
-        cols.map(function (f) { return '<th>' + _escHtml(_volFieldLabel(f, tr)) + '</th>'; }).join('');
-
-    var rows = entries.map(function (entry) {
-        var cells = cols.map(function (field) {
-            var change = (entry.changes || {})[field];
-            if (!change) return _cell('—', _volFieldLabel(field, tr));
-            var html;
-            if (change.write && field === 'cover_url') {
-                html = '<ins class="vol-new">' + _volCoverCell(change.proposed) + '</ins>';
-            } else if (change.write) {
-                html = (change.current
-                    ? '<del class="vol-old">' + _escHtml(_volShort(change.current)) + '</del> '
-                    : '') + '<ins class="vol-new">' + _escHtml(_volShort(change.proposed)) + '</ins>';
-            } else {
-                html = '<span class="vol-kept" title="' + _escHtml(_volShort(change.proposed)) + '">' +
-                    _escHtml(_volShort(change.current) || '—') +
-                    ' <em>(' + _escHtml(_volReason(change.reason, tr)) + ')</em></span>';
-            }
-            return _cell(html, _volFieldLabel(field, tr), '', true);
-        }).join('');
-        var unit = _escHtml(_volUnitLabel(entry, tr)) +
-            _volPreviousFailure(entry, plan.states, tr) +
-            _volDuplicate(entry, tr);
-        return '<tr data-chapter="' + _escHtml(entry.chapter_id) + '">' +
-            _cell('<input type="checkbox" class="vol-pick" checked>', tr.vol_col_pick || '', 'audit-cell-num', true) +
-            _cell(unit, tr.vol_col_unit || 'Vol', '', true) +
-            cells + '</tr>';
-    }).join('');
-
-    var unmatched = (plan.unmatched || []).length;
-    body.innerHTML =
-        '<div class="audit-override-row vol-preview-head">' +
-        '<span class="audit-override-label">' +
-        _escHtml((tr.vol_provider_label || 'Source: {0}').replace('{0}', plan.provider || '—')) +
-        '</span>' +
-        (unmatched
-            ? '<span class="audit-hint">' +
-              _escHtml((tr.vol_unmatched || '{0}').replace('{0}', unmatched)) + '</span>'
-            : '') +
-        '<button type="button" class="btn-sync" id="volApplyBtn">' +
-        _escHtml(tr.vol_apply_btn || 'Write') + '</button>' +
-        '</div>' +
-        '<div id="volApplyResult" class="audit-hint"></div>' +
-        '<div class="audit-table-wrap"><table class="audit-table vol-preview-table">' +
-        '<thead><tr>' + head + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
-
-    var pickAll = document.getElementById('volPickAll');
-    if (pickAll) {
-        pickAll.addEventListener('change', function () {
-            document.querySelectorAll('#volumeReportBody .vol-pick').forEach(function (cb) {
-                cb.checked = pickAll.checked;
-            });
-        });
-    }
-    var applyBtn = document.getElementById('volApplyBtn');
-    if (applyBtn) applyBtn.addEventListener('click', applyVolumeEnrich);
-    // L'écriture tourne en tâche de fond : la modale peut être rouverte pendant
-    // qu'elle travaille, et le bouton fraîchement rendu ne doit pas proposer un
-    // clic que le serveur refuserait par un 409.
-    if (_volumeEnrichRunning) _setVolumeEnrichRunningUi(true);
+    if (_volumeReportSeriesId == null) return;
+    window.location.href = getRootPath() + '/series/' + encodeURIComponent(_volumeReportSeriesId) + '/volumes';
 }
 
 /** `{chapter_id: null}` = tous les champs autorisés de cette unité. */

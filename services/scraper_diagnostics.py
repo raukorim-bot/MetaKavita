@@ -7,8 +7,11 @@ avec URLs de reachability et queries known-good centralisées ici.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -20,6 +23,7 @@ from metadata_fetcher import throttle_provider
 from scrapers import ScraperRegistry
 from scrapers.base import BaseScraper
 from secure_logging import safe_exc_str
+from services.cooperative import yield_to_worker
 from translations import get_ui_translations
 
 # Queries known-good (alignées sur debug/debug_all.py)
@@ -64,11 +68,15 @@ SCRAPER_PROBE_CASES: Dict[str, Dict[str, Any]] = {
         "is_id": True,
         "context": {},
     },
-    # Book FR — éviter « Dune » (scoring / couverture variable sur sites FR)
+    # Book FR — sitemap pour la reachability (PROBE_URLS), fiche directe
+    # pour le fetch : C95 ne doit pas retélécharger babmap_1 (5 Mo) à chaque
+    # ouverture. skip_covers : fetch_covers refait une recherche.
     "BABELIO": {
         "library_type": "Book",
-        "query": "Le Petit Prince",
-        "context": {"authors": ["Antoine de Saint-Exupéry"], "isbn": None, "year": 1943},
+        "query": "https://www.babelio.com/livres/de-Saint-Exupery-Le-Petit-Prince/36712",
+        "is_id": True,
+        "skip_covers": True,
+        "context": {},
     },
     "DECITRE": {
         "library_type": "Book",
@@ -103,6 +111,15 @@ SCRAPER_PROBE_CASES: Dict[str, Dict[str, Any]] = {
         "query": "Astérix",
         "context": {"authors": ["Goscinny"], "isbn": None, "year": 1959},
     },
+    # Wiki API, pas www.fandom.com (Cloudflare). fetch_covers est vide exprès :
+    # les jaquettes voyagent avec l'index des tomes.
+    "FANDOM": {
+        "library_type": "Manga",
+        "query": "https://onepiece.fandom.com",
+        "is_id": True,
+        "context": {},
+        "skip_covers": True,
+    },
 }
 
 # Reachability endpoints (hors scrapers/)
@@ -122,13 +139,14 @@ PROBE_URLS: Dict[str, str] = {
     "OPENLIBRARY": "https://openlibrary.org/search.json",
     "HARDCOVER": "https://api.hardcover.app/v1/graphql",
     "WIKIDATA": "https://www.wikidata.org/w/api.php",
-    "BABELIO": "https://www.babelio.com/",
+    "BABELIO": "https://www.babelio.com/babmap_1.xml",
     "DECITRE": "https://www.decitre.fr/",
     "SENSCRITIQUE": "https://www.senscritique.com/",
     "ANN": "https://cdn.animenewsnetwork.com/encyclopedia/api.xml",
     "LOCG": "https://leagueofcomicgeeks.com/",
     "PLANETEBD": "https://www.planetebd.com/",
     "METRON": "https://metron.cloud/api/",
+    "FANDOM": "https://onepiece.fandom.com/api.php",
 }
 
 # Slots Config qui alimentent la cascade d'enrichissement (Manga / Comic / Book).
@@ -332,12 +350,14 @@ def _resolve_test_case(scraper: BaseScraper, lib_type: str) -> Dict[str, Any]:
             "query": override["query"],
             "context": dict(override.get("context") or {}),
             "is_id": bool(override.get("is_id")),
+            "skip_covers": bool(override.get("skip_covers")),
         }
     base = TEST_CASES.get(lib_type, TEST_CASES["Manga"])
     return {
         "query": base["query"],
         "context": dict(base.get("context") or {}),
         "is_id": False,
+        "skip_covers": False,
     }
 
 
@@ -864,7 +884,7 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
     # --- fetch covers ---
     supports = _supports_covers(scraper)
     covers_info: Dict[str, Any]
-    if not supports:
+    if test_case.get("skip_covers") or not supports:
         covers_info = _analyze_covers([], False)
     else:
         try:
@@ -970,36 +990,83 @@ def resolve_probe_targets(
     return list(ScraperRegistry.get_all(include_disabled=True))
 
 
+def _probe_failure_result(scraper: BaseScraper, exc: BaseException) -> Dict[str, Any]:
+    logging.error(
+        get_ui_translations()
+        .get("log_diag_probe_fail", "[Diagnostics] Échec probe {0} : {1}")
+        .format(scraper.id, safe_exc_str(exc))
+    )
+    return {
+        "id": scraper.id,
+        "display_name": getattr(scraper, "localized_display_name", None)
+        or getattr(scraper, "display_name", None)
+        or scraper.id,
+        "status": "down",
+        "cause": "schema",
+        "latency_ms": 0,
+        "http_status": None,
+        "detail": safe_exc_str(exc)[:160],
+        "library_type": _pick_library_type(scraper) if hasattr(scraper, "supported_types") else None,
+        "supported_types": sorted(getattr(scraper, "supported_types", None) or []),
+        "metadata": {
+            "status": "down",
+            "sample_title": None,
+            "fields_ok": [],
+            "fields_missing": [],
+        },
+        "covers": {"status": "n_a", "count": 0, "sample_url": None},
+    }
+
+
+def _probe_one_guarded(scraper: BaseScraper, config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        return probe_scraper(scraper, config)
+    except Exception as exc:
+        return _probe_failure_result(scraper, exc)
+
+
+def iter_probe_results(
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    scope: str = "all",
+    scrapers: Optional[List[BaseScraper]] = None,
+) -> Iterator[Tuple[int, int, Dict[str, Any]]]:
+    """
+    Sonde tous les cibles **en même temps** (un worker par fournisseur).
+
+    Ce n'est pas un lot de séries : chaque scraper est un site différent.
+    `throttle_provider` continue de sérialiser deux appels au *même* scraper.
+    Yield `(done_index, total, result)` à mesure que les probes finissent.
+    """
+    config = config if config is not None else load_config()
+    targets = list(scrapers) if scrapers is not None else resolve_probe_targets(config, scope=scope)
+    total = len(targets)
+    if total == 0:
+        return
+
+    with ThreadPoolExecutor(max_workers=total) as executor:
+        future_map = {
+            executor.submit(contextvars.copy_context().run, _probe_one_guarded, scraper, config): scraper
+            for scraper in targets
+        }
+        done_index = 0
+        for fut in as_completed(future_map):
+            yield_to_worker()
+            scraper = future_map[fut]
+            try:
+                result = fut.result()
+            except Exception as exc:
+                result = _probe_failure_result(scraper, exc)
+            done_index += 1
+            yield done_index, total, result
+
+
 def probe_all(
     config: Optional[Dict[str, Any]] = None,
     *,
     scope: str = "all",
 ) -> List[Dict[str, Any]]:
-    """Probe séquentiel des scrapers du scope (défaut : registry entier)."""
-    config = config if config is not None else load_config()
-    results = []
-    for scraper in resolve_probe_targets(config, scope=scope):
-        try:
-            results.append(probe_scraper(scraper, config))
-        except Exception as e:
-            logging.error(get_ui_translations().get("log_diag_probe_fail", "[Diagnostics] Échec probe {0} : {1}").format(scraper.id, safe_exc_str(e)))
-            results.append({
-                "id": scraper.id,
-                "display_name": scraper.localized_display_name,
-                "status": "down",
-                "cause": "schema",
-                "latency_ms": 0,
-                "http_status": None,
-                "detail": safe_exc_str(e)[:160],
-                "library_type": _pick_library_type(scraper),
-                "supported_types": sorted(scraper.supported_types or []),
-                "metadata": {
-                    "status": "down",
-                    "sample_title": None,
-                    "fields_ok": [],
-                    "fields_missing": [],
-                },
-                "covers": {"status": "n_a", "count": 0, "sample_url": None},
-            })
+    """Probe parallèle des scrapers du scope (défaut : registry entier)."""
+    results = [result for _done, _total, result in iter_probe_results(config, scope=scope)]
     results.sort(key=lambda r: (r.get("display_name") or r.get("id") or "").lower())
     return results

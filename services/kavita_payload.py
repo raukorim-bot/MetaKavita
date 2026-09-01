@@ -17,6 +17,7 @@ from db_manager import (
     get_lifetime_stats,
     update_status,
     record_enrichment_telemetry,
+    record_lifetime_event,
     set_cover_manual,
 )
 from translator import translate_text
@@ -79,6 +80,7 @@ def mark_cover_manual(series_id):
     fichiers), il ne distingue donc pas un choix manuel d'un upload automatique.
     """
     set_cover_manual(series_id, True)
+    record_lifetime_event("covers_applied")
     return True
 
 

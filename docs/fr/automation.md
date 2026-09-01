@@ -4,11 +4,27 @@
 
 ← [Documentation](README.md)
 
-## Polling d'arrière-plan (recommandé)
+## Auto-sync (Config → Planification)
 
-Kavita n'émet pas de webhooks sortants. Une valeur `AUTO_SYNC_INTERVAL` supérieure à `0` (ex. `30` minutes) interroge Kavita pour les séries nouvelles ou en attente.
+Kavita n'émet pas de webhooks HTTP sortants pour les mises à jour de bibliothèque. L'auto-sync est le chemin de fond qui prend les séries nouvelles ou en attente.
 
-`DISABLED_LIBRARIES` est une dénylist d'IDs de bibliothèques Kavita pour le **polling auto-sync uniquement**. Dashboard, batch manuel et webhook voient toutes les biblios.
+Un **interrupteur maître** éteint toute la carte (pas de minuterie, pas de hub de scan). Allumé, choisis **un** déclencheur :
+
+* **Toutes les X minutes** — comme avant : séries absentes du cache ou encore `PENDING`. Les minutes ne sont plus l'interrupteur (`0` voulait dire off).
+* **À la fin d'un scan de bibliothèque Kavita** — Meta écoute le hub de messages de Kavita (le même canal que l'UI Kavita). Après un court silence, il compare le catalogue à un instantané et n'enfile que les séries **nouvelles**. Un **filet** en heures (défaut 24, `0` = off) rattrape un scan fini pendant que Meta ou le socket était coupé.
+
+Le **mode** ne s'applique qu'aux jobs Auto-sync (pas le lot du tableau de bord, un clic ligne, ni Companion) :
+
+* **Auto** — écrit, et peut combler les champs ciblés vides. Force update optionnel.
+* **Review** / **Super** — parque en Review manuelle (masqués si cette catégorie de barre latérale est off).
+
+`DISABLED_LIBRARIES` reste une dénylist d'IDs de bibliothèques Kavita pour **l'auto-sync seulement**. Dashboard, lot manuel et webhook voient toutes les biblios.
+
+**Stop** sur le tableau de bord vide aussi l'Auto-sync en attente. Un scrape déjà lancé continue. Les jobs webhook et clic ligne restent dans la file.
+
+Quand une vague Auto-sync se termine, un bouton sarcelle apparaît à côté des Reviews (nombre de séries, terminées, erreurs, liste). Fermer la modale marque le rapport lu. Ce n'est pas le lot du tableau de bord. Les vagues closes alimentent aussi un chapitre sur `/stats` (lifetime, à partir de cette version — pas de rattrapage). Le filtre **Dernière vague** du tableau de bord ne garde que les séries de ce rapport.
+
+Anciennes configs avec seulement `AUTO_SYNC_INTERVAL` : `0` reste éteint ; une valeur positive reste allumée, déclencheur minutes. Le scan ne s'allume jamais tout seul.
 
 ## Webhook
 
@@ -51,6 +67,6 @@ Voir [Companion](companion.md).
 
 ## Endpoint de santé
 
-`GET /healthz` → `{"status": "ok", "version": "1.7.1"}`
+`GET /healthz` → `{"status": "ok", "version": "<courante>"}`
 
 Sonde de liveness non authentifiée (`HEALTHCHECK` Docker, Kubernetes, Portainer, Uptime Kuma). Elle ne lit pas la config, n'ouvre pas la base et ne contacte pas Kavita — une panne Kavita ne doit pas redémarrer un MetaKavita sain.

@@ -213,6 +213,93 @@ def test_stops_at_the_ceiling():
     assert len(tome_calls) == scraper.VOLUME_INDEX_MAX
 
 
+def test_only_fetches_the_wanted_volumes():
+    """Douze tomes possédés parmi quatre-vingts listés : douze GET, pas quarante."""
+    rows = "".join(
+        f'<a href="https://www.manga-news.com/index.php/manga/Naruto/vol-{n}" '
+        f'title="Naruto Vol.{n}"><img src="x.jpg"/></a>'
+        for n in range(1, 81)
+    )
+    serie = f'<html><body><div id="serieVolumes">{rows}</div></body></html>'
+    _, scraper, session = _scraper({
+        "/index.php/serie/Naruto": serie,
+        "/manga/Naruto/vol-": _TOME,
+    })
+    wanted = {str(n) for n in (3, 7, 12, 19, 22, 28, 33, 41, 50, 55, 61, 77)}
+
+    index = scraper.fetch_volume_index(
+        "Naruto",
+        series_id="https://www.manga-news.com/index.php/serie/Naruto",
+        wanted_numbers=wanted,
+    )
+
+    tome_calls = [u for u in session.urls if "/vol-" in u]
+    assert len(tome_calls) == 12
+    assert sorted(index) == sorted(wanted)
+
+
+def test_cancel_returns_the_partial_index():
+    """Annuler au troisième GET album : garder les deux déjà payés, pas None."""
+    rows = "".join(
+        f'<a href="https://www.manga-news.com/index.php/manga/Naruto/vol-{n}" '
+        f'title="Naruto Vol.{n}"><img src="x.jpg"/></a>'
+        for n in range(1, 10)
+    )
+    serie = f'<html><body><div id="serieVolumes">{rows}</div></body></html>'
+    _, scraper, session = _scraper({
+        "/index.php/serie/Naruto": serie,
+        "/manga/Naruto/vol-": _TOME,
+    })
+    n = {"i": 0}
+
+    def should_cancel():
+        n["i"] += 1
+        return n["i"] > 2
+
+    index = scraper.fetch_volume_index(
+        "Naruto",
+        series_id="https://www.manga-news.com/index.php/serie/Naruto",
+        should_cancel=should_cancel,
+    )
+
+    tome_calls = [u for u in session.urls if "/vol-" in u]
+    assert len(tome_calls) == 2
+    assert index is not None
+    assert len(index) == 2
+
+
+def test_localized_name_is_searched_before_hardcoded_aliases():
+    """Un titre VF déjà sur la série Kavita, même hors table d'alias."""
+    fiche = """
+    <html><body>
+    <h1 class="entry-page-title">Titre VF rare</h1>
+    <div id="serieVolumes">
+    <a href="https://www.manga-news.com/index.php/manga/Titre-VF-rare/vol-1" title="Vol.1">
+    <img src="x.jpg"/></a>
+    </div>
+    </body></html>
+    """
+    _, scraper, session = _scraper({
+        "search:Unknown English Title": "<html><body><p>aucun</p></body></html>",
+        "search:Titre VF rare": (
+            '<html><body>'
+            '<a href="/index.php/serie/Titre-VF-rare">Titre VF rare</a>'
+            "</body></html>"
+        ),
+        "/index.php/serie/Titre-VF-rare": fiche,
+        "/manga/Titre-VF-rare/vol-": _TOME,
+    })
+
+    index = scraper.fetch_volume_index(
+        "Unknown English Title",
+        existing_metadata={"localizedName": "Titre VF rare"},
+    )
+
+    assert index is not None
+    assert "1" in index
+    assert any("Titre-VF-rare" in url or "Titre VF rare" in url for url in session.urls)
+
+
 def test_unknown_series_returns_none():
     _, scraper, _ = _scraper({})
 

@@ -56,7 +56,12 @@ La plupart des réglages ci-dessous se retrouvent aussi dans la **Configuration 
 | `MANUAL_REVIEW_SUPER` | Super Review : interroge tous les scrapers utilisables (pas seulement les 3 slots). Nécessite le mode manuel. | `false` |
 | `MANUAL_REVIEW_SOUNDS` | Sons UI courts sur pick / confirm / skip. | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Expérimental : Traduit le titre non-trouvé en anglais pour relancer une seconde recherche. | `false` |
-| `AUTO_SYNC_INTERVAL`| Intervalle d'Auto-Sync en minutes (`0` pour désactiver). | `0` |
+| `AUTO_SYNC_ENABLED` | Interrupteur maître de l'auto-sync. Off = pas de minuterie ni de hub de scan. | `false` |
+| `AUTO_SYNC_TRIGGER` | `interval` (toutes les N minutes) ou `scan` (après un scan de bibliothèque Kavita). Exclusifs. | `interval` |
+| `AUTO_SYNC_INTERVAL` | Minutes entre deux tours si le déclencheur est `interval` (minimum 1 tant que ce déclencheur est allumé). `0` reste une valeur stockée tant que l'interrupteur maître est éteint — le formulaire Config ne doit pas la refuser. | `360` si allumé |
+| `AUTO_SYNC_CATCHUP_HOURS` | Filet du déclencheur `scan` : au plus une vérif de catalogue toutes les N heures (`0` = off). | `24` |
+| `AUTO_SYNC_MODE` | `auto`, `review` ou `super` pour les jobs Auto-sync seulement. | `auto` |
+| `AUTO_SYNC_FORCE_UPDATE` | Force update sur les jobs Auto-sync si le mode est Auto. | `false` |
 | `DISABLED_LIBRARIES` | IDs exclus du **polling auto-sync** uniquement (dénylist, virgules). Vide = auto-sync toutes. Dashboard, batch manuel et webhook non filtrés. | _(vide)_ |
 | `AUTO_COVER` | Envoyer automatiquement les couvertures à Kavita (`true` ou `false`). | `false` |
 | `COVER_FORCE_OVERWRITE` | Autoriser les scrapes automatiques à écraser les couvertures choisies à la main (cartouche 🔒). Laissez décoché pour les conserver. | `false` |

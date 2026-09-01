@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="{{ config.get('UI_LANG', 'fr') }}" class="workshop-page" data-theme="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="csrf-token" content="{{ csrf_token }}">
+    <title>MetaKavita · {{ t.workshop_title }}{% if payload.series.get('name') %} · {{ payload.series.name }}{% endif %}</title>
+    <link rel="icon" type="image/png" href="{{ url_for('static', filename='logo.png') }}">
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/volumes.css') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script>
+        document.documentElement.setAttribute('data-theme', localStorage.getItem('theme') || 'dark');
+        document.documentElement.classList.add('workshop-page');
+        window.ROOT_PATH = "{{ request.script_root }}";
+        window.KAVITA_UI_URL = "{{ kavita_ui_url }}";
+        window.WORKSHOP_SERIES_ID = {{ payload.series.get('id')|tojson }};
+        window.WORKSHOP_PAYLOAD = {{ payload|tojson }};
+        window.WORKSHOP_RAIL = {{ rail|tojson }};
+        window.WORKSHOP_LIBS = {{ libraries|tojson }};
+        window.AppTranslations = {
+        {%- for key, value in t.items() if key.startswith('workshop_') or key.startswith('vol_') or key.startswith('mr_') %}
+            {{ key|tojson }}: {{ value|tojson }},
+        {%- endfor %}
+            err_network: {{ t.err_network|tojson }},
+            action_ok: {{ t.action_ok|tojson }},
+            action_fail: {{ t.action_fail|tojson }},
+            live_logs: {{ t.live_logs|tojson }},
+            live_logs_pause: {{ t.live_logs_pause|tojson }},
+            live_logs_resume: {{ t.live_logs_resume|tojson }},
+            live_logs_pause_hint: {{ t.live_logs_pause_hint|tojson }},
+            live_logs_clear: {{ t.live_logs_clear|tojson }},
+            live_logs_paused: {{ t.live_logs_paused|tojson }},
+            waiting: {{ t.waiting|tojson }},
+            terminal_ready: {{ t.terminal_ready|tojson }},
+            cover_streaming_start: {{ t.cover_streaming_start|tojson }},
+            cover_live_search_for: {{ t.cover_live_search_for|tojson }}
+        };
+    </script>
+</head>
+<body class="workshop-page" data-volumes="1">
+    {% include "partials/_icons_sprite.html" %}
+
+    <nav class="workshop-nav">
+        <div class="logo-mini">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="">
+            {{ t.workshop_title }}
+        </div>
+        <div class="workshop-nav-actions">
+            <button type="button" class="btn-secondary workshop-nav-step" id="workshopPrev" title="{{ t.workshop_prev }}">←</button>
+            <button type="button" class="btn-secondary workshop-nav-step" id="workshopNext" title="{{ t.workshop_next }}">→</button>
+            <span class="workshop-rail-count" id="workshopRailCount"></span>
+            <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.workshop_back }}</a>
+        </div>
+    </nav>
+
+    <div class="workshop-shell">
+        <aside class="workshop-rail" id="workshopRail" aria-label="{{ t.workshop_title }}">
+            <div class="workshop-rail-toolbar">
+                <input type="search" id="workshopRailSearch" class="workshop-rail-search"
+                       placeholder="{{ t.workshop_rail_search }}" autocomplete="off">
+                <div class="workshop-rail-row">
+                    <select id="workshopRailLib" class="workshop-rail-lib">
+                        <option value="">{{ t.workshop_rail_all_libs }}</option>
+                        {% for lib in libraries %}
+                        <option value="{{ lib.id }}">{{ lib.name }}</option>
+                        {% endfor %}
+                    </select>
+                    <select id="workshopRailStatus" class="workshop-rail-lib">
+                        <option value="ALL">{{ t.filter_all }}</option>
+                        <option value="PENDING">{{ t.filter_pending }}</option>
+                        <option value="PENDING_REVIEW">{{ t.filter_pending_review }}</option>
+                        <option value="NEEDS_RELOCK">{{ t.filter_needs_relock }}</option>
+                        <option value="COMPLETED">{{ t.filter_completed }}</option>
+                        <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
+                        <option value="IGNORED">{{ t.filter_ignored }}</option>
+                    </select>
+                </div>
+                <details class="workshop-rail-extra">
+                    <summary>{{ t.workshop_rail_options }}</summary>
+                    <label class="checkbox-label workshop-rail-check" title="{{ t.search_inside_desc }}">
+                        <input type="checkbox" id="workshopSearchInside"> {{ t.search_inside }}
+                    </label>
+                    <label class="checkbox-label workshop-rail-check">
+                        <input type="checkbox" id="workshopHideIgnored" checked> {{ t.hide_ignored }}
+                    </label>
+                </details>
+            </div>
+            <div class="workshop-rail-list" id="workshopRailList"></div>
+        </aside>
+
+        <main class="workshop-main" id="workshopMain">
+            <div class="workshop-loading" id="workshopLoading" hidden>
+                <svg class="workshop-spinner" aria-hidden="true"><use href="#mk-ico-spinner"></use></svg>
+                <span>{{ t.workshop_loading }}</span>
+            </div>
+
+            <p class="workshop-idle" id="workshopIdle">{{ t.workshop_pick_series }}</p>
+
+            <p id="workshopPassBanner" class="workshop-pass-banner" hidden>{{ t.workshop_pass_running }}
+                <button type="button" class="btn-secondary" id="workshopCancelPass">{{ t.workshop_cancel_pass }}</button>
+            </p>
+
+            <article class="workshop-series-card" id="workshopSeriesCard">
+                <div class="workshop-cover workshop-cover--series">
+                    <div class="workshop-cover-well workshop-cover-well--series">
+                        <img id="workshopSeriesCover" alt="{{ t.workshop_cover_alt }}" hidden>
+                        <div class="workshop-cover-placeholder"></div>
+                    </div>
+                    <button type="button" class="workshop-cover-pick" id="workshopSeriesCoverPick"
+                            title="{{ t.workshop_choose_cover }}" aria-label="{{ t.workshop_choose_cover }}">
+                        <svg aria-hidden="true"><use href="#mk-ico-cover"></use></svg>
+                        <span class="workshop-cover-pick-label">{{ t.workshop_pick }}</span>
+                    </button>
+                </div>
+                <div class="workshop-series-fields">
+                    <h1 class="workshop-series-heading">
+                        <a id="workshopSeriesName" class="workshop-series-title{% if kavita_ui_url and payload.series.get('libraryId') %} is-link{% endif %}"
+                           {% if kavita_ui_url and payload.series.get('libraryId') %}href="{{ kavita_ui_url }}/library/{{ payload.series.libraryId }}/series/{{ payload.series.id }}" target="_blank"{% endif %}
+                           rel="noopener noreferrer"
+                           title="{{ t.workshop_open_kavita }}"
+                           aria-label="{{ t.workshop_open_kavita }}">
+                            <span id="workshopSeriesNameText">{{ payload.series.name }}</span>
+                            <svg class="workshop-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg>
+                        </a>
+                    </h1>
+                    <div id="workshopSeriesFields" class="workshop-series-grid"></div>
+                    <details class="workshop-more" id="workshopSeriesMore">
+                        <summary>{{ t.workshop_more_fields }}</summary>
+                        <div id="workshopSeriesMoreFields" class="workshop-series-grid"></div>
+                    </details>
+                    <div class="workshop-series-actions">
+                        <button type="button" class="btn-primary" id="workshopSendSeries">{{ t.workshop_send_series }}</button>
+                        <button type="button" class="btn-secondary" id="workshopReviewSeries">{{ t.workshop_review_series }}</button>
+                        <button type="button" class="btn-secondary" id="workshopSuperSeries">{{ t.workshop_super_series }}</button>
+                        <button type="button" class="btn-danger" id="workshopResetSeries">{{ t.workshop_reset_series }}</button>
+                    </div>
+                </div>
+            </article>
+
+            <div class="workshop-action-bar" id="workshopBar">
+                <span class="workshop-bar-stats" id="workshopBarStats"></span>
+                <span class="workshop-bar-grow"></span>
+                <button type="button" class="workshop-force-note" id="workshopForce"
+                        title="{{ t.workshop_force }}" aria-label="{{ t.workshop_force }}">
+                    <svg aria-hidden="true"><use href="#mk-ico-info"></use></svg>
+                </button>
+                <button type="button" class="btn-secondary" id="workshopSelectAll">{{ t.workshop_select_all }}</button>
+                <button type="button" class="btn-secondary" id="workshopSelectNone">{{ t.workshop_select_none }}</button>
+                <button type="button" class="btn-primary" id="workshopSendSelection"
+                        title="{{ t.workshop_force }}">{{ t.workshop_send_selection }}</button>
+                <button type="button" class="btn-secondary" id="workshopSendAll"
+                        title="{{ t.workshop_force }}">{{ t.workshop_send_all }}</button>
+            </div>
+
+            <div class="workshop-volume-list" id="workshopVolumeList"></div>
+
+            <section class="workshop-history" id="workshopHistory">
+                <h2>{{ t.workshop_history }}</h2>
+                <ol id="workshopHistoryList"></ol>
+            </section>
+        </main>
+
+        <aside class="workshop-logs" aria-label="{{ t.live_logs }}">
+            <div class="logs-container">
+                <div class="logs-head">
+                    <h2 class="section-title logs-title">{{ t.live_logs }}</h2>
+                    <div class="logs-actions">
+                        <button type="button" id="logFollowBtn" class="logs-action is-active"
+                                data-pause="{{ t.live_logs_pause }}"
+                                data-resume="{{ t.live_logs_resume }}"
+                                title="{{ t.live_logs_pause_hint }}"
+                                aria-pressed="false">{{ t.live_logs_pause }}</button>
+                        <button type="button" id="logClearBtn" class="logs-action"
+                                title="{{ t.live_logs_clear }}">{{ t.live_logs_clear }}</button>
+                    </div>
+                </div>
+                <p class="logs-paused" id="logPausedHint" hidden>{{ t.live_logs_paused }}</p>
+                <div id="log-console" class="log-console" role="log" aria-live="polite" aria-relevant="additions"
+                     data-waiting="{{ t.waiting }}">
+                    <div class="log-line log-placeholder">
+                        <span class="log-msg">{{ t.waiting }}</span>
+                    </div>
+                </div>
+            </div>
+        </aside>
+    </div>
+
+    {% include "partials/_manual_review_modal.html" %}
+    <div id="workshopCoverModal" class="modal-overlay" style="display:none;"
+         role="dialog" aria-modal="true" aria-labelledby="workshopCoverTitle" aria-hidden="true">
+        <div class="modal-content modal-shell modal-large workshop-cover-dialog">
+            <div class="modal-header">
+                <h3 class="m-0" id="workshopCoverTitle">{{ t.workshop_choose_cover }}</h3>
+                <button type="button" class="close-btn" id="workshopCoverClose" aria-label="{{ t.mr_kbd_act_close }}">&times;</button>
+            </div>
+            <div class="workshop-cover-search">
+                <input type="text" id="workshopCoverQuery" class="mr-series-query"
+                       placeholder="{{ t.mr_research_placeholder }}" autocomplete="off">
+                <button type="button" class="btn-secondary" id="workshopCoverSearch">{{ t.mr_cover_search }}</button>
+            </div>
+            <div id="workshopCoverGrid" class="covers-grid workshop-cover-grid"></div>
+        </div>
+    </div>
+    <div id="appToast" class="bq-toast" hidden></div>
+
+    <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/websocket.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/covers.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/manual_review.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/volumes.js') }}"></script>
+</body>
+</html>

@@ -19,9 +19,10 @@
             series_id: cfg.seriesId
         };
     }
+    if (typeof io !== 'function') return;
     window.socket = io(opts);
 })();
-var socket = window.socket;
+var socket = window.socket || { on: function () {}, emit: function () {} };
 var logConsole = document.getElementById('log-console');
 var LOG_MAX_LINES = 300;
 var LOG_TIME_RE = /^(\d{2}:\d{2}:\d{2})\s*\|\s*/;
@@ -215,6 +216,8 @@ socket.on('sync_settled', function(payload) {
     if (!payload || payload.series_id == null) return;
     if (typeof window.settleSingleSync === 'function') {
         window.settleSingleSync(String(payload.series_id), !!payload.ok);
+    } else if (typeof window.mrOnSyncSettled === 'function') {
+        window.mrOnSyncSettled();
     }
 });
 

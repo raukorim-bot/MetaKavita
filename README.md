@@ -33,7 +33,7 @@ Designed as a LAN / VPN tool. Read [Security (EN)](docs/en/security.md) / [Sécu
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.7.1
+    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.7.4
     container_name: metakavita
     restart: unless-stopped
     ports:

@@ -14,7 +14,7 @@ import threading
 import time
 
 from config_manager import load_config, is_library_enabled
-from db_manager import get_all_cached_data, clean_orphaned_cache
+from db_manager import record_run_origin
 from kavita_api import KavitaAPI
 from secure_logging import safe_exc_str, series_label
 from translations import translations
@@ -23,6 +23,12 @@ from services.enrichment_engine import enrich_series
 # File partagée : alimentée par routes/sync.py (batch-sync, webhook) et
 # consommée par le worker démarré ci-dessous.
 sync_queue = queue.Queue()
+
+# Réveils thread-safe (hub SignalR, tests) : scan / config / timeout.
+auto_sync_wake_queue = queue.Queue()
+
+# Filet heures (trigger scan) : horodatage process, pas en base.
+_last_catchup_at = None
 
 # Sérialise put / put_front / drain-detach qui réordonnent la file RAM.
 _sync_queue_lock = threading.Lock()
@@ -57,6 +63,11 @@ _batch_real_sends = 0
 # touche jamais Kavita — voir _worker() / le nagware supporter (batch.js).
 _REAL_SEND_MESSAGES = {"Succès", "Success", "NEEDS_RELOCK"}
 
+# Job actuellement dans `_worker` (déjà sorti de la file). Stop ne le drain pas :
+# le rapport de vague attend sa fin avant de se clore.
+_inflight_lock = threading.Lock()
+_inflight_origin = ""
+
 
 def set_batch_enqueue_enabled(enabled: bool) -> None:
     global _batch_enqueue_enabled
@@ -69,6 +80,9 @@ def is_batch_enqueue_enabled() -> bool:
         return _batch_enqueue_enabled
 
 
+_ALLOWED_ORIGINS = frozenset({"batch", "webhook", "auto", "row"})
+
+
 def make_sync_item(
     series_id,
     series_name,
@@ -78,6 +92,8 @@ def make_sync_item(
     *,
     super_review=False,
     force_auto=False,
+    origin=None,
+    manual_review_override=False,
 ):
     """Structure unique poussée dans `sync_queue` par les 3 producteurs (batch-sync,
     webhook, auto-sync). `is_batch` est le seul signal utilisé pour la barre de
@@ -85,7 +101,16 @@ def make_sync_item(
 
     C33 Companion : `super_review` / `force_auto` sont des overrides one-shot
     (webhook) ; défauts False pour rétrocompat batch / auto-sync.
+
+    C96 : `manual_review_override` parque en Review (entre Super et Auto).
+
+    C94 : `origin` dit d'où vient le job (`batch` / `webhook` / `auto` / `row`).
+    Défaut `batch` si `is_batch`, sinon `row`. Le worker ne compte un run que
+    sur une vraie écriture Kavita (`_REAL_SEND_MESSAGES`).
     """
+    raw = str(origin or "").strip().lower()
+    if raw not in _ALLOWED_ORIGINS:
+        raw = "batch" if is_batch else "row"
     return {
         "series_id": series_id,
         "series_name": series_name,
@@ -94,6 +119,8 @@ def make_sync_item(
         "is_batch": is_batch,
         "super_review": bool(super_review),
         "force_auto": bool(force_auto),
+        "manual_review_override": bool(manual_review_override),
+        "origin": raw,
     }
 
 
@@ -297,19 +324,38 @@ def broadcast_sync_settled(series_id, *, ok: bool) -> None:
         logging.debug("sync_settled emit skipped: %s", exc)
 
 
-def _detach_batch_from_ram_unlocked() -> int:
-    """Retire les items is_batch de sync_queue ; réinsère le reste. Sans touch SQLite.
+def _item_origin(item) -> str:
+    if not isinstance(item, dict):
+        return ""
+    return str(item.get("origin") or "").strip().lower()
 
+
+def _should_drain_item(item, *, include_auto: bool) -> bool:
+    if not isinstance(item, dict):
+        return False
+    if item.get("is_batch"):
+        return True
+    return include_auto and _item_origin(item) == "auto"
+
+
+def _detach_batch_from_ram_unlocked(*, include_auto: bool = False):
+    """Retire les items is_batch (et optionnellement origin=auto). Réinsère le reste.
+
+    Pause : `include_auto=False` — la file Auto-sync continue. Stop : True.
     Caller must hold `_sync_queue_lock`.
+    Rend (drained_count, drained_auto_items).
     """
     drained = 0
+    drained_auto = []
     kept = []
     while True:
         try:
             item = sync_queue.get_nowait()
         except queue.Empty:
             break
-        if isinstance(item, dict) and item.get("is_batch"):
+        if _should_drain_item(item, include_auto=include_auto):
+            if include_auto and _item_origin(item) == "auto":
+                drained_auto.append(item)
             sync_queue.task_done()
             drained += 1
         else:
@@ -318,34 +364,45 @@ def _detach_batch_from_ram_unlocked() -> int:
     for item in kept:
         sync_queue.put(item)
         sync_queue.task_done()
-    return drained
+    return drained, drained_auto
 
 
 def drain_sync_queue() -> int:
-    """« Stop batch » : retire les items `is_batch=True` de la file RAM.
+    """Stop : retire les lots (`is_batch`) et l'Auto-sync (`origin=auto`).
 
-    `sync_queue` est partagée avec le webhook et le polling auto-sync : les items
-    non-batch sont réinsérés. Appelé avec cancel SQLite côté stop_batch.
+    Webhook et clic ligne restent. Appelé avec cancel SQLite côté stop_batch.
+    Les jobs Auto-sync encore en file passent `stopped` dans le rapport de vague.
     """
     with _sync_queue_lock:
-        drained = _detach_batch_from_ram_unlocked()
+        drained, drained_auto = _detach_batch_from_ram_unlocked(include_auto=True)
     reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=True)
+    if drained_auto:
+        try:
+            from db_manager import mark_auto_sync_items_stopped
+
+            mark_auto_sync_items_stopped(
+                item.get("series_id") for item in drained_auto
+            )
+        except Exception as exc:
+            logging.debug("auto-sync report stop skipped: %s", exc)
+        if not try_finish_auto_sync_run(stopped=True):
+            broadcast_auto_sync_report()
     return drained
 
 
 def detach_batch_from_ram() -> int:
     """Pause : retire le batch de la RAM sans annuler la file SQLite."""
     with _sync_queue_lock:
-        drained = _detach_batch_from_ram_unlocked()
+        drained, _auto = _detach_batch_from_ram_unlocked(include_auto=False)
     reset_batch_progress()
     if drained:
         broadcast_batch_progress(0, stopped=False)
     return drained
 
 
-def queued_series_ids(*, batch_only: bool = False) -> set:
+def queued_series_ids(*, batch_only: bool = False, origin=None) -> set:
     """Séries qui attendent déjà leur tour dans la file RAM.
 
     État DÉRIVÉ de la file, et non un registre tenu en parallèle : un compteur
@@ -355,12 +412,15 @@ def queued_series_ids(*, batch_only: bool = False) -> set:
     traitement n'y figure pas (elle a quitté la file) — la réenfiler une fois
     ne coûte qu'un passage « déjà à jour ».
 
+    `origin=` restreint au producteur (`auto` / `webhook` / `row` / `batch`).
+
     Rend un ensemble vide si la file ne sait pas s'inspecter (double de test).
     """
     mutex = getattr(sync_queue, "mutex", None)
     pending = getattr(sync_queue, "queue", None)
     if mutex is None or pending is None:
         return set()
+    want_origin = None if origin is None else str(origin).strip().lower()
     with mutex:
         snapshot = list(pending)
     out = set()
@@ -369,11 +429,76 @@ def queued_series_ids(*, batch_only: bool = False) -> set:
             continue
         if batch_only and not item.get("is_batch"):
             continue
+        if want_origin is not None and _item_origin(item) != want_origin:
+            continue
         try:
             out.add(int(item["series_id"]))
         except (KeyError, TypeError, ValueError):
             continue
     return out
+
+
+def is_auto_sync_waiting() -> bool:
+    """True s'il reste des jobs `origin=auto` en file (pas le scrape en cours)."""
+    return bool(queued_series_ids(origin="auto"))
+
+
+def _set_inflight_origin(origin) -> None:
+    global _inflight_origin
+    with _inflight_lock:
+        _inflight_origin = str(origin or "").strip().lower()
+
+
+def is_auto_sync_in_flight() -> bool:
+    with _inflight_lock:
+        return _inflight_origin == "auto"
+
+
+def broadcast_auto_sync_report(payload=None) -> None:
+    """Pastille + modale : la vague a bougé (enqueue, série, Stop, lu)."""
+    try:
+        from extensions import socketio
+        from db_manager import get_auto_sync_report_badge
+
+        socketio.emit(
+            "auto_sync_report",
+            payload if payload is not None else get_auto_sync_report_badge(),
+        )
+    except Exception as exc:
+        logging.debug("auto_sync_report emit skipped: %s", exc)
+
+
+def try_finish_auto_sync_run(*, stopped=False, from_worker=False) -> bool:
+    """Clôt le rapport quand plus aucun job auto n'attend (ni en file, ni en vol).
+
+    `from_worker=True` : l'item courant vient d'être enregistré et a déjà quitté
+    la file — on ne recule pas derrière `is_auto_sync_in_flight()`.
+    """
+    if queued_series_ids(origin="auto"):
+        return False
+    if not from_worker and is_auto_sync_in_flight():
+        return False
+    try:
+        from db_manager import finish_open_auto_sync_run
+
+        if not finish_open_auto_sync_run(stopped=stopped):
+            return False
+    except Exception as exc:
+        logging.debug("auto-sync report finish skipped: %s", exc)
+        return False
+    broadcast_auto_sync_report()
+    return True
+
+
+def _record_auto_sync_job(series_id, series_name, ok, msg) -> None:
+    try:
+        from db_manager import record_auto_sync_item
+
+        record_auto_sync_item(series_id, series_name, ok, msg)
+    except Exception as exc:
+        logging.debug("auto-sync report item skipped: %s", exc)
+        return
+    broadcast_auto_sync_report()
 
 
 def hydrate_batch_queue_to_ram(*, new_batch=None) -> int:
@@ -455,6 +580,8 @@ def _worker():
         item = sync_queue.get()
         series_id = None
         is_batch = False
+        item_origin = ""
+        series_name = ""
         try:
             if item is None:
                 break
@@ -463,8 +590,11 @@ def _worker():
             force_update = item["force_update"]
             fields_override = item.get("fields_override")
             is_batch = bool(item.get("is_batch"))
+            item_origin = _item_origin(item)
+            _set_inflight_origin(item_origin)
             item_super_review = bool(item.get("super_review"))
             item_force_auto = bool(item.get("force_auto"))
+            item_manual_review = bool(item.get("manual_review_override"))
 
             config = load_config()
             t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
@@ -494,7 +624,16 @@ def _worker():
                 targeted_fields_override=fields_override,
                 super_review_override=True if item_super_review else None,
                 force_auto=item_force_auto,
+                manual_review_override=item_manual_review,
             )
+
+            if _msg in _REAL_SEND_MESSAGES:
+                record_run_origin(
+                    item.get("origin") or ("batch" if is_batch else "row")
+                )
+
+            if item_origin == "auto":
+                _record_auto_sync_job(series_id, series_name, bool(_ok), _msg)
 
             if is_batch:
                 from services import batch_queue as bq
@@ -519,7 +658,13 @@ def _worker():
                 safe_exc_str(exc),
             )
             _abandon_sync_item(series_id, is_batch)
+            if item_origin == "auto" and series_id is not None:
+                _record_auto_sync_job(series_id, series_name, False, "internal_error")
         finally:
+            was_auto = item_origin == "auto"
+            _set_inflight_origin("")
+            if was_auto:
+                try_finish_auto_sync_run(from_worker=True)
             if item is not None:
                 sync_queue.task_done()
 
@@ -542,87 +687,128 @@ def select_auto_sync_candidates(all_series, cached, config=None):
 
 
 def _auto_sync_tick(config, t) -> int:
-    """Un tour de polling auto-sync. Rend le nombre de séries enfilées.
+    """Un tour intervalle / filet. Délègue à `run_interval_or_catchup` (C96)."""
+    from services.auto_sync import run_interval_or_catchup
+    return run_interval_or_catchup(config, t)
 
-    Le critère de candidature (« absente du cache, ou PENDING ») ne bouge
-    qu'une fois la série traitée par le worker unique. Un tick ne regardait ni
-    `sync_queue` ni ce que le tick précédent avait empilé : avec un intervalle
-    de six heures et plusieurs milliers de séries, le backlog dépasse
-    l'intervalle et TOUT repartait à chaque tour. Chaque doublon coûtait une
-    authentification et un `get_series_metadata` pour aboutir à « Déjà à jour »,
-    mais surtout il passait devant ce que l'utilisateur enfilerait ensuite — et
-    « Stop » ne retire que les items de lot, donc rien dans l'interface ne
-    permettait de purger ces fantômes.
-    """
-    kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+
+def _auto_sync_enabled(config) -> bool:
+    try:
+        interval = int(config.get("AUTO_SYNC_INTERVAL") or 0)
+    except (TypeError, ValueError):
+        interval = 0
+    enabled = config.get("AUTO_SYNC_ENABLED")
+    if enabled is None:
+        enabled = interval > 0
+    return bool(enabled)
+
+
+def _auto_sync_should_poll_interval(config) -> bool:
+    """Trigger scan : pas de poll minutes (filet / hub à la place)."""
+    try:
+        interval = int(config.get("AUTO_SYNC_INTERVAL") or 0)
+    except (TypeError, ValueError):
+        interval = 0
+    from services.auto_sync import normalize_trigger
+    trigger = normalize_trigger(config.get("AUTO_SYNC_TRIGGER"))
+    return _auto_sync_enabled(config) and trigger != "scan" and interval > 0
+
+
+def _seed_scan_snapshot(config, t) -> bool:
+    """GET + snapshot, 0 enqueue. False si inventaire incomplet."""
+    from services.auto_sync import fetch_complete_inventory, seed_known_from_inventory
+
+    kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
     if not kavita.authenticate():
-        return 0
-
-    logging.info(t.get('log_auto_sync_start'))
-    # Inventaire complet : le nettoyage du cache doit voir les
-    # séries des bibliothèques exclues du polling, sinon elles
-    # seraient traitées comme orphelines et purgées.
-    all_series = kavita.get_all_series()
-    # Une bibliothèque muette (timeout, 500) tronque
-    # l'inventaire : purger sur cette base effacerait les
-    # réglages manuels de séries bien vivantes.
-    if getattr(kavita, "last_inventory_complete", False):
-        active_ids = {s['id'] for s in all_series}
-        clean_orphaned_cache(active_ids)
-    else:
-        logging.warning(t.get("log_orphans_skipped", "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet."))
-    cached = get_all_cached_data()
-
-    to_process = select_auto_sync_candidates(all_series, cached, config)
-    if not to_process:
-        return 0
-
-    already = queued_series_ids()
-    if already:
-        fresh = [s for s in to_process if int(s['id']) not in already]
-        skipped = len(to_process) - len(fresh)
-        if skipped:
-            logging.info(
-                t.get(
-                    "log_auto_sync_already_queued",
-                    "⏭️ [Auto-Sync] {0} série(s) déjà en file d'attente, non réenfilée(s).",
-                ).format(skipped)
+        return False
+    series = fetch_complete_inventory(kavita)
+    if series is None:
+        logging.warning(
+            t.get(
+                "log_orphans_skipped",
+                "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet.",
             )
-        to_process = fresh
-    if not to_process:
-        return 0
-
-    logging.info(t.get('log_auto_sync_found').format(len(to_process)))
-    for s in to_process:
-        put_sync(make_sync_item(s['id'], s['name'], False))
-    return len(to_process)
+        )
+        return False
+    seed_known_from_inventory(series)
+    logging.info(
+        t.get(
+            "log_auto_sync_seed",
+            "📡 [Auto-Sync] Veille de {0} série(s) — rien à enfiler.",
+        ).format(len(series))
+    )
+    return True
 
 
 def _auto_sync_worker():
-    last_run = 0
+    global _last_catchup_at
+    last_interval_run = 0
+    prev_trigger = None
     while True:
-        # Thread démon unique : une lecture de config qui explose (disque plein,
-        # JSON tronqué) arrêtait définitivement le polling automatique.
         try:
-            config = load_config()
-            interval = config.get('AUTO_SYNC_INTERVAL', 0)
+            try:
+                reason = auto_sync_wake_queue.get(timeout=30)
+            except queue.Empty:
+                reason = "timeout"
         except Exception as exc:
-            logging.error("❌ [Auto-Sync] Configuration illisible : %s", safe_exc_str(exc))
-            time.sleep(30)
+            logging.error("❌ [Auto-Sync] File de réveil illisible : %s", safe_exc_str(exc))
+            time.sleep(0)
             continue
 
-        if interval > 0:
-            current_time = time.time()
-            if current_time - last_run >= (interval * 60):
-                last_run = current_time
-                t = translations.get(config.get('UI_LANG', 'fr'), translations['fr'])
+        try:
+            config = load_config()
+        except Exception as exc:
+            logging.error("❌ [Auto-Sync] Configuration illisible : %s", safe_exc_str(exc))
+            time.sleep(0)
+            continue
 
+        t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
+        from services.auto_sync import (
+            catchup_due,
+            needs_seed,
+            normalize_trigger,
+            run_scan_fire,
+        )
+
+        try:
+            interval = int(config.get("AUTO_SYNC_INTERVAL") or 0)
+        except (TypeError, ValueError):
+            interval = 0
+        enabled = _auto_sync_enabled(config)
+        trigger = normalize_trigger(config.get("AUTO_SYNC_TRIGGER"))
+
+        from services import kavita_hub as kh
+        if enabled and trigger == "scan":
+            kh.start_hub()
+        else:
+            kh.stop_hub()
+
+        if enabled and trigger == "scan":
+            if needs_seed(config, prev_trigger):
+                if _seed_scan_snapshot(config, t):
+                    _last_catchup_at = time.time()
+            if reason == "scan":
+                try:
+                    run_scan_fire(config, t)
+                except Exception as exc:
+                    logging.error("❌ [Auto-Sync] Erreur scan : %s", safe_exc_str(exc))
+            elif catchup_due(_last_catchup_at, config.get("AUTO_SYNC_CATCHUP_HOURS")):
                 try:
                     _auto_sync_tick(config, t)
-                except Exception as e:
-                    logging.error(f"❌ [Auto-Sync] Erreur : {e}")
+                    _last_catchup_at = time.time()
+                except Exception as exc:
+                    logging.error("❌ [Auto-Sync] Erreur filet : %s", safe_exc_str(exc))
+        elif enabled and trigger != "scan" and interval > 0:
+            current_time = time.time()
+            if current_time - last_interval_run >= (interval * 60):
+                last_interval_run = current_time
+                try:
+                    _auto_sync_tick(config, t)
+                except Exception as exc:
+                    logging.error("❌ [Auto-Sync] Erreur : %s", safe_exc_str(exc))
 
-        time.sleep(30)
+        prev_trigger = trigger
+        time.sleep(0)
 
 
 def start_background_workers():

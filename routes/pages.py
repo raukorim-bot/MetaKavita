@@ -1,13 +1,15 @@
 """
-Blueprint des pages HTML principales : tableau de bord (/) et statistiques (/stats).
+Blueprint des pages HTML principales : tableau de bord (/), statistiques
+(/stats) et atelier des tomes (`/volumes`, `/series/<id>/volumes`).
 
-⚠️ Endpoints réels : 'pages.index' et 'pages.stats' (voir routes/auth.py pour le
-rappel sur le nommage des endpoints après passage aux Blueprints).
+⚠️ Endpoints réels : 'pages.index', 'pages.stats', 'pages.volumes',
+'pages.series_volumes' (voir routes/auth.py pour le rappel sur le nommage
+des endpoints après passage aux Blueprints).
 """
 
 import logging
 
-from flask import Blueprint, request, render_template, session
+from flask import Blueprint, request, render_template, session, abort
 
 from config_manager import (
     load_config,
@@ -20,9 +22,16 @@ from db_manager import (
     clean_orphaned_cache,
     get_provider_stats,
     get_lifetime_stats,
+    get_latest_auto_sync_report,
     get_series_audit_flags,
     get_volume_report_hygiene_map,
     get_hygiene_library_meta,
+    list_hygiene_library_meta,
+    count_volume_units_by_status,
+    list_enriched_series_ids,
+    list_catalog_expected_overrides,
+    count_dup_dismissals,
+    summarize_volume_writes,
 )
 from kavita_api import KavitaAPI
 from scrapers.utils import get_dup_accept_threshold, get_match_accept_threshold
@@ -38,11 +47,13 @@ from services.enrichment_engine import (
     targeted_fields_is_granular,
 )
 from services.mr_achievements import evaluate_from_lifetime
-from services.stats_service import compute_playful_stats
+from services.stats_service import compute_playful_stats, pick_hygiene_counts
 from services.scraper_diagnostics import list_scrapers_inventory
 from services.volume_enrichment.providers import (
     volume_provider_choices as list_volume_provider_choices,
 )
+from services.workshop import library_is_disabled, workshop_payload, workshop_rail
+from routes.volume_enrichment import volume_enrichment_enabled
 
 pages_bp = Blueprint('pages', __name__)
 
@@ -240,6 +251,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     use_virtual_series_list = len(series_list) >= _VIRTUAL_SERIES_THRESHOLD
     hygiene_counts = (hygiene_meta or {}).get("counts") or {}
     hygiene_scanned_at = (hygiene_meta or {}).get("scanned_at") or ""
+    auto_sync_payload = get_latest_auto_sync_report()
+    auto_sync_series_ids = [it["series_id"] for it in (auto_sync_payload.get("items") or [])]
 
     return render_template('index.html', config=safe_config, app_version=get_current_version(), msg=msg, error_msg=error_msg,
                            series_list=series_list, libraries=libraries, selected_lib=selected_lib,
@@ -250,6 +263,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
                            hygiene_scanned_at=hygiene_scanned_at,
                            inventory_enabled=inventory_on,
                            lifetime=get_lifetime_stats(),
+                           auto_sync_report=auto_sync_payload.get("badge") or {},
+                           auto_sync_series_ids=auto_sync_series_ids,
                            kavita_ui_url=get_kavita_ui_url(config),
                            kavita_plus_url=get_kavita_plus_url(config),
                            manga_providers=manga_providers,
@@ -280,10 +295,17 @@ def index():
 
 @pages_bp.route('/stats')
 def stats():
+    """Document HTML autonome (`templates/stats.html` + `static/css/stats.css`).
+
+    Ce n'est pas un volet du tableau de bord : ne pas envelopper le récit
+    dans `.dashboard-wrapper` / `.content` (`style.css` y fige 100vh et
+    `overflow: hidden`).
+    """
     config = load_config()
     cached_data = get_all_cached_data()
     total = len(cached_data)
     completed = sum(1 for v in cached_data.values() if v.get('status') == 'COMPLETED')
+    needs_relock = sum(1 for v in cached_data.values() if v.get('status') == 'NEEDS_RELOCK')
     pending = sum(1 for v in cached_data.values() if v.get('status') == 'PENDING')
     pending_review = sum(1 for v in cached_data.values() if v.get('status') == 'PENDING_REVIEW')
     not_found = sum(1 for v in cached_data.values() if v.get('status') == 'NOT_FOUND')
@@ -296,11 +318,22 @@ def stats():
     lifetime = get_lifetime_stats()
     playful = None
     if playful_enabled:
+        hygiene_counts = pick_hygiene_counts(
+            get_hygiene_library_meta("all"),
+            list_hygiene_library_meta(),
+        )
         playful = compute_playful_stats(
             cached_data,
             get_provider_stats(),
             lifetime,
             translations_dict=t,
+            config=config,
+            hygiene_counts=hygiene_counts,
+            volume_status_counts=count_volume_units_by_status(),
+            volume_series_done=len(list_enriched_series_ids()),
+            expected_overrides=len(list_catalog_expected_overrides()),
+            dup_dismissals=count_dup_dismissals(),
+            volume_writes=summarize_volume_writes(),
         )
         mr_achievements = playful.get("mr_achievements") or evaluate_from_lifetime(lifetime, t)
     else:
@@ -313,6 +346,7 @@ def stats():
         t=t,
         total=total,
         completed=completed,
+        needs_relock=needs_relock,
         pending=pending,
         pending_review=pending_review,
         not_found=not_found,
@@ -337,3 +371,86 @@ def diagnostics():
         scrapers=list_scrapers_inventory(config),
         active_tab="diagnostics",
     )
+
+
+_EMPTY_WORKSHOP_PAYLOAD = {
+    "series": {},
+    "units": [],
+    "history": [],
+    "lookups": {},
+    "force": True,
+    "pass_running": False,
+    "skipped_reason": "",
+}
+
+
+def _workshop_libraries(rail):
+    libraries = []
+    seen = {}
+    for item in rail:
+        lib = item.get("libraryId")
+        name = item.get("libraryName") or ""
+        if lib is None or lib in seen:
+            continue
+        seen[lib] = True
+        libraries.append({"id": lib, "name": name})
+    libraries.sort(key=lambda x: (x["name"] or "").casefold())
+    return libraries
+
+
+def _workshop_api(config):
+    if not volume_enrichment_enabled(config):
+        abort(403)
+    if not config.get('KAVITA_API_KEY') or not config.get('KAVITA_URL'):
+        abort(404)
+    return KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+
+
+def _render_workshop_page(config, t, api, payload):
+    rail = workshop_rail(api, config=config)
+    return render_template(
+        'volumes.html',
+        config=config,
+        t=t,
+        payload=payload or dict(_EMPTY_WORKSHOP_PAYLOAD),
+        rail=rail,
+        libraries=_workshop_libraries(rail),
+        kavita_ui_url=get_kavita_ui_url(config),
+        match_accept_threshold=get_match_accept_threshold(config),
+    )
+
+
+@pages_bp.route('/volumes')
+def volumes():
+    """Atelier sans série imposée : même document que `/series/<id>/volumes`.
+
+    Le rail (et le dernier sid en localStorage) choisit la fiche. 403 si la
+    fonctionnalité est éteinte.
+    """
+    config = load_config()
+    ui_lang = config.get('UI_LANG', 'fr')
+    t = translations.get(ui_lang, translations['fr'])
+    api = _workshop_api(config)
+    return _render_workshop_page(config, t, api, dict(_EMPTY_WORKSHOP_PAYLOAD))
+
+
+@pages_bp.route('/series/<int:series_id>/volumes')
+def series_volumes(series_id):
+    """Atelier des tomes : document autonome, comme `/stats`.
+
+    Aucun scrape à l'ouverture. 403 si la fonctionnalité est éteinte ou si la
+    bibliothèque de la série est désactivée.
+    """
+    config = load_config()
+    ui_lang = config.get('UI_LANG', 'fr')
+    t = translations.get(ui_lang, translations['fr'])
+    api = _workshop_api(config)
+    series = api.get_series(series_id)
+    if not isinstance(series, dict) or not series.get('id'):
+        abort(404)
+    if library_is_disabled(series, config):
+        abort(403)
+    payload = workshop_payload(api, series_id, config=config)
+    if not payload:
+        abort(404)
+    return _render_workshop_page(config, t, api, payload)

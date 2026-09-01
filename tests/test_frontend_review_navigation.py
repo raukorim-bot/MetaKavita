@@ -71,6 +71,19 @@ def test_la_fleche_droite_delegue_la_navigation():
     assert "renderCandidates()" not in handler
 
 
+def test_un_nouveau_titre_reste_saisissable_pendant_lattente():
+    """BF189 : le champ titre / Rechercher restent utilisables sur le masque
+    d'attente, sauf si une re-recherche est déjà en vol."""
+    src = _read()
+    body = _function_body(src, "setPhase")
+    assert 'next === "waiting" && !researchInFlight' in body
+    merge = _function_body(src, "mergeStreamedCandidate")
+    assert "if (researchInFlight) return;" in merge
+    start = src.index('socket.on("manual_review_scrape_complete"')
+    snippet = src[start:start + 700]
+    assert "if (researchInFlight) return;" in snippet
+
+
 def test_la_borne_de_fin_de_file_est_conservee():
     """Sur la dernière review, la flèche droite ne doit rien faire."""
     body = _function_body(_read(), "goToNextReview")

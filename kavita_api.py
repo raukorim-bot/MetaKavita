@@ -1388,3 +1388,59 @@ class KavitaAPI:
             existing['localized_name'] = series.get('localizedName')
 
         return existing
+
+    _MAX_COVER_BYTES = 5 * 1024 * 1024
+    _COVER_CHUNK = 64 * 1024
+
+    def fetch_kavita_image(self, kind: str, entity_id: int):
+        """Octets d'une jaquette déjà dans Kavita (`/api/image/...-cover`).
+
+        `kind` : `series` ou `chapter`. Rend `(bytes, content_type)` ou
+        `(None, code)` avec `not_found` / `kavita_auth` / `too_large` /
+        `kavita_unreachable`. Jamais d'URL publique : le proxy Meta porte le
+        jeton.
+        """
+        name = str(kind or "").strip().lower()
+        try:
+            eid = int(entity_id)
+        except (TypeError, ValueError):
+            return None, "not_found"
+        if name == "series":
+            path = f"{self.url}/api/image/series-cover?seriesId={eid}"
+        elif name == "chapter":
+            path = f"{self.url}/api/image/chapter-cover?chapterId={eid}"
+        elif name == "volume":
+            path = f"{self.url}/api/image/volume-cover?volumeId={eid}"
+        else:
+            return None, "not_found"
+        try:
+            res = self._send("get", path, timeout=20, stream=True)
+            if res is None:
+                return None, "kavita_auth"
+            if res.status_code == 404:
+                return None, "not_found"
+            if res.status_code != 200:
+                return None, "kavita_unreachable"
+            ctype = (res.headers.get("Content-Type") or "image/jpeg").split(";")[0].strip()
+            if not ctype.startswith("image/"):
+                ctype = "image/jpeg"
+            chunks = []
+            total = 0
+            for chunk in res.iter_content(self._COVER_CHUNK):
+                if not chunk:
+                    continue
+                total += len(chunk)
+                if total > self._MAX_COVER_BYTES:
+                    try:
+                        res.close()
+                    except Exception:
+                        pass
+                    return None, "too_large"
+                chunks.append(chunk)
+            data = b"".join(chunks)
+            if not data:
+                return None, "not_found"
+            return data, ctype
+        except Exception as e:
+            logging.error("[Kavita] jaquette %s %s : %s", name, entity_id, safe_exc_str(e))
+            return None, "kavita_unreachable"

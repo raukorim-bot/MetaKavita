@@ -45,6 +45,10 @@ def test_dashboard_renders_on_a_fresh_install(pages_client, isolated_db, monkeyp
     assert "mrListPanel" in html
     assert "mrListThreshold" in html
     assert "account_current_password" in html or "Compte" in html
+    assert 'id="appToast"' in html
+    assert "Paramètres enregistrés." in html
+    assert 'id="scrapingOptionsDetails"' in html
+    assert "mk-boot" in html
 
 
 def test_dashboard_renders_in_english_too(pages_client, isolated_db, monkeypatch):
@@ -53,6 +57,7 @@ def test_dashboard_renders_in_english_too(pages_client, isolated_db, monkeypatch
     response = pages_client.get("/")
 
     assert response.status_code == 200
+    assert "Settings saved." in response.get_data(as_text=True)
 
 
 def test_inventory_can_be_switched_off_from_the_dashboard(pages_client, isolated_db, monkeypatch):
@@ -113,3 +118,15 @@ def test_deliberately_disabling_every_library_survives_a_reload(pages_client, is
     html = response.get_data(as_text=True)
     fragment = _sync_libraries_fragment(html)
     assert "checked" not in fragment, "les 2 bibliothèques doivent rester décochées"
+
+
+def test_dashboard_head_seeds_last_auto_sync_wave_ids(pages_client, isolated_db, monkeypatch):
+    monkeypatch.setattr("routes.pages.load_config", lambda: {"UI_LANG": "fr"})
+    html = pages_client.get("/").get_data(as_text=True)
+    assert "window.AUTO_SYNC_SERIES_IDS" in html
+    isolated_db.begin_auto_sync_run("scan", [(42, "New"), (43, "Also")])
+    isolated_db.finish_open_auto_sync_run()
+    html = pages_client.get("/").get_data(as_text=True)
+    chunk = html.split("window.AUTO_SYNC_SERIES_IDS", 1)[1].split(";", 1)[0]
+    assert "42" in chunk
+    assert "43" in chunk

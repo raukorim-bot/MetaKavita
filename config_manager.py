@@ -127,6 +127,12 @@ def load_config():
             "DUP_THRESHOLD_CUSTOM": False,
             "DUP_ACCEPT_THRESHOLD": 0.92,
             "AUTO_SYNC_INTERVAL": 0,
+            # C96 — maître Auto-sync (le champ minutes n'est plus l'interrupteur).
+            "AUTO_SYNC_ENABLED": False,
+            "AUTO_SYNC_TRIGGER": "interval",  # interval | scan
+            "AUTO_SYNC_MODE": "auto",  # auto | review | super
+            "AUTO_SYNC_FORCE_UPDATE": False,
+            "AUTO_SYNC_CATCHUP_HOURS": 24,
             # Dénylist d'IDs exclus du polling auto-sync uniquement (virgules). Vide = auto-sync toutes.
             # Dashboard, batch manuel et webhook ne sont pas filtrés.
             "DISABLED_LIBRARIES": "",
@@ -363,6 +369,7 @@ def load_config():
                 config["AUTO_SYNC_INTERVAL"] = int(os.getenv("AUTO_SYNC_INTERVAL", config.get("AUTO_SYNC_INTERVAL", 0)))
             except ValueError:
                 config["AUTO_SYNC_INTERVAL"] = 0
+        _apply_auto_sync_keys(config, file_config)
 
         config["KAVITA_HTTP_TIMEOUT"] = _parse_positive_int(
             file_config.get("KAVITA_HTTP_TIMEOUT", os.getenv("KAVITA_HTTP_TIMEOUT", config.get("KAVITA_HTTP_TIMEOUT", 60))),
@@ -394,6 +401,7 @@ def load_config():
             "LIBRARY_INVENTORY_ENABLED",
             "VOLUME_ENRICHMENT_ENABLED", "VOLUME_FORCE_OVERWRITE", "VOLUME_ENRICH_CREDITS",
             "VOLUME_ENRICH_EXPERIMENTAL",
+            "AUTO_SYNC_FORCE_UPDATE",
             "UI_SHOW_MANUAL_REVIEW", "UI_SHOW_INVENTORY", "UI_SHOW_VOLUMES",
             "UI_SHOW_FIELD_MAPPING", "FIELD_MAPPING_ENABLED",
         ]:
@@ -556,6 +564,85 @@ def _parse_match_threshold(raw, default=0.60, minimum=0.30, maximum=1.00) -> flo
     if value != value:  # NaN
         return default
     return max(minimum, min(maximum, value))
+
+
+_AUTO_SYNC_TRIGGERS = frozenset({"interval", "scan"})
+_AUTO_SYNC_MODES = frozenset({"auto", "review", "super"})
+
+
+def _coerce_non_negative_int(raw, default=0) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    return max(0, value)
+
+
+def _clamp_catchup_hours(raw, default=24) -> int:
+    """0 = filet off ; sinon au moins 1 heure (plafond 30 jours)."""
+    try:
+        value = int(raw)
+    except (TypeError, ValueError):
+        return default
+    if value <= 0:
+        return 0
+    return min(value, 24 * 30)
+
+
+def _env_or_file_str(file_config: dict, key: str, default: str) -> str:
+    if key in file_config and file_config[key] is not None and str(file_config[key]).strip() != "":
+        return str(file_config[key]).strip()
+    env = os.getenv(key)
+    if env is not None and str(env).strip() != "":
+        return str(env).strip()
+    return default
+
+
+def normalize_auto_sync_trigger(raw) -> str:
+    trigger = str(raw or "interval").strip().lower()
+    return trigger if trigger in _AUTO_SYNC_TRIGGERS else "interval"
+
+
+def normalize_auto_sync_mode(raw) -> str:
+    mode = str(raw or "auto").strip().lower()
+    return mode if mode in _AUTO_SYNC_MODES else "auto"
+
+
+def clamp_auto_sync_catchup_hours(raw, default=24) -> int:
+    return _clamp_catchup_hours(raw, default)
+
+
+def _apply_auto_sync_keys(config: dict, file_config: dict) -> None:
+    """C96 : maître / trigger / mode. Migration si les nouvelles clés absentes du fichier.
+
+    INTERVAL == 0 → ENABLED false ; INTERVAL > 0 → ENABLED true + trigger intervalle.
+    Ne allume jamais le trigger scan tout seul.
+    """
+    interval = _coerce_non_negative_int(config.get("AUTO_SYNC_INTERVAL"), 0)
+    config["AUTO_SYNC_INTERVAL"] = interval
+
+    if "AUTO_SYNC_ENABLED" in file_config:
+        config["AUTO_SYNC_ENABLED"] = _resolve_bool(file_config, "AUTO_SYNC_ENABLED", False)
+    elif os.getenv("AUTO_SYNC_ENABLED") is not None and str(os.getenv("AUTO_SYNC_ENABLED")).strip() != "":
+        config["AUTO_SYNC_ENABLED"] = _resolve_bool({}, "AUTO_SYNC_ENABLED", False)
+    else:
+        config["AUTO_SYNC_ENABLED"] = interval > 0
+
+    config["AUTO_SYNC_TRIGGER"] = normalize_auto_sync_trigger(
+        _env_or_file_str(file_config, "AUTO_SYNC_TRIGGER", "interval")
+    )
+    config["AUTO_SYNC_MODE"] = normalize_auto_sync_mode(
+        _env_or_file_str(file_config, "AUTO_SYNC_MODE", "auto")
+    )
+
+    if "AUTO_SYNC_CATCHUP_HOURS" in file_config:
+        config["AUTO_SYNC_CATCHUP_HOURS"] = _clamp_catchup_hours(
+            file_config.get("AUTO_SYNC_CATCHUP_HOURS"), 24
+        )
+    elif os.getenv("AUTO_SYNC_CATCHUP_HOURS") is not None and str(os.getenv("AUTO_SYNC_CATCHUP_HOURS")).strip() != "":
+        config["AUTO_SYNC_CATCHUP_HOURS"] = _clamp_catchup_hours(os.getenv("AUTO_SYNC_CATCHUP_HOURS"), 24)
+    else:
+        config["AUTO_SYNC_CATCHUP_HOURS"] = 24
 
 
 def _parse_positive_int(raw, default=60, minimum=5, maximum=600) -> int:

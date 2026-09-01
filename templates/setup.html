@@ -629,11 +629,18 @@
                     <div class="form-group" style="margin-top:14px;">
                         <label for="AUTO_SYNC_INTERVAL">{{ t.auto_sync_interval }}</label>
                         {% set sync_val = fv.get('AUTO_SYNC_INTERVAL', setup_auto_sync_default|string) %}
+                        {% set _sync_en = fv.get('AUTO_SYNC_ENABLED') %}
+                        {% set sync_trigger = fv.get('AUTO_SYNC_TRIGGER', 'interval') %}
+                        {% set sync_on = (sync_val not in ('0', '')) if (_sync_en is none or _sync_en == '') else (_sync_en == 'true') %}
                         <div class="setup-chips" id="syncChips">
-                            <button type="button" class="setup-chip {% if sync_val == '0' %}is-active{% endif %}" data-mins="0">{{ t.setup_autosync_off }}</button>
-                            <button type="button" class="setup-chip {% if sync_val == '360' or sync_val == setup_auto_sync_default|string %}is-active{% endif %}" data-mins="360">{{ t.setup_autosync_6h }}</button>
-                            <button type="button" class="setup-chip {% if sync_val == '1440' %}is-active{% endif %}" data-mins="1440">{{ t.setup_autosync_24h }}</button>
+                            <button type="button" class="setup-chip {% if not sync_on %}is-active{% endif %}" data-kind="off" data-mins="0">{{ t.setup_autosync_off }}</button>
+                            <button type="button" class="setup-chip {% if sync_on and sync_trigger != 'scan' and (sync_val == '360' or sync_val == setup_auto_sync_default|string) %}is-active{% endif %}" data-kind="interval" data-mins="360">{{ t.setup_autosync_6h }}</button>
+                            <button type="button" class="setup-chip {% if sync_on and sync_trigger != 'scan' and sync_val == '1440' %}is-active{% endif %}" data-kind="interval" data-mins="1440">{{ t.setup_autosync_24h }}</button>
+                            <button type="button" class="setup-chip {% if sync_on and sync_trigger == 'scan' %}is-active{% endif %}" data-kind="scan">{{ t.setup_autosync_on_scan }}</button>
                         </div>
+                        <input type="hidden" name="AUTO_SYNC_ENABLED" id="AUTO_SYNC_ENABLED" value="{{ 'true' if sync_on else 'false' }}">
+                        <input type="hidden" name="AUTO_SYNC_TRIGGER" id="AUTO_SYNC_TRIGGER" value="{{ 'scan' if sync_on and sync_trigger == 'scan' else 'interval' }}">
+                        <input type="hidden" name="AUTO_SYNC_CATCHUP_HOURS" id="AUTO_SYNC_CATCHUP_HOURS" value="{{ fv.get('AUTO_SYNC_CATCHUP_HOURS', '24') }}">
                         <input type="number" name="AUTO_SYNC_INTERVAL" id="AUTO_SYNC_INTERVAL"
                                value="{{ sync_val }}" min="0" step="1" data-default="{{ setup_auto_sync_default }}">
                         <span class="setup-hint">{{ t.setup_autosync_hint }}</span>
@@ -921,7 +928,7 @@
             syncBools();
             toggleTranslation();
             toggleLocLangs();
-            markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value) || 0);
+            markSyncChip();
             if (data.__step && !resumeStep) showStep(Number(data.__step) || 0);
         }
 
@@ -942,7 +949,10 @@
                     cb.checked = cb.getAttribute('data-default') === 'true';
                 });
                 form.AUTO_SYNC_INTERVAL.value = String(defaultSync);
-                markSyncChip(defaultSync);
+                form.AUTO_SYNC_ENABLED.value = 'true';
+                form.AUTO_SYNC_TRIGGER.value = 'interval';
+                form.AUTO_SYNC_CATCHUP_HOURS.value = '24';
+                markSyncChip();
             } else if (n === 4) {
                 document.querySelectorAll('#setupForm [data-panel="4"] input[type="password"]').forEach((el) => {
                     el.value = '';
@@ -970,9 +980,17 @@
                 v === 'prefer' ? 'block' : 'none';
         }
 
-        function markSyncChip(mins) {
+        function markSyncChip() {
+            const enabled = form.AUTO_SYNC_ENABLED.value === 'true';
+            const trigger = form.AUTO_SYNC_TRIGGER.value;
+            const mins = Number(form.AUTO_SYNC_INTERVAL.value);
             document.querySelectorAll('#syncChips .setup-chip').forEach((c) => {
-                c.classList.toggle('is-active', Number(c.dataset.mins) === mins);
+                const kind = c.dataset.kind;
+                let on = false;
+                if (kind === 'off') on = !enabled;
+                else if (kind === 'scan') on = enabled && trigger === 'scan';
+                else on = enabled && trigger === 'interval' && Number(c.dataset.mins) === mins;
+                c.classList.toggle('is-active', on);
             });
         }
 
@@ -1022,13 +1040,38 @@
         });
         document.querySelectorAll('#syncChips .setup-chip').forEach((c) => {
             c.addEventListener('click', () => {
-                const mins = Number(c.dataset.mins);
-                form.AUTO_SYNC_INTERVAL.value = mins;
-                markSyncChip(mins);
+                const kind = c.dataset.kind;
+                if (kind === 'off') {
+                    form.AUTO_SYNC_ENABLED.value = 'false';
+                    form.AUTO_SYNC_TRIGGER.value = 'interval';
+                    form.AUTO_SYNC_INTERVAL.value = '0';
+                } else if (kind === 'scan') {
+                    form.AUTO_SYNC_ENABLED.value = 'true';
+                    form.AUTO_SYNC_TRIGGER.value = 'scan';
+                    form.AUTO_SYNC_CATCHUP_HOURS.value = '24';
+                    if (!Number(form.AUTO_SYNC_INTERVAL.value)) {
+                        form.AUTO_SYNC_INTERVAL.value = String(defaultSync);
+                    }
+                } else {
+                    form.AUTO_SYNC_ENABLED.value = 'true';
+                    form.AUTO_SYNC_TRIGGER.value = 'interval';
+                    form.AUTO_SYNC_INTERVAL.value = String(Number(c.dataset.mins));
+                }
+                markSyncChip();
             });
         });
         form.AUTO_SYNC_INTERVAL.addEventListener('input', () => {
-            markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value));
+            const mins = Number(form.AUTO_SYNC_INTERVAL.value);
+            if (mins > 0) {
+                form.AUTO_SYNC_ENABLED.value = 'true';
+                if (form.AUTO_SYNC_TRIGGER.value !== 'scan') {
+                    form.AUTO_SYNC_TRIGGER.value = 'interval';
+                }
+            } else {
+                form.AUTO_SYNC_ENABLED.value = 'false';
+                form.AUTO_SYNC_TRIGGER.value = 'interval';
+            }
+            markSyncChip();
         });
 
         form.addEventListener('submit', (e) => {
@@ -1047,7 +1090,7 @@
         toggleLocLangs();
         restoreDraft();
         showStep(resumeStep || firstStep);
-        markSyncChip(Number(form.AUTO_SYNC_INTERVAL.value) || defaultSync);
+        markSyncChip();
     })();
     </script>
 </body>

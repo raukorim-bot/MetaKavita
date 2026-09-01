@@ -56,6 +56,9 @@ def test_a_crash_on_one_series_does_not_kill_the_worker(mocker, isolated_db):
     bg._worker()
 
     assert seen == [1, 2], "la série suivante doit être traitée malgré l'échec de la première"
+    life = isolated_db.get_lifetime_stats()
+    assert life["runs_row"] == 1
+    assert life["runs_batch"] == 0
 
 
 def test_a_crashed_batch_series_still_advances_the_bar(mocker, isolated_db):
@@ -83,6 +86,7 @@ def test_a_crashed_batch_series_still_advances_the_bar(mocker, isolated_db):
 
     assert calls[-1] == ((0,), {"real_sends": 0}), \
         "un échec doit compter comme traité, sinon la barre ne retombe jamais à zéro"
+    assert isolated_db.get_lifetime_stats()["runs_batch"] == 0
 
 
 def test_every_single_sync_gets_a_settled_signal(mocker, isolated_db):
@@ -101,6 +105,7 @@ def test_every_single_sync_gets_a_settled_signal(mocker, isolated_db):
     bg._worker()
 
     assert events == [((42,), {"ok": False})]
+    assert isolated_db.get_lifetime_stats()["runs_row"] == 0
 
 
 def test_a_crash_also_settles_the_row_button(mocker, isolated_db):
@@ -117,6 +122,7 @@ def test_a_crash_also_settles_the_row_button(mocker, isolated_db):
     bg._worker()
 
     assert events == [((42,), {"ok": False})]
+    assert isolated_db.get_lifetime_stats()["runs_row"] == 0
 
 
 def test_a_batch_series_does_not_settle_a_row_button(mocker, isolated_db):
@@ -138,6 +144,9 @@ def test_a_batch_series_does_not_settle_a_row_button(mocker, isolated_db):
     bg._worker()
 
     assert events == []
+    life = isolated_db.get_lifetime_stats()
+    assert life["runs_batch"] == 1
+    assert life["runs_row"] == 0
 
 
 def test_a_successful_single_sync_settles_ok(mocker, isolated_db):
@@ -153,3 +162,40 @@ def test_a_successful_single_sync_settles_ok(mocker, isolated_db):
     bg._worker()
 
     assert events == [((42,), {"ok": True})]
+    life = isolated_db.get_lifetime_stats()
+    assert life["runs_row"] == 1
+    assert life["runs_batch"] == 0
+    assert life["runs_webhook"] == 0
+
+
+def test_an_already_up_to_date_series_is_not_a_run(mocker, isolated_db):
+    _no_config(mocker)
+    _settled(mocker)
+    mocker.patch(
+        "services.background_tasks.enrich_series",
+        return_value=(True, "Déjà à jour.", []),
+    )
+
+    bg.sync_queue.put(bg.make_sync_item(42, "Skip", True))
+    bg.sync_queue.put(None)
+
+    bg._worker()
+
+    assert isolated_db.get_lifetime_stats()["runs_row"] == 0
+
+
+def test_a_webhook_write_counts_as_webhook(mocker, isolated_db):
+    _no_config(mocker)
+    _settled(mocker)
+    mocker.patch(
+        "services.background_tasks.enrich_series", return_value=(True, "Succès", [])
+    )
+
+    bg.sync_queue.put(bg.make_sync_item(42, "From webhook", True, origin="webhook"))
+    bg.sync_queue.put(None)
+
+    bg._worker()
+
+    life = isolated_db.get_lifetime_stats()
+    assert life["runs_webhook"] == 1
+    assert life["runs_row"] == 0

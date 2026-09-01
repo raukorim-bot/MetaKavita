@@ -237,9 +237,9 @@ class _StopLoop(Exception):
 def _run_one_auto_sync_pass(bg, monkeypatch):
     """Exécute une seule itération de la boucle auto-sync.
 
-    La boucle réelle est un `while True` terminé par `time.sleep(30)` : le sleep
-    patché lève, ce qui sort de la boucle sans traverser le `except Exception`
-    interne (celui-ci n'entoure que le corps métier).
+    La boucle réelle attend `auto_sync_wake_queue.get(timeout=30)` puis
+    `time.sleep(0)` : le get est forcé en timeout immédiat, le sleep lève
+    pour sortir sans traverser le `except` métier.
     """
     monkeypatch.setattr(
         bg, "load_config",
@@ -248,6 +248,11 @@ def _run_one_auto_sync_pass(bg, monkeypatch):
             "KAVITA_URL": "http://kavita.test", "KAVITA_API_KEY": "key",
         },
     )
+
+    def _get(timeout=None):
+        raise __import__("queue").Empty()
+
+    monkeypatch.setattr(bg.auto_sync_wake_queue, "get", _get)
 
     def _sleep(_seconds):
         raise _StopLoop()

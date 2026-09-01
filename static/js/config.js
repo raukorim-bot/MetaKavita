@@ -29,13 +29,90 @@ function toggleLocalizedTitleLangs() {
     group.style.display = mode.value === 'prefer' ? 'block' : 'none';
 }
 
+function toggleAutoSyncCard() {
+    const enabled = document.getElementById('config_auto_sync_enabled');
+    const body = document.getElementById('autoSyncCardBody');
+    const intervalRow = document.getElementById('autoSyncIntervalRow');
+    const catchupRow = document.getElementById('autoSyncCatchupRow');
+    const forceRow = document.getElementById('autoSyncForceUpdateRow');
+    const modeSel = document.getElementById('config_auto_sync_mode');
+    if (!enabled || !body) return;
+    const on = !!enabled.checked;
+    body.classList.toggle('is-disabled', !on);
+    body.setAttribute('aria-disabled', on ? 'false' : 'true');
+    const scan = document.querySelector('input[name="AUTO_SYNC_TRIGGER"][value="scan"]');
+    const isScan = !!(scan && scan.checked);
+    if (intervalRow) intervalRow.hidden = isScan;
+    if (catchupRow) catchupRow.hidden = !isScan;
+    const mode = modeSel ? modeSel.value : 'auto';
+    if (forceRow) forceRow.hidden = mode !== 'auto';
+    const intervalInput = document.getElementById('config_auto_sync_interval');
+    if (intervalInput) {
+        const minutesRequired = on && !isScan;
+        intervalInput.min = minutesRequired ? '1' : '0';
+        if (minutesRequired && Number(intervalInput.value) < 1) {
+            intervalInput.value = intervalInput.getAttribute('data-default') || '360';
+        }
+    }
+    refreshAutoSyncHubStatus();
+}
+
+var autoSyncHubTimer = null;
+
+function refreshAutoSyncHubStatus() {
+    const el = document.getElementById('autoSyncHubStatus');
+    if (!el) return;
+    const T = window.AppTranslations || {};
+    const enabled = document.getElementById('config_auto_sync_enabled');
+    const scan = document.querySelector('input[name="AUTO_SYNC_TRIGGER"][value="scan"]');
+    const prefix = T.auto_sync_hub_status || 'Kavita hub:';
+    if (!enabled || !enabled.checked || !scan || !scan.checked) {
+        el.textContent = prefix + ' ' + (T.auto_sync_hub_idle || 'idle');
+        return;
+    }
+    fetch(getRootPath() + '/api/auto-sync/status')
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            const st = (data && data.hub && data.hub.status) || 'disconnected';
+            const labels = {
+                disconnected: T.auto_sync_hub_disconnected,
+                connecting: T.auto_sync_hub_connecting,
+                connected: T.auto_sync_hub_connected,
+                reconnecting: T.auto_sync_hub_reconnecting,
+                error: T.auto_sync_hub_error,
+                idle: T.auto_sync_hub_idle,
+            };
+            let line = prefix + ' ' + (labels[st] || st);
+            if (data && data.hub && data.hub.last_error && st === 'error') {
+                line += ' — ' + data.hub.last_error;
+            }
+            el.textContent = line;
+        })
+        .catch(function () { /* ignore */ });
+}
+
+function startAutoSyncHubPoll() {
+    refreshAutoSyncHubStatus();
+    if (autoSyncHubTimer) return;
+    autoSyncHubTimer = setInterval(refreshAutoSyncHubStatus, 8000);
+}
+
+function stopAutoSyncHubPoll() {
+    if (!autoSyncHubTimer) return;
+    clearInterval(autoSyncHubTimer);
+    autoSyncHubTimer = null;
+}
+
 function openConfigModal() {
     document.getElementById('configModal').style.display = 'flex';
     if (typeof toggleLocalizedTitleLangs === 'function') toggleLocalizedTitleLangs();
+    if (typeof toggleAutoSyncCard === 'function') toggleAutoSyncCard();
+    startAutoSyncHubPoll();
 }
 
 function closeConfigModal() {
     document.getElementById('configModal').style.display = 'none';
+    stopAutoSyncHubPoll();
 }
 
 function openProvidersModal() {
@@ -348,12 +425,15 @@ function onUiSectionToggle(input, section) {
 }
 
 // --- SAUVEGARDE CONFIGURATION (AJAX HYBRIDE) ---
-// options.reload : true uniquement pour la sauvegarde modale / changement de
-// langue — les toggles sidebar ne doivent PAS recharger (sinon un champ clé
-// API encore vide efface le travail utilisateur, et l'autofill peut corrompre).
+// options.notify : toast + retour visuel du bouton Sauvegarder, sans
+// recharger. options.reload : uniquement le changement de langue UI
+// (libellés rendus côté serveur). Les toggles sidebar ne passent ni l'un
+// ni l'autre — un champ clé API encore vide ne doit pas partir, et
+// l'autofill ne doit pas corrompre une sauvegarde partielle.
 function saveConfig(options) {
     options = options || {};
     const shouldReload = !!options.reload;
+    const notify = !!options.notify || shouldReload;
     const form = document.getElementById('configForm');
     if (!form) return;
     const formData = new FormData(form);
@@ -434,6 +514,11 @@ function saveConfig(options) {
     const autoUpdateCore = document.getElementById('config_auto_update_core_scrapers');
     if (autoUpdateCore) formData.append('AUTO_UPDATE_CORE_SCRAPERS', autoUpdateCore.checked ? 'true' : 'false');
 
+    const autoSyncEnabled = document.getElementById('config_auto_sync_enabled');
+    if (autoSyncEnabled) formData.append('AUTO_SYNC_ENABLED', autoSyncEnabled.checked ? 'true' : 'false');
+    const autoSyncForce = document.getElementById('config_auto_sync_force_update');
+    if (autoSyncForce) formData.append('AUTO_SYNC_FORCE_UPDATE', autoSyncForce.checked ? 'true' : 'false');
+
     // Mode léger : envoyé à chaque enregistrement, y compris depuis une bascule
     // de la barre latérale, pour que les trois cases ne dépendent pas de la
     // soumission de la modale.
@@ -447,7 +532,7 @@ function saveConfig(options) {
         if (el) formData.append(pair[1], el.checked ? 'true' : 'false');
     });
 
-    const btn = shouldReload ? form.querySelector('.btn-primary') : null;
+    const btn = notify ? form.querySelector('.btn-primary') : null;
     const originalText = btn ? btn.innerText : "";
     if (btn) btn.innerText = "⏳...";
 
@@ -470,11 +555,7 @@ function saveConfig(options) {
             if (typeof updateInventoryFolderPreview === 'function') {
                 updateInventoryFolderPreview();
             }
-            if (btn) {
-                btn.innerText = "✅ OK";
-                setTimeout(() => { btn.innerText = originalText; }, 2000);
-            }
-            if (shouldReload) {
+            if (notify) {
                 if (typedKavitaKey && !data.has_kavita_api_key) {
                     alert((window.AppTranslations && window.AppTranslations.config_key_not_saved) ||
                         "La clé API Kavita n'a pas été enregistrée sur le serveur. Vérifiez les logs.");
@@ -495,7 +576,20 @@ function saveConfig(options) {
                     const urlPrefix = (window.AppTranslations && window.AppTranslations.url_saved_prefix) || "URL enregistrée :";
                     alert(msg + "\n\n" + urlPrefix + " " + (data.kavita_url || "(vide)"));
                 }
-                window.location.reload();
+            }
+            if (btn) {
+                btn.innerText = "✅ OK";
+                setTimeout(() => { btn.innerText = originalText; }, 2000);
+            }
+            if (notify) {
+                if (shouldReload) {
+                    try { sessionStorage.setItem('mk_config_saved', '1'); } catch (e) { /* ignore */ }
+                    window.location.reload();
+                    return;
+                }
+                var savedMsg = (window.AppTranslations && window.AppTranslations.config_saved)
+                    || 'Settings saved.';
+                if (typeof showAppToast === 'function') showAppToast(savedMsg);
             }
         } else {
             if (btn) btn.innerText = originalText;
@@ -689,3 +783,15 @@ function applyCoreScraperUpdates(btn) {
         }
     } catch (e) { /* ignore */ }
 })();
+
+document.addEventListener('DOMContentLoaded', function () {
+    try {
+        if (sessionStorage.getItem('mk_config_saved') !== '1') return;
+        sessionStorage.removeItem('mk_config_saved');
+    } catch (e) {
+        return;
+    }
+    var msg = (window.AppTranslations && window.AppTranslations.config_saved)
+        || 'Settings saved.';
+    if (typeof showAppToast === 'function') showAppToast(msg);
+});

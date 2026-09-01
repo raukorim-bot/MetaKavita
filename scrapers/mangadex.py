@@ -23,6 +23,7 @@ class MangaDexScraper(BaseScraper):
     display_name = "MangaDex (API)"
     supported_types = {"Manga"}
     scopes = {"series", "volume"}
+    VOLUME_INDEX_COVERS_ONLY = True
     # 1.1.0 : couvertures de tome (issue #27).
     # 1.2.0 : la pagination des couvertures s'espaçait avec un `time.sleep` posé
     # entre deux pages, qui ne couvrait ni la recherche ni la fiche de série ; la
@@ -30,7 +31,7 @@ class MangaDexScraper(BaseScraper):
     # (429, 5xx) sont journalisés au lieu de rendre un index vide en silence. La
     # montée de version est ce qui autorise l'image à remplacer la copie déjà
     # installée sous data/.
-    version = "1.2.0"
+    version = "1.2.1"
     rate_limit = 0.25  # ~4.5/s: 10% under MangaDex global ~5 req/s
     proxy_domains = ["mangadex.org", "uploads.mangadex.org", "api.mangadex.org"]
     has_direct_id_support = True
@@ -74,10 +75,10 @@ class MangaDexScraper(BaseScraper):
         ne coûte aucune requête HTTP supplémentaire — condition nécessaire pour pouvoir évaluer
         chaque candidat avec `score_candidate()` (et sa protection anti-homonyme par auteur).
         """
-        attrs = manga_data.get("attributes", {})
+        attrs = manga_data.get("attributes") or {}
         manga_id = manga_data.get("id")
 
-        main_titles = list(attrs.get("title", {}).values())
+        main_titles = list((attrs.get("title") or {}).values())
         primary_title = main_titles[0] if main_titles else ""
         if not primary_title:
             return None
@@ -89,7 +90,7 @@ class MangaDexScraper(BaseScraper):
                 titles.append({"lang": lang_key, "value": title_val})
                 if title_val not in alt_titles:
                     alt_titles.append(title_val)
-        for alt_dict in attrs.get("altTitles", []):
+        for alt_dict in attrs.get("altTitles") or []:
             if not isinstance(alt_dict, dict):
                 continue
             for lang_key, alt_val in alt_dict.items():
@@ -97,7 +98,7 @@ class MangaDexScraper(BaseScraper):
                     alt_titles.append(alt_val)
                     titles.append({"lang": lang_key, "value": alt_val})
 
-        descriptions = attrs.get("description", {})
+        descriptions = attrs.get("description") or {}
         summary = descriptions.get(target_lang) or descriptions.get("fr") or descriptions.get("en")
         if not summary and descriptions:
             summary = next(iter(descriptions.values()))
@@ -133,9 +134,9 @@ class MangaDexScraper(BaseScraper):
         staff = []
         cover_url = None
 
-        for rel in manga_data.get("relationships", []):
+        for rel in manga_data.get("relationships") or []:
             rel_type = rel.get("type")
-            rel_attrs = rel.get("attributes", {})
+            rel_attrs = rel.get("attributes") or {}
             if rel_type == "author" and rel_attrs.get("name"):
                 staff.append({"role": "Story", "node": {"name": {"full": rel_attrs.get("name")}}})
             elif rel_type == "artist" and rel_attrs.get("name"):
@@ -143,7 +144,7 @@ class MangaDexScraper(BaseScraper):
             elif rel_type == "cover_art" and rel_attrs.get("fileName"):
                 cover_url = f"https://uploads.mangadex.org/covers/{manga_id}/{rel_attrs.get('fileName')}"
 
-        links = attrs.get("links", {})
+        links = attrs.get("links") or {}
         anilist_id = links.get("al") if links.get("al") and str(links.get("al")).isdigit() else None
         mal_id = links.get("mal") if links.get("mal") and str(links.get("mal")).isdigit() else None
 

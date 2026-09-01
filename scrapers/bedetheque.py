@@ -2,7 +2,7 @@ import logging
 import re
 from bs4 import BeautifulSoup
 from curl_cffi import requests
-from typing import Optional, Dict, Any, List
+from typing import Any, Callable, Dict, List, Optional
 from .base import BaseScraper
 from .utils import (
     album_number_key,
@@ -11,8 +11,12 @@ from .utils import (
     get_match_accept_threshold,
     response_is_ok,
     score_candidate,
+    select_wanted_album_links,
 )
 from config_manager import get_max_tags, get_max_genres
+
+_NON_ISBN = re.compile(r"[^0-9Xx]")
+_ISBN13 = re.compile(r"\b(97[89]\d{10})\b")
 
 def format_author_name(name: str) -> str:
     name = name.strip()
@@ -46,12 +50,9 @@ class BedethequeScraper(BaseScraper):
     display_name = "Bédéthèque (Franco-Belge)"
     supported_types = {"Comic"}
     scopes = {"series", "volume"}
-    # 1.2.0 : cadence appliquée à chaque requête (les pauses en dur de 1 s
-    # dépassaient de deux fois le rate_limit déclaré), jeton CSRF absent
-    # journalisé, année de série plus déduite d'un nombre à quatre chiffres,
-    # décodage HTML confié à BeautifulSoup. La montée de version est ce qui
-    # autorise l'image à remplacer la copie 1.1.x déjà installée sous data/.
-    version = "1.2.0"
+    # 1.3.0 : crawl ciblé (`wanted_numbers` / `should_cancel`) et ISBN/EAN
+    # lus sur la fiche album (og:isbn / libellé).
+    version = "1.3.0"
     uses_unified_scoring = True
     rate_limit = 2.0
     proxy_domains = ["bedetheque.com"]
@@ -222,6 +223,47 @@ class BedethequeScraper(BaseScraper):
         return ""
 
     @staticmethod
+    def _normalize_isbn(raw: Optional[str]) -> Optional[str]:
+        if not raw:
+            return None
+        cleaned = _NON_ISBN.sub("", str(raw)).upper()
+        if len(cleaned) in (10, 13):
+            return cleaned
+        return None
+
+    @staticmethod
+    def _album_isbn(soup_album) -> Optional[str]:
+        """ISBN / EAN de la fiche album, ou rien.
+
+        Même motif que Planète BD : `og:isbn` d'abord, puis un ISBN-13 dans
+        un libellé Identifiant / EAN / ISBN. Un nombre quelconque de la page
+        n'est pas un ISBN.
+        """
+        if soup_album is None:
+            return None
+        og = soup_album.find("meta", property="og:isbn") or soup_album.find(
+            "meta", attrs={"property": "og:isbn"}
+        )
+        if og:
+            found = BedethequeScraper._normalize_isbn(og.get("content"))
+            if found:
+                return found
+        for label in soup_album.find_all(["label", "span", "strong"]):
+            text = (label.get_text(" ", strip=True) or "").lower()
+            if not re.search(r"\b(isbn|ean|identifiant)\b", text):
+                continue
+            holder = label.find_parent(["li", "div", "p"]) or label.parent
+            hay = holder.get_text(" ", strip=True) if holder is not None else text
+            found = BedethequeScraper._normalize_isbn(hay)
+            if found:
+                return found
+            match = _ISBN13.search(hay)
+            if match:
+                return match.group(1)
+        match = _ISBN13.search(soup_album.get_text(" ", strip=True) or "")
+        return match.group(1) if match else None
+
+    @staticmethod
     def _serie_year(soup_serie, soup_album) -> Optional[int]:
         """Année de la série, uniquement là où une date est déclarée.
 
@@ -299,12 +341,67 @@ class BedethequeScraper(BaseScraper):
             out.append({"url": href, "number": number, "label": label})
         return out
 
+    def fetch_volume(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        volume_number: Optional[Any] = None,
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Une fiche album, par URL `/album-` (Champ Magique)."""
+        raw = str(query or "").strip()
+        if "album-" not in raw:
+            return None
+        url = raw if raw.startswith("http") else f"https://www.bedetheque.com{raw}"
+        session = requests.Session(impersonate="chrome110")
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "fr-FR,fr;q=0.9",
+            "Referer": "https://www.bedetheque.com/search/albums",
+        }
+        try:
+            soup_album = self._get_page(session, url, headers)
+            if soup_album is None:
+                return None
+            return self._album_payload(soup_album, url, label="") or None
+        except Exception as e:
+            logging.error("[Bédéthèque] fiche album: %s", e)
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _album_payload(self, soup_album, url: str, label: str = "") -> Dict[str, Any]:
+        cover = soup_album.find("img", class_="couv")
+        cover_url = cover.get("src") if cover else ""
+        if cover_url:
+            cover_url = cover_url.replace("/cache/thb_couv/", "/media/Couvertures/")
+            if not cover_url.startswith("http"):
+                cover_url = f"https://www.bedetheque.com{cover_url}"
+        title_tag = soup_album.find("h1")
+        payload = {
+            "provider_ref": url,
+            "title": self._album_title(
+                label or (title_tag.get_text(strip=True) if title_tag else "")
+            ),
+            "summary": self._extract_summary(soup_album) or "",
+            "release_date": self._album_release_date(soup_album),
+            "isbn": self._album_isbn(soup_album) or "",
+            "cover_url": cover_url or "",
+        }
+        return {k: v for k, v in payload.items() if v}
+
     def fetch_volume_index(
         self,
         query: str,
         library_type: str = "Comic",
         series_id: Optional[str] = None,
         existing_metadata: Optional[Dict[str, Any]] = None,
+        wanted_numbers: Optional[set] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Optional[Dict[str, Any]]:
         """`{numéro de tome: payload}` en lisant la liste d'albums de la série."""
         session = requests.Session(impersonate="chrome110")
@@ -323,31 +420,19 @@ class BedethequeScraper(BaseScraper):
                 return None
 
             index: Dict[str, Any] = {}
-            for link in links[: self.VOLUME_INDEX_MAX]:
+            for link in select_wanted_album_links(
+                links, wanted_numbers, self.VOLUME_INDEX_MAX
+            ):
+                if should_cancel and should_cancel():
+                    break
                 if link["number"] in index:
                     continue
-                # La cadence est celle de `_http_get` : une page d'album par
-                # `rate_limit`, sans pause en dur qui la contredirait.
                 soup_album = self._get_page(session, link["url"], headers)
                 if soup_album is None:
                     continue
-                cover = soup_album.find('img', class_='couv')
-                cover_url = cover.get('src') if cover else ""
-                if cover_url:
-                    cover_url = cover_url.replace('/cache/thb_couv/', '/media/Couvertures/')
-                    if not cover_url.startswith('http'):
-                        cover_url = f"https://www.bedetheque.com{cover_url}"
-                title_tag = soup_album.find('h1')
-                payload = {
-                    "provider_ref": link["url"],
-                    "title": self._album_title(
-                        link["label"] or (title_tag.get_text(strip=True) if title_tag else "")
-                    ),
-                    "summary": self._extract_summary(soup_album) or "",
-                    "release_date": self._album_release_date(soup_album),
-                    "cover_url": cover_url or "",
-                }
-                payload = {k: v for k, v in payload.items() if v}
+                payload = self._album_payload(
+                    soup_album, link["url"], label=link.get("label") or ""
+                )
                 if payload:
                     index[link["number"]] = payload
             return index or None

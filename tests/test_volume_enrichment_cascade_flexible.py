@@ -125,3 +125,19 @@ def test_les_types_connus_ne_changent_pas_de_comportement():
 def test_un_type_inconnu_retombe_toujours_sur_la_cascade_manga():
     """Le repli existant est conservé : `ComicFlexible` n'en dépend simplement plus."""
     assert cascade_rank("TypeQuiNExistePas", CONFIG) == {"MANGADEX": 0, "ANILIST": 1}
+
+
+def test_mangasanctuary_suit_manganews_sur_une_biblio_manga(monkeypatch):
+    """Le Magasin se glisse juste derrière Manga-News, avant MangaDex."""
+    scrapers = [
+        _Faux("MANGADEX", {"Manga"}),
+        _Faux("MANGANEWS", {"Manga"}),
+        _Faux("MANGASANCTUARY", {"Manga"}),
+    ]
+    monkeypatch.setattr(
+        "scrapers.ScraperRegistry.get_by_scope", lambda scope: list(scrapers)
+    )
+    ordre = [s.id for s in volume_providers("Manga", config=CONFIG)]
+
+    assert ordre.index("MANGANEWS") < ordre.index("MANGASANCTUARY")
+    assert ordre.index("MANGASANCTUARY") < ordre.index("MANGADEX")

@@ -13,7 +13,7 @@ No cloning required. Create a `docker-compose.yml` anywhere on your server:
 ```yaml
 services:
   metakavita:
-    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.7.1
+    image: ghcr.io/raukorim-bot/metakavita:latest   # or pin :1.7.4
     container_name: metakavita
     restart: unless-stopped
     ports:

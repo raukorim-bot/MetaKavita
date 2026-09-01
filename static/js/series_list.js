@@ -131,6 +131,7 @@
             '<div class="series-actions">' +
             '<button type="button" class="btn-icon" data-action="ignore" title="' + escAttr(ignTitle) + '">' + ignIcon + '</button>' +
             '<button type="button" class="btn-icon btn-audit-report" data-action="audit" title="' + escAttr(tr.audit_volume_report || 'Volumes') + '">📑</button>' +
+            '<a class="btn-icon btn-workshop" data-action="workshop" href="' + (typeof getRootPath === 'function' ? getRootPath() : '') + '/series/' + encodeURIComponent(sid) + '/volumes" title="' + escAttr(tr.workshop_open_hint || tr.workshop_open || '') + '">📚</a>' +
             '<button type="button" class="btn-icon" data-action="covers" title="' + escAttr(tr.manage_covers || 'Covers') + '">🖼️</button>' +
             '<button type="button" class="btn-opt" data-action="options">' + esc(tr.options || 'Options') + '</button>' +
             '<button type="button" class="btn-sync" data-action="sync">' + esc(tr.update || 'Update') + '</button>' +
@@ -279,6 +280,9 @@
             var show = false;
             if (filter === 'ALL') {
                 show = !(hideIgnored && status === 'IGNORED');
+            } else if (filter === 'AUTO_SYNC') {
+                show = !!(window.autoSyncSeriesIds && window.autoSyncSeriesIds.has(String(s.id)));
+                if (show && hideIgnored && status === 'IGNORED') show = false;
             } else if (status === filter) {
                 show = true;
             }

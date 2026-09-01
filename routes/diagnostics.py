@@ -7,7 +7,10 @@ Endpoints :
   diagnostics.probe_all   POST /api/scrapers/probe-all
       → ?scope=active|all (défaut all — rétrocompat)
       → NDJSON stream (une ligne JSON par événement) si Accept contient
-        application/x-ndjson ou ?stream=1 ; sinon JSON bulk legacy.
+        application/x-ndjson ou ?stream=1 ; sinon JSON bulk.
+      C95 : les probes d'un scope partent ensemble (un worker par fournisseur) ;
+      le flux annonce toutes les cibles puis rend les résultats dans l'ordre
+      de finition. `throttle_provider` sérialise toujours le même scraper.
 
 La page HTML vit sur pages.diagnostics (GET /diagnostics).
 """
@@ -19,6 +22,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from config_manager import load_config
 from scrapers import ScraperRegistry
 from services.scraper_diagnostics import (
+    iter_probe_results,
     probe_all,
     probe_scraper,
     resolve_probe_targets,
@@ -73,6 +77,9 @@ def probe_all_route():
             {"type": "start", "total": total, "scope": scope},
             ensure_ascii=False,
         ) + "\n"
+        # Annoncer toutes les cibles avant le premier HTTP : l'UI les passe
+        # toutes en « Test… » d'un coup, puis les résultats arrivent dans
+        # l'ordre de finition (C95).
         for index, scraper in enumerate(scrapers, start=1):
             yield json.dumps(
                 {
@@ -83,24 +90,14 @@ def probe_all_route():
                 },
                 ensure_ascii=False,
             ) + "\n"
-            try:
-                result = probe_scraper(scraper, config)
-            except Exception as exc:
-                result = {
-                    "id": scraper.id,
-                    "display_name": scraper.display_name,
-                    "status": "down",
-                    "cause": "schema",
-                    "latency_ms": 0,
-                    "detail": str(exc)[:160],
-                    "metadata": {"status": "down", "sample_title": None, "fields_ok": [], "fields_missing": []},
-                    "covers": {"status": "n_a", "count": 0, "sample_url": None},
-                }
+        for done_index, done_total, result in iter_probe_results(
+            config, scope=scope, scrapers=scrapers,
+        ):
             yield json.dumps(
                 {
                     "type": "result",
-                    "index": index,
-                    "total": total,
+                    "index": done_index,
+                    "total": done_total,
                     "result": result,
                 },
                 ensure_ascii=False,

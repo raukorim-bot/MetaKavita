@@ -1,6 +1,7 @@
     <!-- MODAL REVIEW MANUELLE (C29) -->
     <div id="manualReviewModal" class="modal-overlay" style="display:none;"
          role="dialog" aria-modal="true" aria-labelledby="mrModalTitle" aria-hidden="true"
+         data-kind="series"
          onclick="if(event.target===this) closeManualReviewModal()">
         <div class="modal-content modal-shell modal-large mr-modal">
             <div class="modal-header mr-header">
@@ -175,6 +176,7 @@
                     <button type="button" class="btn-primary" id="mrCoverContinueBtn" style="display:none;" onclick="mrCoverContinue()">{{ t.mr_cover_continue }}</button>
                     <button type="button" class="btn-primary" id="mrConfirmBtn" style="display:none;" onclick="mrConfirmCurrent()">{{ t.mr_confirm }}</button>
                     <button type="button" class="btn-primary" id="mrPickBtn" onclick="mrSubmitPick()">{{ t.mr_pick }}</button>
+                    <button type="button" class="btn-primary" id="mrVolumeConfirmBtn" style="display:none;">{{ t.workshop_pick }}</button>
                     <button type="button" class="btn-primary" id="mrCloseRecapBtn" style="display:none;" onclick="closeManualReviewModal()">{{ t.mr_recap_close }}</button>
                 </div>
             </div>

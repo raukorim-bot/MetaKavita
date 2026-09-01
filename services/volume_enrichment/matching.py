@@ -22,6 +22,8 @@ LOOSE_VOL = -100_000
 #: situer. Le préfixe n'est pas un nombre : une clé ISBN et une clé de tome ne
 #: peuvent donc pas se confondre dans le même index.
 ISBN_KEY_PREFIX = "isbn:"
+#: Clé d'un override d'atelier (Champ Magique) quand le tome n'a ni numéro ni ISBN.
+CHAPTER_KEY_PREFIX = "ch:"
 
 # Champs qu'un fournisseur peut proposer pour une unité.
 INDEX_FIELDS = ("title", "summary", "release_date", "isbn", "cover_url")
@@ -108,6 +110,9 @@ def index_key(raw: Any) -> Optional[str]:
     if isinstance(raw, str) and raw.startswith(ISBN_KEY_PREFIX):
         text = raw[len(ISBN_KEY_PREFIX):].strip()
         return f"{ISBN_KEY_PREFIX}{text}" if text else None
+    if isinstance(raw, str) and raw.startswith(CHAPTER_KEY_PREFIX):
+        text = raw[len(CHAPTER_KEY_PREFIX):].strip()
+        return f"{CHAPTER_KEY_PREFIX}{text}" if text else None
     return number_key(raw)
 
 
@@ -322,6 +327,11 @@ def match_units(
     """
     candidates = [u for u in (units or []) if isinstance(u, dict)]
     wanted = matchable_keys(candidates)
+    for unit in candidates:
+        cid = unit.get("chapter_id")
+        if cid:
+            wanted = set(wanted)
+            wanted.add(f"{CHAPTER_KEY_PREFIX}{int(cid)}")
     normalized = normalize_index(index, keys=wanted)
     matched: List[Tuple[Dict[str, Any], Dict[str, Any]]] = []
     unmatched: List[Dict[str, Any]] = []
@@ -336,6 +346,8 @@ def match_units(
             continue
         key = unit_key(unit)
         payload = normalized.get(key) if key is not None else None
+        if not payload:
+            payload = normalized.get(f"{CHAPTER_KEY_PREFIX}{int(chapter_id)}")
         if payload:
             matched.append((unit, payload))
         else:

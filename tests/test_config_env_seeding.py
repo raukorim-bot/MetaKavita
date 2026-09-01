@@ -38,6 +38,8 @@ def config_env(tmp_path, monkeypatch):
         "UI_LANG", "TARGET_LANG", "KAVITA_URL", "KAVITA_API_KEY",
         "PROVIDER_1", "MAX_TAGS", "MAX_GENRES", "SMART_COMPLETION",
         "ADMIN_PASSWORD", "AUTO_SYNC_INTERVAL",
+        "AUTO_SYNC_ENABLED", "AUTO_SYNC_TRIGGER", "AUTO_SYNC_MODE",
+        "AUTO_SYNC_CATCHUP_HOURS", "AUTO_SYNC_FORCE_UPDATE",
     ):
         monkeypatch.delenv(key, raising=False)
     return config_manager

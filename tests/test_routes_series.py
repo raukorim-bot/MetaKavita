@@ -82,6 +82,7 @@ class TestLeBoutonDeVerrouillage:
         assert response.get_json()["status"] == "COMPLETED"
         api.seal_series_locks.assert_called_once_with(55)
         assert isolated_db.get_all_cached_data()[55]["status"] == "COMPLETED"
+        assert isolated_db.get_lifetime_stats()["locks_sealed"] == 1
 
     def test_the_bulk_button_only_walks_the_series_left_to_seal(self, client, isolated_db, mocker):
         isolated_db.update_status(55, "NEEDS_RELOCK")
@@ -96,6 +97,7 @@ class TestLeBoutonDeVerrouillage:
         body = response.get_json()
         assert (body["sealed_count"], body["failed_count"]) == (1, 0)
         api.seal_series_locks.assert_called_once_with(55)
+        assert isolated_db.get_lifetime_stats()["locks_sealed"] == 1
 
     def test_a_series_with_nothing_to_protect_still_ends_up_completed(
         self, client, isolated_db, mocker
@@ -133,6 +135,18 @@ class TestLeBoutonDeVerrouillage:
         assert sealed["genresLocked"] is False
         assert post.call_args_list[1].kwargs["json"]["localizedNameLocked"] is False
         assert isolated_db.get_all_cached_data()[55]["status"] == "COMPLETED"
+
+
+    def test_a_failed_seal_does_not_count(self, client, isolated_db, mocker):
+        api = mocker.Mock()
+        api.authenticate.return_value = True
+        api.seal_series_locks.return_value = (False, "boom")
+        _kavita_stub(mocker, api)
+
+        response = client.post("/api/series/55/seal-locks")
+
+        assert response.status_code == 502
+        assert isolated_db.get_lifetime_stats()["locks_sealed"] == 0
 
 
 def test_toggle_ignore_flips_status(client, isolated_db):

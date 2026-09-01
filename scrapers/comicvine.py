@@ -4,7 +4,7 @@ import re
 import unicodedata
 import difflib
 from bs4 import BeautifulSoup
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 from .base import BaseScraper
 from .utils import (
     PROVIDER_ERROR_AUTH,
@@ -150,12 +150,9 @@ class ComicVineScraper(BaseScraper):
     # `volume` (issue #27) : /api/issues/ ramène cent albums par requête, ce qui
     # met un run de 150 numéros à deux appels au lieu de 150.
     scopes = {"series", "volume"}
+    # 1.3.0 : `fetch_volume` pour une fiche album (`4000-{id}`).
     # 1.2.1 : année de run exacte devant ±1 (BF173 / #40).
-    # 1.2.0 : cadence appliquée à chaque requête (et non à la seule première),
-    # causes d'erreur API journalisées, barème de sélection rééquilibré. La
-    # montée de version est ce qui autorise l'image à remplacer la copie déjà
-    # installée sous data/.
-    version = "1.2.1"
+    version = "1.3.0"
     rate_limit = 1.2
     # API + CDN image historique ComicVine (pas le domaine parent gamespot.com).
     proxy_domains = ["comicvine.gamespot.com", "static.comicvine.com"]
@@ -507,6 +504,57 @@ class ComicVineScraper(BaseScraper):
                 break
 
         return index or None
+
+    def fetch_volume(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        volume_number: Optional[Any] = None,
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Une fiche album ComicVine, par `4000-{id}` ou URL d'issue."""
+        text = str(query or "").strip()
+        match = re.search(r"4000-(\d+)", text)
+        issue_id = match.group(1) if match else (text if text.isdigit() else "")
+        if not issue_id:
+            return None
+        api_key = load_config().get("COMICVINE_API_KEY", "").strip()
+        if not api_key:
+            logging.error(self.t("err_missing"))
+            return None
+        try:
+            res = self._http_get(
+                requests,
+                f"https://comicvine.gamespot.com/api/issue/4000-{issue_id}/",
+                params={
+                    "api_key": api_key,
+                    "format": "json",
+                    "field_list": "id,name,issue_number,cover_date,store_date,description,deck,image",
+                },
+                headers={"User-Agent": "MetaKavita-Fetcher/1.5", "Accept": "application/json"},
+                timeout=15,
+            )
+            body = self._api_json(res, context="fiche album")
+            if body is None:
+                return None
+            issue = body.get("results") or {}
+            if not isinstance(issue, dict):
+                return None
+            image = issue.get("image") or {}
+            payload = {
+                "provider_ref": f"4000-{issue.get('id') or issue_id}",
+                "title": (issue.get("name") or "").strip(),
+                "summary": html_to_summary_text(
+                    issue.get("description") or issue.get("deck") or ""
+                ),
+                "release_date": issue.get("cover_date") or issue.get("store_date") or "",
+                "cover_url": image.get("original_url") or image.get("super_url") or "",
+            }
+            return {k: v for k, v in payload.items() if v} or None
+        except Exception as e:
+            logging.error(self.t("err").format(safe_exc_str(e)))
+            return None
 
     def fetch_volume_credits(self, provider_ref: str) -> Optional[Dict[str, List[str]]]:
         """Crédits nominatifs d'un album : un appel réseau, pour un album.

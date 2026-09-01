@@ -56,7 +56,12 @@ Most settings below are also editable in the **Global Configuration** modal (⚙
 | `MANUAL_REVIEW_SUPER` | Super Review: expand all usable scrapers (not only the three cascade slots). Requires Manual Review Mode. | `false` |
 | `MANUAL_REVIEW_SOUNDS` | Short UI tones on pick / confirm / skip. | `false` |
 | `TITLE_FALLBACK_TRANSLATION`| Experimental: Translates unfound titles to English to force a 2nd search pass. | `false` |
-| `AUTO_SYNC_INTERVAL`| Background polling interval in minutes (`0` to disable). | `0` |
+| `AUTO_SYNC_ENABLED` | Master switch for Auto-sync. Off = no timer and no scan hub. | `false` |
+| `AUTO_SYNC_TRIGGER` | `interval` (every N minutes) or `scan` (after a Kavita library scan). Exclusive. | `interval` |
+| `AUTO_SYNC_INTERVAL` | Minutes between polls when the trigger is `interval` (minimum 1 while that trigger is on). `0` is still a stored leftover while the master switch is off — the Config form must not reject it. | `360` if enabled |
+| `AUTO_SYNC_CATCHUP_HOURS` | Safety net on the `scan` trigger: at most one catalogue check every N hours (`0` = off). | `24` |
+| `AUTO_SYNC_MODE` | `auto`, `review` or `super` for Auto-sync jobs only. | `auto` |
+| `AUTO_SYNC_FORCE_UPDATE` | Force update on Auto-sync jobs when the mode is Auto. | `false` |
 | `DISABLED_LIBRARIES` | Comma-separated Kavita library IDs to exclude from **auto-sync polling** only. Empty = all enabled. Dashboard, manual batch, and webhook are not filtered. | _(empty)_ |
 | `AUTO_COVER` | Automatically upload new covers to Kavita (`true` or `false`). | `false` |
 | `COVER_FORCE_OVERWRITE` | Let automatic scrapes overwrite covers you picked by hand (the 🔒 chip). Leave off to keep manual picks. | `false` |

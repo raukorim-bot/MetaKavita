@@ -216,8 +216,9 @@
 
     /**
      * Stream NDJSON probe-all with optional scope (active|all).
-     * Per-row « Tester » stays usable for scrapers outside the current scope
-     * (cascade vs all). Only the row currently being probed is disabled.
+     * All target rows go « Testing… » together; results arrive as each
+     * provider finishes (C95). Per-row « Tester » stays usable for scrapers
+     * outside the current scope (cascade vs all).
      */
     async function probeStream(scope) {
         const scopeNorm = scope === "active" ? "active" : "all";
@@ -229,12 +230,7 @@
         const progress = document.getElementById("probeAllProgress");
 
         setProbeButtonsDisabled(true);
-        // Reset only the rows that will be probed; never lock out-of-scope « Tester ».
-        targetRows.forEach((row) => {
-            row.classList.remove("is-probing");
-            setPill(row.querySelector(".cell-global"), "idle");
-        });
-        // Ensure every non-target row keeps an enabled per-scraper Test button.
+        targetRows.forEach((row) => markRowRunning(row));
         allRows.forEach((row) => {
             const id = row.getAttribute("data-scraper-id");
             const b = row.querySelector(".btn-probe-one");
@@ -296,7 +292,6 @@
                     } else if (msg.type === "start_scraper") {
                         const row = document.querySelector(`tr[data-scraper-id="${msg.id}"]`);
                         markRowRunning(row);
-                        if (progress) progress.textContent = `${msg.index - 1} / ${msg.total}`;
                     } else if (msg.type === "result" && msg.result) {
                         const row = document.querySelector(`tr[data-scraper-id="${msg.result.id}"]`);
                         applyResultToRow(row, msg.result);
@@ -363,10 +358,10 @@
         document.querySelectorAll(".btn-probe-one").forEach((btn) => {
             btn.addEventListener("click", () => probeOne(btn.getAttribute("data-id")));
         });
-        // Préflight puis auto-probe de la cascade Config uniquement.
+        // Préflight puis tous les scrapers d'un coup (C95).
         (async () => {
             await runPreflight();
-            await probeActive();
+            await probeAll();
         })();
     });
 

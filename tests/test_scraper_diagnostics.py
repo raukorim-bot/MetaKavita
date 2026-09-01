@@ -315,12 +315,15 @@ def test_hardcover_probe_uses_slug_not_search():
     assert case["context"] == {}
 
 
-def test_babelio_probe_uses_petit_prince_not_dune():
+def test_babelio_probe_uses_sitemap_url_and_direct_book_id():
     scraper = SimpleNamespace(id="BABELIO", supported_types={"Book"})
     assert diag._pick_library_type(scraper) == "Book"
     case = diag._resolve_test_case(scraper, "Book")
-    assert case["query"] == "Le Petit Prince"
-    assert case["is_id"] is False
+    assert "Petit-Prince" in case["query"]
+    assert "/livres/" in case["query"]
+    assert case["is_id"] is True
+    assert case["skip_covers"] is True
+    assert "babmap_1.xml" in diag.PROBE_URLS["BABELIO"]
 
 
 def test_metron_probe_uses_watchmen_not_lanfeust():
@@ -341,6 +344,45 @@ def test_planetebd_probe_uses_asterix():
     scraper = SimpleNamespace(id="PLANETEBD", supported_types={"Comic"})
     case = diag._resolve_test_case(scraper, "Comic")
     assert case["query"] == "Astérix"
+
+
+def test_fandom_probe_uses_wiki_api_not_www_and_skips_covers():
+    scraper = SimpleNamespace(id="FANDOM", supported_types={"Manga", "Comic", "Book"})
+    assert diag._pick_library_type(scraper) == "Manga"
+    case = diag._resolve_test_case(scraper, "Manga")
+    assert case["is_id"] is True
+    assert case["skip_covers"] is True
+    assert "onepiece.fandom.com" in case["query"]
+    assert diag.PROBE_URLS["FANDOM"].startswith("https://onepiece.fandom.com/")
+    assert "www.fandom.com" not in diag.PROBE_URLS["FANDOM"]
+
+
+def test_probe_scraper_skip_covers_stays_ok_when_fetch_covers_empty(monkeypatch):
+    """Fandom: fetch_covers is a no-op; empty covers must not mark the wiki down."""
+
+    class FandomLike(_MetaOkScraper):
+        id = "FANDOM"
+
+        def fetch_covers(self, query, library_type="Manga"):
+            return []
+
+    monkeypatch.setattr(
+        diag,
+        "_probe_reachability",
+        lambda url, timeout=10.0, **kwargs: {
+            "ok": True,
+            "status": "ok",
+            "cause": "ok",
+            "http_status": 200,
+            "latency_ms": 1,
+            "detail": "ok",
+        },
+    )
+    monkeypatch.setattr(diag, "throttle_provider", lambda s: None)
+    result = diag.probe_scraper(FandomLike(), config={})
+    assert result["covers"]["status"] == "n_a"
+    assert result["status"] == "ok"
+    assert result["cause"] != "covers_schema"
 
 
 def test_probe_urls_cover_new_core_scrapers():
@@ -874,7 +916,7 @@ def test_probe_all_ndjson_stream(diag_client, monkeypatch):
         lambda config=None, scope="all": [scraper],
     )
     monkeypatch.setattr(
-        "routes.diagnostics.probe_scraper",
+        "services.scraper_diagnostics.probe_scraper",
         lambda s, config=None: {
             "id": "ANILIST",
             "status": "ok",
@@ -911,7 +953,7 @@ def test_probe_all_ndjson_stream_scope_active(diag_client, monkeypatch):
 
     monkeypatch.setattr("routes.diagnostics.resolve_probe_targets", _targets)
     monkeypatch.setattr(
-        "routes.diagnostics.probe_scraper",
+        "services.scraper_diagnostics.probe_scraper",
         lambda s, config=None: {
             "id": getattr(s, "id", "X"),
             "status": "ok",
@@ -933,6 +975,70 @@ def test_probe_all_ndjson_stream_scope_active(diag_client, monkeypatch):
     assert result_ids == ["ANILIST"]
 
 
+def test_probe_all_ndjson_announces_every_target_before_first_result(diag_client, monkeypatch):
+    """C95 — les lignes « Test… » partent toutes avant le premier HTTP."""
+    targets = [
+        SimpleNamespace(id="ANILIST", display_name="AniList"),
+        SimpleNamespace(id="KITSU", display_name="Kitsu"),
+    ]
+    monkeypatch.setattr(
+        "routes.diagnostics.resolve_probe_targets",
+        lambda config=None, scope="all": targets,
+    )
+    monkeypatch.setattr(
+        "services.scraper_diagnostics.probe_scraper",
+        lambda s, config=None: {
+            "id": s.id,
+            "status": "ok",
+            "cause": "ok",
+            "metadata": {"status": "ok"},
+            "covers": {"status": "ok", "count": 1},
+        },
+    )
+    res = diag_client.post(
+        "/api/scrapers/probe-all?stream=1",
+        headers={"Accept": "application/x-ndjson"},
+    )
+    events = [json.loads(ln) for ln in res.get_data(as_text=True).splitlines() if ln.strip()]
+    types = [e["type"] for e in events]
+    first_result = types.index("result")
+    announced = [e["id"] for e in events[:first_result] if e["type"] == "start_scraper"]
+    assert announced == ["ANILIST", "KITSU"]
+    assert types.count("result") == 2
+
+
+def test_probe_all_launches_targets_together(monkeypatch):
+    """Deux fournisseurs distincts doivent entrer dans probe_scraper en même temps."""
+    import threading
+
+    a = SimpleNamespace(
+        id="ANILIST",
+        display_name="AniList",
+        localized_display_name="AniList",
+        supported_types=["Manga"],
+    )
+    b = SimpleNamespace(
+        id="KITSU",
+        display_name="Kitsu",
+        localized_display_name="Kitsu",
+        supported_types=["Manga"],
+    )
+    barrier = threading.Barrier(2, timeout=2)
+
+    def _probe(scraper, config=None):
+        barrier.wait()
+        return {
+            "id": scraper.id,
+            "display_name": scraper.display_name,
+            "status": "ok",
+        }
+
+    monkeypatch.setattr(diag, "resolve_probe_targets", lambda config=None, scope="all": [a, b])
+    monkeypatch.setattr(diag, "probe_scraper", _probe)
+    results = diag.probe_all({}, scope="all")
+    assert {row["id"] for row in results} == {"ANILIST", "KITSU"}
+
+
 def test_diagnostics_page_renders(diag_client):
     res = diag_client.get("/diagnostics")
     assert res.status_code == 200
@@ -941,8 +1047,22 @@ def test_diagnostics_page_renders(diag_client):
     assert "cardInternet" in html
     assert "cardKavita" in html
     assert "btnProbeActive" in html
+    assert "btnProbeAll" in html
+    assert "tous les scrapers partent ensemble" in html
     assert 'data-active="1"' in html
     assert "/manage-scrapers" in html
     assert "/scraper-store" in html
     assert "hub-tabs" in html
     assert "hub-tab is-active" in html
+
+
+def test_diagnostics_js_probes_all_scrapers_on_load():
+    """C95 — le boot ne doit plus s'arrêter à la cascade Config."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1].joinpath("static", "js", "diagnostics.js").read_text(
+        encoding="utf-8"
+    )
+    boot = src.split("DOMContentLoaded")[-1]
+    assert "await probeAll()" in boot
+    assert "await probeActive()" not in boot

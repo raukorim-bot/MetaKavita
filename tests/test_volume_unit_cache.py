@@ -117,7 +117,17 @@ def test_the_series_marker_never_shows_up_as_a_volume(db):
     assert set(db.get_volume_unit_states(7)) == {1}
 
 
-def test_clearing_one_series_leaves_the_others(db):
+def test_clearing_one_chapter_leaves_the_rest_of_the_series(db):
+    db.save_volume_unit_state(7, 1, "DONE")
+    db.save_volume_unit_state(7, 2, "DONE")
+
+    db.clear_volume_unit_states(7, chapter_id=1)
+
+    assert 1 not in db.get_volume_unit_states(7)
+    assert 2 in db.get_volume_unit_states(7)
+
+
+def test_clearing_one_series(db):
     db.save_volume_unit_state(7, 1, "DONE")
     db.save_volume_unit_state(8, 2, "DONE")
 

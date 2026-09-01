@@ -25,7 +25,12 @@ import time
 from contextlib import contextmanager
 from typing import Any, Callable, Dict, List, Optional
 
-from db_manager import purge_series_hygiene_cache, save_volume_unit_state
+from db_manager import (
+    purge_series_hygiene_cache,
+    record_lifetime_event,
+    record_workshop_history,
+    save_volume_unit_state,
+)
 from secure_logging import safe_exc_str, series_label
 from services.cooperative import yield_to_worker
 from services.kavita_chapter_payload import (
@@ -70,6 +75,7 @@ def apply_entry(
     provider: str = "",
     credits_fetcher: Optional[Callable[[str], Optional[Dict[str, List[str]]]]] = None,
     label: str = "",
+    origin: str = "",
 ) -> Dict[str, Any]:
     """Écrit une unité. Rend `{status, written, error, timings}`.
 
@@ -92,7 +98,8 @@ def apply_entry(
 
     proposed = changes_to_write(entry, fields)
     want_credits = bool(credits_fetcher and entry.get("provider_ref"))
-    if not proposed and not want_credits:
+    want_workshop = origin == "workshop"
+    if not proposed and not want_credits and not want_workshop:
         result["status"] = "NOTHING_FOUND" if not entry.get("changes") else "SKIPPED"
         return result
 
@@ -110,6 +117,17 @@ def apply_entry(
     fresh = plan_unit(entry, {**proposed, "provider_ref": entry.get("provider_ref")},
                       force=force, chapter=current)
     changes = changes_to_write(fresh, fields)
+
+    if origin == "workshop":
+        from services.workshop_form import form_chapter_changes
+
+        extra = form_chapter_changes(entry.get("edits") or {}, current, force=force)
+        extra_people = extra.pop("people", None)
+        changes.update(extra)
+        if extra_people:
+            merged = dict(changes.get("people") or {})
+            merged.update(extra_people)
+            changes["people"] = merged
 
     if credits_fetcher and entry.get("provider_ref"):
         try:
@@ -172,6 +190,18 @@ def apply_entry(
 
     result["written"] = written
     result["status"] = "DONE" if written else "SKIPPED"
+    if origin == "workshop" and result["status"] == "DONE":
+        record_lifetime_event("workshop_units")
+        record_workshop_history(
+            series_id,
+            "send",
+            chapter_id=chapter_id,
+            detail={
+                "fields": list(written),
+                "volume_number": entry.get("volume_number"),
+                "chapter_number": entry.get("chapter_number"),
+            },
+        )
     logging.debug(
         "[Tomes] %s %s écrit : %s",
         label or series_label(None, series_id),

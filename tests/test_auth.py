@@ -369,6 +369,7 @@ def test_setup_rerun_updates_config_without_new_account(client):
     assert cfg.get("SMART_COMPLETION") is False
     assert cfg.get("AUTO_COVER") is True
     assert int(cfg["AUTO_SYNC_INTERVAL"]) == 0
+    assert cfg.get("AUTO_SYNC_ENABLED") is False
     assert cfg.get("PROVIDER_1") == "MANGADEX"
     assert cfg.get("UI_LANG") == "en"
 
@@ -397,11 +398,29 @@ def test_setup_persists_wizard_defaults(client):
     assert cfg.get("KAVITA_API_KEY") == "test-kavita-key"
     assert cfg.get("ROOT_PATH") == "/metakavita"
     assert int(cfg.get("AUTO_SYNC_INTERVAL") or 0) == 360
+    assert cfg.get("AUTO_SYNC_ENABLED") is True
+    assert cfg.get("AUTO_SYNC_TRIGGER") == "interval"
     assert cfg.get("SMART_SCORING") is True
     assert cfg.get("SMART_COMPLETION") is True
     assert cfg.get("TRANSLATION_PROVIDER") == "GOOGLE"
     assert cfg.get("UI_LANG") == "fr"
     assert cfg.get("TARGET_LANG") == "FR"
+
+
+def test_setup_scan_chip_persists_trigger_and_catchup(client):
+    import config_manager
+
+    res = _complete_setup(client, extra={
+        "AUTO_SYNC_ENABLED": "true",
+        "AUTO_SYNC_TRIGGER": "scan",
+        "AUTO_SYNC_CATCHUP_HOURS": "24",
+        "AUTO_SYNC_INTERVAL": "360",
+    })
+    assert res.status_code == 302
+    cfg = config_manager.load_config()
+    assert cfg.get("AUTO_SYNC_ENABLED") is True
+    assert cfg.get("AUTO_SYNC_TRIGGER") == "scan"
+    assert int(cfg.get("AUTO_SYNC_CATCHUP_HOURS") or 0) == 24
 
 
 def test_setup_persists_full_custom_options_matrix(client):
@@ -688,6 +707,7 @@ def test_setup_page_renders_wizard(client):
     assert "setupForm" in html
     assert "KAVITA_URL" in html
     assert "AUTO_SYNC_INTERVAL" in html
+    assert "setup_autosync_on_scan" in html or "data-kind=\"scan\"" in html
     # Dock d'actions hors zone scroll (évite boutons coupés sous la taskbar).
     assert 'id="setupDock"' in html
     assert "setup-html" in html

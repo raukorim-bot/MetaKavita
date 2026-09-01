@@ -26,6 +26,18 @@ function escapeHtmlText(value) {
 }
 window.escapeHtmlText = escapeHtmlText;
 
+var _appToastTimer = null;
+function showAppToast(msg) {
+    var el = document.getElementById('appToast')
+        || document.getElementById('batchQueueToast');
+    if (!el || !msg) return;
+    el.textContent = String(msg);
+    el.hidden = false;
+    clearTimeout(_appToastTimer);
+    _appToastTimer = setTimeout(function () { el.hidden = true; }, 3200);
+}
+window.showAppToast = showAppToast;
+
 /**
  * URL d'affichage navigateur pour une couverture externe.
  * Les scrapers avec `requires_proxy=True` bloquent le hotlink : l'<img> doit

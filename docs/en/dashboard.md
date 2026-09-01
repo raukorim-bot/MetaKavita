@@ -30,7 +30,7 @@ The same card also holds [Manual Review](manual-review.md).
 
 **Select all (visible)** and the item / batch counters sit above **Search** (title start, or **Inside title**) and **Filters** (library, status, hide ignored). **Expand/Collapse All** toggles every series options panel; **Save All Overrides** writes them together.
 
-Below that: the [Inventory](inventory.md) strip (health bar, Missing / Duplicates / No id) and the [Volumes](volumes.md) **Enrich selected volumes** button.
+Below that: the [Inventory](inventory.md) strip (health bar, Missing / Duplicates / No id) and the [Volumes](volumes.md) **Workshop** link plus **Enrich selected volumes**. Each row has 📑 inventory and 📚 [workshop](volumes.md).
 
 ![Search, filters, Inventory and Volumes](../../assets/docs-toolbar-inventory.png)
 
