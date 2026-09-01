@@ -168,7 +168,9 @@ def test_workshop_payload_has_no_scrape(client, monkeypatch):
     groups = {f["key"]: f["group"] for f in data["series"]["form"]}
     assert groups["localizedName"] == "primary"
     assert groups["publishers"] == "primary"
-    assert groups["writers"] == "more"
+    assert groups["writers"] == "primary"
+    assert groups["coverArtists"] == "more"
+    assert groups["language"] == "more"
     sizes = {f["key"]: f["size"] for f in data["series"]["form"]}
     assert sizes["language"] == "short"
     assert sizes["summary"] == "wide"
@@ -1132,12 +1134,24 @@ def test_series_form_splits_primary_and_more():
     assert groups["localizedName"] == "primary"
     assert groups["summary"] == "primary"
     assert groups["publishers"] == "primary"
+    assert groups["genres"] == "primary"
+    assert groups["tags"] == "primary"
+    assert groups["writers"] == "primary"
+    assert groups["pencillers"] == "primary"
+    assert groups["coverArtists"] == "more"
+    assert groups["translators"] == "more"
     assert groups["language"] == "more"
-    assert groups["writers"] == "more"
     sizes = {f["key"]: f["size"] for f in form}
     assert sizes["summary"] == "wide"
+    assert sizes["genres"] == "wide"
+    assert sizes["tags"] == "wide"
     assert sizes["localizedName"] == "mid"
+    assert sizes["publishers"] == "mid"
+    assert sizes["writers"] == "mid"
+    assert sizes["pencillers"] == "mid"
     assert sizes["releaseYear"] == "short"
+    assert sizes["publicationStatus"] == "short"
+    assert sizes["ageRating"] == "short"
     assert sizes["language"] == "short"
     primary = [f["key"] for f in form if f["group"] == "primary"]
     assert primary == [
@@ -1147,6 +1161,10 @@ def test_series_form_splits_primary_and_more():
         "publicationStatus",
         "ageRating",
         "publishers",
+        "genres",
+        "tags",
+        "writers",
+        "pencillers",
     ]
 
 

@@ -255,7 +255,10 @@ def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
     ils appartiennent au DEVELOPER, pas aux notes de version."""
     bloc = "\n".join(_bloc_derniere_version())
 
-    for retire in ("BF143", "BF154", "BF155", "BF162", "BF164", "BF165", "BF166", "BF168", "BF169"):
+    for retire in (
+        "BF143", "BF154", "BF155", "BF162", "BF164", "BF165", "BF166", "BF168", "BF169",
+        "BF188", "BF189", "BF190", "BF191",
+    ):
         assert retire not in bloc
 
     # Ces quatre-là réparaient l'Inventaire et l'écriture de chapitre, tous deux
@@ -286,8 +289,10 @@ def test_une_version_jamais_publiee_na_pas_de_titre_a_elle():
     comparer des notes de version pour savoir ce qu'il reçoit."""
     versions = re.findall(r"^## \[([0-9.]+)\]", CHANGELOG, flags=re.M)
 
-    assert versions[:2] == ["1.7.4", "1.7.3"]
+    assert versions[:2] == ["1.7.2", "1.7.1"]
     assert "1.6.6" not in versions
+    assert "1.7.3" not in versions
+    assert "1.7.4" not in versions
 
 
 def test_la_derniere_version_dit_depuis_quand_elle_compte():
@@ -295,6 +300,18 @@ def test_la_derniere_version_dit_depuis_quand_elle_compte():
     sache ce que l'on a déjà."""
     bloc = "\n".join(_bloc_derniere_version())
 
-    assert bloc.count("1.7.3") >= 2  # une mention par langue
-    for code in ("C100", "C101", "C102", "C103", "C104", "C105", "C106", "C107", "C108", "BF188", "BF189", "BF190", "BF191"):
+    assert bloc.count("1.7.1") >= 2  # une mention par langue
+    codes_attendus = (
+        # Stats & Diagnostics
+        "C92", "C93", "C94", "C95",
+        # Auto-sync
+        "C96", "C97", "C98", "C99",
+        # Atelier & tomes
+        "C100", "C101", "C102", "C103", "C104", "C105", "C106", "C107", "C108",
+        # Correctifs réels préexistants
+        "BF174", "BF175", "BF176", "BF177", "BF178", "BF179",
+        "BF180", "BF181", "BF182",
+        "BF183", "BF184", "BF185", "BF186", "BF187",
+    )
+    for code in codes_attendus:
         assert code in bloc

@@ -19,9 +19,7 @@ SERIES_SPECS: Tuple[Tuple[str, str, str, str], ...] = (
     ("releaseYear", "releaseYear", "releaseYearLocked", "text"),
     ("publicationStatus", "publicationStatus", "publicationStatusLocked", "select"),
     ("ageRating", "ageRating", "ageRatingLocked", "select"),
-    ("language", "language", "languageLocked", "text"),
     ("publishers", "publishers", "publisherLocked", "csv"),
-    ("webLinks", "webLinks", "", "text"),
     ("genres", "genres", "genresLocked", "csv"),
     ("tags", "tags", "tagsLocked", "csv"),
     ("writers", "writers", "writerLocked", "csv"),
@@ -36,6 +34,8 @@ SERIES_SPECS: Tuple[Tuple[str, str, str, str], ...] = (
     ("imprints", "imprints", "imprintLocked", "csv"),
     ("teams", "teams", "teamLocked", "csv"),
     ("locations", "locations", "locationLocked", "csv"),
+    ("webLinks", "webLinks", "", "text"),
+    ("language", "language", "languageLocked", "text"),
 )
 
 VOLUME_EXTRA_SPECS: Tuple[Tuple[str, str, str, str], ...] = (
@@ -78,7 +78,22 @@ AGE_OPTIONS = (
 _PEOPLE_SET = frozenset(PEOPLE_KEYS)
 _TITLED_SET = frozenset({"genres", "tags"})
 _WIDE = frozenset({"summary", "webLinks", "genres", "tags"})
-_MID = frozenset({"localizedName", "publishers"})
+_MID = frozenset({
+    "localizedName",
+    "publishers",
+    "writers",
+    "pencillers",
+    "coverArtists",
+    "colorists",
+    "inkers",
+    "letterers",
+    "editors",
+    "translators",
+    "characters",
+    "imprints",
+    "teams",
+    "locations",
+})
 SERIES_PRIMARY = frozenset({
     "localizedName",
     "summary",
@@ -86,6 +101,10 @@ SERIES_PRIMARY = frozenset({
     "publicationStatus",
     "ageRating",
     "publishers",
+    "genres",
+    "tags",
+    "writers",
+    "pencillers",
 })
 
 
@@ -296,7 +315,7 @@ _ACTIVE_TO_SERIES_KEYS = {
     "status": ("publicationStatus",),
     "genres": ("genres",),
     "tags": ("tags", "characters"),
-    "publisher": ("publishers",),
+    "publisher": ("publishers", "imprints"),
     "age": ("ageRating",),
     "staff": (
         "writers",
@@ -307,6 +326,8 @@ _ACTIVE_TO_SERIES_KEYS = {
         "letterers",
         "editors",
         "translators",
+        "teams",
+        "locations",
     ),
     "alt_titles": ("localizedName",),
     "weblinks": ("webLinks",),

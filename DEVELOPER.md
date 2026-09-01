@@ -767,6 +767,68 @@ Two editorial rules go with it, and `tests/test_changelog_render.py` fails on bo
 
 The same reasoning applies one level up, to a whole release. **A version prepared but never published gets no heading of its own**: it is folded into the version that actually ships it, and the `## [x]` line for it disappears. 1.6.6 is the precedent — it stayed on `dev` and 1.7.0 shipped in its place, so 1.7.0 carries its Library Inventory, its modal pass and its fixes, minus the ones that only repaired 1.6.6's own new code. A lead paragraph in **Before you update** says which version the notes are counted from, because that is the only thing a reader needs in order to know whether a section this long concerns them. Anything outside `CHANGELOG.md` that dated a feature by that version number — `README.md` headings, the `(vx.y.z)` tags in `ROADMAP.md`, the Companion's server floor — is renumbered in the same pass: `get_app_version()` reads the first heading of this file, so a stale number elsewhere is a documentation lie the code cannot contradict.
 
+### 17. The Volume Workshop & Audit Invariants (v1.7.2, C100–C108)
+
+The Volume Workshop (`/volumes` and `/series/<id>/volumes`) provides a dedicated workspace for inspecting, staging, and mass-editing series and chapter/volume metadata without altering the inventory-based Dashboard.
+
+#### A. Architecture and Data Flow
+- **Standalone surface**: Defined in `templates/volumes.html`, `static/js/volumes.js`, and `static/css/volumes.css`.
+- **Zero scrape on open**: Opening the workshop reads only Kavita (`get_series`, `get_series_metadata`, `get_series_volumes`) and local Meta cache (`workshop_payload`). It performs **no** external network lookups.
+- **Form layout & taxonomy**:
+  - *Primary metadata* (always visible on the series card): `localizedName`, `summary`, `releaseYear`, `publicationStatus`, `ageRating`, `publishers`, `genres`, `tags`, `writers`, and `pencillers`.
+  - *Secondary metadata* (folded behind More, `details.workshop-more`): `coverArtists`, `colorists`, `inkers`, `letterers`, `editors`, `translators`, `characters`, `imprints`, `teams`, `locations`, `webLinks`, and `language`.
+  - *Fold preference*: Persisted independently in `localStorage` under `workshop_series_show_more` for the series card, distinct from volume card extras (`workshop_volume_show_more`).
+- **Send is always force**: Writing to Kavita overwrites existing metadata and locks, but empty strings and None are **never** written.
+
+#### B. Persistent SQLite Drafts (`workshop_series_overrides`)
+- Table `workshop_series_overrides (series_id INTEGER PRIMARY KEY, payload_json TEXT, cover_url TEXT, updated_at TIMESTAMP)`.
+- All manual edits in the series card are automatically debounced (500 ms) and sent to `POST /api/series/<id>/workshop/draft-series` (`scheduleSeriesDraft`).
+- Survives full page reloads (`F5`).
+- The draft is purged upon `send_series` (successful write to Kavita) or `workshop_reset_series`.
+
+#### C. Manual Review in Workshop: Direct Staging Contract
+- When Manual Review or Super Review is invoked from the workshop (`html.workshop-page`, `window.WORKSHOP_FORCE_REVIEW = true`):
+  - The request to `POST /api/manual-reviews/<id>/choice` sends `workshop: true`.
+  - The intermediate modal preview/edit phase (`renderEdit` / `setPhase("edit")`) is bypassed: `prefer_edit` and `use_edit` are forced to `false`.
+  - Selected candidates, field picks (`field_picks`), and source fusions (`include_providers`) are processed directly by `choice_and_merge` and staged onto the series card (`workshopApplyReview`), saving the draft into `workshop_series_overrides`.
+  - Review status remains `PENDING` (not `COMPLETED`) until the user explicitly clicks "Send" on the series card.
+  - **No writes to Kavita occur** during review staging (`update_series_metadata` and `upload_series_cover` are never called).
+  - *Isolation*: `openManualReviewModal`, `closeManualReviewModal`, and `advanceAfterRemove` explicitly reset `resetFieldPicks()`, `manualCompletion = false`, `mergeFields = false`, `includeProviders = []` to prevent selection leaks between series.
+
+#### D. Volume Staging & Protection Against Automatic Passes
+- Volume reviews (`confirm_volume_review`) stage data in `volume_unit_overrides` tagged with `_staged: True`.
+- Invariant: The automatic library-wide enrichment pass (`_enrich_one_series`) checks for `_staged: True` and skips staged units, guaranteeing that user work in progress is never overwritten by an automated run.
+- Sending a volume (`send_volume`, `send_selection`, `send_all`) writes to Kavita, clears `_staged`, and marks the unit `DONE`.
+
+#### E. Security, Encoding & Cache Hygiene
+- *XSS protection*: `esc()` in `volumes.js` strictly encodes all 5 HTML entities (`&`, `<`, `>`, `"`, `'`).
+- *ISBN propagation*: `begin_volume_review` injects the override ISBN into `search_unit["isbn"]` and `chapter["isbn"]` before `fetch_by_isbn`.
+- *External IDs*: AniList, MAL, and MangaBaka IDs are extracted from links and sent via `api.update_series_external_ids`.
+- *Disk cache*: Kavita covers are cached under `DATA_DIR/kavita_covers` (`services/kavita_cover_cache.py`) and served via `/api/kavita-cover/...`.
+- *Orphan cleanup*: `clean_orphaned_cache` covers all workshop tables (`volume_unit_overrides`, `workshop_history`, `workshop_series_overrides`) and deletes orphaned disk covers via `kavita_cover_cache.purge_series`.
+
+---
+
+### 18. Auto-Sync on Kavita Scan & Wave Reporting (v1.7.2, C96–C99)
+
+Auto-sync supports triggering enrichment passes automatically when a Kavita library scan completes, complete with safety nets and comprehensive wave reporting.
+
+#### A. WebSocket Hub Monitor (`services/kavita_hub.py`)
+- Runs on `eventlet.patcher.original("threading")` with unpatched sockets to avoid blocking the eventlet hub.
+- Connects to Kavita SignalR/WebSocket and listens for library scan completion events.
+- Emits events onto `auto_sync_wake_queue`.
+
+#### B. Debounce & Catchup Safety Net
+- Scan events are debounced to avoid triggering multiple passes during multi-folder operations.
+- *Catchup safety net*: If MetaKavita was stopped while a Kavita scan completed, an hours-long safety net compares library last-modified timestamps against the last auto-sync run timestamp to catch up missing series.
+
+#### C. Wave Reporting & Dashboard Integration
+- Each completed wave logs metadata into `auto_sync_runs` and `auto_sync_run_items`.
+- Surfaces an unread teal notification button next to Manual Review (`get_auto_sync_report_badge`).
+- Opening the modal displays series count, successes, errors, and processed titles; closing marks it read.
+- Dashboard filter `AUTO_SYNC` filters the series list to the exact series from the latest report.
+- Lifetime stats (`/stats`): closed auto-sync waves contribute to lifetime metrics (waves, series, completed, errors, manual review triggers, stops, scan vs timer).
+
 <br><br>
 
 ---
@@ -1459,3 +1521,65 @@ La modale **Nouveautés** est `CHANGELOG.md` rendu par `services/changelog_servi
 Deux règles éditoriales vont avec, et `tests/test_changelog_render.py` échoue sur les deux. **Les nouveautés passent avant les correctifs**, dans les deux langues, et les deux langues portent exactement les mêmes codes d'entrée — une version qui ne dit pas la même chose selon la langue de l'interface est pire qu'une version qui en dit moins. Et **un bug introduit puis corrigé dans la version qui le livre n'a aucun lecteur** : personne n'a exécuté ce code, il n'a donc rien à faire dans les notes. Sa place est à la section 15 ci-dessus, où l'invariant qu'il a produit mérite d'être gardé. Les itérations d'une fonctionnalité pas encore publiée suivent la même règle : elles sont fondues dans l'entrée de la fonctionnalité au lieu d'en raconter l'historique.
 
 Le même raisonnement s'applique un cran au-dessus, à une version entière. **Une version préparée mais jamais publiée n'a pas de titre à elle** : elle est fondue dans celle qui la livre réellement, et sa ligne `## [x]` disparaît. La 1.6.6 en est le précédent — restée sur `dev`, la 1.7.0 est sortie à sa place et porte donc son Inventaire, sa passe de modales et ses correctifs, moins ceux qui ne réparaient que du code propre à la 1.6.6. Un paragraphe de tête dans **Avant de mettre à jour** dit depuis quelle version les notes sont comptées, parce que c'est la seule chose dont un lecteur a besoin pour savoir si une section aussi longue le concerne. Tout ce qui, hors de `CHANGELOG.md`, datait une fonctionnalité par ce numéro — les titres du `README.md`, les étiquettes `(vx.y.z)` du `ROADMAP.md`, le plancher serveur du Companion — est renuméroté dans la même passe : `get_app_version()` lit le premier titre de ce fichier, et un numéro périmé ailleurs est un mensonge de documentation que le code ne peut pas démentir.
+
+### 17. L'Atelier des tomes et les invariants d'audit (v1.7.2, C100–C108)
+
+L'Atelier des tomes (`/volumes` et `/series/<id>/volumes`) fournit un espace de travail dédié à l'inspection, au staging et à l'édition par lot des métadonnées de séries et de tomes/chapitres, sans interférer avec le tableau de bord orienté inventaire.
+
+#### A. Architecture et flux de données
+- **Surface autonome** : Définie dans `templates/volumes.html`, `static/js/volumes.js`, et `static/css/volumes.css`.
+- **Zéro scrape à l'ouverture** : Ouvrir l'atelier lit uniquement Kavita (`get_series`, `get_series_metadata`, `get_series_volumes`) et le cache local Meta (`workshop_payload`). Aucun appel réseau externe n'est émis.
+- **Organisation de la fiche série** :
+  - *Métadonnées primaires habituelles* (toujours visibles) : `localizedName`, `summary`, `releaseYear`, `publicationStatus`, `ageRating`, `publishers`, `genres`, `tags`, `writers`, et `pencillers`.
+  - *Métadonnées secondaires* (repliées sous Plus, `details.workshop-more`) : `coverArtists`, `colorists`, `inkers`, `letterers`, `editors`, `translators`, `characters`, `imprints`, `teams`, `locations`, `webLinks`, et `language`.
+  - *Préférence d'ouverture* : Persistée de façon indépendante dans le `localStorage` sous `workshop_series_show_more` pour la fiche série, découplée des extras des tomes (`workshop_volume_show_more`).
+- **Envoi toujours en force** : L'écriture dans Kavita écrase les métadonnées existantes et leurs verrous, mais les valeurs vides ou None ne sont **jamais** écrites.
+
+#### B. Brouillons persistants en SQLite (`workshop_series_overrides`)
+- Table `workshop_series_overrides (series_id INTEGER PRIMARY KEY, payload_json TEXT, cover_url TEXT, updated_at TIMESTAMP)`.
+- Toute modification manuelle sur la fiche série est debouncée (500 ms) et enregistrée via `POST /api/series/<id>/workshop/draft-series` (`scheduleSeriesDraft`).
+- Survit aux rechargements complets de la page (`F5`).
+- Le brouillon est consommé et supprimé lors de `send_series` (écriture réussie dans Kavita) ou de `workshop_reset_series`.
+
+#### C. Review Manuelle en Atelier : Contrat de staging direct
+- Lorsque la Review Manuelle ou Super Review est ouverte depuis l'atelier (`html.workshop-page`, `window.WORKSHOP_FORCE_REVIEW = true`) :
+  - La requête vers `POST /api/manual-reviews/<id>/choice` transmet `workshop: true`.
+  - La phase modale intermédiaire d'édition avant envoi (`renderEdit` / `setPhase("edit")`) est contournée : `prefer_edit` et `use_edit` sont forcés à `false`.
+  - Le choix de candidat, la sélection par champ (`field_picks`) et la fusion multi-fournisseurs (`include_providers`) sont traités directement par `choice_and_merge` et appliqués sur la fiche série (`workshopApplyReview`), enregistrant le brouillon dans `workshop_series_overrides`.
+  - Le statut de la review reste `PENDING` (et non `COMPLETED`) tant que l'utilisateur n'a pas cliqué sur « Envoyer la fiche ».
+  - **Aucune écriture dans Kavita n'a lieu** lors du staging (`update_series_metadata` et `upload_series_cover` ne sont jamais appelés).
+  - *Isolation étanche* : `openManualReviewModal`, `closeManualReviewModal` et `advanceAfterRemove` réinitialisent explicitement `resetFieldPicks()`, `manualCompletion = false`, `mergeFields = false`, `includeProviders = []` pour éviter toute fuite de sélection d'une série à une autre.
+
+#### D. Staging des tomes & protection contre les passes automatiques
+- Les reviews de tomes (`confirm_volume_review`) posent les données dans `volume_unit_overrides` avec le tag `_staged: True`.
+- Invariant : La passe automatique d'enrichissement de bibliothèque (`_enrich_one_series`) ignore les unités stagées (`_staged: True`), garantissant que le travail de l'utilisateur n'est jamais écrasé en arrière-plan.
+- L'envoi d'un tome (`send_volume`, `send_selection`, `send_all`) écrit dans Kavita, retire `_staged`, et clôture l'unité en `DONE`.
+
+#### E. Sécurité, encodage & hygiène du cache
+- *Sécurisation XSS* : La fonction `esc()` dans `volumes.js` encode strictement l'ensemble des 5 entités HTML (`&`, `<`, `>`, `"`, `'`).
+- *Propagation ISBN* : `begin_volume_review` injecte l'ISBN de l'override dans `search_unit["isbn"]` et `chapter["isbn"]` avant `fetch_by_isbn`.
+- *Identifiants externes* : Les IDs AniList, MAL et MangaBaka sont extraits des liens et transmis via `api.update_series_external_ids`.
+- *Cache disque des jaquettes* : Les jaquettes Kavita sont mises en cache dans `DATA_DIR/kavita_covers` (`services/kavita_cover_cache.py`) et servies via `/api/kavita-cover/...`.
+- *Purge des orphelines* : `clean_orphaned_cache` intègre toutes les tables de l'atelier (`volume_unit_overrides`, `workshop_history`, `workshop_series_overrides`) et supprime les fichiers jaquettes orphelins sur disque via `kavita_cover_cache.purge_series`.
+
+---
+
+### 18. L'Auto-sync sur scan Kavita et les rapports de vague (v1.7.2, C96–C99)
+
+L'Auto-sync permet de déclencher automatiquement les passes d'enrichissement dès qu'un scan de bibliothèque Kavita se termine, avec un filet de sécurité et des rapports de vague complets.
+
+#### A. Surveillance WebSocket du Hub (`services/kavita_hub.py`)
+- S'exécute sur `eventlet.patcher.original("threading")` avec des sockets non monkey-patchées pour ne pas figer le hub eventlet.
+- Se connecte au SignalR/WebSocket de Kavita et écoute les événements de fin de scan.
+- Émet les notifications dans `auto_sync_wake_queue`.
+
+#### B. Debounce & filet de sécurité
+- Les événements de scan sont debouncés pour éviter de lancer plusieurs passes successives lors de scans multi-dossiers.
+- *Filet de sécurité (catchup)* : Si MetaKavita était arrêté pendant la fin d'un scan Kavita, un filet en heures compare la date de dernière modification de la bibliothèque avec la date du dernier run d'auto-sync pour rattraper les séries manquées.
+
+#### C. Rapports de vague & intégration Dashboard
+- Chaque vague terminée consigne ses métadonnées dans `auto_sync_runs` et `auto_sync_run_items`.
+- Affiche un bouton de notification sarcelle non lu à côté de la Review Manuelle (`get_auto_sync_report_badge`).
+- Cliquer sur le bouton ouvre le rapport (nombre de séries, succès, erreurs, titres traités) ; fermer la modale marque le rapport lu.
+- Le filtre tableau de bord `AUTO_SYNC` filtre la liste pour n'afficher que les séries du dernier rapport.
+- Statistiques lifetime (`/stats`) : les vagues auto-sync closes alimentent les métriques à vie (vagues, séries, succès, erreurs, reviews déclenchées, arrêts, scan vs minuterie).

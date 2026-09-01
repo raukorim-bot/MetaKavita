@@ -261,27 +261,52 @@
         return !v;
     }
 
-    function showMorePref() {
+    function showSeriesMorePref() {
         try {
-            var v = localStorage.getItem('workshop_show_more');
+            var v = localStorage.getItem('workshop_series_show_more');
             if (v === '1' || v === '0') return v === '1';
-            return localStorage.getItem('workshop_show_filled') === '1';
+            return false;
         } catch (e) { return false; }
     }
 
-    function setShowMorePref(on) {
-        try { localStorage.setItem('workshop_show_more', on ? '1' : '0'); } catch (e) { /* ignore */ }
+    function setSeriesShowMorePref(on) {
+        try { localStorage.setItem('workshop_series_show_more', on ? '1' : '0'); } catch (e) { /* ignore */ }
+    }
+
+    function showVolumeMorePref() {
+        try {
+            var v = localStorage.getItem('workshop_volume_show_more');
+            if (v === '1' || v === '0') return v === '1';
+            var fallback = localStorage.getItem('workshop_show_more');
+            if (fallback === '1' || fallback === '0') return fallback === '1';
+            return false;
+        } catch (e) { return false; }
+    }
+
+    function setVolumeMorePref(on) {
+        try {
+            localStorage.setItem('workshop_volume_show_more', on ? '1' : '0');
+            localStorage.setItem('workshop_show_more', on ? '1' : '0');
+        } catch (e) { /* ignore */ }
     }
 
     function bindMoreToggles() {
-        document.querySelectorAll('details.workshop-more').forEach(function (d) {
+        var seriesMore = document.getElementById('workshopSeriesMore');
+        if (seriesMore && !seriesMore._mkMoreBound) {
+            seriesMore._mkMoreBound = true;
+            seriesMore.addEventListener('toggle', function () {
+                setSeriesShowMorePref(seriesMore.open);
+            });
+        }
+
+        document.querySelectorAll('.workshop-volume-card details.workshop-more').forEach(function (d) {
             if (d._mkMoreBound) return;
             d._mkMoreBound = true;
             d.addEventListener('toggle', function () {
                 if (bindMoreToggles.applying) return;
-                setShowMorePref(d.open);
+                setVolumeMorePref(d.open);
                 bindMoreToggles.applying = true;
-                document.querySelectorAll('details.workshop-more').forEach(function (other) {
+                document.querySelectorAll('.workshop-volume-card details.workshop-more').forEach(function (other) {
                     if (other !== d) other.open = d.open;
                 });
                 bindMoreToggles.applying = false;
@@ -437,11 +462,11 @@
         var hit = false;
         more.querySelectorAll('[data-series-field]').forEach(function (el) {
             var k = el.getAttribute('data-series-field');
-            if (edits && Object.prototype.hasOwnProperty.call(edits, k)) hit = true;
+            if (edits && Object.prototype.hasOwnProperty.call(edits, k) && edits[k]) hit = true;
         });
         if (hit) {
             more.open = true;
-            setShowMorePref(true);
+            setSeriesShowMorePref(true);
         }
     }
 
@@ -481,7 +506,7 @@
         }
         if (more) {
             more.hidden = !extra.length;
-            more.open = showMorePref();
+            more.open = showSeriesMorePref();
         }
         bindMoreToggles();
         var seriesCard = document.getElementById('workshopSeriesCard');
@@ -620,7 +645,7 @@
         var primary = all.filter(function (f) { return f.group !== 'more'; });
         var extra = all.filter(function (f) { return f.group === 'more'; });
         var extraBlock = extra.length
-            ? '<details class="workshop-more"' + (showMorePref() ? ' open' : '') + '>' +
+            ? '<details class="workshop-more"' + (showVolumeMorePref() ? ' open' : '') + '>' +
               '<summary>' + esc(T().workshop_more_fields || '') + '</summary>' +
               '<div class="workshop-more-body"><div class="workshop-volume-fields">' +
               extra.map(function (f) { return labeledField('data-field', f); }).join('') +

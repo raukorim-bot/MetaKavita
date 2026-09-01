@@ -27,17 +27,17 @@
 - [x] **C93. /stats side quests (v1.7.2):** Homemade titles, pardoned duplicates, volume writers, TGV rides and a shelf in centimetres. No new telemetry. See Latest Releases.
 - [x] **C94. /stats lifetime origins (v1.7.2):** Covers applied, locks sealed (🔒 only), and successful Kavita writes by origin (batch / webhook / auto / row). Start at zero; no backfill. See Latest Releases.
 - [x] **C95. Diagnostics probes every scraper together (v1.7.2):** Page load and “Test all” start every installed scraper at once (one worker per provider). Per-site pacing unchanged. “Test cascade” still re-runs only the Config slots.
-- [x] **C96. Auto-sync follows a Kavita scan (v1.7.3):** Master switch, Auto / Review / Super for those jobs, and one trigger: minutes or end of a Kavita library scan (with an hours-long safety net). Stop also clears waiting Auto-sync jobs. See Latest Releases.
-- [x] **C97. Auto-sync wave report (v1.7.3):** Unread report button beside Manual Review: series / completed / errors and the titles. Dashboard batches are not mixed in. See Latest Releases.
-- [x] **C98. /stats Auto-sync chapter (v1.7.3):** Closed Auto-sync waves count in lifetime (waves, series, completed, errors, Review, Stop, scan vs timer). Start at zero; no backfill. See Latest Releases.
-- [x] **C99. Last Auto-sync wave filter (v1.7.3):** Dashboard status filter + report button to show only the series from the last Auto-sync report. See Latest Releases.
-- [x] **C100. Volume scrape follows the albums you own (v1.7.4):** Targeted HTML crawl, cascade past a provider cap, Metron pagination, Bédéthèque ISBN, Sanctuary rank, openBD. See Latest Releases.
-- [x] **C101. Volume workshop (v1.7.4):** Standalone page `/series/<id>/volumes` (Kavita + Meta, no scrape on open). Magic Input, Review, send grains, Reset without rewriting Kavita. 📑 stays inventory. See Latest Releases.
-- [x] **C102. Workshop rail filters, cover cache, no reload (v1.7.4):** Same dashboard filter keys; Kavita covers on disk; click loads the series beside the rail. See Latest Releases.
-- [x] **C103. Workshop cards fold extra fields, sticky volume bar, title opens Kavita (v1.7.4):** Primary fields stay visible; extras sit behind More. The volume bar stays on screen. The series title opens the Kavita sheet. See Latest Releases.
-- [x] **C104. Workshop empty glow, filled fold, Magic Input, live log (v1.7.4):** Empty fields are amber; filled metadata folds and the fold is remembered. Magic Input is labelled. Live log sits beside the page. See Latest Releases.
-- [x] **C105. Workshop field order and denser card (v1.7.4):** Fields keep the same order whether empty or filled. Short fields sit three to a row. Extra staff stay behind More. See Latest Releases.
-- [x] **C106. Workshop buttons match MetaKavita names (v1.7.4):** Manual Review, Super Review, Reset. See Latest Releases.
+- [x] **C96. Auto-sync follows a Kavita scan (v1.7.2):** Master switch, Auto / Review / Super for those jobs, and one trigger: minutes or end of a Kavita library scan (with an hours-long safety net). Stop also clears waiting Auto-sync jobs. See Latest Releases.
+- [x] **C97. Auto-sync wave report (v1.7.2):** Unread report button beside Manual Review: series / completed / errors and the titles. Dashboard batches are not mixed in. See Latest Releases.
+- [x] **C98. /stats Auto-sync chapter (v1.7.2):** Closed Auto-sync waves count in lifetime (waves, series, completed, errors, Review, Stop, scan vs timer). Start at zero; no backfill. See Latest Releases.
+- [x] **C99. Last Auto-sync wave filter (v1.7.2):** Dashboard status filter + report button to show only the series from the last Auto-sync report. See Latest Releases.
+- [x] **C100. Volume scrape follows the albums you own (v1.7.2):** Targeted HTML crawl, cascade past a provider cap, Metron pagination, Bédéthèque ISBN, Sanctuary rank, openBD. See Latest Releases.
+- [x] **C101. Volume workshop (v1.7.2):** Standalone page `/series/<id>/volumes` (Kavita + Meta, no scrape on open). Magic Input, Review, send grains, Reset without rewriting Kavita. 📑 stays inventory. See Latest Releases.
+- [x] **C102. Workshop rail filters, cover cache, no reload (v1.7.2):** Same dashboard filter keys; Kavita covers on disk; click loads the series beside the rail. See Latest Releases.
+- [x] **C103. Workshop cards fold extra fields, sticky volume bar, title opens Kavita (v1.7.2):** Primary fields stay visible; extras sit behind More. The volume bar stays on screen. The series title opens the Kavita sheet. See Latest Releases.
+- [x] **C104. Workshop empty glow, filled fold, Magic Input, live log (v1.7.2):** Empty fields are amber; filled metadata folds and the fold is remembered. Magic Input is labelled. Live log sits beside the page. See Latest Releases.
+- [x] **C105. Workshop field order and denser card (v1.7.2):** Fields keep the same order whether empty or filled. Short fields sit three to a row. Extra staff stay behind More. See Latest Releases.
+- [x] **C106. Workshop buttons match MetaKavita names (v1.7.2):** Manual Review, Super Review, Reset. See Latest Releases.
 - [x] **C33. Browser Extension "MetaKavita Companion" (dev):** Chrome + Firefox MV3 under `companion/` — series-page FABs (Super Review / Auto / Config) in an extension overlay; webhook `seriesId`-only + `auto` / `super_review`; `/companion/embed` iframe for full Manual Review. Sideload zips via `node companion/scripts/pack.mjs` (not store-published yet).
 - [ ] **C39. Offline Scraper Mode (Local DB / Dumps):** Optional local SQLite subset for Wikidata (or similar) when API rate limits or offline labs matter. (Wikidata itself is Magasin-only since v1.6.3.)
 - [x] **Volume / issue metadata (community ask #27) (v1.7.0):** Per-volume / comic-issue enrichment ships — provider index (`fetch_volume_index`), fill-the-blanks policy, per-series preview and a pass over the series you tick. Off by default (`VOLUME_ENRICHMENT_ENABLED`). See Latest Releases.
@@ -60,28 +60,28 @@
 
 ---
 
-### ✨ Latest Releases (v1.5.6 to v1.7.4)
-- [x] **BF191. Workshop Manual Review stages directly without edit modal (v1.7.4):** Picks and field completion apply straight to the workshop card; intermediate edit screen skipped; picks state cleanly isolated.
-- [x] **BF190. Workshop Manual / Super Review fills the sheet, not Kavita (v1.7.4):** Confirm from the workshop stages scraped fields (and a pending cover). Send writes Kavita. Dashboard Review is unchanged.
-- [x] **C108. Dashboard opens the workshop without picking a series (v1.7.4):** Volumes toolbar **Workshop** → `/volumes`. Rail or last series loads the sheet.
-- [x] **BF189. Force a new Manual Review title while the first scrape is still running (v1.7.4):** Rechercher no longer native-alerts « Already being processed »; the new search replaces the in-flight scrape.
-- [x] **BF188. A one-shot with a Magic Input is no longer skipped (v1.7.4):** The automatic pass honours a workshop Magic URL on a volume with no number.
-- [x] **C106. Workshop buttons match MetaKavita names (v1.7.4):** Manual Review, Super Review, Reset.
-- [x] **C105. Workshop field order and denser card (v1.7.4):** Same field order; short fields three to a row; extras behind More.
-- [x] **C104. Workshop empty glow, filled fold, Magic Input, live log (v1.7.4):** Empty fields amber; filled fold remembered; Magic Input labelled; live log beside the page.
-- [x] **C103. Workshop cards fold extra fields, sticky volume bar, title opens Kavita (v1.7.4):** Extra fields behind More; the volume bar stays on screen; the series title opens Kavita.
-- [x] **C102. Workshop rail filters, cover cache, no reload (v1.7.4):** Same dashboard filter keys; Kavita covers on disk; click loads the series beside the rail.
-- [x] **C101. Volume workshop (v1.7.4):** Standalone `/series/<id>/volumes`. Kavita + Meta on open. 📑 stays inventory.
-- [x] **C100. Volume scrape follows the albums you own (v1.7.4):** Targeted crawl, cascade past a cap, Metron, Bédéthèque ISBN, Sanctuary, openBD.
-- [x] **BF187. The left sidebar remembers how you left it (v1.7.3):** Open/closed panels and scroll survive a reload.
-- [x] **BF186. The left sidebar no longer unrolls on load (v1.7.3):** Options opened too late; the details transition played. Open in the markup, restored during parse.
-- [x] **BF185. Saving Config no longer reloads the page (v1.7.3):** Save stays put and toasts on the modal. Interface language still reloads (server-rendered labels).
-- [x] **BF184. Config Save is not blocked by a leftover Auto-sync 0 (v1.7.3):** Native `min="1"` on the minutes field blocked the whole form while Auto-sync was off.
-- [x] **BF183. Saving Config shows a toast (v1.7.3):** The modal Save button reloaded too fast to see. A short toast confirms after reload.
-- [x] **C99. Last Auto-sync wave filter (v1.7.3):** Dashboard filter for the series in the last Auto-sync report.
-- [x] **C98. /stats Auto-sync chapter (v1.7.3):** Closed Auto-sync waves count in lifetime. Start at zero; no backfill.
-- [x] **C97. Auto-sync wave report (v1.7.3):** Unread teal button beside Manual Review: series / completed / errors and the titles. Dashboard batches stay out of it.
-- [x] **C96. Auto-sync follows a Kavita scan (v1.7.3):** Master switch, Auto / Review / Super for those jobs, minutes or end of a Kavita library scan. Hours-long safety net. Stop also clears waiting Auto-sync jobs.
+### ✨ Latest Releases (v1.5.6 to v1.7.2)
+- [x] **BF191. Workshop Manual Review stages directly without edit modal (v1.7.2):** Picks and field completion apply straight to the workshop card; intermediate edit screen skipped; picks state cleanly isolated.
+- [x] **BF190. Workshop Manual / Super Review fills the sheet, not Kavita (v1.7.2):** Confirm from the workshop stages scraped fields (and a pending cover). Send writes Kavita. Dashboard Review is unchanged.
+- [x] **C108. Dashboard opens the workshop without picking a series (v1.7.2):** Volumes toolbar **Workshop** → `/volumes`. Rail or last series loads the sheet.
+- [x] **BF189. Force a new Manual Review title while the first scrape is still running (v1.7.2):** Rechercher no longer native-alerts « Already being processed »; the new search replaces the in-flight scrape.
+- [x] **BF188. A one-shot with a Magic Input is no longer skipped (v1.7.2):** The automatic pass honours a workshop Magic URL on a volume with no number.
+- [x] **C106. Workshop buttons match MetaKavita names (v1.7.2):** Manual Review, Super Review, Reset.
+- [x] **C105. Workshop field order and denser card (v1.7.2):** Same field order; short fields three to a row; extras behind More.
+- [x] **C104. Workshop empty glow, filled fold, Magic Input, live log (v1.7.2):** Empty fields amber; filled fold remembered; Magic Input labelled; live log beside the page.
+- [x] **C103. Workshop cards fold extra fields, sticky volume bar, title opens Kavita (v1.7.2):** Extra fields behind More; the volume bar stays on screen; the series title opens Kavita.
+- [x] **C102. Workshop rail filters, cover cache, no reload (v1.7.2):** Same dashboard filter keys; Kavita covers on disk; click loads the series beside the rail.
+- [x] **C101. Volume workshop (v1.7.2):** Standalone `/series/<id>/volumes`. Kavita + Meta on open. 📑 stays inventory.
+- [x] **C100. Volume scrape follows the albums you own (v1.7.2):** Targeted crawl, cascade past a cap, Metron, Bédéthèque ISBN, Sanctuary, openBD.
+- [x] **BF187. The left sidebar remembers how you left it (v1.7.2):** Open/closed panels and scroll survive a reload.
+- [x] **BF186. The left sidebar no longer unrolls on load (v1.7.2):** Options opened too late; the details transition played. Open in the markup, restored during parse.
+- [x] **BF185. Saving Config no longer reloads the page (v1.7.2):** Save stays put and toasts on the modal. Interface language still reloads (server-rendered labels).
+- [x] **BF184. Config Save is not blocked by a leftover Auto-sync 0 (v1.7.2):** Native `min="1"` on the minutes field blocked the whole form while Auto-sync was off.
+- [x] **BF183. Saving Config shows a toast (v1.7.2):** The modal Save button reloaded too fast to see. A short toast confirms after reload.
+- [x] **C99. Last Auto-sync wave filter (v1.7.2):** Dashboard filter for the series in the last Auto-sync report.
+- [x] **C98. /stats Auto-sync chapter (v1.7.2):** Closed Auto-sync waves count in lifetime. Start at zero; no backfill.
+- [x] **C97. Auto-sync wave report (v1.7.2):** Unread teal button beside Manual Review: series / completed / errors and the titles. Dashboard batches stay out of it.
+- [x] **C96. Auto-sync follows a Kavita scan (v1.7.2):** Master switch, Auto / Review / Super for those jobs, minutes or end of a Kavita library scan. Hours-long safety net. Stop also clears waiting Auto-sync jobs.
 - [x] **C95. Diagnostics probes every scraper together (v1.7.2):** Opening the page used to test only the Config cascade, one site after another. Every installed scraper now starts at once; per-site pacing is unchanged.
 - [x] **BF179. /stats no longer mixes two clocks (v1.7.2):** Lifetime tiles reused cache captions; manga pages counted 160 pages per series; a surgical mask without cover counted as a protected cover. Time saved includes volume paste; pages come from written volumes.
 - [x] **BF178. Volume time is typing, not reading (v1.7.2):** The tile counted 25 minutes of reading per written volume. It now counts about a minute of paste (title, summary, ISBN).
@@ -303,17 +303,17 @@
 - [x] **C93. Quêtes à côté de /stats (v1.7.2) :** Titres maison, doublons pardonnés, qui a écrit les tomes, TGV et une étagère en centimètres. Pas de nouvelle télémétrie. Voir Dernières Nouveautés.
 - [x] **C94. Origines lifetime de /stats (v1.7.2) :** Couvertures posées, verrous scellés (🔒 seulement), et écritures Kavita réussies par origine (lot / webhook / auto / clic). Partent de zéro ; pas de rattrapage. Voir Dernières Nouveautés.
 - [x] **C95. Le diagnostic sonde tous les scrapers ensemble (v1.7.2) :** Le chargement et « Tester tous » lancent chaque scraper installé d'un coup (un worker par fournisseur). La cadence par site ne change pas. « Tester la cascade » ne rejoue que les slots Config.
-- [x] **C96. L'auto-sync suit un scan Kavita (v1.7.3) :** Interrupteur maître, Auto / Review / Super pour ces jobs, et un seul déclencheur : minutes ou fin d'un scan de bibliothèque Kavita (avec un filet en heures). Stop vide aussi l'Auto-sync en attente. Voir Dernières Nouveautés.
-- [x] **C97. Rapport de vague Auto-sync (v1.7.3) :** Bouton de rapport non lu à côté des Reviews : séries / terminées / erreurs et les titres. Les lots du tableau de bord n'y sont pas mêlés. Voir Dernières Nouveautés.
-- [x] **C98. Chapitre Auto-sync de /stats (v1.7.3) :** Les vagues Auto-sync closes comptent en lifetime (vagues, séries, terminées, erreurs, Review, Stop, scan vs minuterie). Partent de zéro ; pas de rattrapage. Voir Dernières Nouveautés.
-- [x] **C99. Filtre dernière vague Auto-sync (v1.7.3) :** Filtre du tableau de bord + bouton du rapport pour ne voir que les séries du dernier rapport Auto-sync. Voir Dernières Nouveautés.
-- [x] **C100. Le scrape des tomes suit les albums que tu as (v1.7.4) :** Crawl HTML ciblé, cascade au-delà d'un plafond, pagination Metron, ISBN Bédéthèque, rang Sanctuary, openBD. Voir Dernières Nouveautés.
-- [x] **C101. Atelier des tomes (v1.7.4) :** Page autonome `/series/<id>/volumes` (Kavita + Meta, aucun scrape à l'ouverture). Champ Magique, Review, grains d'envoi, Reset sans réécrire Kavita. 📑 reste l'inventaire. Voir Dernières Nouveautés.
-- [x] **C102. Filtres du rail, cache des jaquettes, clic sans rechargement (v1.7.4) :** Mêmes clés que le tableau de bord ; jaquettes Kavita sur disque ; un clic charge la série à côté du rail. Voir Dernières Nouveautés.
-- [x] **C103. L'atelier plie les champs en trop, barre tomes collante, titre vers Kavita (v1.7.4) :** Les champs secondaires se rangent sous Plus. La barre des tomes reste à l'écran. Le titre ouvre la fiche Kavita. Voir Dernières Nouveautés.
-- [x] **C104. Vides ambre, remplis pliés, Champ Magique, journal live (v1.7.4) :** Les champs vides se voient ; les remplis se plient et le volet est mémorisé. Le Champ Magique a un libellé. Le journal live est à côté. Voir Dernières Nouveautés.
-- [x] **C105. Ordre fixe et carte plus dense (v1.7.4) :** Les champs gardent le même ordre, vides ou remplis. Les courts se mettent à trois par ligne. Le staff en trop reste sous Plus. Voir Dernières Nouveautés.
-- [x] **C106. Les boutons de l'atelier ont les noms MetaKavita (v1.7.4) :** Manual Review, Super Review, Reset. Voir Dernières Nouveautés.
+- [x] **C96. L'auto-sync suit un scan Kavita (v1.7.2) :** Interrupteur maître, Auto / Review / Super pour ces jobs, et un seul déclencheur : minutes ou fin d'un scan de bibliothèque Kavita (avec un filet en heures). Stop vide aussi l'Auto-sync en attente. Voir Dernières Nouveautés.
+- [x] **C97. Rapport de vague Auto-sync (v1.7.2) :** Bouton de rapport non lu à côté des Reviews : séries / terminées / erreurs et les titres. Les lots du tableau de bord n'y sont pas mêlés. Voir Dernières Nouveautés.
+- [x] **C98. Chapitre Auto-sync de /stats (v1.7.2) :** Les vagues Auto-sync closes comptent en lifetime (vagues, séries, terminées, erreurs, Review, Stop, scan vs minuterie). Partent de zéro ; pas de rattrapage. Voir Dernières Nouveautés.
+- [x] **C99. Filtre dernière vague Auto-sync (v1.7.2) :** Filtre du tableau de bord + bouton du rapport pour ne voir que les séries du dernier rapport Auto-sync. Voir Dernières Nouveautés.
+- [x] **C100. Le scrape des tomes suit les albums que tu as (v1.7.2) :** Crawl HTML ciblé, cascade au-delà d'un plafond, pagination Metron, ISBN Bédéthèque, rang Sanctuary, openBD. Voir Dernières Nouveautés.
+- [x] **C101. Atelier des tomes (v1.7.2) :** Page autonome `/series/<id>/volumes` (Kavita + Meta, aucun scrape à l'ouverture). Champ Magique, Review, grains d'envoi, Reset sans réécrire Kavita. 📑 reste l'inventaire. Voir Dernières Nouveautés.
+- [x] **C102. Filtres du rail, cache des jaquettes, clic sans rechargement (v1.7.2) :** Mêmes clés que le tableau de bord ; jaquettes Kavita sur disque ; un clic charge la série à côté du rail. Voir Dernières Nouveautés.
+- [x] **C103. L'atelier plie les champs en trop, barre tomes collante, titre vers Kavita (v1.7.2) :** Les champs secondaires se rangent sous Plus. La barre des tomes reste à l'écran. Le titre ouvre la fiche Kavita. Voir Dernières Nouveautés.
+- [x] **C104. Vides ambre, remplis pliés, Champ Magique, journal live (v1.7.2) :** Les champs vides se voient ; les remplis se plient et le volet est mémorisé. Le Champ Magique a un libellé. Le journal live est à côté. Voir Dernières Nouveautés.
+- [x] **C105. Ordre fixe et carte plus dense (v1.7.2) :** Les champs gardent le même ordre, vides ou remplis. Les courts se mettent à trois par ligne. Le staff en trop reste sous Plus. Voir Dernières Nouveautés.
+- [x] **C106. Les boutons de l'atelier ont les noms MetaKavita (v1.7.2) :** Manual Review, Super Review, Reset. Voir Dernières Nouveautés.
 - [x] **C33. Extension Navigateur "MetaKavita Companion" (dev) :** Chrome + Firefox MV3 dans `companion/` — FABs page série (Super Review / Auto / Config) en overlay extension ; webhook `seriesId` seul + `auto` / `super_review` ; iframe `/companion/embed` pour le Manual Review complet. Zips sideload via `node companion/scripts/pack.mjs` (pas encore sur les stores).
 - [ ] **C39. Mode Scraper Hors-Ligne (Local DB / Dumps) :** Sous-ensemble SQLite Wikidata (ou équivalent) optionnel quand les quotas API ou un labo hors-ligne importent. (Wikidata = Magasin seul depuis v1.6.3.)
 - [x] **Métadonnées volume / issue (demande #27) (v1.7.0) :** l'enrichissement par tome et par album est livré — index fournisseur (`fetch_volume_index`), politique de comblement, aperçu par série et passe de bibliothèque reprenable. Éteint par défaut (`VOLUME_ENRICHMENT_ENABLED`). Voir Dernières Nouveautés.
@@ -336,28 +336,28 @@
 
 ---
 
-### ✨ Dernières Nouveautés (v1.5.6 à v1.7.4)
-- [x] **BF191. Review Manuelle atelier directe sans fenêtre d'édition (v1.7.4) :** Choix et complétion manuelle s'appliquent directement sur la fiche atelier ; écran intermédiaire sauté ; état des picks isolé.
-- [x] **BF190. La Manual / Super Review de l'atelier remplit la fiche, pas Kavita (v1.7.4) :** Confirmer depuis l'atelier pose les champs scrapés (et une jaquette en attente). L'envoi écrit Kavita. La Review du tableau de bord est inchangée.
-- [x] **C108. Le tableau de bord ouvre l'atelier sans choisir une série (v1.7.4) :** **Atelier** dans la barre Tomes → `/volumes`. Le rail ou la dernière série charge la fiche.
-- [x] **BF189. Forcer un nouveau titre de Review pendant que le premier scrape tourne (v1.7.4) :** Rechercher ne sort plus l'alerte native « Déjà en cours de traitement » ; la nouvelle recherche remplace le scrape en vol.
-- [x] **BF188. Un one-shot avec un Champ Magique n'est plus écarté (v1.7.4) :** La passe automatique honore une URL magique de l'atelier sur un tome sans numéro.
-- [x] **C106. Les boutons de l'atelier ont les noms MetaKavita (v1.7.4) :** Manual Review, Super Review, Reset.
-- [x] **C105. Ordre fixe et carte plus dense (v1.7.4) :** Même ordre ; champs courts à trois par ligne ; extras sous Plus.
-- [x] **C104. Vides ambre, remplis pliés, Champ Magique, journal live (v1.7.4) :** Champs vides ambre ; remplis pliés et mémorisés ; Champ Magique libellé ; journal live à côté.
-- [x] **C103. L'atelier plie les champs en trop, barre tomes collante, titre vers Kavita (v1.7.4) :** Les champs secondaires se rangent sous Plus ; la barre des tomes reste à l'écran ; le titre ouvre Kavita.
-- [x] **C102. Filtres du rail, cache des jaquettes, clic sans rechargement (v1.7.4) :** Mêmes clés que le tableau de bord ; jaquettes Kavita sur disque ; un clic charge la série à côté du rail.
-- [x] **C101. Atelier des tomes (v1.7.4) :** Page autonome `/series/<id>/volumes`. Kavita + Meta à l'ouverture. 📑 reste l'inventaire.
-- [x] **C100. Le scrape des tomes suit les albums que tu as (v1.7.4) :** Crawl ciblé, cascade au-delà d'un plafond, Metron, ISBN Bédéthèque, Sanctuary, openBD.
-- [x] **BF187. La barre de gauche se souvient de comment tu l'as laissée (v1.7.3) :** Panneaux ouverts/fermés et défilement survivent à un rechargement.
-- [x] **BF186. La barre de gauche ne se déroule plus au chargement (v1.7.3) :** Options s'ouvrait trop tard ; la transition details jouait. Ouvert dans le gabarit, restauré pendant l'analyse.
-- [x] **BF185. Sauvegarder la Config ne recharge plus la page (v1.7.3) :** Le bouton reste en place et le toast s'affiche sur la modale. La langue d'interface recharge encore (libellés côté serveur).
-- [x] **BF184. Sauvegarder la Config n'est plus bloqué par un 0 d'Auto-sync hérité (v1.7.3) :** Le `min="1"` natif du champ minutes bloquait tout le formulaire alors que l'auto-sync était éteint.
-- [x] **BF183. Sauvegarder la Config affiche un toast (v1.7.3) :** Le bouton de la modale rechargeait trop vite pour le voir. Un toast confirme après le rechargement.
-- [x] **C99. Filtre dernière vague Auto-sync (v1.7.3) :** Filtre du tableau de bord pour les séries du dernier rapport Auto-sync.
-- [x] **C98. Chapitre Auto-sync de /stats (v1.7.3) :** Les vagues Auto-sync closes comptent en lifetime. Partent de zéro ; pas de rattrapage.
-- [x] **C97. Rapport de vague Auto-sync (v1.7.3) :** Bouton sarcelle non lu à côté des Reviews : séries / terminées / erreurs et les titres. Les lots du tableau de bord n'y sont pas mêlés.
-- [x] **C96. L'auto-sync suit un scan Kavita (v1.7.3) :** Interrupteur maître, Auto / Review / Super pour ces jobs, minutes ou fin d'un scan de bibliothèque Kavita. Filet en heures. Stop vide aussi l'Auto-sync en attente.
+### ✨ Dernières Nouveautés (v1.5.6 à v1.7.2)
+- [x] **BF191. Review Manuelle atelier directe sans fenêtre d'édition (v1.7.2) :** Choix et complétion manuelle s'appliquent directement sur la fiche atelier ; écran intermédiaire sauté ; état des picks isolé.
+- [x] **BF190. La Manual / Super Review de l'atelier remplit la fiche, pas Kavita (v1.7.2) :** Confirmer depuis l'atelier pose les champs scrapés (et une jaquette en attente). L'envoi écrit Kavita. La Review du tableau de bord est inchangée.
+- [x] **C108. Le tableau de bord ouvre l'atelier sans choisir une série (v1.7.2) :** **Atelier** dans la barre Tomes → `/volumes`. Le rail ou la dernière série charge la fiche.
+- [x] **BF189. Forcer un nouveau titre de Review pendant que le premier scrape tourne (v1.7.2) :** Rechercher ne sort plus l'alerte native « Déjà en cours de traitement » ; la nouvelle recherche remplace le scrape en vol.
+- [x] **BF188. Un one-shot avec un Champ Magique n'est plus écarté (v1.7.2) :** La passe automatique honore une URL magique de l'atelier sur un tome sans numéro.
+- [x] **C106. Les boutons de l'atelier ont les noms MetaKavita (v1.7.2) :** Manual Review, Super Review, Reset.
+- [x] **C105. Ordre fixe et carte plus dense (v1.7.2) :** Même ordre ; champs courts à trois par ligne ; extras sous Plus.
+- [x] **C104. Vides ambre, remplis pliés, Champ Magique, journal live (v1.7.2) :** Champs vides ambre ; remplis pliés et mémorisés ; Champ Magique libellé ; journal live à côté.
+- [x] **C103. L'atelier plie les champs en trop, barre tomes collante, titre vers Kavita (v1.7.2) :** Les champs secondaires se rangent sous Plus ; la barre des tomes reste à l'écran ; le titre ouvre Kavita.
+- [x] **C102. Filtres du rail, cache des jaquettes, clic sans rechargement (v1.7.2) :** Mêmes clés que le tableau de bord ; jaquettes Kavita sur disque ; un clic charge la série à côté du rail.
+- [x] **C101. Atelier des tomes (v1.7.2) :** Page autonome `/series/<id>/volumes`. Kavita + Meta à l'ouverture. 📑 reste l'inventaire.
+- [x] **C100. Le scrape des tomes suit les albums que tu as (v1.7.2) :** Crawl ciblé, cascade au-delà d'un plafond, Metron, ISBN Bédéthèque, Sanctuary, openBD.
+- [x] **BF187. La barre de gauche se souvient de comment tu l'as laissée (v1.7.2) :** Panneaux ouverts/fermés et défilement survivent à un rechargement.
+- [x] **BF186. La barre de gauche ne se déroule plus au chargement (v1.7.2) :** Options s'ouvrait trop tard ; la transition details jouait. Ouvert dans le gabarit, restauré pendant l'analyse.
+- [x] **BF185. Sauvegarder la Config ne recharge plus la page (v1.7.2) :** Le bouton reste en place et le toast s'affiche sur la modale. La langue d'interface recharge encore (libellés côté serveur).
+- [x] **BF184. Sauvegarder la Config n'est plus bloqué par un 0 d'Auto-sync hérité (v1.7.2) :** Le `min="1"` natif du champ minutes bloquait tout le formulaire alors que l'auto-sync était éteint.
+- [x] **BF183. Sauvegarder la Config affiche un toast (v1.7.2) :** Le bouton de la modale rechargeait trop vite pour le voir. Un toast confirme après le rechargement.
+- [x] **C99. Filtre dernière vague Auto-sync (v1.7.2) :** Filtre du tableau de bord pour les séries du dernier rapport Auto-sync.
+- [x] **C98. Chapitre Auto-sync de /stats (v1.7.2) :** Les vagues Auto-sync closes comptent en lifetime. Partent de zéro ; pas de rattrapage.
+- [x] **C97. Rapport de vague Auto-sync (v1.7.2) :** Bouton sarcelle non lu à côté des Reviews : séries / terminées / erreurs et les titres. Les lots du tableau de bord n'y sont pas mêlés.
+- [x] **C96. L'auto-sync suit un scan Kavita (v1.7.2) :** Interrupteur maître, Auto / Review / Super pour ces jobs, minutes ou fin d'un scan de bibliothèque Kavita. Filet en heures. Stop vide aussi l'Auto-sync en attente.
 - [x] **C95. Le diagnostic sonde tous les scrapers ensemble (v1.7.2) :** Ouvrir la page ne testait que la cascade Config, un site après l'autre. Chaque scraper installé part maintenant d'un coup ; la cadence par site ne change pas.
 - [x] **BF179. /stats ne mélange plus deux horloges (v1.7.2) :** Les tuiles lifetime réutilisaient des libellés du cache ; les pages manga comptaient 160 pages par série ; un masque chirurgical sans cover comptait comme une couverture protégée. Le temps gagné inclut le collage des tomes ; les pages viennent des tomes écrits.
 - [x] **BF178. Le temps des tomes est de la saisie, pas de la lecture (v1.7.2) :** La tuile comptait 25 min de lecture par tome écrit. Elle compte maintenant environ une minute de collage (titre, résumé, ISBN).
