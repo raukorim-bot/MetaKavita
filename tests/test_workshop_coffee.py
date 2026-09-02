@@ -9,7 +9,6 @@ from flask import Flask
 
 from services.supporter_nag_policy import (
     VARIANT_IDS,
-    eligible_variants,
     pick_variant,
     should_show_for_event,
 )
