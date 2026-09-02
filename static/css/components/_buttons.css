@@ -132,12 +132,116 @@ a.btn-icon.bmc-link:hover {
     color: var(--primary);
 }
 
+/* Bouton Atelier souverain (Topbar) :
+   Pôle de création et d'édition de la bibliothèque, identifié par la nuance
+   sarcelle / teal de l'Atelier. Dégradé doux, bordure semi-transparente,
+   effet de lueur au survol et gestion fluide des thèmes sombre et clair. */
+.topbar-btn-workshop {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 13px;
+    font-weight: 600;
+    font-size: 13px;
+    text-decoration: none;
+    border-radius: var(--radius-sm, 8px);
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.16) 0%, rgba(45, 212, 191, 0.08) 100%);
+    border: 1px solid rgba(45, 212, 191, 0.35);
+    color: var(--teal, #2dd4bf);
+    transition: all 0.18s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.topbar-btn-workshop .mk-ico {
+    width: 1.2em;
+    height: 1.2em;
+    color: var(--teal, #2dd4bf);
+    transition: transform 0.2s ease, color 0.18s ease;
+}
+
+.topbar-btn-workshop:hover {
+    background: linear-gradient(135deg, rgba(20, 184, 166, 0.28) 0%, rgba(45, 212, 191, 0.18) 100%);
+    border-color: rgba(45, 212, 191, 0.65);
+    color: #5eead4;
+    transform: translateY(-1px);
+    box-shadow: 0 3px 12px rgba(20, 184, 166, 0.3), 0 0 0 1px rgba(45, 212, 191, 0.15);
+}
+
+.topbar-btn-workshop:hover .mk-ico {
+    color: #5eead4;
+    transform: scale(1.08);
+}
+
+.topbar-btn-workshop:active {
+    transform: translateY(0);
+    box-shadow: 0 1px 3px rgba(20, 184, 166, 0.2);
+}
+
+/* Thème clair : contraste et lisibilité accrus */
+:root:not([data-theme="dark"]) .topbar-btn-workshop {
+    background: linear-gradient(135deg, rgba(13, 148, 136, 0.12) 0%, rgba(20, 184, 166, 0.06) 100%);
+    border: 1px solid rgba(13, 148, 136, 0.32);
+    color: #0f766e;
+    box-shadow: 0 1px 2px rgba(13, 148, 136, 0.08);
+}
+
+:root:not([data-theme="dark"]) .topbar-btn-workshop .mk-ico {
+    color: #0f766e;
+}
+
+:root:not([data-theme="dark"]) .topbar-btn-workshop:hover {
+    background: linear-gradient(135deg, rgba(13, 148, 136, 0.20) 0%, rgba(20, 184, 166, 0.12) 100%);
+    border-color: rgba(13, 148, 136, 0.55);
+    color: #115e59;
+    box-shadow: 0 3px 10px rgba(13, 148, 136, 0.2);
+}
+
+:root:not([data-theme="dark"]) .topbar-btn-workshop:hover .mk-ico {
+    color: #115e59;
+}
+
+/* Bouton Atelier dans l'en-tête de barre d'outils (.toolbar-head-actions) */
+.btn-toolbar-workshop {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    font-size: 12.5px;
+    font-weight: 600;
+    text-decoration: none;
+    border-radius: var(--radius-sm, 8px);
+    background: color-mix(in srgb, var(--accent, #14b8a6) 12%, transparent);
+    border: 1px solid color-mix(in srgb, var(--accent, #14b8a6) 35%, var(--border-color));
+    color: var(--accent, #14b8a6);
+    transition: all 0.18s ease;
+}
+
+.btn-toolbar-workshop .mk-ico {
+    width: 1.15em;
+    height: 1.15em;
+    color: currentColor;
+    transition: transform 0.18s ease;
+}
+
+.btn-toolbar-workshop:hover {
+    background: color-mix(in srgb, var(--accent, #14b8a6) 22%, transparent);
+    border-color: var(--accent, #14b8a6);
+    color: var(--teal, #2dd4bf);
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px color-mix(in srgb, var(--accent, #14b8a6) 25%, transparent);
+}
+
+.btn-toolbar-workshop:hover .mk-ico {
+    transform: scale(1.08);
+}
+
 /* Sous 720 px la barre du haut se dispute la place : les libellés tombent,
    l'icône et le chevron suffisent (les boutons portent un aria-label ou un
    title). */
 @media (max-width: 720px) {
     .topbar-menu-label,
-    .topbar-btn-label {
+    .topbar-btn-label,
+    .topbar-workshop-label {
         display: none;
     }
 }

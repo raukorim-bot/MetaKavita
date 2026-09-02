@@ -128,13 +128,38 @@ def test_workshop_landing_does_not_require_a_series(client, monkeypatch):
 
 def test_dashboard_toolbar_links_to_the_workshop_landing():
     root = Path(__file__).resolve().parents[1]
+    index_html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     toolbar = (root / "templates" / "partials" / "_toolbar.html").read_text(encoding="utf-8")
-    assert 'id="btnOpenWorkshop"' in toolbar
+    assert 'id="btnOpenWorkshop"' in index_html
+    assert 'id="toolbarBtnOpenWorkshop"' in toolbar
     assert "pages.volumes" in toolbar
+    assert "pages.volumes" in index_html
+    assert "#mk-ico-workshop" in index_html
+    assert "#mk-ico-workshop" in toolbar
     js = (root / "static" / "js" / "volumes.js").read_text(encoding="utf-8")
     assert "workshop_last_sid" in js
     assert "function pickLandingSeries" in js
     assert "is-idle" in js
+
+
+def test_workshop_button_design_and_svg_icon_integrity():
+    root = Path(__file__).resolve().parents[1]
+    sprite = (root / "templates" / "partials" / "_icons_sprite.html").read_text(encoding="utf-8")
+    assert '<symbol id="mk-ico-workshop" viewBox="0 0 24 24">' in sprite
+
+    index_html = (root / "templates" / "index.html").read_text(encoding="utf-8")
+    assert 'class="btn-icon topbar-btn-workshop"' in index_html
+    assert 'id="btnOpenWorkshop"' in index_html
+
+    toolbar = (root / "templates" / "partials" / "_toolbar.html").read_text(encoding="utf-8")
+    assert 'class="btn-toolbar-workshop"' in toolbar
+    assert 'id="toolbarBtnOpenWorkshop"' in toolbar
+    assert 'id="btnOpenWorkshop"' not in toolbar  # n'est plus un addon enfermé dans le panneau de volume
+
+    css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
+    assert ".topbar-btn-workshop" in css
+    assert ".btn-toolbar-workshop" in css
+    assert ".topbar-workshop-label" in css
 
 
 def test_workshop_payload_has_no_scrape(client, monkeypatch):

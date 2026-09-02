@@ -69,7 +69,7 @@
 - [x] **C109. Workshop coffee support button & rare playful nagware (v1.7.2):** Permanent Buy Me a Coffee button (☕) in workshop-nav + dedicated `workshop_craft` variant in the supporter nagware overlay after successful Kavita writes (7-day honeymoon, 10-item activity threshold, honor snooze 30d, 1–2/day max).
 - [x] **BF191. Workshop Manual Review stages directly without edit modal (v1.7.2):** Picks and field completion apply straight to the workshop card; intermediate edit screen skipped; picks state cleanly isolated.
 - [x] **BF190. Workshop Manual / Super Review fills the sheet, not Kavita (v1.7.2):** Confirm from the workshop stages scraped fields (and a pending cover). Send writes Kavita. Dashboard Review is unchanged.
-- [x] **C108. Dashboard opens the workshop without picking a series (v1.7.2):** Volumes toolbar **Workshop** → `/volumes`. Rail or last series loads the sheet.
+- [x] **C108. Sovereign Workshop button on dashboard with custom SVG icon & teal design (v1.7.2):** Prominent Workshop button in topbar and toolbar header with dedicated `#mk-ico-workshop` SVG icon and teal styling, emancipated from the volumes addon group.
 - [x] **BF189. Force a new Manual Review title while the first scrape is still running (v1.7.2):** Rechercher no longer native-alerts « Already being processed »; the new search replaces the in-flight scrape.
 - [x] **BF188. A one-shot with a Magic Input is no longer skipped (v1.7.2):** The automatic pass honours a workshop Magic URL on a volume with no number.
 - [x] **C106. Workshop buttons match MetaKavita names (v1.7.2):** Manual Review, Super Review, Reset.
@@ -351,7 +351,7 @@
 - [x] **C109. Bouton café permanent et nagware supporter dans l'Atelier (v1.7.2) :** Bouton permanent Buy Me a Coffee (☕) dans workshop-nav + variante `workshop_craft` dédiée dans l'overlay supporter après écritures réussies dans Kavita (lune de miel 7 j, seuil d'activité 10 items, silence honneur 30 j, max 1–2/j).
 - [x] **BF191. Review Manuelle atelier directe sans fenêtre d'édition (v1.7.2) :** Choix et complétion manuelle s'appliquent directement sur la fiche atelier ; écran intermédiaire sauté ; état des picks isolé.
 - [x] **BF190. La Manual / Super Review de l'atelier remplit la fiche, pas Kavita (v1.7.2) :** Confirmer depuis l'atelier pose les champs scrapés (et une jaquette en attente). L'envoi écrit Kavita. La Review du tableau de bord est inchangée.
-- [x] **C108. Le tableau de bord ouvre l'atelier sans choisir une série (v1.7.2) :** **Atelier** dans la barre Tomes → `/volumes`. Le rail ou la dernière série charge la fiche.
+- [x] **C108. Bouton Atelier souverain sur le tableau de bord avec icône SVG & design sarcelle (v1.7.2) :** Bouton Atelier prépondérant dans la topbar et l'en-tête de barre d'outils avec icône SVG `#mk-ico-workshop` dédiée et styling sarcelle/teal, émancipé du sous-groupe des tomes.
 - [x] **BF189. Forcer un nouveau titre de Review pendant que le premier scrape tourne (v1.7.2) :** Rechercher ne sort plus l'alerte native « Déjà en cours de traitement » ; la nouvelle recherche remplace le scrape en vol.
 - [x] **BF188. Un one-shot avec un Champ Magique n'est plus écarté (v1.7.2) :** La passe automatique honore une URL magique de l'atelier sur un tome sans numéro.
 - [x] **C106. Les boutons de l'atelier ont les noms MetaKavita (v1.7.2) :** Manual Review, Super Review, Reset.

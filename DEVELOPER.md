@@ -845,6 +845,10 @@ The Volume Workshop (`/volumes` and `/series/<id>/volumes`) provides a dedicated
 - *History formatting*: `renderHistory` translates and formats `send-selection` with volume ratio `(x/y tomes)`.
 - *Ergonomics & shortcuts*: Pressing Enter in `.workshop-magic` triggers magic matching; `#licenseNagModal` is registered in `isTypingTarget` to prevent keyboard arrow navigation while supporter nag is shown; "Send all" safely alerts if no volumes exist; workshop automatically reloads upon completion of concurrent automatic passes for the current series.
 
+#### G. Sovereign Workshop Access from the Dashboard (C108 refactor)
+- The Workshop button (`#btnOpenWorkshop`) is a sovereign first-class navigation element, no longer buried as an add-on inside the volume batch panel (`#volumeEnrichPanel`).
+- It sits prominently in the sticky topbar (`header.topbar .topbar-btn-workshop`) with a dedicated 24×24 SVG craft icon (`#mk-ico-workshop`), as well as in the series toolbar header (`.toolbar-head-actions .btn-toolbar-workshop`), ensuring instant, permanent 1-click access regardless of scroll depth or volume module enablement.
+
 ---
 
 ### 18. Auto-Sync on Kavita Scan & Wave Reporting (v1.7.2, C96–C99)
@@ -1637,6 +1641,10 @@ L'Atelier des tomes (`/volumes` et `/series/<id>/volumes`) fournit un espace de 
 - *Réactivité du rail latéral* : `updateRailStatus(sid, newStatus)` met à jour le rail en mémoire et rafraîchit l'affichage lors des envois réussis et sur réception de l'événement WebSocket `series_status`.
 - *Historique des gestes* : `renderHistory` traduit et formate l'événement `send-selection` avec le ratio de tomes `(x/y tomes)`.
 - *Ergonomie & raccourcis* : La touche Entrée sur le Champ Magique déclenche la recherche ; `#licenseNagModal` est inclus dans `isTypingTarget` pour bloquer les flèches clavier pendant l'affichage du nagware ; « Envoyer tous les tomes » alerte sans confirmation inutile sur série vide ; la fiche se recharge automatiquement à la fin d'une passe concurrente sur la série affichée.
+
+#### G. Accès souverain à l'Atelier depuis le Tableau de bord (refonte C108)
+- Le bouton Atelier (`#btnOpenWorkshop`) est un élément de navigation de premier ordre, émancipé du panneau secondaire des tomes (`#volumeEnrichPanel`).
+- Il trône en évidence dans la barre d'en-tête supérieure sticky (`header.topbar .topbar-btn-workshop`) paré d'une icône SVG 24×24 dédiée (`#mk-ico-workshop`), ainsi que dans l'en-tête de la barre d'outils des séries (`.toolbar-head-actions .btn-toolbar-workshop`), garantissant un accès instantané et permanent en 1 clic indépendamment du défilement et de l'activation du module tomes.
 
 ---
 

@@ -12,6 +12,10 @@
                                 </div>
                             </div>
                             <div class="toolbar-head-actions">
+                                <a href="{{ url_for('pages.volumes') }}" class="btn-toolbar-workshop" id="toolbarBtnOpenWorkshop" title="{{ t.workshop_open_page_hint }}">
+                                    <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-workshop"></use></svg>
+                                    <span>{{ t.workshop_title }}</span>
+                                </a>
                                 <button type="button" onclick="toggleAllOverridePanels()" class="btn-secondary toolbar-action-btn" title="{{ t.toggle_all_overrides_hint }}">{{ t.toggle_all_overrides }}</button>
                                 <button type="button" onclick="saveAllOverrides(this)" class="btn-secondary toolbar-action-btn">{{ t.save_all }}</button>
                             </div>
@@ -185,9 +189,6 @@
                                     <span class="toolbar-group-label">{{ t.toolbar_group_volumes }}</span>
                                     <span class="lab-tag" title="{{ t.badge_experimental_hint }}">🧪 {{ t.badge_experimental }}</span>
                                     <div class="hygiene-actions">
-                                        <a class="btn-secondary" id="btnOpenWorkshop"
-                                           href="{{ url_for('pages.volumes') }}"
-                                           title="{{ t.workshop_open_page_hint }}">{{ t.workshop_open }}</a>
                                         <button type="button" class="btn-opt" id="btnVolumeEnrich"
                                                 onclick="startVolumeEnrich()"
                                                 title="{{ t.vol_library_title }}">

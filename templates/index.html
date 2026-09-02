@@ -350,6 +350,10 @@
                 </div>
             </nav>
             <div class="topbar-actions">
+			<a href="{{ url_for('pages.volumes') }}" class="btn-icon topbar-btn-workshop" id="btnOpenWorkshop" title="{{ t.workshop_open_page_hint }}" aria-label="{{ t.workshop_title }}">
+				<svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-workshop"></use></svg>
+				<span class="topbar-workshop-label">{{ t.workshop_title }}</span>
+			</a>
 			<div class="topbar-support" role="group" aria-label="Support">
 				<a href="{{ kavita_plus_url }}" target="_blank" rel="noopener noreferrer" class="btn-icon support-link kavita-plus-link" title="{{ t.about_kavita_plus }}">💜 {{ t.kavita_plus_btn }}</a>
 				<a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer" class="btn-icon support-link bmc-link" title="{{ t.buy_me_coffee }}">☕ {{ t.buy_me_coffee }}</a>

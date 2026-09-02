@@ -136,7 +136,7 @@ def test_the_buttons_show_when_the_feature_is_on():
 
     assert 'id="btnVolumeEnrich"' in rendered["toolbar"]
     assert 'id="btnVolumeEnrichCancel"' in rendered["toolbar"]
-    assert 'id="btnOpenWorkshop"' in rendered["toolbar"]
+    assert 'id="toolbarBtnOpenWorkshop"' in rendered["toolbar"]
     assert "pages.volumes" in rendered["toolbar"]
     assert 'id="volumeEnrichProgress"' in rendered["toolbar"]
     assert 'id="btnVolumePreview"' in rendered["modal"]
@@ -181,8 +181,11 @@ def test_the_volume_controls_do_not_live_inside_the_inventory_panel():
     assert not inventory.find(id="btnVolumeEnrich"), "la passe ne doit pas loger chez l'Inventaire"
     assert not inventory.find(id="volumeEnrichProgress")
     assert volumes.find(id="btnVolumeEnrich") is not None
-    assert volumes.find(id="btnOpenWorkshop") is not None
-    assert not inventory.find(id="btnOpenWorkshop")
+    # L'Atelier est un bouton de base souverain dans l'en-tête de barre d'outils,
+    # pas un simple sous-élément / addon du panneau de volume
+    assert not volumes.find(id="toolbarBtnOpenWorkshop")
+    assert not inventory.find(id="toolbarBtnOpenWorkshop")
+    assert soup.find(id="toolbarBtnOpenWorkshop") is not None
     assert volumes.find(id="btnVolumeEnrichCancel") is not None
     assert volumes.find(id="volumeEnrichProgress") is not None
 
