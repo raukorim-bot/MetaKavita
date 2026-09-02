@@ -58,11 +58,14 @@ _COVER_KINDS = frozenset({"series", "chapter", "volume"})
 def inscribed_from_chapter(chapter: Optional[dict]) -> Dict[str, Any]:
     """Champs d'un ChapterDto imbriqué, pour préremplir les inputs."""
     chap = chapter if isinstance(chapter, dict) else {}
+    rel_date = chap.get("releaseDate") or ""
+    if rel_date.startswith("0001-01-01"):
+        rel_date = ""
     out = {
         "title": chap.get("titleName") or chap.get("title") or "",
         "summary": chap.get("summary") or "",
         "isbn": chap.get("isbn") or "",
-        "release_date": chap.get("releaseDate") or "",
+        "release_date": rel_date,
         "title_locked": bool(chap.get("titleNameLocked")),
         "summary_locked": bool(chap.get("summaryLocked")),
         "isbn_locked": bool(chap.get("isbnLocked")),
@@ -501,7 +504,9 @@ def send_series(
                 return {"success": False, "error": detail, "written": []}
 
         if localized is not None:
-            ok, detail = api.update_series_general(series_id, localized_name=localized)
+            gen_res = api.update_series_general(series_id, localized_name=localized)
+            ok = gen_res[0] if isinstance(gen_res, tuple) else bool(gen_res)
+            detail = gen_res[1] if isinstance(gen_res, tuple) and len(gen_res) > 1 else ""
             if not ok:
                 already = [w for w in written if w != "localizedName"]
                 return {
@@ -512,7 +517,9 @@ def send_series(
                 }
 
         if cover_url and is_http_url(cover_url):
-            ok, detail = api.upload_series_cover(series_id, cover_url)
+            cov_res = api.upload_series_cover(series_id, cover_url)
+            ok = cov_res[0] if isinstance(cov_res, tuple) else bool(cov_res)
+            detail = cov_res[1] if isinstance(cov_res, tuple) and len(cov_res) > 1 else ""
             if not ok:
                 return {
                     "success": False,
@@ -690,6 +697,7 @@ def begin_volume_review(
     chapter_id: int,
     *,
     super_review: bool = False,
+    isbn: Optional[str] = None,
     config: dict = None,
 ) -> Dict[str, Any]:
     """Candidats tome (ISBN / URL / titre+numéro). Pas de PENDING_REVIEW série."""
@@ -710,15 +718,19 @@ def begin_volume_review(
         hit = fetch_volume_from_url(ref, volume_number=unit.get("volume_number"))
         if hit:
             candidates.append(hit)
-    isbn = (unit.get("chapter") or {}).get("isbn") or (ov.get("payload") or {}).get("isbn")
-    if isbn:
+    target_isbn = (
+        str(isbn or "").strip()
+        or str((ov.get("payload") or {}).get("isbn") or "").strip()
+        or str((unit.get("chapter") or {}).get("isbn") or "").strip()
+    )
+    if target_isbn:
         from services.volume_enrichment.providers import fetch_by_isbn
 
         search_unit = dict(unit)
-        search_unit["isbn"] = str(isbn).strip()
+        search_unit["isbn"] = target_isbn
         if isinstance(search_unit.get("chapter"), dict):
             chap = dict(search_unit["chapter"])
-            chap["isbn"] = str(isbn).strip()
+            chap["isbn"] = target_isbn
             search_unit["chapter"] = chap
         extra = fetch_by_isbn(
             [search_unit],

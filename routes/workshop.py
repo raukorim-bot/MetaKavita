@@ -247,11 +247,13 @@ def workshop_review(series_id):
     chapter_id = payload.get("chapter_id")
     if not chapter_id:
         return jsonify({"success": False, "error": t.get("workshop_err", "Requête incomplète.")}), 400
+    isbn = str(payload.get("isbn") or "").strip() or None
     result = begin_volume_review(
         api,
         series_id,
         int(chapter_id),
         super_review=bool(payload.get("super") or payload.get("super_review")),
+        isbn=isbn,
         config=config,
     )
     if not result.get("success"):

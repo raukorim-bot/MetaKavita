@@ -546,7 +546,7 @@ def test_workshop_choice_bypasses_edit_phase_and_stages_directly(mr_client, isol
 
     resp = mr_client.post(
         "/api/manual-reviews/rev-ws-direct/choice",
-        json={"base_provider": "AniList", "prefer_edit": True, "workshop": True}
+        json={"base_provider": "AniList", "prefer_edit": False, "workshop": True}
     )
     assert resp.status_code == 200
     data = resp.get_json()
@@ -559,6 +559,63 @@ def test_workshop_choice_bypasses_edit_phase_and_stages_directly(mr_client, isol
     override = get_workshop_series_override(55)
     assert override is not None
     assert override["payload"]["releaseYear"] == "2021"
+
+
+def test_workshop_choice_preview_and_confirm_flow(mr_client, isolated_db, mocker):
+    """Dans l'atelier, /choice avec prefer_edit=True passe par les bonnes étapes : mode='preview' puis /confirm applique le staging."""
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=False)
+    candidates = {
+        "above": [
+            {
+                "provider": "AniList",
+                "score": 0.95,
+                "data": {
+                    "title": "AniList Title",
+                    "summary": "AniList Summary",
+                    "cover_url": "https://anilist.co/cover.jpg",
+                    "genres": ["Action"],
+                    "year": 2021,
+                }
+            }
+        ],
+        "below": []
+    }
+    park_pending_review("rev-ws-flow", 58, "Series Flow", candidates, state="awaiting_pick")
+
+    # Étape 1 : /choice renvoie mode='preview'
+    resp_choice = mr_client.post(
+        "/api/manual-reviews/rev-ws-flow/choice",
+        json={"base_provider": "AniList", "prefer_edit": True, "workshop": True}
+    )
+    assert resp_choice.status_code == 200
+    data_choice = resp_choice.get_json()
+    assert data_choice["success"] is True
+    assert data_choice["mode"] == "preview"
+    assert "preview" in data_choice
+    assert data_choice["preview"]["year"] == 2021
+
+    # Étape 2 : /confirm applique et stage dans l'atelier
+    resp_confirm = mr_client.post(
+        "/api/manual-reviews/rev-ws-flow/confirm",
+        json={
+            "base_provider": "AniList",
+            "include_providers": [],
+            "edited_fields": {"year": 2022, "summary": "Custom Summary"},
+            "field_edits": 2,
+            "workshop": True
+        }
+    )
+    assert resp_confirm.status_code == 200
+    data_confirm = resp_confirm.get_json()
+    assert data_confirm["success"] is True
+    assert data_confirm["detail"]["workshop"] is True
+    assert data_confirm["detail"]["series_edits"]["releaseYear"] == "2022"
+
+    override = get_workshop_series_override(58)
+    assert override is not None
+    assert override["payload"]["releaseYear"] == "2022"
+    assert override["payload"]["summary"] == "Custom Summary"
 
 
 def test_workshop_choice_with_manual_completion_field_picks(mr_client, isolated_db, mocker):
@@ -656,14 +713,130 @@ def test_dashboard_choice_preserves_preview_edit_mode(mr_client, isolated_db, mo
 
 
 def test_js_manual_review_resets_and_workshop_prefer_edit():
-    """Vérifie dans manual_review.js que prefer_edit est désactivé dans l'atelier et que les resets sont présents."""
+    """Vérifie dans manual_review.js que les étapes de review fonctionnent dans l'atelier et que les resets sont présents."""
     js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "manual_review.js")
     with open(js_path, "r", encoding="utf-8") as f:
         content = f.read()
 
-    assert "prefer_edit: isWorkshopPage() ? false :" in content
-    assert "!isWorkshopPage() && review.preview && (isAutoConfirmReview(review) || review.state === \"awaiting_confirm\")" in content
+    assert "prefer_edit: !!(editEnabled || coverPickEnabled)" in content
+    assert "review.preview && (isAutoConfirmReview(review) || review.state === \"awaiting_confirm\")" in content
+    assert "window.WORKSHOP_CONFIG" in content
     assert "resetFieldPicks();" in content
     assert "syncManualCompletionControls();" in content
+
+
+def test_inscribed_from_chapter_filters_zero_date():
+    """Vérifie que la date sentinelle 0001-01-01 de Kavita est vidée dans inscribed_from_chapter."""
+    from services.workshop import inscribed_from_chapter
+    chap_sentinel = {"id": 1, "releaseDate": "0001-01-01T00:00:00", "title": "Tome 1"}
+    data = inscribed_from_chapter(chap_sentinel)
+    assert data["release_date"] == ""
+
+    chap_valid = {"id": 2, "releaseDate": "2023-05-12T00:00:00", "title": "Tome 2"}
+    data_valid = inscribed_from_chapter(chap_valid)
+    assert data_valid["release_date"] == "2023-05-12T00:00:00"
+
+
+def test_begin_volume_review_with_explicit_isbn(mocker, isolated_db):
+    """Vérifie que begin_volume_review prend en compte l'ISBN fourni explicitement."""
+    from services.workshop import begin_volume_review
+    dummy = DummyKavita()
+    mock_fetch = mocker.patch("services.volume_enrichment.providers.fetch_by_isbn")
+    mock_fetch.return_value = {
+        10: {
+            "title": "Hit By ISBN",
+            "provider": "MockProvider",
+            "isbn": "9782012345678",
+            "summary": "Found via explicit ISBN",
+        }
+    }
+
+    res = begin_volume_review(dummy, 1, 10, isbn="9782012345678")
+    assert res["success"] is True
+    assert len(res["candidates"]) == 1
+    assert res["candidates"][0]["title"] == "Hit By ISBN"
+    assert mock_fetch.called
+    units_passed = mock_fetch.call_args[0][0]
+    assert units_passed[0]["isbn"] == "9782012345678"
+
+
+def test_workshop_review_route_propagates_isbn(monkeypatch, mocker, isolated_db):
+    """Vérifie que la route /workshop/review relaie le paramètre isbn à begin_volume_review."""
+    from flask import Flask
+    from routes.workshop import workshop_bp
+
+    monkeypatch.setattr("routes.workshop.workshop_enabled", lambda *a: True)
+    monkeypatch.setattr("routes.workshop._guard_series", lambda *a: (DummyKavita().get_series(1), None))
+    mock_begin = mocker.patch("routes.workshop.begin_volume_review")
+    mock_begin.return_value = {"success": True, "candidates": []}
+    mocker.patch("routes.workshop._api", return_value=DummyKavita())
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.register_blueprint(workshop_bp)
+    c = app.test_client()
+
+    resp = c.post(
+        "/api/series/1/workshop/review",
+        json={"chapter_id": 10, "isbn": "9781234567890"}
+    )
+    assert resp.status_code == 200
+    mock_begin.assert_called_once()
+    assert mock_begin.call_args.kwargs["isbn"] == "9781234567890"
+
+
+def test_js_workshop_audit_fixes_integrity():
+    """Vérifie dans volumes.js l'application de tous les correctifs d'audit."""
+    js_path = os.path.join(os.path.dirname(__file__), "..", "static", "js", "volumes.js")
+    with open(js_path, "r", encoding="utf-8") as f:
+        js = f.read()
+
+    # 1.1 Contexte de tome et classes candidats
+    assert "mrVolumeContextText" in js
+    assert "workshop-candidate-cover" in js
+    assert "workshop_vol_n" in js
+
+    # 1.2 Dirty state sync et nettoyage send
+    assert "function syncDirtyState()" in js
+    assert "function refreshGlobalDirty()" in js
+    assert "seriesCard.removeAttribute('data-dirty')" in js
+    assert "card.removeAttribute('data-cover-url')" in js
+
+    # 1.3 Sécurisation du timer de draft
+    assert "if (String(seriesId) !== String(targetSid)) return;" in js
+    assert "if (seriesDraftTimer) clearTimeout(seriesDraftTimer);" in js
+
+    # 1.4 Décompte Plus de champs
+    assert "updateMoreSummary(seriesMore);" in js
+    assert "summary.textContent = moreSummaryText(filled, total);" in js
+
+    # 2.1 Décompte supporter nag sur statut DONE
+    assert "r && (r.status === 'DONE' || (r.success && !r.noop))" in js
+
+    # 2.2 Filtrage date sentinelle dans JS
+    assert "0001-01-01" in js
+
+    # 2.3 Transmission de l'ISBN
+    assert "isbn: visbn" in js
+
+    # 2.4 Synchronisation rail et websocket series_status
+    assert "function updateRailStatus(sid, newStatus)" in js
+    assert "window.socket.on('series_status'" in js
+
+    # 2.5 Libellé send-selection dans l'historique
+    assert "'send-selection': T().workshop_send_selection" in js
+
+    # 3.1 Entrée sur champ magique
+    assert "magicInput.addEventListener('keydown'" in js
+
+    # 3.2 licenseNagModal dans isTypingTarget
+    assert "var nag = document.getElementById('licenseNagModal');" in js
+
+    # 3.3 Vérification empty sur workshopSendAll
+    assert "if (!items.length) {" in js
+
+    # 3.4 Rechargement sur fin de passe concurrente
+    assert "_lastPassWasRunning && String(st.series_id) === String(seriesId)" in js
+
 
 

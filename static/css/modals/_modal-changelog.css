@@ -1,0 +1,271 @@
+/* ================================================================
+   MetaKavita CSS — _modal-changelog.css
+   Modale Nouveautés & Changelog (.cl-*, C69, BF148)
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* ===== Modale « Nouveautés » (classes .cl-*, rendues par changelog_service) =====
+   Le fichier est écrit en paragraphes longs : ce qui le rend lisible n'est pas de
+   les raccourcir mais de leur donner une hiérarchie — une version, des sections
+   typées, un titre par entrée qu'on peut survoler avant de décider de lire. */
+.changelog-modal-body {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    padding-bottom: 0.5rem;
+}
+
+.cl-doc-title {
+    margin: 0;
+    font-family: var(--font-display);
+    font-size: 1.05rem;
+}
+
+/* --- La version --- */
+.cl-release {
+    min-width: 0;
+}
+
+.cl-release-head {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+}
+
+.cl-release-version {
+    padding: 2px 9px;
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+    border: 1px solid color-mix(in srgb, var(--primary) 45%, var(--border-color));
+    border-radius: 999px;
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+
+.cl-release-date {
+    color: var(--text-muted);
+    font-size: 0.76rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.cl-release--latest > .cl-release-title {
+    margin: 0.45rem 0 0.9rem;
+    font-family: var(--font-display);
+    font-size: 1rem;
+    line-height: 1.35;
+    color: var(--text-main);
+}
+
+/* Les versions passées sont repliées : ce qu'on vient lire après une mise à jour
+   est ce qui vient de changer, et le fichier porte dix-sept versions. */
+.cl-past-title {
+    margin: 0.75rem 0 -0.35rem;
+    color: var(--text-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.cl-release--past {
+    border: 1px solid var(--border-color);
+    border-radius: var(--border-radius);
+    background: color-mix(in srgb, var(--bg-input) 45%, transparent);
+}
+
+.cl-release-summary {
+    display: flex;
+    align-items: center;
+    gap: 0.55rem;
+    flex-wrap: wrap;
+    padding: 0.6rem 0.8rem;
+    cursor: pointer;
+    list-style: none;
+    border-radius: var(--border-radius);
+}
+
+.cl-release-summary::-webkit-details-marker {
+    display: none;
+}
+
+.cl-release-summary::after {
+    content: "";
+    margin-left: auto;
+    width: 8px;
+    height: 8px;
+    border-right: 2px solid var(--text-muted);
+    border-bottom: 2px solid var(--text-muted);
+    transform: rotate(45deg);
+    transition: transform 0.18s ease;
+}
+
+.cl-release--past[open] > .cl-release-summary::after {
+    transform: rotate(-135deg);
+}
+
+.cl-release-summary:hover {
+    background: var(--bg-input);
+}
+
+.cl-release-summary .cl-release-title {
+    min-width: 0;
+    font-size: 0.85rem;
+    color: var(--text-main);
+}
+
+.cl-release-body {
+    padding: 0 0.8rem 0.4rem;
+    border-top: 1px solid var(--border-color);
+}
+
+/* --- Les sections --- */
+.cl-section {
+    --cl-accent: var(--primary);
+    margin: 0.9rem 0 0;
+    padding: 0.75rem 0.9rem 0.35rem;
+    background: color-mix(in srgb, var(--cl-accent) 6%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cl-accent) 22%, var(--border-color));
+    border-left: 3px solid var(--cl-accent);
+    border-radius: 0 var(--border-radius) var(--border-radius) 0;
+}
+
+.cl-section--new { --cl-accent: var(--success, #22c55e); }
+.cl-section--fix { --cl-accent: var(--primary); }
+.cl-section--warn { --cl-accent: var(--warning, #f59e0b); }
+.cl-section--security { --cl-accent: var(--violet); }
+.cl-section--limits { --cl-accent: var(--text-muted); }
+
+.cl-section-title {
+    display: flex;
+    align-items: center;
+    gap: 0.45rem;
+    margin: 0 0 0.6rem;
+    color: var(--cl-accent);
+    font-family: var(--font-display);
+    font-size: 0.9rem;
+    letter-spacing: -0.01em;
+}
+
+.cl-section-title .mk-ico {
+    width: 1.05em;
+    height: 1.05em;
+    vertical-align: 0;
+}
+
+.cl-section-count {
+    padding: 1px 7px;
+    background: color-mix(in srgb, var(--cl-accent) 16%, transparent);
+    border-radius: 999px;
+    font-size: 0.7rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.cl-note {
+    margin: 0 0 0.6rem;
+    color: var(--text-muted);
+    font-size: 0.82rem;
+}
+
+/* --- Les entrées --- */
+.cl-items {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.cl-item {
+    padding: 0.6rem 0;
+    border-top: 1px solid color-mix(in srgb, var(--border-color) 60%, transparent);
+}
+
+.cl-items > .cl-item:first-child {
+    padding-top: 0;
+    border-top: none;
+}
+
+.cl-item-title {
+    display: flex;
+    align-items: baseline;
+    gap: 0.45rem;
+    margin: 0 0 0.3rem;
+    font-family: var(--font-display);
+    font-size: 0.92rem;
+    font-weight: 700;
+    line-height: 1.35;
+    color: var(--text-main);
+}
+
+/* Le code de suivi (C69, BF148) : ce qui permet de survoler vingt correctifs
+   sans les lire, et de citer une entrée dans une issue. */
+.cl-tag {
+    flex: 0 0 auto;
+    padding: 1px 6px;
+    background: color-mix(in srgb, var(--cl-accent, var(--primary)) 14%, transparent);
+    border: 1px solid color-mix(in srgb, var(--cl-accent, var(--primary)) 35%, transparent);
+    border-radius: 5px;
+    color: var(--cl-accent, var(--primary));
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+}
+
+.cl-item-body {
+    /* Mesure de lecture : au-delà de ~78 caractères l'œil perd sa ligne, et ces
+       paragraphes en font quatre cents mots. */
+    max-width: 78ch;
+    margin: 0;
+    color: color-mix(in srgb, var(--text-main) 86%, var(--text-muted));
+    font-size: 0.85rem;
+    line-height: 1.65;
+}
+
+.cl-item--plain > .cl-item-body {
+    color: var(--text-main);
+}
+
+.cl-subitems {
+    max-width: 78ch;
+    margin: 0.4rem 0 0;
+    padding-left: 1.1rem;
+    color: var(--text-muted);
+    font-size: 0.83rem;
+    line-height: 1.6;
+}
+
+.cl-subitems > li {
+    margin-bottom: 0.3rem;
+}
+
+.cl-subitems > li::marker {
+    color: var(--cl-accent, var(--primary));
+}
+
+.cl-code {
+    padding: 1px 5px;
+    background: var(--bg-input);
+    border-radius: 4px;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.78em;
+}
+
+.cl-link {
+    color: var(--primary);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+@media (max-width: 720px) {
+    .cl-section {
+        padding-left: 0.65rem;
+        padding-right: 0.65rem;
+    }
+
+    .cl-item-title {
+        font-size: 0.88rem;
+    }
+}
+

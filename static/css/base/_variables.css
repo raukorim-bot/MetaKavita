@@ -1,0 +1,59 @@
+/* ================================================================
+   MetaKavita CSS — _variables.css
+   Variables CSS : tokens de couleurs, typographie, ombres, rayons (modes clair & sombre)
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+:root {
+    color-scheme: light;
+    --font-family: "Bricolage Grotesque", system-ui, -apple-system, sans-serif;
+    --font-display: "Bricolage Grotesque", system-ui, sans-serif;
+
+    /* Mode Clair */
+    --bg-app: #eef2f7;
+    --bg-sidebar: rgba(255, 255, 255, 0.92);
+    --bg-card: #ffffff;
+    --bg-input: #f1f5f9;
+    --text-main: #0f172a;
+    --text-muted: #64748b;
+    --border-color: rgba(15, 23, 42, 0.1);
+
+    --primary: #0ea5e9;
+    --primary-hover: #0284c7;
+    --secondary: #64748b;
+    --success: #10b981;
+    --warning: #f59e0b;
+    --danger: #f43f5e;
+    --accent: #14b8a6;
+    --teal: #2dd4bf;
+    --sky: #38bdf8;
+    --violet: #8b5cf6;
+
+    --badge-text: #ffffff;
+    --badge-pending: #38bdf8;
+
+    --shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.04);
+    --border-radius: 12px;
+    --radius-sm: 8px;
+}
+
+[data-theme="dark"] {
+    color-scheme: dark;
+    --bg-app: #07090f;
+    --bg-sidebar: rgba(18, 21, 31, 0.88);
+    --bg-card: #12151f;
+    --bg-input: #0a0d16;
+    --text-main: #e2e8f0;
+    --text-muted: #94a3b8;
+    --border-color: rgba(255, 255, 255, 0.08);
+
+    --primary: #38bdf8;
+    --primary-hover: #7dd3fc;
+    --secondary: #64748b;
+    --badge-text: #ffffff;
+
+    --shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+

@@ -53,6 +53,8 @@
             document.getElementById('manualReviewModal').style.display !== 'none') return true;
         if (document.getElementById('workshopCoverModal') &&
             document.getElementById('workshopCoverModal').style.display !== 'none') return true;
+        var nag = document.getElementById('licenseNagModal');
+        if (nag && (nag.style.display !== 'none' || nag.classList.contains('is-open'))) return true;
         return false;
     }
 
@@ -155,10 +157,12 @@
     function goTo(sid) {
         if (String(sid) === String(seriesId) && loadingSid == null) return;
         if (!confirmLeave()) return;
+        if (seriesDraftTimer) clearTimeout(seriesDraftTimer);
         loadSeries(sid, true);
     }
 
     function loadSeries(sid, push) {
+        if (seriesDraftTimer) clearTimeout(seriesDraftTimer);
         if (loadingSid != null) {
             pendingNav = { sid: sid, push: push };
             return;
@@ -320,16 +324,43 @@
         });
     }
 
+    function moreSummaryText(filled, total) {
+        var key = (filled <= 1 && T().workshop_more_fields_count_single)
+            ? 'workshop_more_fields_count_single'
+            : 'workshop_more_fields_count';
+        var template = T()[key] || T().workshop_more_fields || 'Plus de champs ({0} complétés / {1})';
+        return fmt(template, filled, total);
+    }
+
+    function updateMoreSummary(detailsEl) {
+        if (!detailsEl) return;
+        var summary = detailsEl.querySelector('summary');
+        if (!summary) return;
+        var inputs = detailsEl.querySelectorAll('[data-series-field], [data-field]');
+        var total = inputs.length;
+        if (!total) return;
+        var filled = 0;
+        inputs.forEach(function (el) {
+            var key = el.getAttribute('data-series-field') || el.getAttribute('data-field') || '';
+            var kind = el.tagName === 'SELECT' ? 'select' : (el.tagName === 'TEXTAREA' ? 'textarea' : 'text');
+            if (!isEmptyValue(kind, key, el.value)) filled++;
+        });
+        summary.textContent = moreSummaryText(filled, total);
+    }
+
     function syncEmptyClass(el) {
         var label = el.closest('.workshop-field');
-        if (!label) return;
-        if (el.classList.contains('workshop-magic')) {
-            label.classList.toggle('workshop-field--empty', !String(el.value || '').trim());
-            return;
+        if (label) {
+            if (el.classList.contains('workshop-magic')) {
+                label.classList.toggle('workshop-field--empty', !String(el.value || '').trim());
+            } else {
+                var key = el.getAttribute('data-field') || el.getAttribute('data-series-field') || '';
+                var kind = el.tagName === 'SELECT' ? 'select' : (el.tagName === 'TEXTAREA' ? 'textarea' : 'text');
+                label.classList.toggle('workshop-field--empty', isEmptyValue(kind, key, el.value));
+            }
         }
-        var key = el.getAttribute('data-field') || el.getAttribute('data-series-field') || '';
-        var kind = el.tagName === 'SELECT' ? 'select' : (el.tagName === 'TEXTAREA' ? 'textarea' : 'text');
-        label.classList.toggle('workshop-field--empty', isEmptyValue(kind, key, el.value));
+        var more = el.closest('details.workshop-more');
+        if (more) updateMoreSummary(more);
     }
 
     function hostFromUrl(ref) {
@@ -468,6 +499,7 @@
             more.open = true;
             setSeriesShowMorePref(true);
         }
+        updateMoreSummary(more);
     }
 
     function updateBarStats() {
@@ -478,6 +510,16 @@
         var bits = [fmt(T().workshop_selected_count || '{0}', selected)];
         if (dirtyVol) bits.push(fmt(T().workshop_dirty_n || '{0}', dirtyVol));
         stats.textContent = bits.join(' · ');
+    }
+
+    function syncDirtyState() {
+        var seriesCard = document.getElementById('workshopSeriesCard');
+        if (seriesCard && seriesCard.getAttribute('data-dirty') === '1') return true;
+        return !!document.querySelector('.workshop-volume-card[data-dirty="1"]');
+    }
+
+    function refreshGlobalDirty() {
+        dirty = syncDirtyState();
     }
 
     function setDirty() {
@@ -507,6 +549,7 @@
         if (more) {
             more.hidden = !extra.length;
             more.open = showSeriesMorePref();
+            updateMoreSummary(more);
         }
         bindMoreToggles();
         var seriesCard = document.getElementById('workshopSeriesCard');
@@ -580,6 +623,15 @@
                 onVolumeAct(btn.getAttribute('data-act'), card);
             });
         });
+        root.querySelectorAll('.workshop-magic').forEach(function (magicInput) {
+            magicInput.addEventListener('keydown', function (ev) {
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    var card = magicInput.closest('.workshop-volume-card');
+                    if (card) onVolumeAct('magic', card);
+                }
+            });
+        });
         applyForceLocks();
         bindMoreToggles();
         updateBarStats();
@@ -587,10 +639,12 @@
 
     function volumeFieldsOf(u) {
         var ins = u.inscribed || {};
+        var relDate = ins.release_date || '';
+        if (relDate.indexOf('0001-01-01') === 0) relDate = '';
         var primary = [
             { key: 'title', kind: 'text', size: 'wide', label: T().vol_field_title || 'Title', value: ins.title || '', locked: !!ins.title_locked },
             { key: 'isbn', kind: 'text', size: 'mid', label: T().vol_field_isbn || 'ISBN', value: ins.isbn || '', locked: !!ins.isbn_locked },
-            { key: 'release_date', kind: 'text', size: 'mid', label: T().vol_field_release_date || '', value: ins.release_date || '', locked: !!ins.release_locked },
+            { key: 'release_date', kind: 'text', size: 'mid', label: T().vol_field_release_date || '', value: relDate, locked: !!ins.release_locked },
             { key: 'summary', kind: 'textarea', wide: true, size: 'wide', rows: 2, label: T().vol_field_summary || '', value: ins.summary || '', locked: !!ins.summary_locked }
         ];
         var extras = VOLUME_EXTRAS.map(function (spec) {
@@ -644,9 +698,11 @@
         var all = volumeFieldsOf(u);
         var primary = all.filter(function (f) { return f.group !== 'more'; });
         var extra = all.filter(function (f) { return f.group === 'more'; });
-        var extraBlock = extra.length
+        var extraTotal = extra.length;
+        var extraFilled = extra.filter(function (f) { return !isEmptyValue(f.kind, f.key, f.value); }).length;
+        var extraBlock = extraTotal
             ? '<details class="workshop-more"' + (showVolumeMorePref() ? ' open' : '') + '>' +
-              '<summary>' + esc(T().workshop_more_fields || '') + '</summary>' +
+              '<summary>' + esc(moreSummaryText(extraFilled, extraTotal)) + '</summary>' +
               '<div class="workshop-more-body"><div class="workshop-volume-fields">' +
               extra.map(function (f) { return labeledField('data-field', f); }).join('') +
               '</div></div></details>'
@@ -727,6 +783,7 @@
         var labels = {
             send: T().workshop_event_send,
             'send-series': T().workshop_send_series,
+            'send-selection': T().workshop_send_selection || 'Envoyer la sélection',
             magic: T().workshop_event_magic,
             reset: T().workshop_event_reset,
             review: T().workshop_event_review
@@ -736,6 +793,9 @@
             var unit = unitFromHistory(h);
             if (unit) bits.push(unit);
             var detail = h.detail || {};
+            if (detail.sent != null && detail.total != null) {
+                bits.push(detail.sent + '/' + detail.total + ' ' + (T().stats_chapter_volumes || 'tomes').toLowerCase());
+            }
             if (detail.provider) bits.push(prettyProvider(detail.provider, detail.provider_ref));
             var fields = detail.fields || [];
             if (fields.length) {
@@ -748,26 +808,30 @@
 
     function snapshotDirty() {
         var snap = { series: null, volumes: {}, magic: {}, checks: {}, covers: {}, seriesCover: null };
-        var edits = seriesEdits();
-        if (seriesIsDirty(edits)) snap.series = edits;
         var seriesCard = document.getElementById('workshopSeriesCard');
-        if (seriesCard && seriesCard.getAttribute('data-cover-url')) {
-            snap.seriesCover = {
-                url: seriesCard.getAttribute('data-cover-url'),
-                display: seriesCard.getAttribute('data-cover-display') || ''
-            };
+        var isSeriesDirty = seriesCard && seriesCard.getAttribute('data-dirty') === '1';
+        if (isSeriesDirty) {
+            var edits = seriesEdits();
+            if (seriesIsDirty(edits)) snap.series = edits;
+            if (seriesCard.getAttribute('data-cover-url')) {
+                snap.seriesCover = {
+                    url: seriesCard.getAttribute('data-cover-url'),
+                    display: seriesCard.getAttribute('data-cover-display') || ''
+                };
+            }
         }
         document.querySelectorAll('.workshop-volume-card').forEach(function (card) {
             var cid = String(card.getAttribute('data-chapter-id'));
             var cb = card.querySelector('.workshop-vol-check');
             if (cb) snap.checks[cid] = cb.checked;
-            if (card.getAttribute('data-cover-url')) {
+            var isCardDirty = card.getAttribute('data-dirty') === '1';
+            if (isCardDirty && card.getAttribute('data-cover-url')) {
                 snap.covers[cid] = {
                     url: card.getAttribute('data-cover-url'),
                     display: card.getAttribute('data-cover-display') || ''
                 };
             }
-            if (card.getAttribute('data-dirty') !== '1') return;
+            if (!isCardDirty) return;
             snap.volumes[cid] = currentEdits(card);
             var magic = card.querySelector('.workshop-magic');
             snap.magic[cid] = magic ? magic.value : '';
@@ -818,8 +882,8 @@
         });
         applyForceLocks();
         document.querySelectorAll('[data-field], [data-series-field], .workshop-magic').forEach(syncEmptyClass);
-        dirty = !!(snap.series || snap.seriesCover || Object.keys(snap.volumes).length || Object.keys(snap.covers || {}).length);
         refreshSeriesDirty();
+        refreshGlobalDirty();
         updateBarStats();
     }
 
@@ -827,8 +891,13 @@
         (results || []).forEach(function (r) {
             if (!r || r.status !== 'DONE' || r.chapter_id == null) return;
             var card = document.querySelector('.workshop-volume-card[data-chapter-id="' + r.chapter_id + '"]');
-            if (card) card.removeAttribute('data-dirty');
+            if (card) {
+                card.removeAttribute('data-dirty');
+                card.removeAttribute('data-cover-url');
+                card.removeAttribute('data-cover-display');
+            }
         });
+        refreshGlobalDirty();
         updateBarStats();
     }
 
@@ -1010,6 +1079,16 @@
             '<span class="' + chipClass + '">' + esc(railStatusLabel(st)) + '</span></span></a>';
     }
 
+    function updateRailStatus(sid, newStatus) {
+        if (!sid || !newStatus) return;
+        (rail || []).forEach(function (item) {
+            if (String(item.id) === String(sid)) {
+                item.status = newStatus;
+            }
+        });
+        renderRail();
+    }
+
     function stepRail(delta) {
         var ids = filteredRail.map(function (s) { return String(s.id); });
         var i = ids.indexOf(String(seriesId));
@@ -1125,9 +1204,21 @@
         if (pick) pick.style.display = 'block';
         var above = document.getElementById('mrAboveList');
         if (above) above.innerHTML = '<p>' + esc(T().vol_preview_loading || '…') + '</p>';
+        var card = document.querySelector('.workshop-volume-card[data-chapter-id="' + cid + '"]');
+        var vnum = card ? card.getAttribute('data-volume-number') : '';
+        var vtitle = card ? ((card.querySelector('[data-field="title"]') || {}).value || '') : '';
+        var visbn = card ? ((card.querySelector('[data-field="isbn"]') || {}).value || '').trim() : '';
+        var ctxEl = document.getElementById('mrVolumeContextText');
+        if (ctxEl) {
+            var sname = (payload.series && payload.series.name) || '';
+            var label = sname;
+            if (vnum) label += ' · ' + (T().workshop_vol_n || 'Tome {0}').replace('{0}', vnum);
+            if (vtitle) label += ' — ' + vtitle;
+            ctxEl.textContent = label;
+        }
         api('/api/series/' + seriesId + '/workshop/review', {
             method: 'POST',
-            body: { chapter_id: cid, super: !!superReview }
+            body: { chapter_id: cid, isbn: visbn, super: !!superReview }
         }).then(function (data) {
             reviewCandidates = data.candidates || [];
             if (!above) return;
@@ -1136,10 +1227,21 @@
                 return;
             }
             above.innerHTML = reviewCandidates.map(function (c, i) {
-                return '<button type="button" class="workshop-candidate" data-idx="' + i + '">' +
+                var metaBits = [];
+                if (c.isbn) metaBits.push(c.isbn);
+                if (c.release_date) metaBits.push(c.release_date);
+                var metaStr = metaBits.join(' · ');
+                var imgHtml = c.cover_url
+                    ? '<img src="' + esc(c.cover_url) + '" alt="" class="workshop-candidate-cover" loading="lazy">'
+                    : '<div class="workshop-candidate-cover workshop-cover-placeholder"></div>';
+                var pickedClass = (i === 0) ? ' is-picked' : '';
+                return '<button type="button" class="workshop-candidate' + pickedClass + '" data-idx="' + i + '">' +
+                    imgHtml +
+                    '<div class="workshop-candidate-body">' +
                     '<strong>' + esc(c.title || c.provider || '') + '</strong>' +
-                    '<span>' + esc(c.isbn || '') + ' · ' + esc(c.release_date || '') + '</span>' +
-                    '<p>' + esc((c.summary || '').slice(0, 280)) + '</p></button>';
+                    (metaStr ? '<span>' + esc(metaStr) + '</span>' : '') +
+                    (c.summary ? '<p>' + esc(c.summary.slice(0, 280)) + '</p>' : '') +
+                    '</div></button>';
             }).join('');
             above.querySelectorAll('.workshop-candidate').forEach(function (btn) {
                 btn.addEventListener('click', function () {
@@ -1167,6 +1269,14 @@
             setDirty();
         }
         card.querySelectorAll('[data-field]').forEach(syncEmptyClass);
+        var more = card.querySelector('.workshop-more');
+        if (more) {
+            var hasMore = VOLUME_EXTRAS.some(function (spec) {
+                return edits && edits[spec.key];
+            });
+            if (hasMore) more.open = true;
+            updateMoreSummary(more);
+        }
     }
 
     window.workshopApplyReview = function (detail) {
@@ -1187,6 +1297,8 @@
             setDirty();
         }
         document.querySelectorAll('[data-series-field]').forEach(syncEmptyClass);
+        var seriesMore = document.getElementById('workshopSeriesMore');
+        if (seriesMore) updateMoreSummary(seriesMore);
         toast(T().workshop_review_staged || '');
     };
 
@@ -1218,6 +1330,8 @@
         modal.setAttribute('aria-hidden', 'true');
         reviewChapterId = null;
         reviewCandidates = [];
+        var ctxEl = document.getElementById('mrVolumeContextText');
+        if (ctxEl) ctxEl.textContent = '';
     }
 
     var coverPickTarget = null;
@@ -1348,12 +1462,15 @@
     var seriesDraftTimer = null;
     function scheduleSeriesDraft() {
         if (!seriesId) return;
+        var targetSid = seriesId;
         clearTimeout(seriesDraftTimer);
         seriesDraftTimer = setTimeout(function () {
+            if (String(seriesId) !== String(targetSid)) return;
             var seriesCard = document.getElementById('workshopSeriesCard');
+            if (!seriesCard || seriesCard.getAttribute('data-dirty') !== '1') return;
             var edits = seriesEdits();
             var coverUrl = (seriesCard && seriesCard.getAttribute('data-cover-url')) || '';
-            api('/api/series/' + seriesId + '/workshop/draft-series', {
+            api('/api/series/' + targetSid + '/workshop/draft-series', {
                 method: 'POST',
                 body: { edits: edits, cover_url: coverUrl }
             });
@@ -1448,17 +1565,36 @@
         document.getElementById('workshopSendSeries').addEventListener('click', function () {
             var seriesCard = document.getElementById('workshopSeriesCard');
             setSending(true);
+            var editsToSend = seriesEdits();
+            var coverToSend = (seriesCard && seriesCard.getAttribute('data-cover-url')) || '';
             api('/api/series/' + seriesId + '/workshop/send-series', {
                 method: 'POST',
                 body: {
-                    edits: seriesEdits(),
+                    edits: editsToSend,
                     force: true,
-                    cover_url: (seriesCard && seriesCard.getAttribute('data-cover-url')) || ''
+                    cover_url: coverToSend
                 }
             }).then(function (data) {
                 setSending(false);
                 toastSend(data);
-                if (data.success || data.partial) reload();
+                if (data.success || data.partial) {
+                    if (seriesCard) {
+                        seriesCard.removeAttribute('data-dirty');
+                        seriesCard.removeAttribute('data-cover-url');
+                        seriesCard.removeAttribute('data-cover-display');
+                        seriesCard.querySelectorAll('[data-series-field]').forEach(function (el) {
+                            el.setAttribute('data-initial', el.value);
+                        });
+                    }
+                    refreshGlobalDirty();
+                    updateRailStatus(seriesId, 'COMPLETED');
+                    try {
+                        if (window.SupporterNag && typeof window.SupporterNag.onWorkshopComplete === 'function') {
+                            window.SupporterNag.onWorkshopComplete({ series_count: 1, volumes_count: 0 });
+                        }
+                    } catch (e) {}
+                    reload();
+                }
             }).catch(function () { setSending(false); });
         });
         document.getElementById('workshopSendSelection').addEventListener('click', function () {
@@ -1472,12 +1608,26 @@
                 setSending(false);
                 toastSend(data);
                 markDoneClean(data.results);
-                if (data.success || data.partial) reload();
+                if (data.success || data.partial) {
+                    try {
+                        var okCount = Array.isArray(data.results)
+                            ? data.results.filter(function (r) { return r && (r.status === 'DONE' || (r.success && !r.noop)); }).length
+                            : items.length;
+                        if (okCount > 0 && window.SupporterNag && typeof window.SupporterNag.onWorkshopComplete === 'function') {
+                            window.SupporterNag.onWorkshopComplete({ series_count: 0, volumes_count: okCount });
+                        }
+                    } catch (e) {}
+                    reload();
+                }
             }).catch(function () { setSending(false); });
         });
         document.getElementById('workshopSendAll').addEventListener('click', function () {
-            if (!window.confirm(T().workshop_send_all_confirm || '')) return;
             var items = Array.prototype.slice.call(document.querySelectorAll('.workshop-volume-card')).map(itemFromCard);
+            if (!items.length) {
+                toast(T().vol_nothing_selected || '');
+                return;
+            }
+            if (!window.confirm(T().workshop_send_all_confirm || '')) return;
             setSending(true);
             api('/api/series/' + seriesId + '/workshop/send-selection', {
                 method: 'POST',
@@ -1486,7 +1636,17 @@
                 setSending(false);
                 toastSend(data);
                 markDoneClean(data.results);
-                if (data.success || data.partial) reload();
+                if (data.success || data.partial) {
+                    try {
+                        var okCountAll = Array.isArray(data.results)
+                            ? data.results.filter(function (r) { return r && (r.status === 'DONE' || (r.success && !r.noop)); }).length
+                            : items.length;
+                        if (okCountAll > 0 && window.SupporterNag && typeof window.SupporterNag.onWorkshopComplete === 'function') {
+                            window.SupporterNag.onWorkshopComplete({ series_count: 0, volumes_count: okCountAll });
+                        }
+                    } catch (e) {}
+                    reload();
+                }
             }).catch(function () { setSending(false); });
         });
         document.getElementById('workshopSelectAll').addEventListener('click', function () {
@@ -1517,6 +1677,15 @@
         if (cancel) cancel.addEventListener('click', function () {
             fetch(getRootPath() + '/api/volume-enrich/cancel', { method: 'POST', credentials: 'same-origin' });
         });
+        var coffeeBtn = document.getElementById('workshopCoffeeBtn');
+        if (coffeeBtn) {
+            coffeeBtn.addEventListener('click', function () {
+                try {
+                    localStorage.setItem('mk_nag_bmc_clicked_at', new Date().toISOString());
+                } catch (e) {}
+                toast(T().workshop_coffee_toast || 'Merci pour le café ! ☕');
+            });
+        }
         var volBtn = document.getElementById('mrVolumeConfirmBtn');
         if (volBtn) volBtn.addEventListener('click', confirmVolumeReview);
         var origClose = window.closeManualReviewModal;
@@ -1528,12 +1697,22 @@
             }
             if (typeof origClose === 'function') origClose();
         };
+        var _lastPassWasRunning = false;
         if (window.socket) {
             window.socket.on('volume_enrich_progress', function (st) {
                 var banner = document.getElementById('workshopPassBanner');
                 var blocks = !!(st && st.running && String(st.series_id) === String(seriesId));
                 if (banner) banner.hidden = !blocks;
                 setSending(!!(st && st.running && blocks));
+                if (st && !st.running && _lastPassWasRunning && String(st.series_id) === String(seriesId)) {
+                    reload();
+                }
+                _lastPassWasRunning = !!(st && st.running && String(st.series_id) === String(seriesId));
+            });
+            window.socket.on('series_status', function (msg) {
+                if (msg && msg.series_id && msg.status) {
+                    updateRailStatus(msg.series_id, msg.status);
+                }
             });
         }
         window.addEventListener('beforeunload', function (ev) {

@@ -1,0 +1,443 @@
+/* ================================================================
+   MetaKavita CSS — _dashboard-widgets.css
+   Dashboard : tuiles statistiques, panneau options avancées, welcome empty state
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+    /* 520 px forçait les tuiles en deux colonnes : avec 6 à 9 statistiques, le
+       récap partait sous la ligne de flottaison et demandait un défilement. */
+    max-width: 760px;
+    margin: 0 auto;
+}
+.mr-recap-kicker {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 12px;
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--mr-ach-accent);
+}
+.mr-recap-kicker::before {
+    content: "";
+    width: 28px;
+    height: 2px;
+    border-radius: 2px;
+    background: currentColor;
+}
+.mr-recap-medal {
+    width: min(96px, 24vw);
+    aspect-ratio: 1;
+    margin: 0 auto 12px;
+}
+.mr-recap-medal-ring {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    padding: 5px;
+    background:
+        radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.14), transparent 45%),
+        conic-gradient(from 210deg, var(--mr-ach-accent), #38bdf8, #fb7185, #fbbf24, var(--mr-ach-accent));
+    box-shadow: 0 0 48px color-mix(in srgb, var(--mr-ach-accent) 35%, transparent);
+}
+.mr-recap-medal-inner {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    background: color-mix(in srgb, var(--bg-card, #0a0d16) 92%, #000);
+    display: grid;
+    place-items: center;
+    position: relative;
+}
+[data-theme="light"] .mr-recap-medal-inner {
+    background: #fff;
+}
+.mr-recap-medal-art {
+    position: absolute;
+    inset: 18%;
+    border-radius: 50%;
+    background:
+        radial-gradient(circle at 40% 35%, color-mix(in srgb, var(--mr-ach-accent) 22%, transparent), transparent 60%);
+    opacity: 0.9;
+}
+.mr-recap-medal-mono {
+    position: relative;
+    z-index: 1;
+    font-size: clamp(1.4rem, 4vw, 1.85rem);
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    color: var(--mr-ach-accent);
+    line-height: 1;
+}
+.mr-recap-hero-title {
+    margin: 0 0 10px;
+    font-size: clamp(1.45rem, 4vw, 2.15rem);
+    font-weight: 700;
+    letter-spacing: -0.045em;
+    line-height: 1.12;
+    background: linear-gradient(115deg, #fff 8%, var(--mr-ach-accent) 48%, #38bdf8 88%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+[data-theme="light"] .mr-recap-hero-title {
+    background: linear-gradient(115deg, #0f172a 8%, #0d9488 50%, #0284c7 88%);
+    -webkit-background-clip: text;
+    background-clip: text;
+}
+.mr-recap-hero-flavor {
+    margin: 0 auto 14px;
+    max-width: 48ch;
+    color: var(--text-muted);
+    font-size: clamp(0.92rem, 1.5vw, 1.05rem);
+    line-height: 1.5;
+    font-weight: 500;
+}
+.mr-recap-badges {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    margin: 0 0 16px;
+}
+.mr-recap-badge {
+    --mr-badge-accent: #2dd4bf;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 12px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--mr-badge-accent) 40%, rgba(255, 255, 255, 0.08));
+    background: color-mix(in srgb, var(--mr-badge-accent) 12%, color-mix(in srgb, var(--bg-card, #12151f) 80%, transparent));
+    font-size: 12px;
+    font-weight: 650;
+    color: var(--text-main);
+    opacity: 0;
+    animation: mrRecapBadgeIn 320ms ease forwards;
+}
+.mr-recap-badge-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--mr-badge-accent);
+    box-shadow: 0 0 10px color-mix(in srgb, var(--mr-badge-accent) 60%, transparent);
+}
+/* Trois colonnes fixes, dernier rang centré : la grille `auto-fit` en tirait
+   quatre puis laissait deux tuiles à moitié de ligne, et comme les tuiles
+   s'étiraient, celles du bas étaient deux fois plus larges que celles du haut. */
+.mr-recap-stats {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 12px;
+    margin-top: 4px;
+    text-align: left;
+}
+.mr-recap-tile {
+    position: relative;
+    flex: 0 1 calc(33.333% - 8px);
+    min-width: 150px;
+    padding: 12px 14px 11px;
+    border-radius: 14px;
+    border: 1px solid rgba(255, 255, 255, 0.07);
+    /* Halo d'angle intégré au fond : le disque en `::after` débordait en bas à
+       droite et se lisait comme une tache plus que comme une décoration. */
+    background:
+        radial-gradient(120% 120% at 100% 0%,
+            color-mix(in srgb, var(--mr-ach-accent) 14%, transparent), transparent 62%),
+        color-mix(in srgb, var(--bg-card, #12151f) 88%, transparent);
+    box-shadow: 0 14px 28px rgba(0, 0, 0, 0.18);
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    overflow: hidden;
+    min-height: 72px;
+}
+[data-theme="light"] .mr-recap-tile {
+    background: #fff;
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: 0 10px 24px rgba(15, 23, 42, 0.06);
+}
+.mr-recap-tile strong {
+    position: relative;
+    z-index: 1;
+    font-size: clamp(1.45rem, 3vw, 1.85rem);
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--mr-ach-accent);
+    line-height: 1.1;
+}
+.mr-recap-tile span {
+    position: relative;
+    z-index: 1;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 600;
+}
+.mr-recap-stats-link {
+    align-self: center;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--text-muted);
+    text-decoration: none;
+    margin-right: 4px;
+}
+.mr-recap-stats-link:hover {
+    color: var(--mr-ach-accent, var(--primary));
+    text-decoration: underline;
+}
+.mr-recap-enter {
+    animation: mrRecapEnter 280ms ease;
+}
+.mr-recap-enter .mr-recap-medal-ring {
+    animation: mrRecapGlow 1.8s ease-in-out 1;
+}
+@keyframes mrRecapEnter {
+    from { opacity: 0; transform: translateY(8px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@keyframes mrRecapGlow {
+    0%, 100% { box-shadow: 0 0 36px color-mix(in srgb, var(--mr-ach-accent) 28%, transparent); }
+    50% { box-shadow: 0 0 64px color-mix(in srgb, var(--mr-ach-accent) 48%, transparent); }
+}
+@keyframes mrRecapBadgeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .mr-recap-enter,
+    .mr-recap-enter .mr-recap-medal-ring,
+    .mr-recap-badge {
+        animation: none !important;
+        opacity: 1 !important;
+        transform: none !important;
+    }
+}
+@media (max-width: 520px) {
+    /* Deux par ligne : empilées une par une, les six tuiles poussaient les
+       boutons du récap hors de l'écran. */
+    .mr-recap-tile { flex-basis: calc(50% - 6px); min-width: 120px; }
+    .mr-recap-medal { width: 100px; }
+}
+@media (max-width: 380px) {
+    .mr-recap-tile { flex-basis: 100%; }
+}
+
+@media (max-width: 720px) {
+    .mr-candidate { grid-template-columns: 64px minmax(0, 1fr); }
+    .mr-candidate-aside { grid-column: 1 / -1; align-items: flex-start; }
+    .mr-cover { width: 64px; height: 92px; }
+    .mr-cover-pick { width: 64px; }
+    .mr-summary { max-height: 12em; }
+    .mr-candidate.is-selected .mr-summary { max-height: 22em; }
+    .mr-edit-fiche-top {
+        grid-template-columns: 1fr;
+        justify-items: stretch;
+    }
+    .mr-edit-cover-col { align-items: center; }
+    .mr-edit-meta-row { grid-template-columns: 1fr 1fr; }
+    .mr-edit-dual { grid-template-columns: 1fr; }
+    .mr-footer { flex-direction: column; align-items: stretch; }
+    .mr-footer-left,
+    .mr-footer-right { width: 100%; justify-content: stretch; }
+    .mr-footer-left .btn-danger,
+    .mr-footer-right .btn-secondary,
+    .mr-footer-right .btn-primary { flex: 1; }
+}
+
+/* Panneau Options Avancées — dense, pas d’étirement vide */
+.override-panel {
+    background-color: color-mix(in srgb, var(--bg-input) 92%, transparent);
+    padding: 8px 10px;
+    margin-top: 6px;
+    border-radius: var(--radius-sm);
+    border: 1px solid color-mix(in srgb, var(--sky) 18%, var(--border-color));
+    display: none;
+    max-width: 100%;
+}
+.override-main {
+    display: grid;
+    grid-template-columns: minmax(0, 1.1fr) minmax(0, 1.35fr) auto auto;
+    gap: 6px 10px;
+    align-items: end;
+}
+.override-field { min-width: 0; }
+.override-field .input-hint {
+    margin-bottom: 2px;
+    font-size: 11px;
+    line-height: 1.2;
+}
+.override-main input[type="text"],
+.override-main select {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 12.5px;
+    width: 100%;
+}
+.override-magic-row {
+    display: flex;
+    gap: 5px;
+    min-width: 0;
+}
+.override-provider {
+    width: 38%;
+    min-width: 7.5rem;
+    flex: 0 1 auto;
+    font-size: 12px;
+    padding: 6px 8px;
+}
+.override-magic-row input[type="text"] {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.override-field--save {
+    display: flex;
+    align-items: flex-end;
+}
+.override-save-btn {
+    padding: 6px 12px;
+    font-size: 12.5px;
+    white-space: nowrap;
+}
+.override-panel .segmented-control label {
+    padding: 5px 10px;
+}
+.targeted-scraping-details {
+    margin-top: 8px;
+    border-top: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    padding-top: 6px;
+}
+.targeted-scraping-details > summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--primary);
+    font-weight: 650;
+    list-style-position: outside;
+    user-select: none;
+}
+.targeted-scraping-details > summary::-webkit-details-marker {
+    color: var(--primary);
+}
+.override-tf-body {
+    margin-top: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.override-tf-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+}
+.override-tf-btn {
+    font-size: 11px;
+    padding: 3px 8px;
+    border-radius: 6px;
+}
+/* flex-wrap : chips serrées, pas de colonnes étirées (auto-fit) */
+.override-fields-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 5px;
+    padding: 6px;
+    background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+    border-radius: 6px;
+    border: 1px solid var(--border-color);
+}
+.override-field-chip {
+    font-size: 11px !important;
+    gap: 5px !important;
+    margin: 0 !important;
+    padding: 3px 8px;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--teal) 22%, var(--border-color));
+    background: color-mix(in srgb, var(--teal) 8%, var(--bg-input));
+    white-space: nowrap;
+}
+.override-field-chip:has(input:checked) {
+    border-color: color-mix(in srgb, var(--teal) 45%, var(--border-color));
+    background: color-mix(in srgb, var(--teal) 16%, var(--bg-input));
+}
+.override-alt-langs {
+    display: grid;
+    grid-template-columns: minmax(0, 28rem);
+    gap: 2px;
+    max-width: 100%;
+}
+.override-alt-langs input[type="text"] {
+    width: 100%;
+    font-size: 12px;
+    padding: 5px 8px;
+    margin: 0;
+}
+.override-alt-langs .text-muted {
+    font-size: 11px;
+    line-height: 1.3;
+}
+
+.input-hint { font-size: 12px; color: var(--text-muted); display: block; margin-bottom: 4px; }
+.loading { font-size: 12px; color: var(--warning); font-weight: bold;}
+
+@container series-list (max-width: 900px) {
+    .override-main {
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    }
+    .override-field--pub,
+    .override-field--save {
+        grid-column: span 1;
+    }
+}
+@container series-list (max-width: 560px) {
+    .override-main {
+        grid-template-columns: 1fr;
+    }
+    .override-field--save .override-save-btn {
+        width: 100%;
+    }
+    .override-alt-langs {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Welcome empty state */
+.welcome-card {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    padding: 48px 24px;
+    background-color: var(--bg-card);
+    background-image:
+        radial-gradient(ellipse 60% 50% at 50% 20%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+        radial-gradient(ellipse 40% 35% at 85% 85%, color-mix(in srgb, var(--violet) 8%, transparent), transparent 55%);
+}
+.welcome-icon {
+    font-size: 2.6rem;
+    margin-bottom: 16px;
+    line-height: 1;
+}
+.welcome-title {
+    font-family: var(--font-display);
+    font-size: clamp(1.4rem, 3vw, 1.85rem);
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: var(--text-main);
+    margin: 0 0 10px;
+}
+.welcome-text {
+    color: var(--text-muted);
+    font-weight: 500;
+    font-size: 0.95rem;
+    max-width: 42ch;
+    line-height: 1.5;
+    margin: 0;
+}
+.welcome-text-error {
+    color: var(--danger);
+    font-weight: 600;
+}
+

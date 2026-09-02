@@ -18,7 +18,7 @@ If **Cover picker** is on, the next step is this grid: **Current selection**, li
 
 ![Manual review — cover picker](../../assets/docs-manual-review-cover.png)
 
-If **Edit before confirm** is on (`MANUAL_REVIEW_EDIT`), **Adjust before send** is the last recap on the dashboard: cover URL, title, localized title, year, status, age rating, format, publisher, summary, genres, tags, staff — with the Master / Fusion bar. Each writable field has a tick: on means it is written, off leaves Kavita as-is. Title and format are display-only. A series **Targeted fields** override that dropped a field locks that tick. Footer: **Back**, **Skip**, **Confirm** (`Enter` / `Esc` / `Backspace`). *(Note: In the [Workshop](volumes.md), this intermediate screen is omitted; picks and manual field completion stage directly onto the workshop series card, which acts as the editing sheet).*
+If **Edit before confirm** is on (`MANUAL_REVIEW_EDIT`), **Adjust before send** is the last recap: cover URL, title, localized title, year, status, age rating, format, publisher, summary, genres, tags, staff — with the Master / Fusion bar. Each writable field has a tick: on means it is written, off leaves Kavita as-is. Title and format are display-only. A series **Targeted fields** override that dropped a field locks that tick. Footer: **Back**, **Skip**, **Confirm** (`Enter` / `Esc` / `Backspace`). *(Note: In the [Workshop](volumes.md), these review steps are also respected; upon confirmation, changes and the selected cover are staged as a draft on the series card without writing immediately to Kavita).*
 
 ![Manual review — adjust before send](../../assets/docs-manual-review-edit.png)
 

@@ -55,7 +55,10 @@ _VERSION_RE = re.compile(r'^##\s*\[(?P<version>[^\]]+)\]\s*(?:-\s*(?P<date>[\d-]
 # les versions anciennes qui n'en portaient pas. Le type décide de la couleur et
 # du pictogramme ; il ne décide jamais de ce qui est affiché.
 _SECTION_KINDS = (
-    ("warn", ("⚠️", "⚠"), ("before you update", "avant de mettre à jour", "breaking"), "mk-ico-alert"),
+    ("warn", ("⚠️", "⚠"), (
+        "à savoir", "a savoir", "good to know", "points d'attention", "points to note",
+        "things to note", "important notes", "before you update", "avant de mettre à jour", "breaking",
+    ), "mk-ico-alert"),
     ("new", ("✨", "🚀", "🧱"), ("what's new", "nouveauté", "nouvelle", "new in", "feature",
                                "fonctionnalité"), "mk-ico-sparkle"),
     ("fix", ("🐛",), ("bug", "correctif", "correction", "fixes", "hotfix"), "mk-ico-bug"),

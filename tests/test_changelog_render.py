@@ -64,10 +64,10 @@ def test_le_rendu_ne_montre_que_la_langue_demandee():
     fr = get_full_changelog_html("fr")
     en = get_full_changelog_html("en")
 
-    assert "Avant de mettre à jour" in fr
-    assert "Before you update" not in fr
-    assert "Before you update" in en
-    assert "Avant de mettre à jour" not in en
+    assert "À savoir" in fr
+    assert "Good to know" not in fr
+    assert "Good to know" in en
+    assert "À savoir" not in en
 
 
 def test_les_marqueurs_de_langue_ne_sont_jamais_rendus():
@@ -106,6 +106,10 @@ def test_la_derniere_version_est_ouverte_et_les_autres_sont_repliees():
 def test_chaque_section_porte_son_type_et_son_pictogramme():
     assert _section_kind("✨ Nouveautés") == ("new", "mk-ico-sparkle")
     assert _section_kind("🐛 Correctifs") == ("fix", "mk-ico-bug")
+    assert _section_kind("⚠️ À savoir") == ("warn", "mk-ico-alert")
+    assert _section_kind("⚠️ Good to know") == ("warn", "mk-ico-alert")
+    assert _section_kind("⚠️ Points d'attention") == ("warn", "mk-ico-alert")
+    assert _section_kind("⚠️ Points to note") == ("warn", "mk-ico-alert")
     assert _section_kind("⚠️ Avant de mettre à jour") == ("warn", "mk-ico-alert")
     assert _section_kind("🧭 Limitations connues") == ("limits", "mk-ico-compass")
     assert _section_kind("🔒 Security") == ("security", "mk-ico-shield")
@@ -268,7 +272,7 @@ def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
         assert fondu not in bloc
 
     # 1.7.1 : rustines du mapping / fetch jamais sortis, et le refrain interne
-    # « this patch sits on » — le lecteur a « Avant de mettre à jour ».
+    # « this patch sits on » — le lecteur a « À savoir ».
     for phrase in (
         "This patch sits on",
         "Ce correctif s'appuie",

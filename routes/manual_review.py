@@ -191,9 +191,7 @@ def api_manual_review_choice(review_id):
         return jsonify(success=False, error=t.get("err_review_not_found", "Review introuvable")), 404
 
     config = load_config()
-    if data.get("workshop"):
-        use_edit = False
-    elif "prefer_edit" in data:
+    if "prefer_edit" in data:
         use_edit = bool(data.get("prefer_edit"))
     else:
         use_edit = bool(config.get("MANUAL_REVIEW_EDIT", True))

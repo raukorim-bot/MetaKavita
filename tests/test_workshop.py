@@ -725,6 +725,35 @@ def test_send_series_force_overwrites_summary(client, monkeypatch, isolated_db):
     assert "loc" not in calls
 
 
+def test_send_series_handles_kavita_3_tuple_from_update_series_general(client, monkeypatch, isolated_db):
+    _enable(monkeypatch)
+    import routes.workshop as rw
+
+    calls = []
+
+    class Api(FakeApi):
+        def update_series_metadata(self, payload):
+            calls.append("meta")
+            return True, "ok", True
+
+        def update_series_general(self, *a, **k):
+            calls.append("general")
+            # KavitaAPI.update_series_general returns a 3-tuple (success, message, sealed)
+            return True, "Mise à jour réussie", True
+
+    monkeypatch.setattr(rw, "_api", lambda: Api())
+    _lock_writes(monkeypatch)
+    res = client.post(
+        "/api/series/7/workshop/send-series",
+        json={"edits": {"localizedName": "Titre Alternatif"}},
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert "localizedName" in data["written"]
+    assert "general" in calls
+
+
 def test_send_series_uploads_chosen_cover(client, monkeypatch, isolated_db):
     _enable(monkeypatch)
     import routes.workshop as rw
@@ -1191,6 +1220,10 @@ def test_workshop_copy_names_the_sheet_and_volumes():
     assert translations["en"]["workshop_magic_label"] == "Magic Input"
     assert translations["fr"]["workshop_more_fields"] == "Plus de champs"
     assert translations["en"]["workshop_more_fields"] == "More fields"
+    assert "{0} complétés / {1}" in translations["fr"]["workshop_more_fields_count"]
+    assert "{0} filled / {1}" in translations["en"]["workshop_more_fields_count"]
+    assert "{0} complété / {1}" in translations["fr"]["workshop_more_fields_count_single"]
+    assert "{0} filled / {1}" in translations["en"]["workshop_more_fields_count_single"]
     assert translations["fr"]["workshop_open"] == "Atelier"
     assert translations["en"]["workshop_open"] == "Workshop"
     assert translations["fr"]["workshop_pick_series"] == "Choisis une série dans le rail."

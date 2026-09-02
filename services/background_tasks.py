@@ -14,7 +14,7 @@ import threading
 import time
 
 from config_manager import load_config, is_library_enabled
-from db_manager import record_run_origin
+from db_manager import record_run_origin, clean_orphaned_cache, get_all_cached_data
 from kavita_api import KavitaAPI
 from secure_logging import safe_exc_str, series_label
 from translations import translations

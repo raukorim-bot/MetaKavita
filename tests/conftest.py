@@ -24,6 +24,72 @@ import pytest
 
 from flask_test_app import get_series_bp  # noqa: E402
 
+# --- RESOLUTION CSS MODULAIRE POUR TESTS ------------------------------------
+# style.css a été découpé en 21 modules via un manifest @import.
+# Les tests existants qui lisent style.css s'attendent à la feuille globale
+# telle qu'interprétée par le navigateur (résolution récursive des @import).
+import io
+import re
+import builtins
+from pathlib import Path
+
+_orig_path_read_text = Path.read_text
+_orig_builtins_open = builtins.open
+
+
+def _resolve_css_imports(file_path: Path, visited=None) -> str:
+    if visited is None:
+        visited = set()
+    try:
+        real_path = file_path.resolve()
+    except Exception:
+        real_path = file_path
+    if real_path in visited:
+        return ""
+    visited.add(real_path)
+    try:
+        content = _orig_path_read_text(file_path, encoding="utf-8")
+    except Exception:
+        return ""
+    base_dir = file_path.parent
+
+    def _replace_import(m):
+        rel = m.group(1).strip("'\" ")
+        imported = (base_dir / rel).resolve()
+        if imported.is_file():
+            return _resolve_css_imports(imported, visited)
+        return m.group(0)
+
+    return re.sub(r"@import\s+url\(([^)]+)\);?", _replace_import, content)
+
+
+def _patched_read_text(self, *args, **kwargs):
+    text = _orig_path_read_text(self, *args, **kwargs)
+    norm = str(self).replace("\\", "/")
+    if norm.endswith("static/css/style.css") and "@import url(" in text:
+        return _resolve_css_imports(self)
+    return text
+
+
+class _CssExpandedTextIO(io.StringIO):
+    def __init__(self, content, name=None):
+        super().__init__(content)
+        self.name = name
+
+
+def _patched_open(file, *args, **kwargs):
+    mode = args[0] if args else kwargs.get("mode", "r")
+    if "r" in mode and "b" not in mode:
+        norm = str(file).replace("\\", "/")
+        if norm.endswith("static/css/style.css"):
+            expanded = _resolve_css_imports(Path(file))
+            return _CssExpandedTextIO(expanded, name=str(file))
+    return _orig_builtins_open(file, *args, **kwargs)
+
+
+Path.read_text = _patched_read_text
+builtins.open = _patched_open
+
 
 # --- BARRIÈRE RÉSEAU ---------------------------------------------------------
 # L'en-tête de ce fichier dit depuis toujours que les tests ne doivent JAMAIS

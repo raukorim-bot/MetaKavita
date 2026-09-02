@@ -1,0 +1,319 @@
+/* ================================================================
+   MetaKavita CSS — _supporter.css
+   Composants Supporter / Buy Me a Coffee (.license, modals, ribbons)
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* --- Pubs supporter (.license) — overlays rares → BMC --- */
+.license-nag-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 12000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    box-sizing: border-box;
+}
+.license-nag-overlay.is-open {
+    display: flex;
+}
+.license-nag-backdrop {
+    position: absolute;
+    inset: 0;
+    background:
+        radial-gradient(ellipse 60% 50% at 50% 40%, rgba(232, 168, 74, 0.14), transparent 55%),
+        radial-gradient(ellipse 50% 45% at 70% 20%, rgba(56, 189, 248, 0.12), transparent 50%),
+        rgba(7, 9, 15, 0.72);
+    backdrop-filter: blur(6px);
+    -webkit-backdrop-filter: blur(6px);
+    animation: license-nag-fade 0.35s ease-out;
+}
+.license-nag-card {
+    position: relative;
+    z-index: 1;
+    width: min(440px, 100%);
+    padding: 32px 28px 22px;
+    border-radius: 22px;
+    overflow: hidden;
+    text-align: center;
+    background:
+        linear-gradient(165deg, rgba(255, 255, 255, 0.06) 0%, transparent 42%),
+        var(--bg-card, #12151f);
+    border: 1px solid rgba(232, 168, 74, 0.22);
+    box-shadow:
+        0 0 0 1px rgba(56, 189, 248, 0.08),
+        0 24px 64px rgba(0, 0, 0, 0.45),
+        0 0 80px rgba(232, 168, 74, 0.08);
+    animation: license-nag-pop 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+}
+[data-theme="light"] .license-nag-card {
+    border-color: rgba(196, 120, 42, 0.28);
+    box-shadow:
+        0 0 0 1px rgba(14, 165, 233, 0.08),
+        0 24px 56px rgba(15, 23, 42, 0.14),
+        0 0 60px rgba(232, 168, 74, 0.12);
+}
+.license-nag-aura {
+    pointer-events: none;
+    position: absolute;
+    inset: -40% -20% auto;
+    height: 70%;
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(232, 168, 74, 0.22), transparent 55%),
+        radial-gradient(ellipse at 80% 30%, rgba(45, 212, 191, 0.12), transparent 45%);
+    animation: license-nag-glow 4.5s ease-in-out infinite alternate;
+}
+.license-nag-brand {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 18px;
+}
+.license-nag-logo-wrap {
+    display: grid;
+    place-items: center;
+    width: 72px;
+    height: 72px;
+    border-radius: 20px;
+    background:
+        radial-gradient(circle at 35% 30%, rgba(56, 189, 248, 0.35), transparent 55%),
+        radial-gradient(circle at 70% 70%, rgba(167, 139, 250, 0.28), transparent 50%),
+        rgba(0, 0, 0, 0.35);
+    box-shadow:
+        0 0 0 1px rgba(255, 255, 255, 0.1),
+        0 8px 28px rgba(56, 189, 248, 0.25),
+        0 0 40px rgba(232, 168, 74, 0.15);
+    animation: license-nag-logo-float 3.2s ease-in-out infinite;
+}
+[data-theme="light"] .license-nag-logo-wrap {
+    background:
+        radial-gradient(circle at 35% 30%, rgba(14, 165, 233, 0.2), transparent 55%),
+        radial-gradient(circle at 70% 70%, rgba(139, 92, 246, 0.14), transparent 50%),
+        #0f172a;
+}
+.license-nag-logo {
+    width: 52px;
+    height: 52px;
+    object-fit: contain;
+    border-radius: 12px;
+}
+.license-nag-brand-name {
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.04em;
+    background: linear-gradient(115deg, #7dd3fc 0%, #e8a84a 55%, #f0c674 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+.license-nag-kicker {
+    position: relative;
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: #e8a84a;
+}
+.license-nag-title {
+    position: relative;
+    margin: 0 0 12px;
+    font-family: var(--font-display);
+    font-size: 1.35rem;
+    font-weight: 700;
+    letter-spacing: -0.03em;
+    color: var(--text-main, #e2e8f0);
+    line-height: 1.28;
+}
+.license-nag-body {
+    position: relative;
+    margin: 0 auto 8px;
+    max-width: 34ch;
+    font-size: 0.95rem;
+    color: var(--text-muted, #94a3b8);
+    line-height: 1.55;
+}
+.license-nag-estimate {
+    position: relative;
+    margin: 0 0 4px;
+    font-size: 0.72rem;
+    font-style: italic;
+    color: var(--text-muted, #64748b);
+    opacity: 0.85;
+}
+.license-nag-actions {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 22px;
+}
+.license-nag-bmc {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    padding: 13px 18px;
+    border-radius: 14px;
+    border: none;
+    text-decoration: none;
+    font-family: var(--font-display);
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    color: #1a1208 !important;
+    background: linear-gradient(135deg, #f0c674 0%, #e8a84a 45%, #d4892a 100%);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.35) inset,
+        0 10px 28px rgba(232, 168, 74, 0.35);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
+}
+.license-nag-bmc:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.05);
+    box-shadow:
+        0 1px 0 rgba(255, 255, 255, 0.4) inset,
+        0 14px 32px rgba(232, 168, 74, 0.45);
+}
+.license-nag-bmc:active {
+    transform: translateY(0);
+}
+.license-nag-bmc-icon {
+    font-size: 1.15rem;
+    line-height: 1;
+}
+.license-nag-continue {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 11px 16px;
+    border-radius: 12px;
+    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1));
+    background: transparent;
+    color: var(--text-muted, #94a3b8);
+    font-family: var(--font-family);
+    font-size: 0.88rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.license-nag-continue:hover:not(:disabled) {
+    color: var(--text-main, #e2e8f0);
+    border-color: rgba(232, 168, 74, 0.35);
+    background: rgba(232, 168, 74, 0.06);
+}
+.license-nag-continue:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+.license-nag-honor {
+    position: relative;
+    margin-top: 16px;
+    padding: 0;
+    border: none;
+    background: none;
+    font-size: 0.78rem;
+    color: var(--text-muted, #64748b);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    cursor: pointer;
+    transition: color 0.15s ease;
+}
+.license-nag-honor:hover {
+    color: #e8a84a;
+}
+.license-nag-card[data-variant="super_glow"] .license-nag-kicker,
+.license-nag-card[data-variant="batch_hero"] .license-nag-kicker,
+.license-nag-card[data-variant="mr_craft"] .license-nag-kicker,
+.license-nag-card[data-variant="achievement_echo"] .license-nag-kicker,
+.license-nag-card[data-variant="time_saved"] .license-nag-kicker {
+    color: #e8a84a;
+}
+.license-nag-card[data-variant="super_glow"] .license-nag-aura {
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(251, 191, 36, 0.28), transparent 55%),
+        radial-gradient(ellipse at 20% 40%, rgba(56, 189, 248, 0.12), transparent 45%);
+}
+.license-nag-card[data-variant="mr_craft"] .license-nag-aura {
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(244, 114, 182, 0.18), transparent 55%),
+        radial-gradient(ellipse at 80% 30%, rgba(232, 168, 74, 0.16), transparent 45%);
+}
+.license-nag-card[data-variant="achievement_echo"] .license-nag-aura {
+    background:
+        radial-gradient(ellipse at 50% 0%, rgba(167, 139, 250, 0.2), transparent 55%),
+        radial-gradient(ellipse at 70% 40%, rgba(232, 168, 74, 0.14), transparent 45%);
+}
+
+@keyframes license-nag-fade {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+@keyframes license-nag-pop {
+    from {
+        opacity: 0;
+        transform: translateY(14px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+@keyframes license-nag-glow {
+    from { opacity: 0.75; transform: scale(1); }
+    to { opacity: 1; transform: scale(1.06); }
+}
+@keyframes license-nag-logo-float {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(-3px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .license-nag-backdrop,
+    .license-nag-card,
+    .license-nag-aura,
+    .license-nag-logo-wrap {
+        animation: none;
+    }
+}
+
+.mr-recap-nag {
+    flex-shrink: 0;
+    margin: 0;
+    padding: 12px 16px 10px;
+    border-top: 1px solid rgba(232, 168, 74, 0.22);
+    background:
+        linear-gradient(180deg, rgba(232, 168, 74, 0.08), transparent 70%),
+        var(--bg-card, #12151f);
+    text-align: center;
+}
+.mr-recap-nag-value {
+    margin: 0 0 8px;
+    font-size: 0.8rem;
+    color: var(--text-muted, #64748b);
+    line-height: 1.35;
+}
+.mr-recap-nag-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    max-width: 100%;
+    padding: 10px 16px;
+    border-radius: 12px;
+    font-size: 0.88rem;
+    font-weight: 700;
+    color: #1a1208;
+    text-decoration: none;
+    background: linear-gradient(135deg, #f0c674, #e8a84a);
+    box-shadow: 0 6px 16px rgba(232, 168, 74, 0.25);
+}
+.mr-recap-nag-link:hover {
+    filter: brightness(1.05);
+    text-decoration: none;
+}
+

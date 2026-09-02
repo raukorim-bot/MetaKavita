@@ -14,6 +14,7 @@ MAX_NAGS_PER_DAY = 2
 HONOR_SNOOZE_DAYS = 30
 BMC_COOLDOWN_SECONDS = 10 * 60
 CONTINUE_DELAY_MS = 2500
+MIN_ACTIVITY_THRESHOLD = 10
 
 VARIANT_IDS = (
     "time_saved",
@@ -21,6 +22,7 @@ VARIANT_IDS = (
     "mr_craft",
     "super_glow",
     "achievement_echo",
+    "workshop_craft",
 )
 
 BMC_URL = "https://buymeacoffee.com/raukorim"
@@ -158,8 +160,43 @@ def record_nag_shown(
         store["mk_nag_shown_count"] = 1
 
 
-def can_show_overlay(store: dict[str, Any], now: datetime | None = None) -> bool:
+def lifetime_activity(store: dict[str, Any], context: dict[str, Any] | None = None) -> int:
+    """Nombre total d'actions d'enrichissement réussies (séries écrites + tomes écrits + reviews confirmées)."""
+    series = 0
+    reviews = 0
+    try:
+        series = int(store.get("mk_nag_lifetime_series") or 0)
+    except (TypeError, ValueError):
+        pass
+    try:
+        reviews = int(store.get("mk_nag_lifetime_reviews") or 0)
+    except (TypeError, ValueError):
+        pass
+    total = series + reviews
+    if context:
+        ctx_series = int(context.get("series_count") or 0)
+        ctx_reviews = int(context.get("done") or context.get("volumes_count") or 0)
+        total = max(total, series + reviews + ctx_series + ctx_reviews)
+    return total
+
+
+def has_minimum_activity(
+    store: dict[str, Any],
+    context: dict[str, Any] | None = None,
+    threshold: int = MIN_ACTIVITY_THRESHOLD,
+) -> bool:
+    """Vérifie si le seuil d'activité minimum (10 actions) est atteint."""
+    return lifetime_activity(store, context) >= threshold
+
+
+def can_show_overlay(
+    store: dict[str, Any],
+    now: datetime | None = None,
+    context: dict[str, Any] | None = None,
+) -> bool:
     if in_honeymoon(store, now):
+        return False
+    if not has_minimum_activity(store, context):
         return False
     if honor_snoozed(store, now):
         return False
@@ -215,6 +252,13 @@ def eligible_variants(context: dict[str, Any]) -> list[str]:
             out.append("super_glow")
         if ach and ach not in ("empty_session", ""):
             out.append("achievement_echo")
+    elif source == "workshop":
+        out.append("workshop_craft")
+        volumes = int(context.get("volumes_count") or 0)
+        if volumes > 0 or series > 0:
+            out.append("time_saved")
+        if super_on:
+            out.append("super_glow")
 
     if milestone_hit or lifetime_series >= MILESTONE_SERIES or lifetime_reviews >= MILESTONE_REVIEWS:
         if "achievement_echo" not in out:
@@ -234,6 +278,7 @@ def pick_variant(context: dict[str, Any], store: dict[str, Any]) -> str:
     preferred_order = {
         "batch": ["batch_hero", "super_glow", "time_saved", "achievement_echo", "mr_craft"],
         "mr_recap": ["mr_craft", "achievement_echo", "super_glow", "time_saved", "batch_hero"],
+        "workshop": ["workshop_craft", "time_saved", "super_glow", "achievement_echo"],
     }
     order = preferred_order.get(str(context.get("source") or ""), VARIANT_IDS)
     for vid in order:
@@ -248,7 +293,7 @@ def should_show_for_event(
     now: datetime | None = None,
 ) -> bool:
     """Décision complète avant affichage overlay."""
-    if not can_show_overlay(store, now):
+    if not can_show_overlay(store, now, context=context):
         return False
     source = str(context.get("source") or "")
     if source == "mr_recap" and not is_rich_mr_session(context):
@@ -258,5 +303,8 @@ def should_show_for_event(
         if context.get("stopped"):
             return False
         if int(context.get("series_count") or 0) <= 0:
+            return False
+    if source == "workshop":
+        if int(context.get("volumes_count") or 0) <= 0 and int(context.get("series_count") or 0) <= 0:
             return False
     return True

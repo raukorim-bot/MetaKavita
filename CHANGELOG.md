@@ -1,7 +1,7 @@
 ## [1.7.2] - 2026-09-01 (Volume workshop, targeted scrape, and auto-sync scan)
 
 EN
-### ⚠️ Before you update
+### ⚠️ Good to know
 This release is counted from **1.7.1**.
 * **Auto-sync following a Kavita scan is opt-in.** Existing timer minutes are kept. An interval of `0` stays off. A positive interval stays on, still on a timer.
 * **Volume enrichment stays off until you enable it.** Existing volume writes in Kavita are unchanged.
@@ -25,6 +25,7 @@ This release is counted from **1.7.1**.
 * **C106. Workshop buttons use the same names as the rest of MetaKavita** — The series card says Manual Review, Super Review and Reset. Volume Super says Super Review. Tests : `tests/test_workshop.py`.
 * **C107. Workshop cards are denser, and you can pick a cover** — Series and volume cards take less space. Covers look like books. **Pick** on a cover opens the live search; the URL is sent with Send, not written at once. Tests : `tests/test_workshop.py`.
 * **C108. The dashboard opens the workshop without picking a series** — **Workshop** in the Volumes toolbar goes to `/volumes`. The rail (or the last series you opened) loads the sheet. Tests : `tests/test_workshop.py`.
+* **C109. Workshop coffee support button & rare playful nagware** — The workshop top navigation bar now features a permanent amber Buy Me a Coffee button (☕) with hover micro-interaction, instant toast feedback, and auto-cooldown registration. The rare, polite supporter nagware overlay (`_license_nag_modal.html`) is also available in the workshop with a dedicated `workshop_craft` variant triggered after successful writes to Kavita, following the 7-day honeymoon, minimum activity threshold of 10 items, max 1–2/day, 30-day honor snooze, and 7-day BMC click cooldown safeguards. Tests : `tests/test_workshop_coffee.py`, `tests/test_supporter_nag_policy.py`.
 
 ### 🐛 Bug Fixes
 * **BF174. The /stats page shows every library state** — Since 1.7.0 the dashboard counts six states, including Needs seal and Manual Review. The detailed stats page still drew four slices on a six-number chart, so the donut was wrong and two states were missing. They are back, with the same names as the sidebar. Tests : `tests/test_playful_stats.py`.
@@ -42,8 +43,11 @@ This release is counted from **1.7.1**.
 * **BF186. The left sidebar no longer unrolls on load** — Options started closed in the HTML and `main.js` opened it after every script had run. The details-content transition then played a 0.28 s unroll. The panel is open in the markup, restored during parse, and that transition is off until the first paint. Tests : `tests/test_sidebar_boot.py`.
 * **BF187. The left sidebar remembers how you left it** — Open/closed panels and the scroll offset are written to `localStorage` (toggle, scroll, leaving the page) and re-applied after the first paint, so a queued `toggle` from the markup `open` cannot overwrite them. Tests : `tests/test_sidebar_boot.py`.
 
+### 🏗️ Internal maintenance
+* **CSS refactor (no C/BF code)** — The single `style.css` sheet (6 864 lines) was split into **21 focused modules** grouped under `static/css/base/`, `layout/`, `components/` and `modals/`. `style.css` becomes a 21-`@import` manifest. No visual rendering was changed. 204 lines of confirmed dead CSS (26 orphaned classes: old duplicate buttons, unused card tints, V1 vol-preview component, toolbar leftovers, log-modifiers, abandoned MR/so-field/config-grid rules) were removed before the split. A bit-for-bit backup is kept in `static/css/style.backup.css`.
+
 FR
-### ⚠️ Avant de mettre à jour
+### ⚠️ À savoir
 Cette version est comptée depuis la **1.7.1**.
 * **L'auto-sync suivant un scan Kavita est un choix.** Les minutes déjà choisies sont gardées. Un intervalle à `0` reste éteint. Un intervalle positif reste allumé, toujours sur minuterie.
 * **L'enrichissement par tome reste éteint tant que tu ne l'allumes pas.** Les écritures de tomes déjà dans Kavita ne changent pas.
@@ -67,6 +71,7 @@ Cette version est comptée depuis la **1.7.1**.
 * **C106. Les boutons de l'atelier ont les mêmes noms que le reste de MetaKavita** — La fiche dit Manual Review, Super Review et Reset. Le Super d'un tome dit Super Review. Tests : `tests/test_workshop.py`.
 * **C107. Les cartes de l'atelier sont plus denses, et on choisit une jaquette** — Les cartes fiche et tome prennent moins de place. Les jaquettes ont un relief de livre. **Choisir** sur une jaquette ouvre la recherche live ; l'URL part à l'envoi, pas tout de suite. Tests : `tests/test_workshop.py`.
 * **C108. Le tableau de bord ouvre l'atelier sans choisir une série** — **Atelier** dans la barre Tomes va sur `/volumes`. Le rail (ou la dernière série ouverte) charge la fiche. Tests : `tests/test_workshop.py`.
+* **C109. Bouton café permanent et nagware supporter dans l'Atelier** — La barre de navigation supérieure de l'Atelier intègre désormais un bouton ambré permanent « M'offrir un café » (☕) avec micro-interaction au survol, toast immédiat et enregistrement du cooldown. L'overlay nagware supporter (`_license_nag_modal.html`) est également intégré à l'Atelier avec une variante dédiée `workshop_craft` déclenchée après écritures réussies dans Kavita, dans le respect strict des gardes-fous (lune de miel 7 j, seuil d'activité minimum de 10 items, max 1–2/j, silence honneur 30 j, cooldown clic BMC 7 j). Tests : `tests/test_workshop_coffee.py`, `tests/test_supporter_nag_policy.py`.
 
 ### 🐛 Correctifs
 * **BF174. La page /stats montre tous les états de la bibliothèque** — Depuis la 1.7.0 le tableau de bord compte six états, dont À sceller et Review. La page détaillée dessinait encore quatre parts sur un graphique à six nombres : le donut était faux et deux états manquaient. Ils sont de retour, sous les mêmes noms que la barre latérale. Tests : `tests/test_playful_stats.py`.
@@ -84,12 +89,15 @@ Cette version est comptée depuis la **1.7.1**.
 * **BF186. La barre de gauche ne se déroule plus au chargement** — Options partait fermé dans le HTML et `main.js` l'ouvrait après tous les scripts. La transition details-content jouait alors un déroulement de 0,28 s. Le panneau est ouvert dans le gabarit, restauré pendant l'analyse, et cette transition est coupée jusqu'au premier paint. Tests : `tests/test_sidebar_boot.py`.
 * **BF187. La barre de gauche se souvient de comment tu l'as laissée** — Panneaux ouverts/fermés et défilement sont écrits dans `localStorage` (toggle, scroll, départ de la page) et réappliqués après le premier paint, pour qu'un `toggle` en file du `open` HTML ne les écrase pas. Tests : `tests/test_sidebar_boot.py`.
 
+### 🏗️ Maintenance interne
+* **Refactor CSS (sans code C/BF)** — L'unique feuille `style.css` (6 864 lignes) a été découpée en **21 modules ciblés** sous `static/css/base/`, `layout/`, `components/` et `modals/`. `style.css` devient un manifest de 21 `@import`. Aucun rendu visuel n'a été modifié. 204 lignes de code mort (26 classes orphelines : boutons doublons, teintes inutilisées, reliquats de toolbar, composant vol-preview V1, classes abandonnées) ont été purgées. Sauvegarde bit-à-bit conservée dans `static/css/style.backup.css`.
+
 ---
 
 ## [1.7.1] - 2026-08-28 (A provider per field, a readable live log, Manga-News finds the French record)
 
 EN
-### ⚠️ Before you update
+### ⚠️ Good to know
 This release is counted from **1.7.0**.
 * **Auto keeps working as it did.** The new per-field map is off and hidden until you turn it on. Nothing in a batch changes until you do.
 * **The Inventory no longer deletes a duplicate from Kavita.** That button only removed the record. The files stayed on disk, the next scan put the series back. You now copy the folder path and, if you want, download a script to move or delete those files yourself. MetaKavita never runs that script.
@@ -111,7 +119,7 @@ This release is counted from **1.7.0**.
 * **Companion 1.0.28 — Test connection no longer says “failed” when the webhook token is empty ([#37](https://github.com/raukorim-bot/MetaKavita/issues/37))** — An empty token was reported as a network failure, and Test could overwrite a token already saved. The panel now asks you to paste the token from MetaKavita → Configuration.
 
 FR
-### ⚠️ Avant de mettre à jour
+### ⚠️ À savoir
 Cette version est comptée depuis la **1.7.0**.
 * **L'Auto continue comme avant.** La nouvelle carte par champ est éteinte et masquée tant que vous ne l'allumez pas. Rien ne change dans un lot tant que vous ne le faites pas.
 * **L'Inventaire ne supprime plus un doublon dans Kavita.** Ce bouton n'enlevait que la fiche. Les fichiers restaient sur le disque, le scan suivant remettait la série. Vous copiez maintenant le chemin du dossier et, si vous voulez, vous téléchargez un script pour déplacer ou supprimer ces fichiers vous-même. MetaKavita n'exécute jamais ce script.
@@ -137,7 +145,7 @@ Cette version est comptée depuis la **1.7.0**.
 ## [1.7.0] - 2026-08-13 (Library Inventory, per-volume metadata, and a hardening campaign on Kavita writes, provider pacing and manual review)
 
 EN
-### ⚠️ Before you update
+### ⚠️ Good to know
 This release gathers everything that changed since **1.6.5**: version 1.6.6 was prepared, run on the development branch and never published, so its **Library Inventory**, its redrawn modals and its forty-odd fixes arrive here rather than in a release of their own.
 * **The community catalogue ships with this image.** The scrapers your container runs come from two sources: the community catalogue first, the image only to fill the gaps. MetaKavita now compares their versions and refuses to replace a scraper with an older copy. The catalogue has been rebuilt from this release — ComicVine, Bédéthèque, Planète BD, MangaDex and Manga-News included — so a normal boot will not write `Downgrade core refused` lines. If one appears anyway, it is still the protection working: the copy already installed stays. Nothing to do on your side.
 * **Your “Comic” libraries change provider cascade.** Kavita shows two library types that read almost the same: *Comic (Flexible)* and *Comic*. MetaKavita had them the wrong way round, and on top of that filed *Image* libraries with the books and *Light Novel* with the manga — so an image library was asked of Google Books and a light novel was treated as a manga. All four are now read as Kavita names them: *Comic* follows the strict cascade (ComicVine first), *Comic (Flexible)* the hybrid comic-then-manga cascade, an image library the manga cascade, and a light novel the book cascade. **What this means concretely: after the update, those libraries no longer ask the same providers in the same order.** That is the point — until now half of them were being treated as their opposite — but if you have set a provider order per library type in the **Providers** modal, read it again before your first batch. Metadata already written in Kavita is untouched.
@@ -232,7 +240,7 @@ This release gathers everything that changed since **1.6.5**: version 1.6.6 was 
 * **A community scraper can still burst, and that is a decision.** The pacing fix (BF148) covers the scrapers shipped in the image. A scraper installed from the community catalogue that makes its own requests without going through the shared helper can still send them back to back and get you rate-limited by that site. A global net around every outgoing request was considered and **deliberately turned down**: it would slow every request for a category of scraper the project does not ship, and it would hide the offending scraper instead of showing it to you. If a community scraper gets you blocked, it is that scraper's bug and it is fixed in its own repository.
 
 FR
-### ⚠️ Avant de mettre à jour
+### ⚠️ À savoir
 Cette version rassemble tout ce qui a changé depuis la **1.6.5** : la 1.6.6 a été préparée, éprouvée sur la branche de développement et jamais publiée — son **Inventaire de la bibliothèque**, ses modales redessinées et sa quarantaine de correctifs arrivent donc ici, et non dans une version à part.
 * **Le catalogue communautaire part avec cette image.** Les scrapers qu'exécute votre conteneur viennent de deux sources : le catalogue communautaire d'abord, l'image seulement pour combler les trous. MetaKavita compare désormais leurs versions et refuse de remplacer un scraper par une copie plus ancienne. Le catalogue a été reconstruit depuis cette version — ComicVine, Bédéthèque, Planète BD, MangaDex et Manga-News compris — donc un démarrage normal n'écrira pas de lignes « Downgrade core refusé ». Si l'une apparaît quand même, c'est encore la protection qui fonctionne : la copie déjà installée reste. Rien à faire de votre côté.
 * **Vos bibliothèques « Comic » changent de cascade de fournisseurs.** Kavita affiche deux types de bibliothèque qui se lisent presque pareil : « Comic (Flexible) » et « Comic ». MetaKavita les prenait à l'envers, et rangeait en plus les bibliothèques « Image » avec les livres et les « Light Novel » avec les mangas — donc interrogeait Google Books pour une bibliothèque d'images et traitait un light novel comme un manga. Les quatre sont désormais lues comme Kavita les nomme : « Comic » suit la cascade stricte (ComicVine en tête), « Comic (Flexible) » la cascade hybride comic puis manga, une bibliothèque d'images la cascade manga, et un light novel celle des livres. **Concrètement : après la mise à jour, ces bibliothèques n'interrogeront plus les mêmes fournisseurs dans le même ordre.** C'est bien le but — jusqu'ici la moitié d'entre elles était traitée comme son contraire — mais si vous avez réglé un ordre de fournisseurs par type de bibliothèque dans la modale **Fournisseurs**, relisez-le avant votre premier lot. Les métadonnées déjà écrites dans Kavita ne bougent pas.

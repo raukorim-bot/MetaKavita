@@ -877,9 +877,21 @@
             coverPickEnabled = !!embed.coverPick;
             return;
         }
-        editEnabled = editCb ? !!editCb.checked : true;
+        var wsConfig = window.WORKSHOP_CONFIG;
+        if (wsConfig && !editCb && !coverCb) {
+            editEnabled = wsConfig.edit !== false;
+            soundsEnabled = false;
+            coverPickEnabled = !!wsConfig.coverPick;
+            return;
+        }
+        if (editCb) {
+            var mrVal = editCb.getAttribute("data-mr-edit");
+            editEnabled = mrVal != null ? mrVal === "true" : !!editCb.checked;
+        } else {
+            editEnabled = true;
+        }
         soundsEnabled = soundCb ? !!soundCb.checked : false;
-        coverPickEnabled = !!(isManualModeOn() && coverCb && !coverCb.disabled && coverCb.checked);
+        coverPickEnabled = coverCb ? !!coverCb.checked : false;
     }
 
     function workshopForceReviewShot() {
@@ -2164,8 +2176,8 @@
             showRecapIfEmpty();
             return;
         }
-        // Auto-confirm ou preview déjà prêt → reprise post-pick (hors atelier : l'atelier n'ouvre jamais la phase edit)
-        if (!isWorkshopPage() && review.preview && (isAutoConfirmReview(review) || review.state === "awaiting_confirm")) {
+        // Auto-confirm ou preview déjà prêt → reprise post-pick
+        if (review.preview && (isAutoConfirmReview(review) || review.state === "awaiting_confirm")) {
             selectedProvider = review.base_provider
                 || (review.above && review.above[0] && review.above[0].provider)
                 || selectedProvider;
@@ -2676,7 +2688,7 @@
         var body = {
             base_provider: selectedProvider,
             include_providers: fusionList,
-            prefer_edit: isWorkshopPage() ? false : !!(editEnabled || coverPickEnabled),
+            prefer_edit: !!(editEnabled || coverPickEnabled),
             fused: extras.fused,
             weak_pick: isSelectedWeak(review, selectedProvider),
             super_review: isSuperReviewOn()

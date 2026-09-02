@@ -20,7 +20,7 @@
         window.WORKSHOP_RAIL = {{ rail|tojson }};
         window.WORKSHOP_LIBS = {{ libraries|tojson }};
         window.AppTranslations = {
-        {%- for key, value in t.items() if key.startswith('workshop_') or key.startswith('vol_') or key.startswith('mr_') %}
+        {%- for key, value in t.items() if key.startswith('workshop_') or key.startswith('vol_') or key.startswith('mr_') or key.startswith('nag_') %}
             {{ key|tojson }}: {{ value|tojson }},
         {%- endfor %}
             err_network: {{ t.err_network|tojson }},
@@ -51,6 +51,14 @@
             <button type="button" class="btn-secondary workshop-nav-step" id="workshopPrev" title="{{ t.workshop_prev }}">←</button>
             <button type="button" class="btn-secondary workshop-nav-step" id="workshopNext" title="{{ t.workshop_next }}">→</button>
             <span class="workshop-rail-count" id="workshopRailCount"></span>
+            <a href="https://buymeacoffee.com/raukorim" target="_blank" rel="noopener noreferrer"
+               id="workshopCoffeeBtn"
+               class="workshop-btn-coffee bmc-link license"
+               title="{{ t.workshop_coffee_hint }}"
+               aria-label="{{ t.buy_me_coffee }}">
+                <span class="workshop-coffee-cup" aria-hidden="true">☕</span>
+                <span class="workshop-coffee-label">{{ t.buy_me_coffee }}</span>
+            </a>
             <a href="{{ url_for('pages.index') }}" class="btn-primary block-link">{{ t.workshop_back }}</a>
         </div>
     </nav>
@@ -203,11 +211,19 @@
             <div id="workshopCoverGrid" class="covers-grid workshop-cover-grid"></div>
         </div>
     </div>
+    {% include "partials/_license_nag_modal.html" %}
     <div id="appToast" class="bq-toast" hidden></div>
 
     <script src="{{ url_for('static', filename='js/utils.js') }}"></script>
     <script src="{{ url_for('static', filename='js/websocket.js') }}"></script>
     <script src="{{ url_for('static', filename='js/covers.js') }}"></script>
+    <script>
+        window.WORKSHOP_CONFIG = {
+            edit: {{ 'true' if config.get('MANUAL_REVIEW_EDIT', True) else 'false' }},
+            coverPick: {{ 'true' if config.get('MANUAL_REVIEW_COVER_PICK') else 'false' }}
+        };
+    </script>
+    <script src="{{ url_for('static', filename='js/license_nag.js') }}"></script>
     <script src="{{ url_for('static', filename='js/manual_review.js') }}"></script>
     <script src="{{ url_for('static', filename='js/volumes.js') }}"></script>
 </body>

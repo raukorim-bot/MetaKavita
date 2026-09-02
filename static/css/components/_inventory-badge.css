@@ -1,0 +1,295 @@
+/* ================================================================
+   MetaKavita CSS — _inventory-badge.css
+   Cartouches Inventaire C66 : badges d'état, tomes, barre de complétion
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* ── Inventaire (C66) ──────────────────────────────────────────────────────
+   Le bloc occupait la 3e colonne de la grille de la barre d'outils, la plus
+   étroite (minmax(160px, .75fr)), pour y empiler onze contrôles : d'où
+   l'escalier de boutons. Il prend désormais sa propre ligne pleine largeur.
+   La classe était par ailleurs orpheline (le HTML disait --hygiene, le CSS
+   ne stylait que --duplicates), donc le groupe n'avait aucune teinte. */
+.toolbar-group--hygiene,
+.toolbar-group--volumes {
+    --tg: var(--warning);
+    grid-column: 1 / -1;
+    gap: 0.5rem;
+    border-color: color-mix(in srgb, var(--tg) 32%, var(--border-color));
+    background: color-mix(in srgb, var(--tg) 9%, var(--bg-input));
+}
+.toolbar-group--hygiene .toolbar-group-label {
+    color: color-mix(in srgb, var(--warning) 70%, var(--text-muted));
+}
+/* Enrichissement par tome (#27) : même dessin que l'Inventaire, teinte propre,
+   et surtout masquage indépendant — c'est une autre fonctionnalité, avec son
+   propre interrupteur. */
+.toolbar-group--volumes { --tg: var(--accent); }
+.toolbar-group--volumes .toolbar-group-label {
+    color: color-mix(in srgb, var(--accent) 70%, var(--text-muted));
+}
+body[data-inventory="0"] .toolbar-group--hygiene,
+body[data-inventory="0"] .badge-audit {
+    display: none !important;
+}
+/* Le pendant de la règle de l'Inventaire ci-dessus, et elle manquait : le
+   JavaScript posait bien `data-volumes` sur le `<body>` en suivant
+   l'interrupteur, mais rien ne le lisait pour ce groupe. Éteindre
+   « Enrichir les tomes » laissait donc le cartouche à l'écran jusqu'au
+   rechargement suivant, et l'allumer ne le faisait pas apparaître — le gabarit
+   le rendait sous condition, donc il n'était même pas dans la page.
+
+   `:not([data-volumes="1"])` et non `[data-volumes="0"]`, à l'inverse de
+   l'Inventaire : celui-ci est allumé par défaut et peut donc se permettre de
+   n'obéir qu'à un « 0 » explicite, là où l'enrichissement par tome est éteint
+   par défaut et commande une écriture. En l'absence d'attribut, un bouton qui
+   écrit dans la bibliothèque doit rester masqué.
+
+   L'exception d'une passe en cours n'est pas un détail : le bouton Annuler vit
+   dans ce groupe, et une passe démarrée continue de tourner côté serveur quoi
+   qu'on décoche. Le masquer laisserait une écriture en cours sans moyen de
+   l'arrêter. `_setVolumeEnrichRunningUi()` pose l'attribut, le groupe reste
+   donc visible le temps que la passe se termine, puis s'en va. */
+body:not([data-volumes="1"]):not([data-volume-pass="running"]) .toolbar-group--volumes,
+body:not([data-volumes="1"]) #btnVolumePreview,
+body:not([data-volumes="1"]) .btn-workshop {
+    display: none !important;
+}
+/* Le rapport de tomes est le seul chemin vers l'aperçu tome par tome : son
+   bouton survit à l'Inventaire éteint quand l'enrichissement est allumé, sinon
+   la fonctionnalité devient injoignable sans un mot à l'écran. */
+body[data-inventory="0"]:not([data-volumes="1"]) .btn-audit-report {
+    display: none !important;
+}
+
+/* Mode léger (C80) : les catégories que l'utilisateur a retirées des options de
+   la barre latérale. Une liste de mots plutôt que trois attributs, parce que
+   `data-ui-inventory` voisinerait avec `data-inventory` sans dire lequel des
+   deux éteint et lequel masque. Ici la question ne se pose pas : `data-ui-hidden`
+   ne dit que ce qui est caché, et masqué implique éteint — c'est
+   `config_manager.apply_light_mode()` qui le garantit, y compris pour un
+   `config.json` retouché à la main. */
+body[data-ui-hidden~="manual"] .so-cat[data-so-cat="manual"],
+body[data-ui-hidden~="inventory"] .so-cat[data-so-cat="inventory"],
+body[data-ui-hidden~="volumes"] .so-cat[data-so-cat="volumes"],
+body[data-ui-hidden~="mapping"] .so-cat[data-so-cat="mapping"] {
+    display: none !important;
+}
+.hygiene-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+}
+.hygiene-head .toolbar-group-label { margin: 0; }
+.hygiene-freshness {
+    font-size: 0.78rem;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.hygiene-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem;
+    margin-left: auto;
+}
+.hygiene-actions a.btn-secondary {
+    text-decoration: none;
+}
+.hygiene-health {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+.hygiene-health[hidden] { display: none; }
+.hygiene-health-bar {
+    display: flex;
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--secondary) 25%, transparent);
+}
+.hh-seg { height: 100%; transition: width 0.3s ease; }
+.hh-seg--healthy { background: var(--success); }
+.hh-seg--incomplete { background: var(--warning); }
+.hh-seg--unknown { background: color-mix(in srgb, var(--secondary) 70%, transparent); }
+/* Non analysées : hachures — ce n'est pas un verdict, c'est une absence de verdict. */
+.hh-seg--failed {
+    background: repeating-linear-gradient(
+        45deg,
+        var(--danger) 0 3px,
+        color-mix(in srgb, var(--danger) 35%, transparent) 3px 6px
+    );
+}
+.hygiene-health-legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.2rem 0.85rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.hh-key { display: inline-flex; align-items: center; gap: 0.3rem; }
+.hh-key::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 2px;
+    background: currentColor;
+}
+.hh-key--healthy::before { background: var(--success); }
+.hh-key--incomplete::before { background: var(--warning); }
+.hh-key--unknown::before { background: color-mix(in srgb, var(--secondary) 70%, transparent); }
+.hh-key--failed::before { background: var(--danger); }
+.hh-key--total::before { display: none; }
+.hygiene-controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.55rem;
+}
+.hygiene-chips {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 0.3rem;
+}
+.hygiene-chip {
+    border: 1px solid var(--border-color, #444);
+    background: transparent;
+    color: inherit;
+    padding: 0.2rem 0.5rem;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.85rem;
+}
+.hygiene-chip:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.hygiene-chip.is-active {
+    border-color: var(--accent, #3d8bfd);
+    background: rgba(61, 139, 253, 0.12);
+}
+.hygiene-chip-count {
+    margin-left: 0.25rem;
+    font-weight: 600;
+}
+.hygiene-chip--clear {
+    color: var(--text-muted);
+    border-style: dashed;
+}
+.hygiene-progress {
+    width: 100%;
+    padding: 0;
+}
+.hygiene-preset {
+    max-width: 11rem;
+}
+.audit-dup-actions {
+    margin-top: 0.6rem;
+    padding-top: 0.55rem;
+    border-top: 1px solid color-mix(in srgb, var(--warning) 18%, var(--border-color));
+    display: flex;
+    gap: 0.4rem;
+    flex-wrap: wrap;
+}
+/* Cartouche d'inventaire : la couleur porte l'état de complétion, sans quoi il
+   fallait lire et comparer deux nombres sur chaque ligne. `uptodate` (série en
+   cours dont on possède tout le publié) se distingue de `complete` : ce n'est
+   pas un manque. `overshoot` (plus de tomes que l'attendu) signale une donnée
+   douteuse, pas une réussite. */
+.badge-audit {
+    background-color: color-mix(in srgb, #38bdf8 75%, #000);
+    font-variant-numeric: tabular-nums;
+    margin-left: 0.25rem;
+}
+.badge-audit--complete { background-color: color-mix(in srgb, var(--success) 78%, #000); }
+.badge-audit--uptodate { background-color: color-mix(in srgb, #22d3ee 72%, #000); }
+.badge-audit--near { background-color: color-mix(in srgb, var(--warning) 80%, #000); }
+.badge-audit--partial { background-color: color-mix(in srgb, #fb923c 78%, #000); }
+.badge-audit--poor { background-color: color-mix(in srgb, var(--danger) 80%, #000); }
+.badge-audit--overshoot { background-color: color-mix(in srgb, #c084fc 76%, #000); }
+.badge-audit--unknown,
+.badge-audit--neutral { background-color: color-mix(in srgb, var(--secondary) 82%, #000); }
+/* Attendu forcé à la main : liseré pour ne pas confondre avec un attendu scrapé. */
+.badge-audit--forced {
+    border: 1px dashed color-mix(in srgb, #fff 55%, transparent);
+}
+.badge-inventory-excluded {
+    background-color: color-mix(in srgb, var(--secondary) 70%, #000);
+    margin-left: 0.25rem;
+    opacity: 0.85;
+}
+
+/* Cartouche « couverture manuelle » : cliquable pour rendre la couverture à
+   la gestion automatique (le pendant de masse est COVER_FORCE_OVERWRITE). */
+.badge-cover-manual {
+    background-color: color-mix(in srgb, #a78bfa 78%, #000);
+    border: 1px solid color-mix(in srgb, #a78bfa 55%, #000);
+    margin-left: 0.25rem;
+    cursor: pointer;
+    /* `font: inherit` reprenait la police de la ligne (16 px) : la cartouche
+       écrasait toutes les autres. On garde la métrique de `.badge`. */
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+.badge-cover-manual:hover:not(:disabled) {
+    background-color: color-mix(in srgb, #a78bfa 92%, #000);
+}
+.badge-cover-manual:disabled {
+    opacity: 0.6;
+    cursor: progress;
+}
+
+/* C89 : override série (toute option Options, pas seulement mapping / masque). */
+.badge-override {
+    border: 1px solid transparent;
+    margin-left: 0.25rem;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 10px;
+    font-weight: 700;
+    line-height: 1.4;
+}
+.badge-override-provider {
+    background-color: color-mix(in srgb, var(--sky) 78%, #000);
+    border-color: color-mix(in srgb, var(--sky) 50%, #000);
+}
+.badge-override-provider:hover {
+    background-color: color-mix(in srgb, var(--sky) 92%, #000);
+}
+.badge-override-fields {
+    background-color: color-mix(in srgb, var(--warning) 82%, #000);
+    color: #1a1208;
+    border-color: color-mix(in srgb, var(--warning) 55%, #000);
+}
+.badge-override-fields:hover {
+    background-color: color-mix(in srgb, var(--warning) 92%, #000);
+}
+.badge-override-alt,
+.badge-override-pub,
+.badge-override-langs {
+    background-color: color-mix(in srgb, var(--teal) 78%, #000);
+    border-color: color-mix(in srgb, var(--teal) 50%, #000);
+}
+.badge-override-alt:hover,
+.badge-override-pub:hover,
+.badge-override-langs:hover {
+    background-color: color-mix(in srgb, var(--teal) 92%, #000);
+}
+.badge-override-alt {
+    text-transform: none;
+    letter-spacing: 0;
+    max-width: 10em;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-weight: 650;
+}
+.badge-override-langs {
+    text-transform: none;
+    letter-spacing: 0;
+}
+

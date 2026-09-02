@@ -1,0 +1,560 @@
+/* ================================================================
+   MetaKavita CSS — _modal-inventory.css
+   Modale Inventaire & Aperçu d'enrichissement : tableaux de tomes, stats
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* =========================
+   ILLUSTRATIONS SVG (sprite)
+   ========================= */
+.mk-sprite {
+    position: absolute;
+    width: 0;
+    height: 0;
+    overflow: hidden;
+}
+/* Icône de titre : alignée sur la casse du texte, teintée par l'accent. */
+.mk-ico {
+    width: 1.35em;
+    height: 1.35em;
+    flex: 0 0 auto;
+    vertical-align: -0.25em;
+}
+.modal-header h3 .mk-ico {
+    color: var(--primary);
+    margin-right: 0.4rem;
+}
+/* Les en-têtes teintés ont leur propre dominante : l'icône la reprend, sinon
+   elle jure avec le dégradé derrière elle. */
+.modal-header--changelog h3 .mk-ico { color: var(--warning); }
+.modal-header--providers h3 .mk-ico { color: #8b5cf6; }
+.modal-header--duplicates h3 .mk-ico { color: var(--warning); }
+/* État vide / erreur : une illustration vaut mieux qu'une phrase seule perdue
+   dans une modale de 1180 px. */
+.audit-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    text-align: center;
+    gap: 0.35rem;
+    padding: 2rem 1rem 2.25rem;
+    color: var(--text-muted);
+}
+.audit-state-art {
+    width: 84px;
+    height: 84px;
+    margin-bottom: 0.35rem;
+    color: color-mix(in srgb, var(--secondary) 75%, var(--text-muted));
+}
+.audit-state--ok .audit-state-art { color: var(--success); }
+.audit-state--todo .audit-state-art { color: var(--primary); }
+.audit-state--error .audit-state-art { color: var(--danger); }
+.audit-state-title {
+    margin: 0;
+    font-size: 0.95rem;
+    font-weight: 650;
+    color: var(--text-main);
+}
+.audit-state-hint {
+    margin: 0;
+    max-width: 46ch;
+    font-size: 0.8rem;
+    line-height: 1.45;
+}
+.audit-state--inline {
+    padding: 1.1rem 0.75rem 1.25rem;
+}
+.audit-state--inline .audit-state-art {
+    width: 52px;
+    height: 52px;
+}
+.audit-spinner .audit-state-art { animation: mkSpin 1s linear infinite; }
+@keyframes mkSpin {
+    to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+    .audit-spinner .audit-state-art { animation: none; }
+}
+
+/* Le corps hérite de `.modal-scroll-body` : padding et unique ascenseur. */
+/* Exports et rafraîchissement vivaient en haut du corps et partaient donc au
+   défilement : ils sont au pied, alignés à gauche comme une barre d'outils. */
+.audit-footer {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+.audit-toprow {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.4rem 1rem;
+    margin-bottom: 0.6rem;
+}
+/* `.audit-hint` occupe toute la ligne par défaut (usage en note sous un champ) :
+   ici on veut la note et la case sur la même ligne. */
+.audit-toprow > .audit-hint {
+    flex: 1 1 20rem;
+}
+.audit-inline-check {
+    flex: 0 0 auto;
+    font-size: 0.8rem;
+    white-space: nowrap;
+}
+/* Seuil de détection des doublons : un bandeau, pas trois lignes empilées. */
+.audit-dup-threshold {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.6rem;
+    margin: 0 0 0.8rem;
+    padding: 0.45rem 0.65rem;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--border, #334) 65%, transparent);
+    background: color-mix(in srgb, var(--bg-input) 45%, transparent);
+    font-size: 0.82rem;
+}
+.audit-dup-threshold > .audit-hint { flex: 1 1 14rem; }
+.audit-dup-threshold select { max-width: 11rem; }
+.audit-dup-count {
+    margin: 0 0 0.75rem;
+    font-size: 0.88rem;
+}
+/* Cartes de stats plutôt qu'un ruban « label: valeur » à la ligne. */
+/* Flex plutôt que grille : la grille `auto-fit` réservait cinq colonnes et
+   laissait donc deux trous à droite quand le rapport n'a que trois cartes, puis
+   une carte orpheline au ras du bord gauche. En flex, les cartes d'une même
+   ligne se partagent toute la largeur. */
+.audit-meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.85rem;
+    font-size: 0.9rem;
+}
+.audit-stat {
+    flex: 1 1 170px;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.15rem;
+    padding: 0.45rem 0.6rem;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--border, #334) 60%, transparent);
+    background: color-mix(in srgb, var(--bg-input) 60%, transparent);
+}
+.audit-stat-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+}
+.audit-stat-value {
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    word-break: break-word;
+}
+.audit-stat--wide { flex-basis: 100%; }
+.audit-stat--missing .audit-stat-value { color: var(--warning); }
+.audit-stat--gaps .audit-stat-value { color: color-mix(in srgb, var(--warning) 70%, var(--text-muted)); }
+.audit-stat-hint {
+    font-size: 0.72rem;
+    color: var(--text-muted);
+}
+.audit-body { font-size: 0.9rem; }
+/* Attendu forcé : encadré, pour qu'on voie qu'un nombre saisi à la main pilote
+   la complétion de cette série (l'information n'apparaissait nulle part). */
+.audit-override-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    margin: 0.85rem 0 0.5rem;
+    padding: 0.55rem 0.7rem;
+    border-radius: 8px;
+    /* Neutre au repos : l'encadré ambre laissait croire qu'un attendu était
+       forcé alors que le champ est vide sur la grande majorité des séries. */
+    border: 1px solid color-mix(in srgb, var(--border, #334) 60%, transparent);
+    background: color-mix(in srgb, var(--bg-input) 45%, transparent);
+}
+.audit-override-row.is-active {
+    border-color: color-mix(in srgb, var(--warning) 70%, transparent);
+    background: color-mix(in srgb, var(--warning) 8%, transparent);
+}
+.audit-override-label { font-weight: 600; }
+
+
+.audit-override-input {
+    width: 6rem;
+    padding: 0.25rem 0.4rem;
+    border-radius: 6px;
+    border: 1px solid color-mix(in srgb, var(--border, #334) 70%, transparent);
+    background: var(--bg-input);
+    color: inherit;
+}
+.audit-hint {
+    flex: 1 1 100%;
+    margin: 0;
+    font-size: 0.76rem;
+    color: var(--text-muted);
+}
+.audit-exclude-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.4rem 0.6rem;
+    margin: 0.5rem 0 0.75rem;
+}
+.audit-missing-row-state {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    margin-right: 0.4rem;
+    vertical-align: middle;
+    background: var(--secondary);
+}
+.audit-missing-row-state[data-state="poor"] { background: var(--danger); }
+.audit-missing-row-state[data-state="partial"] { background: #fb923c; }
+.audit-missing-row-state[data-state="near"] { background: var(--warning); }
+.audit-missing-row-state[data-state="overshoot"] { background: #c084fc; }
+.audit-missing-row-state[data-state="complete"] { background: var(--success); }
+.audit-missing-row-state[data-state="uptodate"] { background: #22d3ee; }
+/* Un seul ascenseur, celui du corps de la modale : le `max-height: 55vh` d'origine
+   imbriquait un second scroller qui se disputait la molette — et empêchait
+   l'en-tête collant, `position: sticky` se calant sur le conteneur défilant le
+   plus proche. Pas de scroll horizontal non plus : sous 720 px le tableau se
+   replie en cartes (voir plus bas), donc les colonnes n'ont jamais à déborder. */
+.audit-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.85rem;
+}
+/* En-tête collant sur le bord du corps défilant : sans lui, on perdait le nom
+   des colonnes dès la dixième ligne d'un tableau d'unités. */
+.audit-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: var(--bg-card);
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--text-muted);
+    white-space: nowrap;
+}
+.audit-table th, .audit-table td {
+    border-bottom: 1px solid color-mix(in srgb, var(--border, #334) 70%, transparent);
+    padding: 0.4rem 0.5rem;
+    text-align: left;
+    vertical-align: middle;
+    /* Le tableau se resserre plutôt que de déborder : un titre de série à
+       rallonge sortait du cadre et faisait apparaître un scroll horizontal. */
+    overflow-wrap: anywhere;
+}
+.audit-table tbody tr:hover {
+    background: color-mix(in srgb, var(--primary) 7%, transparent);
+}
+.audit-table tbody tr:last-child td { border-bottom: 0; }
+.audit-table .audit-cell-num { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.audit-table .audit-cell-actions { text-align: right; white-space: nowrap; }
+
+/* Sous 720 px, un tableau de cinq ou six colonnes ne tient pas : chaque ligne
+   devient une carte étiquetée par `data-label`. C'est ce qui remplace le scroll
+   horizontal, lequel emportait aussi l'en-tête et les boutons de la modale. */
+@media (max-width: 720px) {
+    .audit-table { font-size: 0.82rem; }
+    .audit-table thead { display: none; }
+    .audit-table,
+    .audit-table tbody,
+    .audit-table tr,
+    .audit-table td {
+        display: block;
+    }
+    .audit-table tr {
+        border: 1px solid color-mix(in srgb, var(--border, #334) 70%, transparent);
+        border-radius: 10px;
+        padding: 0.45rem 0.65rem;
+        margin-bottom: 0.5rem;
+        background: color-mix(in srgb, var(--bg-input) 45%, transparent);
+    }
+    .audit-table td {
+        border-bottom: 0;
+        padding: 0.12rem 0;
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.75rem;
+    }
+    .audit-table td .audit-cell-v { text-align: right; }
+    .audit-table td[data-empty="1"] { display: none; }
+    .audit-table td[data-label]::before {
+        content: attr(data-label);
+        flex: 0 0 auto;
+        font-size: 0.68rem;
+        text-transform: uppercase;
+        letter-spacing: 0.03em;
+        color: var(--text-muted);
+    }
+    /* Une cellule d'état illustré n'est pas une paire étiquette/valeur : elle
+       reprend toute la largeur de la carte. */
+    .audit-table td.audit-cell-state { display: block; }
+    /* Le titre porte la carte : pas d'étiquette, et il occupe toute la largeur. */
+    .audit-table td.audit-cell-title {
+        display: block;
+        font-weight: 600;
+        padding-bottom: 0.3rem;
+    }
+    .audit-table .audit-cell-actions { justify-content: flex-end; text-align: left; }
+}
+
+.audit-dup-group {
+    border: 1px solid color-mix(in srgb, var(--warning) 28%, var(--border-color));
+    border-left: 3px solid var(--warning);
+    border-radius: 12px;
+    padding: 0.7rem 0.8rem 0.65rem;
+    margin-bottom: 0.85rem;
+    background:
+        linear-gradient(135deg,
+            color-mix(in srgb, var(--warning) 9%, var(--bg-card)),
+            color-mix(in srgb, var(--bg-card) 94%, transparent));
+    box-shadow: var(--shadow-sm);
+}
+.audit-dup-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.35rem 0.45rem;
+    margin-bottom: 0.55rem;
+    font-size: 0.78rem;
+    color: var(--text-muted);
+}
+.audit-dup-id {
+    font-weight: 700;
+    color: var(--text-main);
+    padding: 0.08rem 0.5rem;
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warning) 16%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
+}
+.audit-dup-tag {
+    padding: 0.08rem 0.45rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--primary) 28%, transparent);
+    background: color-mix(in srgb, var(--primary) 12%, transparent);
+    color: var(--primary);
+    font-weight: 600;
+}
+.audit-dup-tag--score {
+    border-color: color-mix(in srgb, var(--warning) 40%, transparent);
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    color: var(--warning);
+}
+.audit-dup-tag--exact {
+    border-color: color-mix(in srgb, var(--success) 40%, transparent);
+    background: color-mix(in srgb, var(--success) 14%, transparent);
+    color: var(--success);
+}
+.audit-dup-tag[data-reason*="id"] {
+    border-color: color-mix(in srgb, var(--violet) 40%, transparent);
+    background: color-mix(in srgb, var(--violet) 14%, transparent);
+    color: var(--violet);
+}
+.audit-dup-tag[data-reason*="title"] {
+    border-color: color-mix(in srgb, var(--sky) 40%, transparent);
+    background: color-mix(in srgb, var(--sky) 14%, transparent);
+    color: var(--sky);
+}
+/* Chaque série est une carte : titre à gauche, actions à droite, chemin dessous. */
+.audit-dup-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 0.35rem 0.7rem;
+    padding: 0.55rem 0.65rem;
+    margin-top: 0.45rem;
+    border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-input) 72%, var(--bg-card));
+}
+.audit-dup-row:first-of-type { margin-top: 0.1rem; }
+.audit-dup-row:has(.audit-dup-drop-cb:checked) {
+    border-color: color-mix(in srgb, var(--danger) 45%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, var(--bg-card));
+}
+.audit-dup-name {
+    min-width: 0;
+    text-align: left;
+    overflow-wrap: anywhere;
+    font-weight: 600;
+    text-decoration: none;
+}
+.audit-dup-name:hover { text-decoration: underline; }
+.audit-dup-row-actions {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 0 0 auto;
+}
+.audit-dup-path {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    min-width: 0;
+    font-size: 0.75rem;
+    color: var(--text-muted);
+}
+.audit-dup-path code {
+    flex: 1 1 12rem;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.74rem;
+    padding: 0.15rem 0.4rem;
+    border-radius: 6px;
+    background: color-mix(in srgb, var(--bg-app) 55%, transparent);
+    border: 1px solid color-mix(in srgb, var(--border-color) 70%, transparent);
+}
+.audit-dup-drop {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.76rem;
+    font-weight: 650;
+    white-space: nowrap;
+    cursor: pointer;
+    padding: 0.18rem 0.55rem;
+    border-radius: 999px;
+    border: 1px solid color-mix(in srgb, var(--danger) 35%, transparent);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    color: var(--danger);
+}
+.audit-dup-drop:has(input:checked) {
+    background: color-mix(in srgb, var(--danger) 82%, #000);
+    border-color: transparent;
+    color: #fff;
+}
+.audit-dup-drop input {
+    accent-color: var(--danger);
+    margin: 0;
+}
+.audit-dup-drop.is-locked,
+.audit-dup-drop:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.audit-dup-footer {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.7rem;
+}
+.audit-dup-settings {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.45rem 0.75rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--warning) 22%, var(--border-color));
+    background: color-mix(in srgb, var(--warning) 6%, var(--bg-input));
+}
+.audit-dup-settings-field {
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+    min-width: 0;
+    margin: 0;
+}
+.audit-dup-settings-field > span:first-child {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.audit-dup-settings-field input[type="text"] {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 0.4rem 0.55rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+    color: var(--text-main);
+    font: inherit;
+    font-size: 0.82rem;
+}
+.audit-dup-settings-field input[type="text"]:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary) 55%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.audit-dup-settings-hint {
+    font-size: 0.7rem;
+    line-height: 1.35;
+    color: var(--text-muted);
+}
+.audit-dup-settings .so-hint-preview {
+    grid-column: 1 / -1;
+    margin: 0;
+    font-size: 0.72rem;
+}
+.audit-dup-footer-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+.audit-dup-mode {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    font-size: 0.78rem;
+    margin-right: auto;
+}
+@media (max-width: 720px) {
+    .audit-dup-settings { grid-template-columns: 1fr; }
+    .audit-dup-row {
+        grid-template-columns: 1fr;
+    }
+    .audit-dup-row-actions { justify-content: flex-start; }
+}
+.so-hint-preview {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    word-break: break-all;
+}
+.audit-dup-group .btn-opt,
+.audit-dup-group .btn-warning,
+.audit-dup-group .btn-secondary {
+    padding: 0.22rem 0.6rem;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    white-space: nowrap;
+    border-radius: 8px;
+}
+.audit-dup-group .audit-not-dup {
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+    color: var(--accent);
+}
+.audit-dup-group .audit-ignore-dup {
+    color: var(--text-muted);
+}
+button.linkish {
+    background: none;
+    border: none;
+    color: var(--accent, #38bdf8);
+    cursor: pointer;
+    padding: 0;
+    font: inherit;
+    text-decoration: underline;
+}
+
+.vol-preview-table .vol-cover-thumb {
+    display: block;
+    width: 44px;
+    height: 64px;
+    object-fit: cover;
+    border-radius: 4px;
+    background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
+}
+
