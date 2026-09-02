@@ -55,7 +55,7 @@ Un `.py` dans `data/scrapers/` s'exécute avec les droits de l'application. Lis 
 
 L'onglet **Diagnostic** (`/diagnostics`, aussi Aide → **Diagnostic scrapers**). **Est-ce que tout répond ?** lance d'abord le préflight : **Internet** et **Kavita** (latence, statut HTTP, nombre de bibliothèques) — **Relancer le préflight** pour recommencer.
 
-**Santé des scrapers** appelle ensuite `fetch()` puis `fetch_covers()` sur une query known-good, sans modifier le code. Au chargement, seule la cascade Config est sondée ; les autres restent listés tant que tu ne les mets pas dans un slot Providers ou que tu ne cliques pas **Tester tous**. **Tester la cascade** relance les slots. Légende : vert OK, orange partiel, rouge down / ban / schéma, gris clé API absente.
+**Santé des scrapers** appelle ensuite `fetch()` puis `fetch_covers()` sur une query known-good, sans modifier le code. Au chargement ou au clic sur **Tester tous**, les scrapers sont testés en parallèle via un pool de workers concurrents optimisé (4 par défaut), préservant la réactivité de MetaKavita et diffusant les résultats au fil de l'eau. **Tester la cascade** restreint le test aux slots Config actifs. Légende : vert OK, orange dégradé / partiel, rouge down / ban / schéma, gris clé API absente ou ignoré.
 
 ![Diagnostic scrapers](../../assets/docs-scrapers-diagnostics.png)
 

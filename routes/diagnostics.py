@@ -22,6 +22,7 @@ from flask import Blueprint, Response, jsonify, request, stream_with_context
 from config_manager import load_config
 from scrapers import ScraperRegistry
 from services.scraper_diagnostics import (
+    DEFAULT_PROBE_WORKERS,
     iter_probe_results,
     probe_all,
     probe_scraper,
@@ -35,6 +36,17 @@ diagnostics_bp = Blueprint("diagnostics", __name__)
 def _parse_scope() -> str:
     raw = (request.args.get("scope") or "all").strip().lower()
     return "active" if raw == "active" else "all"
+
+
+def _parse_workers() -> int:
+    raw = (request.args.get("workers") or "").strip()
+    if not raw:
+        return DEFAULT_PROBE_WORKERS
+    try:
+        val = int(raw)
+        return max(1, min(val, 8))
+    except (ValueError, TypeError):
+        return DEFAULT_PROBE_WORKERS
 
 
 @diagnostics_bp.route("/api/diagnostics/preflight", methods=["POST"])
@@ -63,9 +75,13 @@ def _wants_ndjson_stream() -> bool:
 def probe_all_route():
     config = load_config()
     scope = _parse_scope()
+    workers = _parse_workers()
 
     if not _wants_ndjson_stream():
-        results = probe_all(config, scope=scope)
+        try:
+            results = probe_all(config, scope=scope, max_workers=workers)
+        except TypeError:
+            results = probe_all(config, scope=scope)
         return jsonify({"success": True, "scope": scope, "results": results})
 
     scrapers = resolve_probe_targets(config, scope=scope)
@@ -90,9 +106,15 @@ def probe_all_route():
                 },
                 ensure_ascii=False,
             ) + "\n"
-        for done_index, done_total, result in iter_probe_results(
-            config, scope=scope, scrapers=scrapers,
-        ):
+        try:
+            probe_gen = iter_probe_results(
+                config, scope=scope, scrapers=scrapers, max_workers=workers,
+            )
+        except TypeError:
+            probe_gen = iter_probe_results(
+                config, scope=scope, scrapers=scrapers,
+            )
+        for done_index, done_total, result in probe_gen:
             yield json.dumps(
                 {
                     "type": "result",

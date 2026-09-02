@@ -157,6 +157,9 @@ _ACTIVE_PROVIDER_SLOTS: Tuple[str, ...] = (
 )
 
 _EXPECTED_FIELDS = ("summary", "cover_url", "genres", "tags", "year", "staff")
+# Concurrency bornée pour le diagnostic : évite de saturer le worker Eventlet
+# unique et le GIL avec 41 threads concurrents tout en offrant un parallélisme fluide.
+DEFAULT_PROBE_WORKERS: int = 4
 _CAUSE_SEVERITY = {
     "network": 100,
     "ban": 90,
@@ -215,9 +218,15 @@ def probe_internet(timeout: float = 5.0) -> Dict[str, Any]:
 
     def _try(url: str, expect_204: bool = False) -> Dict[str, Any]:
         try:
-            res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
             latency = _ms_since(start)
             ok = (expect_204 and res.status_code == 204) or (200 <= res.status_code < 400)
+            close_fn = getattr(res, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
             if ok:
                 return {
                     "status": "ok",
@@ -645,11 +654,13 @@ def _probe_reachability(url: str, timeout: float = 10.0, *, needs_api_key: bool 
     start = time.time()
     headers = {"User-Agent": _UA, "Accept": "*/*"}
     try:
-        res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-        try:
-            res.close()
-        except Exception:
-            pass
+        res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
+        close_fn = getattr(res, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
         latency = _ms_since(start)
         ban_or_net = _status_from_http_code(
             res.status_code,
@@ -858,6 +869,7 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
     meta_info: Dict[str, Any]
     meta_raw: Any = None
     try:
+        yield_to_worker()
         throttle_provider(scraper)
         fetch_ctx = dict(test_case.get("context") or {})
         meta_raw = scraper.fetch(
@@ -882,12 +894,14 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
         }
 
     # --- fetch covers ---
+    yield_to_worker()
     supports = _supports_covers(scraper)
     covers_info: Dict[str, Any]
     if test_case.get("skip_covers") or not supports:
         covers_info = _analyze_covers([], False)
     else:
         try:
+            yield_to_worker()
             # Probe is_id : cover depuis le même record (cover_url).
             # fetch_covers(title) repasse par search — hors sujet pour un health-check.
             if test_case.get("is_id"):
@@ -1030,11 +1044,14 @@ def iter_probe_results(
     *,
     scope: str = "all",
     scrapers: Optional[List[BaseScraper]] = None,
+    max_workers: Optional[int] = None,
 ) -> Iterator[Tuple[int, int, Dict[str, Any]]]:
     """
-    Sonde tous les cibles **en même temps** (un worker par fournisseur).
+    Sonde les cibles du scope via un pool de workers concurrents optimisé.
 
-    Ce n'est pas un lot de séries : chaque scraper est un site différent.
+    `max_workers` borne le parallélisme (défaut DEFAULT_PROBE_WORKERS = 4) afin
+    d'éviter de saturer le processeur et la boucle Eventlet coopérative
+    (41 scrapers démarrant d'un coup monopolisaient le GIL et créaient du lag).
     `throttle_provider` continue de sérialiser deux appels au *même* scraper.
     Yield `(done_index, total, result)` à mesure que les probes finissent.
     """
@@ -1044,7 +1061,8 @@ def iter_probe_results(
     if total == 0:
         return
 
-    with ThreadPoolExecutor(max_workers=total) as executor:
+    workers = max(1, min(total, max_workers or DEFAULT_PROBE_WORKERS))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
         future_map = {
             executor.submit(contextvars.copy_context().run, _probe_one_guarded, scraper, config): scraper
             for scraper in targets
@@ -1059,14 +1077,21 @@ def iter_probe_results(
                 result = _probe_failure_result(scraper, exc)
             done_index += 1
             yield done_index, total, result
+            yield_to_worker()
 
 
 def probe_all(
     config: Optional[Dict[str, Any]] = None,
     *,
     scope: str = "all",
+    max_workers: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
     """Probe parallèle des scrapers du scope (défaut : registry entier)."""
-    results = [result for _done, _total, result in iter_probe_results(config, scope=scope)]
+    results = [
+        result
+        for _done, _total, result in iter_probe_results(
+            config, scope=scope, max_workers=max_workers
+        )
+    ]
     results.sort(key=lambda r: (r.get("display_name") or r.get("id") or "").lower())
     return results

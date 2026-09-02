@@ -1066,3 +1066,139 @@ def test_diagnostics_js_probes_all_scrapers_on_load():
     boot = src.split("DOMContentLoaded")[-1]
     assert "await probeAll()" in boot
     assert "await probeActive()" not in boot
+
+
+def test_iter_probe_results_bounds_worker_pool(monkeypatch):
+    """Vérifie que la concurrency est bornée par DEFAULT_PROBE_WORKERS (4) et non len(targets)."""
+    from concurrent.futures import ThreadPoolExecutor
+    from services.scraper_diagnostics import DEFAULT_PROBE_WORKERS
+
+    captured_workers = []
+    original_init = ThreadPoolExecutor.__init__
+
+    def _spy_init(self, max_workers=None, *args, **kwargs):
+        captured_workers.append(max_workers)
+        original_init(self, max_workers=max_workers, *args, **kwargs)
+
+    monkeypatch.setattr(ThreadPoolExecutor, "__init__", _spy_init)
+    targets = [SimpleNamespace(id=f"S{i}", display_name=f"S{i}") for i in range(12)]
+    monkeypatch.setattr(diag, "resolve_probe_targets", lambda config=None, scope="all": targets)
+    monkeypatch.setattr(
+        diag,
+        "probe_scraper",
+        lambda s, config=None: {"id": s.id, "display_name": s.display_name, "status": "ok"},
+    )
+
+    results = diag.probe_all({}, scope="all")
+    assert len(results) == 12
+    assert captured_workers[0] == DEFAULT_PROBE_WORKERS == 4
+
+
+def test_iter_probe_results_custom_max_workers(monkeypatch):
+    """Vérifie qu'un max_workers explicite est respecté."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    captured_workers = []
+    original_init = ThreadPoolExecutor.__init__
+
+    def _spy_init(self, max_workers=None, *args, **kwargs):
+        captured_workers.append(max_workers)
+        original_init(self, max_workers=max_workers, *args, **kwargs)
+
+    monkeypatch.setattr(ThreadPoolExecutor, "__init__", _spy_init)
+    targets = [SimpleNamespace(id=f"S{i}", display_name=f"S{i}") for i in range(5)]
+    monkeypatch.setattr(diag, "resolve_probe_targets", lambda config=None, scope="all": targets)
+    monkeypatch.setattr(
+        diag,
+        "probe_scraper",
+        lambda s, config=None: {"id": s.id, "display_name": s.display_name, "status": "ok"},
+    )
+
+    results = diag.probe_all({}, scope="all", max_workers=2)
+    assert len(results) == 5
+    assert captured_workers[0] == 2
+
+
+def test_parse_workers_in_route(diag_client):
+    """Vérifie le parsing et le bornage (1-8) du paramètre ?workers."""
+    from routes.diagnostics import _parse_workers, DEFAULT_PROBE_WORKERS
+
+    app = diag_client.application
+    with app.test_request_context("/api/scrapers/probe-all"):
+        assert _parse_workers() == DEFAULT_PROBE_WORKERS == 4
+
+    with app.test_request_context("/api/scrapers/probe-all?workers=6"):
+        assert _parse_workers() == 6
+
+    with app.test_request_context("/api/scrapers/probe-all?workers=20"):
+        assert _parse_workers() == 8
+
+    with app.test_request_context("/api/scrapers/probe-all?workers=0"):
+        assert _parse_workers() == 1
+
+    with app.test_request_context("/api/scrapers/probe-all?workers=invalid"):
+        assert _parse_workers() == DEFAULT_PROBE_WORKERS == 4
+
+
+def test_probe_reachability_uses_stream_true_and_closes(monkeypatch):
+    """Vérifie que la reachability utilise stream=True pour ne pas télécharger le corps."""
+    calls = []
+
+    class MockResponse:
+        def __init__(self):
+            self.status_code = 200
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    mock_resp = MockResponse()
+
+    def fake_get(url, **kwargs):
+        calls.append({"url": url, "kwargs": kwargs})
+        return mock_resp
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    result = diag._probe_reachability("https://example.com/test", timeout=5.0)
+
+    assert result["ok"] is True
+    assert len(calls) == 1
+    assert calls[0]["kwargs"].get("stream") is True
+    assert mock_resp.closed is True
+
+
+def test_probe_internet_uses_stream_true_and_closes(monkeypatch):
+    """Vérifie que probe_internet utilise stream=True et ferme la connexion."""
+    calls = []
+
+    class MockResponse:
+        def __init__(self):
+            self.status_code = 204
+            self.closed = False
+
+        def close(self):
+            self.closed = True
+
+    mock_resp = MockResponse()
+
+    def fake_get(url, **kwargs):
+        calls.append({"url": url, "kwargs": kwargs})
+        return mock_resp
+
+    monkeypatch.setattr(requests, "get", fake_get)
+    result = diag.probe_internet(timeout=3.0)
+
+    assert result["status"] == "ok"
+    assert len(calls) == 1
+    assert calls[0]["kwargs"].get("stream") is True
+    assert mock_resp.closed is True
+
+
+def test_diagnostics_js_has_no_forced_pill_reflow():
+    """Vérifie que setPill n'appelle plus pill.offsetHeight (reflow forcé)."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1].joinpath("static", "js", "diagnostics.js").read_text(
+        encoding="utf-8"
+    )
+    assert "pill.offsetHeight" not in src
