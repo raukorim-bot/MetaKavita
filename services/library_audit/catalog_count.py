@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any, Dict, List, Optional, Set
 
 import requests
@@ -245,9 +246,12 @@ def _comicvine_issues(volume_id: str, api_key: str) -> Dict[str, Any]:
         return _result(status="skipped", provider="COMICVINE", reason="provider_skipped")
     if not api_key:
         return _result(status="skipped", provider="COMICVINE", reason="provider_skipped")
+    clean_vid = re.sub(r"^4050-?", "", str(volume_id or "").strip())
+    if not clean_vid:
+        return _result(status="unknown", provider="COMICVINE", reason="no_id")
     try:
         res = requests.get(
-            f"https://comicvine.gamespot.com/api/volume/4050-{volume_id}/",
+            f"https://comicvine.gamespot.com/api/volume/4050-{clean_vid}/",
             params={
                 "api_key": api_key,
                 "format": "json",
@@ -261,7 +265,7 @@ def _comicvine_issues(volume_id: str, api_key: str) -> Dict[str, Any]:
         results = (res.json() or {}).get("results") or {}
         expected = _int_or_none(results.get("count_of_issues"))
         title = results.get("name") or ""
-        pid = str(results.get("id") or volume_id)
+        pid = str(results.get("id") or clean_vid)
         if expected is None:
             return _result(
                 status="unknown",
@@ -436,7 +440,7 @@ def resolve_catalog_expected(
             ids=ids,
             name=name,
             config=config,
-            allow_title_search=(prov == "ANILIST" and not ids),
+            allow_title_search=(prov == "ANILIST" and not ids.get("anilist")),
         )
         tried.add(prov)
         pub = _merge_pub(pub, hit.get("publication_status") or "UNKNOWN")
@@ -471,7 +475,7 @@ def resolve_catalog_expected(
                 ids=ids,
                 name=name,
                 config=config,
-                allow_title_search=(prov == "ANILIST" and not ids),
+                allow_title_search=(prov == "ANILIST" and not ids.get("anilist")),
             )
             tried.add(prov)
             pub = _merge_pub(pub, hit.get("publication_status") or "UNKNOWN")

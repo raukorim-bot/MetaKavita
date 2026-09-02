@@ -1,0 +1,1577 @@
+/* ==========================================================================
+   MetaKavita — Atelier des tomes (volumes.css)
+   Document autonome : architecture compacte, moderne et haute densité.
+   Ne pas réutiliser .dashboard-wrapper / .content (100vh, overflow hidden).
+   ========================================================================== */
+
+/* --------------------------------------------------------------------------
+   1. Structure globale & Canvas
+   -------------------------------------------------------------------------- */
+
+html.workshop-page {
+    height: 100% !important;
+    overflow: hidden !important;
+}
+
+html.workshop-page body.workshop-page,
+html.workshop-page body {
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    margin: 0;
+    font-family: "Bricolage Grotesque", system-ui, -apple-system, sans-serif;
+    background: #070a13;
+    color: var(--text-main, #f1f5f9);
+    letter-spacing: -0.01em;
+}
+
+html.workshop-page[data-theme="light"] body {
+    background: #f8fafc;
+    color: #0f172a;
+}
+
+/* --------------------------------------------------------------------------
+   2. Barre de navigation supérieure (Sticky Glass)
+   -------------------------------------------------------------------------- */
+
+.workshop-nav {
+    flex: 0 0 auto;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 18px;
+    background: rgba(7, 10, 19, 0.85);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+    z-index: 40;
+}
+
+[data-theme="light"] .workshop-nav {
+    background: rgba(255, 255, 255, 0.88);
+    border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+
+.workshop-nav .logo-mini {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-weight: 700;
+    font-size: 0.98rem;
+    color: var(--text-main, #f8fafc);
+}
+
+.workshop-nav .logo-mini img {
+    width: 26px;
+    height: 26px;
+    border-radius: 6px;
+}
+
+.workshop-nav .btn-primary {
+    padding: 6px 13px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: 6px;
+    text-decoration: none;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+.workshop-nav-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.workshop-nav-step {
+    width: 28px;
+    height: 28px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.04);
+    color: inherit;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+
+.workshop-nav-step:hover:not(:disabled) {
+    background: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.2);
+}
+
+.workshop-nav-step:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.workshop-rail-count {
+    font-size: 11.5px;
+    font-weight: 600;
+    color: var(--text-muted, #94a3b8);
+    min-width: 4.5em;
+    text-align: center;
+}
+
+/* Bouton Buy Me a Coffee (Ambre satiné) */
+.workshop-btn-coffee {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 11px;
+    border-radius: 7px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.2;
+    text-decoration: none;
+    color: #f59e0b;
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.28);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    transition: all 0.18s ease;
+}
+
+[data-theme="light"] .workshop-btn-coffee {
+    color: #b45309;
+    background: rgba(217, 119, 6, 0.08);
+    border-color: rgba(217, 119, 6, 0.25);
+}
+
+.workshop-btn-coffee:hover {
+    color: #fef3c7;
+    background: rgba(245, 158, 11, 0.22);
+    border-color: rgba(245, 158, 11, 0.5);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(245, 158, 11, 0.2);
+}
+
+.workshop-coffee-cup {
+    font-size: 13px;
+    line-height: 1;
+    display: inline-block;
+    transition: transform 0.22s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.workshop-btn-coffee:hover .workshop-coffee-cup {
+    transform: scale(1.2) rotate(-8deg);
+}
+
+.workshop-coffee-label {
+    line-height: 1;
+    white-space: nowrap;
+}
+
+/* --------------------------------------------------------------------------
+   3. Grille Principale (Rail / Contenu / Live Log)
+   -------------------------------------------------------------------------- */
+
+.workshop-shell {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(210px, 260px) 1fr minmax(210px, 280px);
+    min-height: 0;
+    overflow: hidden;
+}
+
+/* --------------------------------------------------------------------------
+   4. Rail de navigation gauche (Series Rail)
+   -------------------------------------------------------------------------- */
+
+.workshop-rail {
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: rgba(11, 16, 28, 0.7);
+    backdrop-filter: blur(12px);
+}
+
+[data-theme="light"] .workshop-rail {
+    background: rgba(248, 250, 252, 0.85);
+    border-right-color: rgba(15, 23, 42, 0.08);
+}
+
+.workshop-rail-toolbar {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.workshop-rail-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+}
+
+.workshop-rail-search,
+.workshop-rail-lib {
+    width: 100%;
+    height: 28px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #090e1a;
+    color: inherit;
+    box-sizing: border-box;
+    transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+[data-theme="light"] .workshop-rail-search,
+[data-theme="light"] .workshop-rail-lib {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.12);
+}
+
+.workshop-rail-search:focus,
+.workshop-rail-lib:focus {
+    outline: none;
+    border-color: #2dd4bf;
+    box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+}
+
+.workshop-rail-extra {
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+}
+
+.workshop-rail-extra summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+}
+
+.workshop-rail-extra .workshop-rail-check {
+    display: flex;
+    margin-top: 4px;
+}
+
+.workshop-rail-check {
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+    gap: 6px;
+}
+
+.workshop-rail-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.workshop-rail-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    text-decoration: none;
+    color: inherit;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.workshop-rail-item:hover {
+    background: rgba(45, 212, 191, 0.06);
+}
+
+.workshop-rail-item.is-current {
+    border-left-color: #2dd4bf;
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.14), rgba(45, 212, 191, 0.03));
+}
+
+.workshop-rail-thumb {
+    width: 26px;
+    height: 38px;
+    object-fit: cover;
+    border-radius: 3px;
+    background: #1e293b;
+    flex: 0 0 auto;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.workshop-rail-text {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.workshop-rail-name {
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-main, #f1f5f9);
+}
+
+.workshop-rail-chip {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--text-muted, #94a3b8);
+}
+
+.workshop-rail-chip--completed { background: rgba(45, 212, 191, 0.15); color: #5eead4; }
+.workshop-rail-chip--pending_review { background: rgba(167, 139, 250, 0.18); color: #c4b5fd; }
+.workshop-rail-chip--needs_relock { background: rgba(251, 191, 36, 0.18); color: #fcd34d; }
+.workshop-rail-chip--not_found { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+.workshop-rail-chip--pending { background: rgba(148, 163, 184, 0.14); }
+.workshop-rail-chip--ignored { background: rgba(100, 116, 139, 0.2); }
+
+[data-theme="light"] .workshop-rail-chip--completed { color: #0f766e; }
+[data-theme="light"] .workshop-rail-chip--pending_review { color: #6d28d9; }
+[data-theme="light"] .workshop-rail-chip--needs_relock { color: #b45309; }
+[data-theme="light"] .workshop-rail-chip--not_found { color: #b91c1c; }
+
+/* --------------------------------------------------------------------------
+   5. Contenu Central (Workshop Main)
+   -------------------------------------------------------------------------- */
+
+.workshop-main {
+    overflow-y: auto;
+    padding: 12px 16px 36px;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+.workshop-main.is-loading {
+    pointer-events: none;
+}
+
+.workshop-main.is-loading > *:not(#workshopLoading) {
+    opacity: 0.45;
+}
+
+.workshop-idle {
+    display: none;
+    margin: 40px auto 0;
+    max-width: 26rem;
+    text-align: center;
+    color: var(--text-muted, #94a3b8);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.workshop-main.is-idle .workshop-idle { display: block; }
+.workshop-main.is-idle #workshopSeriesCard,
+.workshop-main.is-idle #workshopBar,
+.workshop-main.is-idle #workshopVolumeList,
+.workshop-main.is-idle #workshopHistory,
+.workshop-main.is-idle #workshopPassBanner {
+    display: none;
+}
+
+.workshop-loading {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: -12px -16px 12px;
+    padding: 10px 14px;
+    background: rgba(11, 16, 28, 0.88);
+    backdrop-filter: blur(14px);
+    color: var(--text-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(45, 212, 191, 0.2);
+}
+
+[data-theme="light"] .workshop-loading {
+    background: rgba(248, 250, 252, 0.9);
+}
+
+.workshop-loading[hidden] { display: none !important; }
+
+.workshop-spinner {
+    width: 18px;
+    height: 18px;
+    animation: mkSpin 1s linear infinite;
+}
+
+@keyframes mkSpin {
+    to { transform: rotate(360deg); }
+}
+
+.workshop-pass-banner {
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin: 0 0 10px;
+    font-size: 12px;
+}
+.workshop-pass-banner[hidden] { display: none !important; }
+
+/* --------------------------------------------------------------------------
+   6. Fiche Série (Series Card — Sarcelle / Teal moderne & compacte)
+   -------------------------------------------------------------------------- */
+
+.workshop-series-card {
+    display: grid;
+    grid-template-columns: 124px 1fr;
+    gap: 16px;
+    padding: 14px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(45, 212, 191, 0.25);
+    background: linear-gradient(180deg, rgba(16, 24, 38, 0.92) 0%, rgba(10, 15, 26, 0.96) 100%);
+    backdrop-filter: blur(16px);
+    align-items: start;
+    box-shadow: 0 8px 30px -6px rgba(0, 0, 0, 0.45), inset 0 1px 0 rgba(255, 255, 255, 0.05);
+    transition: box-shadow 0.18s ease, border-color 0.18s ease, background 0.18s ease;
+}
+
+[data-theme="light"] .workshop-series-card {
+    background: linear-gradient(180deg, rgba(240, 253, 250, 0.6) 0%, #ffffff 100%);
+    border-color: rgba(13, 148, 136, 0.22);
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.06);
+}
+
+.workshop-series-card[data-dirty="1"] {
+    border-color: #2dd4bf;
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.38), 0 8px 24px -4px rgba(13, 148, 136, 0.28);
+}
+
+.workshop-series-heading {
+    margin: 0 0 4px;
+}
+
+.workshop-series-title {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--text-main, #f8fafc);
+    text-decoration: none;
+    line-height: 1.25;
+    overflow-wrap: anywhere;
+}
+
+.workshop-series-title.is-link {
+    cursor: pointer;
+}
+
+.workshop-series-title.is-link:hover {
+    color: #5eead4;
+    text-decoration: underline;
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 3px;
+    text-decoration-color: rgba(45, 212, 191, 0.55);
+}
+
+[data-theme="light"] .workshop-series-title.is-link:hover {
+    color: #0f766e;
+    text-decoration-color: rgba(13, 148, 136, 0.5);
+}
+
+.workshop-series-title .workshop-ext {
+    width: 14px;
+    height: 14px;
+    flex: 0 0 auto;
+    opacity: 0;
+    color: #2dd4bf;
+    padding: 1px;
+    border-radius: 4px;
+    background: rgba(45, 212, 191, 0.12);
+    transition: opacity 0.14s ease, transform 0.14s ease;
+}
+
+.workshop-series-title:not(.is-link) .workshop-ext { display: none; }
+.workshop-series-title.is-link .workshop-ext { opacity: 0.75; }
+.workshop-series-title.is-link:hover .workshop-ext {
+    opacity: 1;
+    transform: translate(1px, -1px);
+    background: rgba(45, 212, 191, 0.22);
+}
+
+.workshop-series-fields {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    min-width: 0;
+}
+
+.workshop-series-grid,
+.workshop-volume-fields {
+    display: grid;
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    gap: 5px 8px;
+}
+
+.workshop-series-grid .workshop-field--wide,
+.workshop-volume-fields .workshop-field--wide { grid-column: span 6; }
+.workshop-series-grid .workshop-field--mid,
+.workshop-volume-fields .workshop-field--mid { grid-column: span 3; }
+.workshop-series-grid .workshop-field--short,
+.workshop-volume-fields .workshop-field--short { grid-column: span 2; }
+
+/* Actions Fiche Série */
+.workshop-series-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.workshop-series-actions .btn-primary,
+.workshop-series-actions .btn-secondary,
+.workshop-series-actions .btn-danger,
+.workshop-volume-actions .btn-primary,
+.workshop-volume-actions .btn-secondary,
+.workshop-volume-actions .btn-danger {
+    padding: 5px 11px;
+    font-size: 11.5px;
+    font-weight: 650;
+    border-radius: 7px;
+    height: 28px;
+    box-sizing: border-box;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+
+.workshop-btn-ico {
+    width: 13px;
+    height: 13px;
+    flex-shrink: 0;
+}
+
+.workshop-series-actions .btn-primary {
+    background: linear-gradient(135deg, #0d9488, #14b8a6);
+    border: 1px solid rgba(45, 212, 191, 0.45);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(13, 148, 136, 0.3);
+}
+
+.workshop-series-actions .btn-primary:hover {
+    background: linear-gradient(135deg, #0f766e, #0d9488);
+    box-shadow: 0 3px 12px rgba(13, 148, 136, 0.4);
+    transform: translateY(-0.5px);
+}
+
+.workshop-series-actions .btn-secondary,
+.workshop-volume-actions .btn-secondary {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    color: #e2e8f0;
+}
+
+.workshop-series-actions .btn-secondary:hover,
+.workshop-volume-actions .btn-secondary:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.2);
+    color: #ffffff;
+    transform: translateY(-0.5px);
+}
+
+.workshop-series-actions .btn-danger,
+.workshop-volume-actions .btn-danger {
+    background: rgba(239, 68, 68, 0.12);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    color: #fca5a5;
+}
+
+.workshop-series-actions .btn-danger:hover,
+.workshop-volume-actions .btn-danger:hover {
+    background: rgba(239, 68, 68, 0.22);
+    border-color: #ef4444;
+    color: #ffffff;
+    transform: translateY(-0.5px);
+}
+
+#workshopCascadeAllBtn {
+    border-color: rgba(45, 212, 191, 0.35);
+    color: #2dd4bf;
+    background: rgba(45, 212, 191, 0.08);
+}
+
+#workshopCascadeAllBtn:hover {
+    background: rgba(45, 212, 191, 0.18);
+    border-color: #2dd4bf;
+    color: #5eead4;
+}
+
+/* --------------------------------------------------------------------------
+   7. Composant Couverture (Livre 2:3 & Spine Sheen)
+   -------------------------------------------------------------------------- */
+
+.workshop-cover {
+    position: relative;
+    width: 124px;
+    flex: 0 0 auto;
+    align-self: start;
+}
+
+.workshop-cover--series {
+    width: 124px;
+}
+
+.workshop-cover--volume {
+    width: 104px;
+}
+
+.workshop-cover-well {
+    width: 100%;
+    aspect-ratio: 2 / 3;
+    height: auto;
+    background: #090e18;
+    border-radius: 3px 7px 7px 3px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    box-shadow:
+        inset 3px 0 0 rgba(255, 255, 255, 0.16),
+        inset 5px 0 10px rgba(0, 0, 0, 0.45),
+        0 4px 14px rgba(0, 0, 0, 0.4);
+    transition: transform 0.16s ease, box-shadow 0.16s ease;
+}
+
+.workshop-cover:hover .workshop-cover-well {
+    transform: translateY(-1px);
+    box-shadow:
+        inset 3px 0 0 rgba(255, 255, 255, 0.22),
+        inset 5px 0 10px rgba(0, 0, 0, 0.45),
+        0 8px 22px -2px rgba(0, 0, 0, 0.52);
+}
+
+.workshop-cover-well img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+.workshop-cover-well img[hidden],
+.workshop-cover-placeholder[hidden],
+.workshop-candidate-cover[hidden] {
+    display: none !important;
+}
+
+.workshop-cover-placeholder {
+    width: 100%;
+    height: 100%;
+    background: repeating-linear-gradient(45deg, #131b2c, #131b2c 6px, #1e293b 6px, #1e293b 12px);
+}
+
+.workshop-cover-pick {
+    position: absolute;
+    left: 4px;
+    right: 4px;
+    bottom: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    margin: 0;
+    padding: 3px 6px;
+    border: 1px solid rgba(255, 255, 255, 0.14);
+    border-radius: 5px;
+    background: rgba(7, 10, 19, 0.86);
+    backdrop-filter: blur(6px);
+    color: #f8fafc;
+    font: inherit;
+    font-size: 10.5px;
+    font-weight: 600;
+    cursor: pointer;
+    opacity: 0.88;
+    transition: all 0.14s ease;
+}
+
+.workshop-cover-pick svg {
+    width: 11px;
+    height: 11px;
+    flex: 0 0 auto;
+}
+
+.workshop-cover--series:hover .workshop-cover-pick,
+.workshop-cover--series .workshop-cover-pick:focus-visible {
+    background: rgba(45, 212, 191, 0.95);
+    color: #042f2e;
+    border-color: #2dd4bf;
+    opacity: 1;
+}
+
+.workshop-cover--volume:hover .workshop-cover-pick,
+.workshop-cover--volume .workshop-cover-pick:focus-visible {
+    background: rgba(253, 186, 116, 0.95);
+    color: #431407;
+    border-color: #fdba74;
+    opacity: 1;
+}
+
+.workshop-cover-search {
+    display: flex;
+    gap: 8px;
+    padding: 0 14px 10px;
+}
+
+.workshop-cover-search input { flex: 1; }
+.workshop-cover-dialog { max-height: min(88vh, 820px); display: flex; flex-direction: column; }
+.workshop-cover-grid {
+    overflow-y: auto;
+    padding: 0 14px 14px;
+    min-height: 160px;
+}
+
+/* --------------------------------------------------------------------------
+   8. Contrôles de Formulaire & Champs Ambre Raffinés
+   -------------------------------------------------------------------------- */
+
+.workshop-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+    min-width: 0;
+}
+
+.workshop-field-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    min-height: 16px;
+    margin-bottom: 2px;
+}
+
+.workshop-field-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    color: #94a3b8;
+}
+
+.workshop-lock {
+    width: 11px;
+    height: 11px;
+    color: #64748b;
+    flex: 0 0 auto;
+}
+
+/* Micro-bouton de duplication série -> tomes */
+.workshop-cascade-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    margin: 0;
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    border-radius: 4px;
+    background: rgba(45, 212, 191, 0.08);
+    color: #2dd4bf;
+    font: inherit;
+    font-size: 9.5px;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.3;
+    transition: all 0.14s ease;
+    opacity: 0.85;
+}
+
+.workshop-cascade-btn:hover {
+    opacity: 1;
+    background: rgba(45, 212, 191, 0.22);
+    border-color: #2dd4bf;
+    color: #5eead4;
+    transform: translateY(-0.5px);
+}
+
+.workshop-cascade-ico {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+}
+
+.workshop-field input,
+.workshop-field textarea,
+.workshop-field select {
+    width: 100%;
+    height: 30px;
+    min-height: 30px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: #141926;
+    color: var(--text-main, #f8fafc);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    min-width: 0;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.workshop-field textarea {
+    height: 48px;
+    min-height: 42px;
+    max-height: 130px;
+    line-height: 1.35;
+    padding: 6px 10px;
+    resize: vertical;
+}
+
+[data-theme="light"] .workshop-field input,
+[data-theme="light"] .workshop-field textarea,
+[data-theme="light"] .workshop-field select {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.16);
+    color: #0f172a;
+}
+
+.workshop-field select {
+    color-scheme: dark;
+    cursor: pointer;
+}
+
+.workshop-field select option,
+.workshop-field select optgroup {
+    background-color: #0f172a;
+    color: #f1f5f9;
+}
+
+[data-theme="light"] .workshop-field select {
+    color-scheme: light;
+}
+
+[data-theme="light"] .workshop-field select option,
+[data-theme="light"] .workshop-field select optgroup {
+    background-color: #ffffff;
+    color: #0f172a;
+}
+
+.workshop-field input:focus,
+.workshop-field textarea:focus,
+.workshop-field select:focus {
+    border-color: #2dd4bf;
+    background: #171f30;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.22);
+}
+
+[data-theme="light"] .workshop-field input:focus,
+[data-theme="light"] .workshop-field textarea:focus,
+[data-theme="light"] .workshop-field select:focus {
+    border-color: #0d9488;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
+}
+
+.workshop-field input:disabled,
+.workshop-field textarea:disabled,
+.workshop-field select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="light"] .workshop-field input:disabled,
+[data-theme="light"] .workshop-field textarea:disabled,
+[data-theme="light"] .workshop-field select:disabled {
+    background: #f1f5f9;
+}
+
+/* Champs vides : Amber Glow subtil et raffiné (Non agressif) */
+.workshop-field--empty input,
+.workshop-field--empty textarea,
+.workshop-field--empty select,
+.workshop-field--empty .workshop-magic {
+    border-color: rgba(251, 191, 36, 0.26);
+    background: rgba(251, 191, 36, 0.02);
+    box-shadow: none;
+}
+
+.workshop-field--empty input:hover,
+.workshop-field--empty textarea:hover,
+.workshop-field--empty select:hover,
+.workshop-field--empty .workshop-magic:hover {
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.04);
+}
+
+.workshop-field--empty input:focus,
+.workshop-field--empty textarea:focus,
+.workshop-field--empty select:focus,
+.workshop-field--empty .workshop-magic:focus {
+    border-color: #2dd4bf;
+    background: #171f30;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.22);
+}
+
+.workshop-field--empty .workshop-field-label {
+    color: #f59e0b;
+}
+
+[data-theme="light"] .workshop-field--empty input,
+[data-theme="light"] .workshop-field--empty textarea,
+[data-theme="light"] .workshop-field--empty select,
+[data-theme="light"] .workshop-field--empty .workshop-magic {
+    background: rgba(251, 191, 36, 0.04);
+    border-color: rgba(217, 119, 6, 0.35);
+}
+
+[data-theme="light"] .workshop-field--empty .workshop-field-label {
+    color: #b45309;
+}
+
+/* Accordéon Plus de champs */
+.workshop-more {
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 7px;
+    padding: 3px 8px 6px;
+    background: rgba(15, 23, 42, 0.3);
+    transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.workshop-more summary {
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #94a3b8);
+    padding: 3px 0;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.workshop-more summary::-webkit-details-marker { display: none; }
+
+.workshop-more summary::before {
+    content: "▸ ";
+    color: #2dd4bf;
+    font-size: 11px;
+}
+
+.workshop-more[open] summary::before {
+    content: "▾ ";
+}
+
+.workshop-more-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 2px;
+}
+
+.workshop-more .workshop-series-grid,
+.workshop-more .workshop-volume-fields {
+    margin-top: 3px;
+}
+
+/* --------------------------------------------------------------------------
+   9. Barre d'action collante des tomes (Sticky Bar)
+   -------------------------------------------------------------------------- */
+
+.workshop-action-bar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 10px 0 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(14, 20, 32, 0.88);
+    border: 1px solid rgba(253, 186, 116, 0.28);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+}
+
+[data-theme="light"] .workshop-action-bar {
+    background: rgba(255, 247, 237, 0.92);
+    border-color: rgba(253, 186, 116, 0.4);
+    box-shadow: 0 2px 10px rgba(251, 146, 60, 0.1);
+}
+
+.workshop-bar-grow { flex: 1 1 8px; }
+
+.workshop-force-note {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(253, 186, 116, 0.35);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.4);
+    color: #fdba74;
+    cursor: help;
+    transition: all 0.14s ease;
+}
+
+.workshop-force-note svg {
+    width: 14px;
+    height: 14px;
+}
+
+.workshop-force-note:hover {
+    background: rgba(253, 186, 116, 0.16);
+    border-color: #fdba74;
+}
+
+.workshop-bar-stats {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #fdba74;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+[data-theme="light"] .workshop-bar-stats {
+    color: #c2410c;
+}
+
+.workshop-action-bar .btn-primary,
+.workshop-action-bar .btn-secondary {
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    height: 26px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.workshop-action-bar .btn-primary {
+    background: linear-gradient(135deg, #ea580c, #f97316);
+    border: 1px solid rgba(253, 186, 116, 0.4);
+    color: #ffffff;
+    box-shadow: 0 1px 4px rgba(234, 88, 12, 0.25);
+}
+
+.workshop-action-bar .btn-primary:hover {
+    background: linear-gradient(135deg, #c2410c, #ea580c);
+    box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35);
+}
+
+/* --------------------------------------------------------------------------
+   10. Cartes de Tomes (Volume Cards — Compactes & Ergonomiques)
+   -------------------------------------------------------------------------- */
+
+.workshop-volume-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.workshop-empty {
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: rgba(253, 186, 116, 0.06);
+    border: 1px solid rgba(253, 186, 116, 0.2);
+    color: var(--text-main, #f1f5f9);
+    font-size: 12px;
+    line-height: 1.4;
+}
+
+.workshop-volume-card {
+    display: grid;
+    grid-template-columns: 20px 104px 1fr;
+    gap: 14px;
+    padding: 12px 16px;
+    border-radius: 12px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: linear-gradient(180deg, rgba(18, 24, 38, 0.9) 0%, rgba(11, 15, 26, 0.96) 100%);
+    backdrop-filter: blur(14px);
+    box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    transition: box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
+}
+
+[data-theme="light"] .workshop-volume-card {
+    background: linear-gradient(180deg, rgba(255, 247, 237, 0.5) 0%, #ffffff 100%);
+    border-color: rgba(251, 146, 60, 0.2);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.05);
+}
+
+.workshop-volume-card:hover {
+    border-color: rgba(253, 186, 116, 0.35);
+    box-shadow: 0 8px 24px -4px rgba(0, 0, 0, 0.45);
+}
+
+.workshop-volume-card[data-dirty="1"] {
+    border-color: #fdba74;
+    box-shadow: 0 0 0 1px rgba(253, 186, 116, 0.45), 0 8px 24px -4px rgba(234, 88, 12, 0.25);
+}
+
+.workshop-volume-card .workshop-vol-check {
+    margin-top: 6px;
+    width: 16px;
+    height: 16px;
+    accent-color: #f97316;
+    cursor: pointer;
+    justify-self: center;
+}
+
+.workshop-volume-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-width: 0;
+}
+
+.workshop-volume-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-bottom: 2px;
+}
+
+.workshop-volume-title {
+    font-weight: 700;
+    font-size: 0.92rem;
+    color: var(--text-main, #f8fafc);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    flex-wrap: wrap;
+}
+
+/* Badges de Statut Tome façon Revue Manuelle */
+.workshop-status-chip {
+    display: inline-flex;
+    align-items: center;
+    padding: 1.5px 7px;
+    border-radius: 5px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+
+.workshop-status-chip--done {
+    background: rgba(34, 197, 94, 0.15);
+    color: #4ade80;
+    border: 1px solid rgba(34, 197, 94, 0.35);
+}
+
+.workshop-status-chip--staged {
+    background: rgba(45, 212, 191, 0.15);
+    color: #2dd4bf;
+    border: 1px solid rgba(45, 212, 191, 0.35);
+}
+
+.workshop-status-chip--pending {
+    background: rgba(148, 163, 184, 0.12);
+    color: #94a3b8;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+/* Puces de lien externe fournisseur */
+.workshop-chip,
+.workshop-magic-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    max-width: 14rem;
+    flex-shrink: 0;
+    font-size: 10.5px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: 5px;
+    background: rgba(45, 212, 191, 0.12);
+    border: 1px solid rgba(45, 212, 191, 0.25);
+    color: #5eead4;
+    text-decoration: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition: all 0.12s ease;
+}
+
+.workshop-chip:hover,
+.workshop-magic-chip:hover {
+    background: rgba(45, 212, 191, 0.22);
+    border-color: #2dd4bf;
+    color: #99f6e4;
+    transform: translateY(-0.5px);
+}
+
+.workshop-chip .workshop-ext,
+.workshop-magic-chip .workshop-ext {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    opacity: 0.85;
+}
+
+/* Champ Magique en bandeau moderne */
+.workshop-field--magic .workshop-field-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 650;
+    color: #2dd4bf;
+    font-size: 11px;
+}
+
+.workshop-magic-ico {
+    width: 12px;
+    height: 12px;
+    color: #2dd4bf;
+}
+
+.workshop-magic-row {
+    display: flex;
+    gap: 6px;
+    align-items: center;
+}
+
+.workshop-magic-row .workshop-magic {
+    flex: 1;
+    height: 28px;
+    min-height: 28px;
+    padding: 3px 9px;
+    font-size: 11.5px;
+    border-radius: 6px;
+}
+
+.workshop-magic-row button {
+    height: 28px;
+    padding: 0 10px;
+    font-size: 11px;
+    font-weight: 650;
+    border-radius: 6px;
+}
+
+.workshop-volume-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+}
+
+.workshop-volume-actions .btn-primary {
+    background: linear-gradient(135deg, #0284c7, #0ea5e9);
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    color: #ffffff;
+    box-shadow: 0 2px 8px rgba(2, 132, 199, 0.25);
+}
+
+.workshop-volume-actions .btn-primary:hover {
+    background: linear-gradient(135deg, #0369a1, #0284c7);
+    box-shadow: 0 3px 12px rgba(2, 132, 199, 0.35);
+    transform: translateY(-0.5px);
+}
+
+/* --------------------------------------------------------------------------
+   11. Candidats Revue de Tome & Complétion
+   -------------------------------------------------------------------------- */
+
+.workshop-candidate {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    margin: 0 0 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #090e1a;
+    color: inherit;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+
+.workshop-candidate:hover {
+    border-color: rgba(45, 212, 191, 0.4);
+    background: rgba(45, 212, 191, 0.04);
+}
+
+.workshop-candidate.is-picked {
+    border-color: #2dd4bf;
+    background: rgba(45, 212, 191, 0.09);
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.3);
+}
+
+.workshop-candidate-cover {
+    width: 40px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.workshop-candidate-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.workshop-candidate-body strong {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.workshop-candidate-body span {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+    margin-bottom: 3px;
+}
+
+.workshop-candidate-body p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary, #cbd5e1);
+    line-height: 1.3;
+}
+
+/* --------------------------------------------------------------------------
+   12. Console des Journaux (Live Log Terminal)
+   -------------------------------------------------------------------------- */
+
+.workshop-logs {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border-left: 1px solid rgba(255, 255, 255, 0.06);
+    background: rgba(11, 16, 28, 0.7);
+    padding: 8px 10px;
+}
+
+[data-theme="light"] .workshop-logs {
+    background: rgba(248, 250, 252, 0.85);
+    border-left-color: rgba(15, 23, 42, 0.08);
+}
+
+.workshop-logs .logs-container {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    padding-bottom: 0;
+}
+
+.workshop-logs .log-console {
+    max-height: none;
+    min-height: 0;
+    font-size: 11px;
+}
+
+.workshop-logs .logs-title {
+    font-size: 0.88rem;
+    font-weight: 700;
+}
+
+.workshop-history {
+    margin-top: 22px;
+}
+
+.workshop-history h2 {
+    font-size: 0.92rem;
+    margin-bottom: 6px;
+}
+
+.workshop-history ol {
+    padding-left: 16px;
+    font-size: 12px;
+    color: var(--text-muted, #94a3b8);
+}
+
+/* --------------------------------------------------------------------------
+   13. Modales & Contexte Tome (#manualReviewModal)
+   -------------------------------------------------------------------------- */
+
+html.workshop-page #manualReviewModal,
+html.workshop-page #workshopCoverModal {
+    position: fixed !important;
+    inset: 0;
+    z-index: 2000;
+}
+
+html.workshop-page #workshopCoverModal {
+    z-index: 2100;
+}
+
+.mr-volume-context {
+    padding: 6px 10px;
+    background: rgba(45, 212, 191, 0.08);
+    border-radius: 6px;
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    margin: 6px 0 8px 0;
+}
+
+.mr-volume-context-text {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5eead4;
+}
+
+#manualReviewModal[data-kind="volume"] .mr-series-block,
+#manualReviewModal[data-kind="volume"] #mrQueueBadge,
+#manualReviewModal[data-kind="volume"] .mr-list-toggle-btn,
+#manualReviewModal[data-kind="volume"] #mrFusionBar,
+#manualReviewModal[data-kind="volume"] .mr-show-below-row,
+#manualReviewModal[data-kind="volume"] #mrPurgeBtn,
+#manualReviewModal[data-kind="volume"] #mrSkipBtn,
+#manualReviewModal[data-kind="volume"] #mrLaterBtn,
+#manualReviewModal[data-kind="volume"] #mrListToggleBtn,
+#manualReviewModal[data-kind="volume"] #mrPickBtn { display: none !important; }
+#manualReviewModal[data-kind="volume"] #mrVolumeContext { display: block !important; }
+#manualReviewModal[data-kind="volume"] #mrVolumeConfirmBtn { display: inline-flex !important; }
+
+html.workshop-page .mr-list-toggle-btn,
+html.workshop-page #mrListToggleBtn { display: none !important; }
+
+/* --------------------------------------------------------------------------
+   14. Responsive & Ergonomie adaptative
+   -------------------------------------------------------------------------- */
+
+@media (max-width: 1100px) {
+    .workshop-shell {
+        grid-template-columns: minmax(190px, 230px) 1fr;
+    }
+    .workshop-logs {
+        grid-column: 1 / -1;
+        border-left: none;
+        border-top: 1px solid rgba(255, 255, 255, 0.06);
+        max-height: 200px;
+    }
+}
+
+@media (max-width: 860px) {
+    .workshop-shell {
+        grid-template-columns: 1fr;
+    }
+    .workshop-rail {
+        max-height: 220px;
+    }
+    .workshop-series-card {
+        grid-template-columns: 104px 1fr;
+        gap: 12px;
+    }
+    .workshop-cover--series {
+        width: 104px;
+    }
+    .workshop-series-grid,
+    .workshop-volume-fields {
+        grid-template-columns: 1fr 1fr;
+    }
+    .workshop-series-grid .workshop-field--wide,
+    .workshop-volume-fields .workshop-field--wide {
+        grid-column: 1 / -1;
+    }
+    .workshop-series-grid .workshop-field--mid,
+    .workshop-volume-fields .workshop-field--mid,
+    .workshop-series-grid .workshop-field--short,
+    .workshop-volume-fields .workshop-field--short {
+        grid-column: span 1;
+    }
+    .workshop-volume-card {
+        grid-template-columns: 18px 90px 1fr;
+        gap: 10px;
+    }
+    .workshop-cover--volume {
+        width: 90px;
+    }
+    .workshop-rail-row {
+        grid-template-columns: 1fr;
+    }
+    .workshop-coffee-label {
+        display: none;
+    }
+    .workshop-btn-coffee {
+        padding: 6px 9px;
+    }
+}
+
+@media (max-width: 520px) {
+    .workshop-series-card {
+        grid-template-columns: 1fr;
+    }
+    .workshop-cover--series {
+        width: 96px;
+    }
+    .workshop-volume-card {
+        grid-template-columns: 18px 1fr;
+    }
+    .workshop-cover--volume {
+        width: 84px;
+    }
+    .workshop-volume-card .workshop-volume-meta {
+        grid-column: 1 / -1;
+    }
+    .workshop-series-grid,
+    .workshop-volume-fields {
+        grid-template-columns: 1fr;
+    }
+    .workshop-series-grid .workshop-field--mid,
+    .workshop-volume-fields .workshop-field--mid,
+    .workshop-series-grid .workshop-field--short,
+    .workshop-volume-fields .workshop-field--short {
+        grid-column: 1 / -1;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .workshop-spinner { animation: none; }
+    .workshop-btn-coffee:hover .workshop-coffee-cup { transform: none; }
+    .workshop-cover-pick,
+    .workshop-series-card,
+    .workshop-volume-card,
+    .workshop-field input,
+    .workshop-field textarea,
+    .workshop-field select {
+        transition: none !important;
+    }
+}

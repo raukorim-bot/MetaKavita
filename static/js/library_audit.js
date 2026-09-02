@@ -98,9 +98,24 @@ function closeMissingVolumesModal() {
 
 document.addEventListener('keydown', function (e) {
     if (e.key !== 'Escape') return;
-    closeVolumeReportModal();
-    closeDuplicatesModal();
-    closeMissingVolumesModal();
+    var vr = document.getElementById('volumeReportModal');
+    if (vr && vr.style.display !== 'none' && vr.getAttribute('aria-hidden') !== 'true') {
+        closeVolumeReportModal();
+        e.stopPropagation();
+        return;
+    }
+    var dup = document.getElementById('duplicatesModal');
+    if (dup && dup.style.display !== 'none' && dup.getAttribute('aria-hidden') !== 'true') {
+        closeDuplicatesModal();
+        e.stopPropagation();
+        return;
+    }
+    var mv = document.getElementById('missingVolumesModal');
+    if (mv && mv.style.display !== 'none' && mv.getAttribute('aria-hidden') !== 'true') {
+        closeMissingVolumesModal();
+        e.stopPropagation();
+        return;
+    }
 });
 
 /** L'Inventaire est-il éteint ? Le rapport de tomes reste alors joignable pour
@@ -423,6 +438,15 @@ function _renderVolumeReport(data) {
         _escHtml(tr.audit_exclude_series || 'Exclure de l\'inventaire') + '</label>' +
         '<span class="audit-hint">' + _escHtml(tr.audit_exclude_hint || '') + '</span>' +
         '</div>' +
+        // Bouton de purge pour les séries vides (0 tome, 0 chapitre)
+        (((stats.kavita_count || 0) === 0 && (stats.total || 0) === 0)
+            ? '<div class="audit-purge-row">' +
+              '<button type="button" class="btn-danger" id="auditPurgeEmptyBtn">' +
+              _escHtml(tr.audit_empty_series_purge || 'Purge from Kavita') + '</button>' +
+              '<span class="audit-hint">' +
+              _escHtml(tr.audit_empty_series_label || 'Empty series (0 volumes)') +
+              '</span></div>'
+            : '') +
         '<div class="audit-table-wrap"><table class="audit-table">' +
         '<thead><tr>' +
         cols.map(function (c) { return '<th>' + _escHtml(c) + '</th>'; }).join('') +
@@ -451,6 +475,44 @@ function _renderVolumeReport(data) {
     if (excludeCb) {
         excludeCb.addEventListener('change', function () {
             setSeriesInventoryExcluded(_volumeReportSeriesId, excludeCb.checked);
+        });
+    }
+    // Bouton de purge des séries vides (0 volume, 0 chapitre)
+    var purgeBtn = document.getElementById('auditPurgeEmptyBtn');
+    if (purgeBtn) {
+        purgeBtn.addEventListener('click', function () {
+            if (!_volumeReportSeriesId) return;
+            if (!confirm(tr.audit_empty_series_purge_confirm || 'Do you want to permanently delete this empty series record in Kavita?')) return;
+            purgeBtn.disabled = true;
+            fetch(getRootPath() + '/api/series/' + encodeURIComponent(_volumeReportSeriesId) + '/purge-empty', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && data.success) {
+                        // Retirer la carte du dashboard
+                        var sid = String(_volumeReportSeriesId);
+                        document.querySelectorAll('.series-item[data-series-id="' + sid + '"]').forEach(function (el) {
+                            el.remove();
+                        });
+                        if (window.SeriesList && typeof window.SeriesList.remove === 'function') {
+                            window.SeriesList.remove(_volumeReportSeriesId);
+                        }
+                        closeVolumeReportModal();
+                        if (typeof showToast === 'function') {
+                            showToast(tr.audit_empty_series_purged || 'Empty series successfully deleted from Kavita.');
+                        }
+                    } else {
+                        purgeBtn.disabled = false;
+                        alert((data && data.error) || (tr.audit_err_generic || 'Error'));
+                    }
+                })
+                .catch(function () {
+                    purgeBtn.disabled = false;
+                    alert(tr.audit_err_generic || 'Error');
+                });
         });
     }
     // Le cache ne contient que le résumé : sans ce chargement paresseux, le
@@ -512,12 +574,35 @@ function setSeriesInventoryExcluded(seriesId, excluded) {
                 alert((data && data.error) || (tr.audit_err_generic || 'Error'));
                 return;
             }
-            if (excluded) _applyAuditBadge(seriesId, '');
+            var sid = String(seriesId);
+            document.querySelectorAll('.series-item[data-series-id="' + sid + '"]').forEach(function (row) {
+                row.setAttribute('data-inventory-excluded', excluded ? '1' : '0');
+                var statusWrap = row.querySelector('.series-status');
+                if (statusWrap) {
+                    var exBadge = statusWrap.querySelector('.badge-inventory-excluded');
+                    if (excluded && !exBadge) {
+                        var span = document.createElement('span');
+                        span.className = 'badge badge-inventory-excluded';
+                        span.title = tr.audit_excluded_badge_hint || '';
+                        span.textContent = tr.audit_excluded_badge || '';
+                        statusWrap.appendChild(span);
+                    } else if (!excluded && exBadge) {
+                        exBadge.remove();
+                    }
+                }
+            });
+            if (excluded) {
+                _applyAuditBadge(seriesId, '');
+            } else {
+                refreshVolumeReport();
+            }
             if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
-                window.SeriesList.patchOverride(seriesId, {
-                    inventory_excluded: !!excluded,
-                    audit_badge: excluded ? '' : undefined,
-                });
+                var patch = { inventory_excluded: !!excluded };
+                if (excluded) patch.audit_badge = '';
+                window.SeriesList.patchOverride(seriesId, patch);
+            }
+            if (!excluded && typeof hydrateAuditBadges === 'function') {
+                hydrateAuditBadges();
             }
             if (typeof filterSeries === 'function') filterSeries();
         })
@@ -619,9 +704,9 @@ function _updateHygieneCounts(counts) {
     var m = document.getElementById('hygieneCountMissing');
     var d = document.getElementById('hygieneCountDups');
     var n = document.getElementById('hygieneCountNoId');
-    if (m) m.textContent = String(counts.missing != null ? counts.missing : 0);
-    if (d) d.textContent = String(counts.duplicates != null ? counts.duplicates : 0);
-    if (n) n.textContent = String(counts.no_external_id != null ? counts.no_external_id : 0);
+    if (m && counts.missing != null) m.textContent = String(counts.missing);
+    if (d && counts.duplicates != null) d.textContent = String(counts.duplicates);
+    if (n && counts.no_external_id != null) n.textContent = String(counts.no_external_id);
     var chips = document.getElementById('hygieneChips');
     if (chips) chips.setAttribute('data-scanned', '1');
     document.querySelectorAll(
@@ -629,7 +714,9 @@ function _updateHygieneCounts(counts) {
     ).forEach(function (el) {
         el.disabled = false;
     });
-    _updateHygieneHealth(counts);
+    if (counts.series != null || counts.healthy != null) {
+        _updateHygieneHealth(counts);
+    }
 }
 
 /** Barre de santé de la bibliothèque : « combien de séries vont bien » est la
@@ -684,7 +771,7 @@ function _formatFreshness(iso) {
     if (mins < 1) value = tr.audit_freshness_now || 'just now';
     else if (mins < 60) value = mins + ' min';
     else if (mins < 60 * 24) value = Math.round(mins / 60) + ' h';
-    else value = Math.round(mins / 1440) + ' j';
+    else value = Math.round(mins / 1440) + ' ' + (tr.audit_freshness_day_short || 'j');
     var age = mins < 1 ? value : (tr.audit_freshness_ago || '{age} ago').replace('{age}', value);
     return (tr.audit_freshness_prefix || 'analysé') + ' ' + age;
 }
@@ -1004,7 +1091,7 @@ function _renderMissingVolumesModalBody(data) {
         var unitSuffix = r.unit === 'chapters'
             ? ' <span class="muted">' + _escHtml(tr.audit_unit_chapters_short || 'ch') + '</span>'
             : '';
-        html += '<tr data-series-id="' + _escHtml(r.series_id) + '">' +
+        html += '<tr data-series-id="' + _escHtml(r.series_id) + '" data-series-name="' + _escHtml(r.name || '') + '">' +
             _cell('<span class="audit-missing-row-state" data-state="' +
                 _escHtml(r.completion_state || 'unknown') + '"></span>' +
                 _escHtml(r.name) + ' <span class="muted">#' + _escHtml(r.series_id) + '</span>',
@@ -1016,7 +1103,10 @@ function _renderMissingVolumesModalBody(data) {
                 cols[2], null, true) +
             _cell(_escHtml(missing) + unitSuffix, cols[3], 'audit-cell-num', true) +
             _cell('<button type="button" class="btn-opt audit-open-missing-report">' +
-                _escHtml(tr.audit_volume_report || 'Report') + '</button>',
+                _escHtml(tr.audit_volume_report || 'Report') + '</button> ' +
+                '<button type="button" class="btn-opt audit-quick-exclude" title="' +
+                _escHtml(tr.audit_quick_exclude_title || 'Exclude this series from inventory') + '">' +
+                _escHtml(tr.audit_quick_exclude || 'Exclude') + '</button>',
                 '', 'audit-cell-actions', true) +
             '</tr>';
     });
@@ -1028,8 +1118,67 @@ function _renderMissingVolumesModalBody(data) {
         btn.addEventListener('click', function () {
             var trEl = btn.closest('tr');
             var sid = trEl && trEl.getAttribute('data-series-id');
-            var name = trEl ? (trEl.querySelector('td') || {}).textContent : sid;
+            var name = (trEl && trEl.getAttribute('data-series-name')) || (trEl ? (trEl.querySelector('td') || {}).textContent : sid);
             openVolumeReportModal(sid, name);
+        });
+    });
+    body.querySelectorAll('.audit-quick-exclude').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            var trEl = btn.closest('tr');
+            var sid = trEl && trEl.getAttribute('data-series-id');
+            var name = (trEl && trEl.getAttribute('data-series-name')) || sid;
+            if (!sid) return;
+            var confirmMsg = (tr.audit_quick_exclude_title || 'Exclude this series from inventory') + ' : ' + name + ' ?';
+            if (!confirm(confirmMsg)) return;
+            btn.disabled = true;
+            fetch(getRootPath() + '/api/series/' + encodeURIComponent(sid) + '/inventory-exclude', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ excluded: true }),
+            })
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data && data.success) {
+                        trEl.style.opacity = '0.35';
+                        trEl.style.pointerEvents = 'none';
+                        btn.textContent = '✓ ' + (tr.audit_quick_exclude || 'Excluded');
+                        // Synchroniser le dashboard (carte, badges, SeriesList)
+                        // comme le fait setSeriesInventoryExcluded.
+                        document.querySelectorAll('.series-item[data-series-id="' + sid + '"]').forEach(function (row) {
+                            row.setAttribute('data-inventory-excluded', '1');
+                            var statusWrap = row.querySelector('.series-status');
+                            if (statusWrap) {
+                                var exBadge = statusWrap.querySelector('.badge-inventory-excluded');
+                                if (!exBadge) {
+                                    var span = document.createElement('span');
+                                    span.className = 'badge badge-inventory-excluded';
+                                    span.title = tr.audit_excluded_badge_hint || '';
+                                    span.textContent = tr.audit_excluded_badge || '';
+                                    statusWrap.appendChild(span);
+                                }
+                            }
+                        });
+                        if (typeof _applyAuditBadge === 'function') _applyAuditBadge(sid, '');
+                        if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
+                            window.SeriesList.patchOverride(sid, { inventory_excluded: true, audit_badge: '' });
+                        }
+                        // Décrémenter le compteur de manquants dans la barre d'outils
+                        var pill = document.getElementById('hygieneCountMissing');
+                        if (pill) {
+                            var cur = parseInt(pill.textContent, 10);
+                            if (cur > 0) pill.textContent = String(cur - 1);
+                        }
+                        if (typeof filterSeries === 'function') filterSeries();
+                    } else {
+                        btn.disabled = false;
+                        alert((data && data.error) || (tr.audit_err_generic || 'Error'));
+                    }
+                })
+                .catch(function () {
+                    btn.disabled = false;
+                    alert(tr.audit_err_generic || 'Error');
+                });
         });
     });
 }
@@ -1115,11 +1264,9 @@ function applyDuplicateFlagsToUi(data) {
         }
     });
     if (data && data.count != null) {
-        _updateHygieneCounts({
-            missing: (data.meta && data.meta.counts && data.meta.counts.missing) || undefined,
-            duplicates: data.count,
-            no_external_id: (data.meta && data.meta.counts && data.meta.counts.no_external_id) || undefined,
-        });
+        var baseCounts = (data.meta && data.meta.counts) ? Object.assign({}, data.meta.counts) : {};
+        baseCounts.duplicates = data.count;
+        _updateHygieneCounts(baseCounts);
     }
 }
 
@@ -1157,11 +1304,11 @@ function _bindDupThresholdControl() {
 /** URL Kavita d'une série : le lien de la modale doublons était un `href="#"`
  * sans handler. La ligne du dashboard porte déjà la bonne URL (libraryId
  * compris), on la réutilise plutôt que de deviner. */
-function _kavitaSeriesUrl(seriesId) {
+function _kavitaSeriesUrl(seriesId, libraryId) {
     var row = document.querySelector('.series-item[data-series-id="' + String(seriesId) + '"]');
     var link = row && row.querySelector('a.series-link');
     if (link && link.href) return link.href;
-    var lib = _selectedLibraryId();
+    var lib = libraryId || _selectedLibraryId();
     var base = window.KAVITA_UI_URL || '';
     if (lib && base) return base + '/library/' + encodeURIComponent(lib) + '/series/' + encodeURIComponent(seriesId);
     return '';
@@ -1318,6 +1465,7 @@ function saveDupFolderSettings() {
     updateInventoryFolderPreview();
     _refreshDupFolderPaths();
     var body = new URLSearchParams();
+    body.set('INVENTORY_FOLDER_SAVE', '1');
     body.set('INVENTORY_FOLDER_PATH_PREFIX', fields.prefix);
     body.set('INVENTORY_FOLDER_TRASH', fields.trash);
     return fetch(getRootPath() + '/save-config', {
@@ -1388,16 +1536,36 @@ function _renderDuplicatesModalBody(data) {
         (g.series_ids || []).forEach(function (sid, i) {
             var name = (g.names && g.names[i]) || sid;
             var path = (g.folder_paths && g.folder_paths[i]) || '';
-            var kavitaUrl = _kavitaSeriesUrl(sid);
+            var volCount = (g.volume_counts && g.volume_counts[i] != null) ? g.volume_counts[i] : null;
+            var chapCount = (g.chapter_counts && g.chapter_counts[i] != null) ? g.chapter_counts[i] : null;
+            var isRecommended = (g.recommended_keep_id != null && g.recommended_keep_id === sid);
+            var memberLibId = (g.library_ids && g.library_ids[i]) || null;
+            var kavitaUrl = _kavitaSeriesUrl(sid, memberLibId);
             var resolved = _resolvedFolderPath(path);
             if (path && !window.INVENTORY_FOLDER_SAMPLE_PATH) {
                 window.INVENTORY_FOLDER_SAMPLE_PATH = path;
                 updateInventoryFolderPreview();
             }
+            var volBadge = '';
+            if (volCount != null) {
+                var volTxt = volCount + ' ' + (tr.audit_unit_volumes || 'tomes');
+                if (chapCount != null && chapCount > 0) {
+                    volTxt += ' · ' + chapCount + ' ' + (tr.audit_unit_chapters_short || 'ch');
+                }
+                volBadge = ' <span class="audit-dup-tag audit-dup-tag--score">' + _escHtml(volTxt) + '</span>';
+            }
+            var recBadge = '';
+            if (isRecommended && (g.series_ids || []).length > 1) {
+                recBadge = ' <span class="audit-dup-tag audit-dup-tag--exact" title="' +
+                    _escHtml(tr.audit_dup_recommended_keep || 'Recommended (most complete)') + '">' +
+                    '🌟 ' + _escHtml(tr.audit_dup_recommended_keep || 'Recommended') + '</span>';
+            }
             html += '<div class="audit-dup-row" data-series-id="' + _escHtml(sid) +
-                '" data-folder-path="' + _escHtml(path) + '">' +
+                '" data-folder-path="' + _escHtml(path) +
+                '" data-volumes="' + (volCount != null ? volCount : 0) + '">' +
                 '<button type="button" class="linkish audit-open-report audit-dup-name">' +
                 _escHtml(name) + ' <span class="muted">#' + _escHtml(sid) + '</span></button>' +
+                volBadge + recBadge +
                 '<span class="audit-dup-row-actions">' +
                 (kavitaUrl
                     ? '<a class="btn-opt audit-open-kavita" target="_blank" rel="noopener" href="' +
@@ -1418,6 +1586,10 @@ function _renderDuplicatesModalBody(data) {
             html += '</div>';
         });
         html += '<div class="audit-dup-actions">' +
+            '<button type="button" class="btn-opt audit-resolve-dup" data-ids="' +
+            _escHtml((g.series_ids || []).join(',')) + '" title="' +
+            _escHtml(tr.audit_dup_mark_resolved || 'Mark as resolved') + '">' +
+            '✅ ' + _escHtml(tr.audit_dup_mark_resolved || 'Mark as resolved') + '</button> ' +
             '<button type="button" class="btn-opt audit-not-dup" data-ids="' +
             _escHtml((g.series_ids || []).join(',')) + '">' +
             _escHtml(tr.audit_not_duplicate || 'Not a duplicate') + '</button> ' +
@@ -1436,10 +1608,12 @@ function _renderDuplicatesModalBody(data) {
             openVolumeReportModal(sid, (btn.firstChild || {}).textContent || btn.textContent);
         });
     });
-    body.querySelectorAll('.audit-not-dup, .audit-ignore-dup').forEach(function (btn) {
+    body.querySelectorAll('.audit-not-dup, .audit-ignore-dup, .audit-resolve-dup').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var ids = (btn.getAttribute('data-ids') || '').split(',').filter(Boolean);
-            var reason = btn.classList.contains('audit-ignore-dup') ? 'ignored' : 'not_duplicate';
+            var reason = 'not_duplicate';
+            if (btn.classList.contains('audit-ignore-dup')) reason = 'ignored';
+            else if (btn.classList.contains('audit-resolve-dup')) reason = 'resolved';
             _dismissDupGroup(ids, reason, btn);
         });
     });
@@ -1457,6 +1631,30 @@ function _renderDuplicatesModalBody(data) {
     });
     body.querySelectorAll('.audit-dup-drop-cb').forEach(function (cb) {
         cb.addEventListener('change', function () {
+            if (cb.checked) {
+                var row = cb.closest('.audit-dup-row');
+                var groupEl = cb.closest('.audit-dup-group');
+                var myVols = parseInt((row && row.getAttribute('data-volumes')) || '0', 10);
+                var largestKept = -1;
+                if (groupEl) {
+                    groupEl.querySelectorAll('.audit-dup-row').forEach(function (other) {
+                        var otherCb = other.querySelector('.audit-dup-drop-cb');
+                        if (other !== row && (!otherCb || !otherCb.checked)) {
+                            var v = parseInt(other.getAttribute('data-volumes') || '0', 10);
+                            if (v > largestKept) largestKept = v;
+                        }
+                    });
+                }
+                if (myVols > 0 && largestKept >= 0 && myVols > largestKept) {
+                    var warn = (tr.audit_dup_confirm_drop_larger ||
+                        'Warning: this copy has more volumes ({0} volumes) than the kept copy ({1} volumes). Are you sure you want to trash it?')
+                        .replace('{0}', myVols).replace('{1}', largestKept);
+                    if (!confirm(warn)) {
+                        cb.checked = false;
+                        return;
+                    }
+                }
+            }
             _enforceDupKeepOne(cb.closest('.audit-dup-group'));
             _syncDupDropMarkedFromDom();
         });
@@ -1527,13 +1725,16 @@ function _requestDupScript(download) {
     }
     var modeEl = document.getElementById('dupScriptMode');
     var mode = (modeEl && modeEl.value) || 'trash';
+    var formatEl = document.getElementById('dupScriptFormat');
+    var format = (formatEl && formatEl.value) || 'sh';
+    var isPs1 = format === 'ps1';
     var lib = _selectedLibraryIdOrAll();
     saveDupFolderSettings().then(function () {
     return fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/script', {
         method: 'POST',
         credentials: 'same-origin',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ series_ids: ids, mode: mode }),
+        body: JSON.stringify({ series_ids: ids, mode: mode, format: format }),
     });
     })
         .then(function (r) { return r.json(); })
@@ -1543,10 +1744,12 @@ function _requestDupScript(download) {
                 return;
             }
             if (download) {
-                var blob = new Blob([data.script], { type: 'text/x-sh' });
+                var ext = isPs1 ? '.ps1' : '.sh';
+                var mime = isPs1 ? 'application/x-powershell' : 'text/x-sh';
+                var blob = new Blob([data.script], { type: mime });
                 var a = document.createElement('a');
                 a.href = URL.createObjectURL(blob);
-                a.download = 'metakavita-duplicates.sh';
+                a.download = 'metakavita-duplicates' + ext;
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
@@ -1562,9 +1765,34 @@ function _requestDupScript(download) {
         .catch(function () { alert(tr.audit_err_generic || 'Error'); });
 }
 
+function _triggerKavitaScan() {
+    var tr = _auditT();
+    var btn = document.getElementById('dupTriggerKavitaScan');
+    var lib = _selectedLibraryIdOrAll();
+    if (btn) btn.disabled = true;
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/kavita-scan', {
+        method: 'POST',
+        credentials: 'same-origin',
+    })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            if (btn) btn.disabled = false;
+            if (!data || !data.success) {
+                alert((data && data.error) || (tr.audit_dup_scan_failed || 'Failed to trigger scan.'));
+                return;
+            }
+            alert(tr.audit_dup_scan_triggered || 'Kavita library scan triggered successfully!');
+        })
+        .catch(function () {
+            if (btn) btn.disabled = false;
+            alert(tr.audit_dup_scan_failed || 'Failed to trigger scan.');
+        });
+}
+
 function _bindDupScriptButtons() {
     var copyBtn = document.getElementById('dupCopyScript');
     var dlBtn = document.getElementById('dupDownloadScript');
+    var scanBtn = document.getElementById('dupTriggerKavitaScan');
     if (copyBtn && !copyBtn.dataset.bound) {
         copyBtn.dataset.bound = '1';
         copyBtn.addEventListener('click', function () { _requestDupScript(false); });
@@ -1572,6 +1800,10 @@ function _bindDupScriptButtons() {
     if (dlBtn && !dlBtn.dataset.bound) {
         dlBtn.dataset.bound = '1';
         dlBtn.addEventListener('click', function () { _requestDupScript(true); });
+    }
+    if (scanBtn && !scanBtn.dataset.bound) {
+        scanBtn.dataset.bound = '1';
+        scanBtn.addEventListener('click', _triggerKavitaScan);
     }
 }
 
@@ -2024,7 +2256,24 @@ window._onVolumeEnrichProgress = _onVolumeEnrichProgress;
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (!data || !data.success || !data.badges) return;
-                if (window.SeriesList && typeof window.SeriesList.applyAuditBadges === 'function') {
+                if (data.items) {
+                    Object.keys(data.items).forEach(function (sid) {
+                        var it = data.items[sid];
+                        _applyAuditBadge(sid, it.badge, {
+                            state: it.state,
+                            forced: it.forced,
+                            unit: it.unit,
+                        });
+                        if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
+                            window.SeriesList.patchOverride(sid, {
+                                audit_badge: it.badge,
+                                completion_state: it.state,
+                                forced_expected: it.forced,
+                                audit_unit: it.unit,
+                            });
+                        }
+                    });
+                } else if (window.SeriesList && typeof window.SeriesList.applyAuditBadges === 'function') {
                     window.SeriesList.applyAuditBadges(data.badges);
                 } else {
                     Object.keys(data.badges).forEach(function (sid) {

@@ -1,0 +1,29 @@
+/* --------------------------------------------------------------------------
+   1. Structure globale & Canvas
+   -------------------------------------------------------------------------- */
+
+html.workshop-page {
+    height: 100% !important;
+    overflow: hidden !important;
+}
+
+html.workshop-page body.workshop-page,
+html.workshop-page body {
+    height: 100% !important;
+    min-height: 100% !important;
+    max-height: 100% !important;
+    overflow: hidden !important;
+    display: flex !important;
+    flex-direction: column !important;
+    margin: 0;
+    font-family: "Bricolage Grotesque", system-ui, -apple-system, sans-serif;
+    background: #070a13;
+    color: var(--text-main, #f1f5f9);
+    letter-spacing: -0.01em;
+}
+
+html.workshop-page[data-theme="light"] body {
+    background: #f8fafc;
+    color: #0f172a;
+}
+

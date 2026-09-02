@@ -198,6 +198,10 @@ def cluster_duplicate_series(
         identity["id"] = int(s["id"])
         if s.get("libraryId") is not None:
             identity["libraryId"] = s.get("libraryId")
+        if s.get("volume_count") is not None:
+            identity["volume_count"] = s.get("volume_count")
+        if s.get("chapter_count") is not None:
+            identity["chapter_count"] = s.get("chapter_count")
         items.append(identity)
 
     n = len(items)
@@ -313,6 +317,18 @@ def cluster_duplicate_series(
         if gkey in exclude_keys:
             continue
         gid += 1
+        volume_counts = [int(items[i].get("volume_count") or 0) for i in members]
+        chapter_counts = [int(items[i].get("chapter_count") or 0) for i in members]
+
+        best_idx = 0
+        best_vol_score = (-1, -1)
+        for idx, i in enumerate(members):
+            score_tuple = (int(items[i].get("volume_count") or 0), int(items[i].get("chapter_count") or 0))
+            if score_tuple > best_vol_score:
+                best_vol_score = score_tuple
+                best_idx = idx
+        recommended_keep_id = series_ids[best_idx] if series_ids else None
+
         groups.append(
             {
                 "group_id": f"dup-{gid}",
@@ -320,6 +336,10 @@ def cluster_duplicate_series(
                 "series_ids": series_ids,
                 "names": [items[i].get("name") or "" for i in members],
                 "folder_paths": [items[i].get("folder_path") or "" for i in members],
+                "library_ids": [items[i].get("libraryId") for i in members],
+                "volume_counts": volume_counts,
+                "chapter_counts": chapter_counts,
+                "recommended_keep_id": recommended_keep_id,
                 "score": round(best, 3),
                 "reasons": sorted(reasons),
             }

@@ -991,7 +991,7 @@
 
     function isModalOpen() {
         var modal = document.getElementById("manualReviewModal");
-        if (!modal) return false;
+        if (!modal || modal.dataset.kind === "volume") return false;
         var d = modal.style.display;
         return d && d !== "none";
     }

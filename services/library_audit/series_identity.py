@@ -89,7 +89,8 @@ def extract_provider_ids(
         elif fp in ("MAL", "MYANIMELIST") and fid.isdigit():
             out.setdefault("mal", fid)
         elif fp in ("COMICVINE", "CV"):
-            digits = re.sub(r"\D", "", fid)
+            cv_clean = re.sub(r"^4050-?", "", fid.strip())
+            digits = re.sub(r"\D", "", cv_clean)
             if digits:
                 out.setdefault("comicvine", digits)
         elif fp in ("MANGABAKA", "MB"):

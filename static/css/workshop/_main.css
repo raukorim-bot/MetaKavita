@@ -1,0 +1,85 @@
+/* --------------------------------------------------------------------------
+   5. Contenu Central (Workshop Main)
+   -------------------------------------------------------------------------- */
+
+.workshop-main {
+    overflow-y: auto;
+    padding: 12px 16px 36px;
+    min-width: 0;
+    min-height: 0;
+    position: relative;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
+}
+
+.workshop-main.is-loading {
+    pointer-events: none;
+}
+
+.workshop-main.is-loading > *:not(#workshopLoading) {
+    opacity: 0.45;
+}
+
+.workshop-idle {
+    display: none;
+    margin: 40px auto 0;
+    max-width: 26rem;
+    text-align: center;
+    color: var(--text-muted, #94a3b8);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.workshop-main.is-idle .workshop-idle { display: block; }
+.workshop-main.is-idle #workshopSeriesCard,
+.workshop-main.is-idle #workshopBar,
+.workshop-main.is-idle #workshopVolumeList,
+.workshop-main.is-idle #workshopHistory,
+.workshop-main.is-idle #workshopPassBanner {
+    display: none;
+}
+
+.workshop-loading {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    margin: -12px -16px 12px;
+    padding: 10px 14px;
+    background: rgba(11, 16, 28, 0.88);
+    backdrop-filter: blur(14px);
+    color: var(--text-muted, #94a3b8);
+    font-size: 12px;
+    font-weight: 600;
+    border-bottom: 1px solid rgba(45, 212, 191, 0.2);
+}
+
+[data-theme="light"] .workshop-loading {
+    background: rgba(248, 250, 252, 0.9);
+}
+
+.workshop-loading[hidden] { display: none !important; }
+
+.workshop-spinner {
+    width: 18px;
+    height: 18px;
+    animation: mkSpin 1s linear infinite;
+}
+
+@keyframes mkSpin {
+    to { transform: rotate(360deg); }
+}
+
+.workshop-pass-banner {
+    background: rgba(251, 191, 36, 0.1);
+    border: 1px solid rgba(251, 191, 36, 0.3);
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin: 0 0 10px;
+    font-size: 12px;
+}
+.workshop-pass-banner[hidden] { display: none !important; }
+

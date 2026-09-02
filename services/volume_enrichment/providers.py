@@ -812,6 +812,7 @@ def fetch_by_title_volume(
     provider_ids: Optional[List[str]] = None,
     limit: int = TITLE_VOLUME_LIMIT,
     should_cancel: Optional[Callable[[], bool]] = None,
+    all_scrapers: bool = False,
 ) -> Dict[str, Dict[str, Any]]:
     """Index bâti tome par tome, par recherche « titre de série + numéro ».
 
@@ -838,7 +839,7 @@ def fetch_by_title_volume(
         if should_cancel and should_cancel():
             break
         key = unit_number(unit)
-        if key is None or key in index or unit.get("is_special"):
+        if key is None or (not all_scrapers and key in index) or unit.get("is_special"):
             continue
         for scraper in scrapers:
             try:
@@ -863,8 +864,14 @@ def fetch_by_title_volume(
             }
             payload = {k: v for k, v in payload.items() if v}
             if payload:
-                index[key] = payload
-            break
+                payload["provider"] = scraper.id
+                ref = found.get("provider_ref") or found.get("url") or ""
+                if ref:
+                    payload["provider_ref"] = ref
+                store_key = f"{key}_{scraper.id}" if all_scrapers else key
+                index[store_key] = payload
+            if not all_scrapers:
+                break
     return index
 
 
@@ -897,6 +904,7 @@ def fetch_by_isbn(
     limit: int = 200,
     config: Optional[dict] = None,
     should_cancel: Optional[Callable[[], bool]] = None,
+    all_scrapers: bool = False,
 ) -> Dict[str, Dict[str, Any]]:
     """Index bâti tome par tome, à partir des ISBN déjà présents dans Kavita.
 
@@ -933,15 +941,16 @@ def fetch_by_isbn(
         # s'indexe sur son propre ISBN. C'est le seul chemin qui lui reste, et
         # c'est le plus sûr des deux, l'ISBN désignant une édition précise.
         key = unit_key(unit)
-        if not isbn or key is None or key in index or unit.get("is_special"):
+        if not isbn or key is None or (not all_scrapers and key in index) or unit.get("is_special"):
             continue
+        clean_isbn = str(isbn).replace("-", "").replace(" ", "").strip()
         for scraper in scrapers:
             try:
                 throttle_provider(scraper)
                 found = scraper.fetch(
-                    isbn,
+                    clean_isbn or isbn,
                     library_type=library_type,
-                    existing_metadata={"isbn": isbn},
+                    existing_metadata={"isbn": clean_isbn or isbn},
                 )
             except Exception as exc:
                 logging.debug("[Tomes] ISBN %s via %s : %s", isbn, scraper.id, safe_exc_str(exc))
@@ -952,11 +961,19 @@ def fetch_by_isbn(
                 "title": (found.get("title") or "").strip(),
                 "summary": (found.get("summary") or "").strip(),
                 "release_date": found.get("release_date") or found.get("year") or "",
-                "isbn": isbn,
+                "isbn": clean_isbn or isbn,
                 "cover_url": found.get("cover_url") or "",
             }
             payload = {k: v for k, v in payload.items() if v}
             if payload:
-                index[key] = payload
-            break
+                payload["provider"] = scraper.id
+                ref = found.get("provider_ref") or found.get("url") or ""
+                if ref:
+                    payload["provider_ref"] = ref
+                store_key = f"{key}_{scraper.id}" if all_scrapers else key
+                index[store_key] = payload
+            if not all_scrapers:
+                break
     return index
+
+

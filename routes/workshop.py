@@ -208,12 +208,55 @@ def workshop_save_draft_series(series_id):
     if err:
         return err
     payload = request.get_json(silent=True) or {}
-    from db_manager import save_workshop_series_override
+    from db_manager import get_workshop_series_override, save_workshop_series_override
 
     edits = payload.get("edits") or {}
     cover_url = str(payload.get("cover_url") or "").strip()
-    save_workshop_series_override(series_id, edits, cover_url=cover_url)
+    existing = get_workshop_series_override(series_id) or {}
+    existing_payload = existing.get("payload") or {}
+    merged_payload = dict(edits)
+    if "_external_ids" in existing_payload:
+        merged_payload["_external_ids"] = existing_payload["_external_ids"]
+    if not cover_url and existing.get("cover_url"):
+        cover_url = str(existing.get("cover_url") or "")
+    save_workshop_series_override(series_id, merged_payload, cover_url=cover_url)
     return jsonify({"success": True, "staged": True})
+
+
+@workshop_bp.route("/api/series/<int:series_id>/workshop/draft-volume", methods=["POST"])
+def workshop_save_draft_volume(series_id):
+    config = load_config()
+    api = _api()
+    _, err = _guard_series(api, series_id, config)
+    if err:
+        return err
+    payload = request.get_json(silent=True) or {}
+    chapter_id = payload.get("chapter_id")
+    if not chapter_id:
+        return jsonify({"success": False, "error": "missing_chapter"}), 400
+    edits = payload.get("edits") or {}
+    cover_url = str(payload.get("cover_url") or "").strip()
+    from db_manager import get_volume_unit_overrides, save_volume_unit_override
+
+    existing = (get_volume_unit_overrides(series_id) or {}).get(int(chapter_id)) or {}
+    existing_payload = existing.get("payload") or {}
+    merged_payload = dict(existing_payload)
+    merged_payload.update(edits)
+    merged_payload["_staged"] = True
+    merged_payload["_source"] = "manual"
+    if cover_url:
+        merged_payload["cover_url"] = cover_url
+    elif not cover_url and "cover_url" in existing_payload:
+        merged_payload["cover_url"] = existing_payload["cover_url"]
+    save_volume_unit_override(
+        series_id,
+        int(chapter_id),
+        provider=str(existing.get("provider") or ""),
+        provider_ref=str(existing.get("provider_ref") or ""),
+        payload=merged_payload,
+    )
+    return jsonify({"success": True, "staged": True})
+
 
 
 

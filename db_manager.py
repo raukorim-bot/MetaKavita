@@ -1766,6 +1766,11 @@ def clean_orphaned_cache(active_ids):
     _ensure_auto_sync_tables(c)
     c.execute("SELECT series_id FROM series_cache")
     cached_ids = {row[0] for row in c.fetchall()}
+    try:
+        c.execute("SELECT series_id FROM volume_report_cache")
+        cached_ids.update(row[0] for row in c.fetchall())
+    except Exception:
+        pass
     orphans = cached_ids - active_ids
     if orphans:
         orphan_list = list(orphans)
@@ -1777,6 +1782,35 @@ def clean_orphaned_cache(active_ids):
                     f"DELETE FROM {table} WHERE series_id IN ({placeholders})",
                     chunk,
                 )
+        try:
+            import json
+            orphans_int = {int(x) for x in orphans}
+            c.execute("SELECT library_id, group_id, payload_json FROM duplicate_group_cache")
+            for lib_id, grp_id, p_json in c.fetchall():
+                if not p_json:
+                    continue
+                try:
+                    p = json.loads(p_json)
+                    sids = p.get("series_ids") or []
+                    remaining = [s for s in sids if int(s) not in orphans_int]
+                    if len(remaining) < 2:
+                        c.execute("DELETE FROM duplicate_group_cache WHERE library_id = ? AND group_id = ?", (lib_id, grp_id))
+                    elif len(remaining) < len(sids):
+                        p["names"] = [p["names"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and "names" in p and i < len(p["names"])]
+                        p["folder_paths"] = [p["folder_paths"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and "folder_paths" in p and i < len(p["folder_paths"])]
+                        if "volume_counts" in p:
+                            p["volume_counts"] = [p["volume_counts"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and i < len(p["volume_counts"])]
+                        if "chapter_counts" in p:
+                            p["chapter_counts"] = [p["chapter_counts"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and i < len(p["chapter_counts"])]
+                        p["series_ids"] = remaining
+                        c.execute(
+                            "UPDATE duplicate_group_cache SET payload_json = ? WHERE library_id = ? AND group_id = ?",
+                            (json.dumps(p, ensure_ascii=False), lib_id, grp_id),
+                        )
+                except Exception:
+                    pass
+        except Exception:
+            pass
         conn.commit()
         try:
             from services import kavita_cover_cache
@@ -1787,6 +1821,82 @@ def clean_orphaned_cache(active_ids):
             pass
     conn.close()
     return len(orphans)
+
+
+def purge_single_series_from_all_caches(series_id: int) -> int:
+    """Supprime une unique série de toutes les tables de cache sans affecter les autres.
+
+    Contrairement à `clean_orphaned_cache` (qui attend l'ensemble *complet* des IDs
+    Kavita actifs), cette fonction est chirurgicale : elle ne touche que `series_id`
+    et laisse toutes les autres séries intactes. À utiliser quand une seule série est
+    supprimée (purge-empty, SignalR SeriesRemoved).
+    """
+    import json
+
+    sid = int(series_id)
+    if not os.path.exists(DB_FILE):
+        return 0
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_pending_reviews_table(c)
+    _ensure_library_audit_tables(c)
+    _ensure_volume_unit_tables(c)
+    _ensure_workshop_tables(c)
+    _ensure_auto_sync_tables(c)
+
+    deleted = 0
+    for table in _SERIES_SCOPED_TABLES:
+        c.execute(f"DELETE FROM {table} WHERE series_id = ?", (sid,))
+        deleted += c.rowcount
+
+    # Nettoyage chirurgical de duplicate_group_cache (séries stockées en JSON).
+    try:
+        c.execute(
+            "SELECT library_id, group_id, payload_json FROM duplicate_group_cache"
+        )
+        for lib_id, grp_id, p_json in c.fetchall():
+            if not p_json:
+                continue
+            try:
+                p = json.loads(p_json)
+                sids = p.get("series_ids") or []
+                int_sids = [int(s) for s in sids]
+                if sid not in int_sids:
+                    continue
+                remaining_idx = [i for i, s in enumerate(int_sids) if s != sid]
+                if len(remaining_idx) < 2:
+                    c.execute(
+                        "DELETE FROM duplicate_group_cache "
+                        "WHERE library_id = ? AND group_id = ?",
+                        (lib_id, grp_id),
+                    )
+                else:
+                    for key in ("names", "folder_paths", "volume_counts",
+                                "chapter_counts", "library_ids"):
+                        lst = p.get(key)
+                        if isinstance(lst, list):
+                            p[key] = [lst[i] for i in remaining_idx if i < len(lst)]
+                    p["series_ids"] = [int_sids[i] for i in remaining_idx]
+                    c.execute(
+                        "UPDATE duplicate_group_cache SET payload_json = ? "
+                        "WHERE library_id = ? AND group_id = ?",
+                        (json.dumps(p, ensure_ascii=False), lib_id, grp_id),
+                    )
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    conn.commit()
+    conn.close()
+
+    try:
+        from services import kavita_cover_cache
+        kavita_cover_cache.purge_series(sid)
+    except Exception:
+        pass
+
+    return deleted
 
 
 def save_volume_report_cache(series_id: int, report: dict):
@@ -2293,17 +2403,24 @@ def delete_dup_dismissal(library_id, series_ids=None, group_key=None):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
-    c.execute(
-        "DELETE FROM hygiene_dup_dismissals WHERE library_id = ? AND group_key = ?",
-        (str(library_id), gkey),
-    )
+    lib = str(library_id).strip().lower() if library_id is not None else ""
+    if lib == "all":
+        c.execute(
+            "DELETE FROM hygiene_dup_dismissals WHERE group_key = ?",
+            (gkey,),
+        )
+    else:
+        c.execute(
+            "DELETE FROM hygiene_dup_dismissals WHERE (library_id = ? OR library_id = 'all') AND group_key = ?",
+            (str(library_id), gkey),
+        )
     deleted = c.rowcount
     conn.commit()
     conn.close()
     return deleted > 0
 
 
-def list_dup_dismissals(library_id):
+def list_dup_dismissals(library_id=None):
     import json
 
     if not os.path.exists(DB_FILE):
@@ -2311,13 +2428,24 @@ def list_dup_dismissals(library_id):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
-    c.execute(
-        "SELECT group_key, series_ids_json, reason, updated_at "
-        "FROM hygiene_dup_dismissals WHERE library_id = ?",
-        (str(library_id),),
-    )
+    lib = str(library_id).strip().lower() if library_id is not None else ""
+    if not lib or lib == "all":
+        c.execute(
+            "SELECT group_key, series_ids_json, reason, updated_at "
+            "FROM hygiene_dup_dismissals"
+        )
+    else:
+        c.execute(
+            "SELECT group_key, series_ids_json, reason, updated_at "
+            "FROM hygiene_dup_dismissals WHERE library_id = ? OR library_id = 'all'",
+            (str(library_id),),
+        )
     out = []
+    seen = set()
     for gkey, sids, reason, updated in c.fetchall():
+        if gkey in seen:
+            continue
+        seen.add(gkey)
         try:
             ids = json.loads(sids or "[]")
         except (TypeError, ValueError):
@@ -2334,7 +2462,7 @@ def list_dup_dismissals(library_id):
     return out
 
 
-def list_dismissed_group_keys(library_id) -> set:
+def list_dismissed_group_keys(library_id=None) -> set:
     return {d["group_key"] for d in list_dup_dismissals(library_id)}
 
 
@@ -2590,6 +2718,11 @@ def clear_volume_unit_states(series_id=None, chapter_id=None):
         c.execute(
             "DELETE FROM volume_unit_cache WHERE series_id = ? AND chapter_id = ?",
             (int(series_id), int(chapter_id)),
+        )
+        # Supprime aussi la sentinelle de fin de passe pour que la reprise traverse à nouveau la série
+        c.execute(
+            "DELETE FROM volume_unit_cache WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), SERIES_PASS_CHAPTER_ID),
         )
     conn.commit()
     conn.close()

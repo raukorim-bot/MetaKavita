@@ -1019,3 +1019,595 @@ def test_no_enrich_imports_volume_report():
     assert "library_audit" not in src
     assert "volume_report" not in src
     assert "build_volume_report" not in src
+
+
+def test_bf195_inventory_folder_partial_save_preserves_config(isolated_db, monkeypatch):
+    """BF195: INVENTORY_FOLDER_SAVE ne doit pas écraser KAVITA_URL ou le reste de la config."""
+    from flask import Flask
+    from routes.config import config_bp
+    import config_manager
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(config_bp)
+    client = app.test_client()
+
+    cfg = config_manager.load_config()
+    cfg["KAVITA_URL"] = "http://kavita.local:5000"
+    cfg["SMART_COMPLETION"] = True
+    cfg["SMART_SCORING"] = True
+    cfg["TARGET_LANG"] = "EN"
+    config_manager.save_config(cfg)
+
+    resp = client.post(
+        "/save-config",
+        data={
+            "INVENTORY_FOLDER_SAVE": "1",
+            "INVENTORY_FOLDER_PATH_PREFIX": "/data/mangas",
+            "INVENTORY_FOLDER_TRASH": "/data/.trash",
+        },
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+    after = config_manager.load_config()
+    assert after["KAVITA_URL"] == "http://kavita.local:5000"
+    assert after["SMART_COMPLETION"] is True
+    assert after["SMART_SCORING"] is True
+    assert after["TARGET_LANG"] == "EN"
+    assert after["INVENTORY_FOLDER_PATH_PREFIX"] == "/data/mangas"
+    assert after["INVENTORY_FOLDER_TRASH"] == "/data/.trash"
+
+
+def test_bf195_dup_dismiss_updates_hygiene_library_meta(isolated_db, monkeypatch):
+    """BF195: library_duplicates_dismiss met à jour hygiene_library_meta counts['duplicates']."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from db_manager import (
+        set_hygiene_library_meta,
+        get_hygiene_library_meta,
+        save_duplicate_groups_cache,
+    )
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    client = app.test_client()
+
+    set_hygiene_library_meta("1", {"series": 10, "healthy": 8, "duplicates": 2, "missing": 1})
+    save_duplicate_groups_cache("1", [
+        {"group_id": "g1", "group_key": "k1", "series_ids": [10, 11]},
+        {"group_id": "g2", "group_key": "k2", "series_ids": [20, 21]},
+    ])
+
+    resp = client.post(
+        "/api/libraries/1/duplicates/dismiss",
+        json={"series_ids": [10, 11], "reason": "not_duplicate"},
+    )
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+    meta = get_hygiene_library_meta("1")
+    assert meta["counts"]["duplicates"] == 1
+
+
+def test_bf195_dup_dismiss_cross_library_scoping(isolated_db):
+    """BF195: un doublon ignoré en bibliothèque 1 est visible dans 'all'."""
+    from db_manager import save_dup_dismissal, list_dismissed_group_keys, delete_dup_dismissal
+
+    gkey = save_dup_dismissal("1", [101, 102], "not_duplicate")
+    assert gkey in list_dismissed_group_keys("all")
+    assert gkey in list_dismissed_group_keys("1")
+
+    ok = delete_dup_dismissal("all", group_key=gkey)
+    assert ok is True
+    assert gkey not in list_dismissed_group_keys("1")
+
+
+def test_bf195_comicvine_volume_id_prefix_sanitization(monkeypatch):
+    """BF195: le préfixe 4050- est nettoyé avant d'être concaténé."""
+    from services.library_audit.catalog_count import _comicvine_issues
+    from services.library_audit.series_identity import extract_provider_ids
+    import requests
+
+    ids = extract_provider_ids({}, forced_id="4050-12345", forced_provider="COMICVINE")
+    assert ids["comicvine"] == "12345"
+
+    requested_urls = []
+
+    def mock_get(url, **kwargs):
+        requested_urls.append(url)
+        class MockResp:
+            status_code = 200
+            def json(self):
+                return {"results": {"count_of_issues": 10, "name": "Batman", "id": 12345}}
+        return MockResp()
+
+    monkeypatch.setattr(requests, "get", mock_get)
+    monkeypatch.setattr("services.library_audit.catalog_count._throttle", lambda p: object())
+
+    res = _comicvine_issues("4050-12345", "fake_key")
+    assert res["status"] == "ok"
+    assert res["expected"] == 10
+    assert requested_urls == ["https://comicvine.gamespot.com/api/volume/4050-12345/"]
+
+
+def test_bf195_anilist_title_search_with_other_ids(monkeypatch):
+    """BF195: si une série a un MAL ID mais pas d'AniList ID, la recherche par titre AniList est autorisée."""
+    from services.library_audit.catalog_count import resolve_catalog_expected
+    import services.library_audit.catalog_count as cc
+
+    called_args = []
+
+    def mock_call_provider(prov, **kwargs):
+        called_args.append((prov, kwargs.get("allow_title_search")))
+        return {"status": "unknown", "provider": prov, "reason": "no_hit"}
+
+    monkeypatch.setattr(cc, "_call_provider", mock_call_provider)
+
+    identity = {
+        "ids": {"mal": "12345"},  # pas d'AniList ID
+        "name": "Solo Leveling",
+        "series": {},
+        "metadata": {},
+    }
+    cfg = {
+        "PROVIDER_1": "MAL",
+        "PROVIDER_2": "ANILIST",
+        "PROVIDER_3": "NONE",
+    }
+    resolve_catalog_expected(
+        identity=identity,
+        library_type="Manga",
+        series_name="Solo Leveling",
+        config=cfg,
+    )
+    # Vérifie qu'AniList a été appelé avec allow_title_search=True
+    al_calls = [arg for arg in called_args if arg[0] == "ANILIST"]
+    assert al_calls
+    assert al_calls[0][1] is True
+
+
+def test_bf195_nonexistent_series_volume_report_returns_404(isolated_db, monkeypatch):
+    """BF195: demander le rapport d'une série inexistante renvoie 404."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from kavita_api import KavitaAPI
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    client = app.test_client()
+
+    monkeypatch.setattr(KavitaAPI, "get_series", lambda self, sid: None)
+
+    resp = client.get("/api/series/999999/volume-report")
+    assert resp.status_code == 404
+    assert resp.get_json()["success"] is False
+
+    resp2 = client.get("/api/series/999999/volume-report/units")
+    assert resp2.status_code == 404
+
+
+def test_bf195_audit_badges_returns_rich_items(isolated_db, monkeypatch):
+    """BF195: /api/libraries/<lib>/audit-badges renvoie badges ET items enrichis."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from db_manager import save_volume_report_cache
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    client = app.test_client()
+
+    save_volume_report_cache(50, {
+        "series_name": "Test Series",
+        "badge": "10/10",
+        "primary": {"unit": "volumes"},
+        "completion": {"state": "complete", "forced": False},
+    })
+
+    resp = client.get("/api/libraries/all/audit-badges?ids=50")
+    assert resp.status_code == 200
+    data = resp.get_json()
+    assert data["success"] is True
+    assert data["badges"]["50"] == "10/10"
+    assert "items" in data
+    assert data["items"]["50"]["badge"] == "10/10"
+    assert data["items"]["50"]["state"] == "complete"
+    assert data["items"]["50"]["forced"] is False
+    assert data["items"]["50"]["unit"] == "volumes"
+
+
+def test_bf195_empty_csv_txt_exports_when_no_cache(isolated_db, monkeypatch):
+    """BF195: l'export CSV/TXT sur bibliothèque non scannée renvoie un CSV/TXT vide valide au lieu d'un JSON 404."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    client = app.test_client()
+
+    monkeypatch.setattr("routes.library_audit.get_hygiene_library_meta", lambda lib: None)
+    monkeypatch.setattr("routes.library_audit.has_duplicate_groups_cache", lambda lib: False)
+
+    resp_csv = client.get("/api/libraries/999/missing-volumes?format=csv")
+    assert resp_csv.status_code == 200
+    assert resp_csv.headers["Content-Type"].startswith("text/csv")
+    assert "series_id" in resp_csv.get_data(as_text=True)
+
+    resp_dup_csv = client.get("/api/libraries/999/duplicates?format=csv")
+    assert resp_dup_csv.status_code == 200
+    assert resp_dup_csv.headers["Content-Type"].startswith("text/csv")
+    assert "group_id" in resp_dup_csv.get_data(as_text=True)
+
+
+def test_bf195_freshness_translation_day_unit():
+    """BF195: audit_freshness_day_short est traduit en FR et EN."""
+    from translations import translations
+    from pathlib import Path
+
+    assert translations["fr"]["audit_freshness_day_short"] == "j"
+    assert translations["en"]["audit_freshness_day_short"] == "d"
+
+    js = Path("static/js/library_audit.js").read_text(encoding="utf-8")
+    assert "tr.audit_freshness_day_short" in js
+    assert "INVENTORY_FOLDER_SAVE" in js
+
+
+def test_kavita_scan_library_method(monkeypatch):
+    """Vérifie scan_library() pour une bibliothèque et pour 'all'."""
+    from kavita_api import KavitaAPI
+
+    api = KavitaAPI(url="http://kavita.local", api_key="dummy_key")
+    calls = []
+
+    def mock_send(method, url, **kwargs):
+        calls.append((method, url))
+        class MockResp:
+            status_code = 200
+        return MockResp()
+
+    monkeypatch.setattr(api, "_send", mock_send)
+
+    # Scan d'une lib spécifique
+    assert api.scan_library(42) is True
+    assert ("post", f"{api.url}/api/Library/scan?libraryId=42") in calls
+
+    # Scan de toutes les libs
+    calls.clear()
+    assert api.scan_library("all") is True
+    assert ("post", f"{api.url}/api/Library/scan-all") in calls
+
+
+def test_kavita_delete_series_and_is_series_empty(monkeypatch):
+    """Vérifie delete_series() et is_series_empty()."""
+    from kavita_api import KavitaAPI
+
+    api = KavitaAPI(url="http://kavita.local", api_key="dummy_key")
+
+    # delete_series
+    def mock_send_del(method, url, **kwargs):
+        assert method == "delete"
+        assert "seriesId=77" in url
+        class MockResp:
+            status_code = 200
+        return MockResp()
+
+    monkeypatch.setattr(api, "_send", mock_send_del)
+    assert api.delete_series(77) is True
+
+    # is_series_empty : série sans volumes
+    monkeypatch.setattr(api, "fetch_series_volumes", lambda sid: ([], None))
+    assert api.is_series_empty(77) is True
+
+    # is_series_empty : série avec tomes mais sans chapitres
+    monkeypatch.setattr(api, "fetch_series_volumes", lambda sid: ([{"id": 1, "chapters": []}], None))
+    assert api.is_series_empty(77) is True
+
+    # is_series_empty : série avec chapitres réels (non vide)
+    monkeypatch.setattr(api, "fetch_series_volumes", lambda sid: ([{"id": 1, "chapters": [{"id": 10}]}], None))
+    assert api.is_series_empty(77) is False
+
+
+def test_library_kavita_scan_route(monkeypatch):
+    """Route POST /api/libraries/<lib>/kavita-scan."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    client = app.test_client()
+
+    class MockApi:
+        def scan_library(self, lib):
+            return True
+
+    monkeypatch.setattr("routes.library_audit._api", lambda: MockApi())
+
+    resp = client.post("/api/libraries/5/kavita-scan")
+    assert resp.status_code == 200
+    assert resp.get_json()["success"] is True
+
+
+def test_series_purge_empty_route(isolated_db, monkeypatch):
+    """Route POST /api/series/<sid>/purge-empty."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from db_manager import init_db, save_volume_report_cache
+
+    init_db()
+    save_volume_report_cache(88, {"series_name": "Ghost Series"})
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    client = app.test_client()
+
+    class MockApi:
+        def __init__(self, empty=False):
+            self._empty = empty
+        def is_series_empty(self, sid):
+            return self._empty
+        def delete_series(self, sid):
+            return True
+
+    # Cas 1 : non vide
+    monkeypatch.setattr("routes.library_audit._api", lambda: MockApi(empty=False))
+    resp_fail = client.post("/api/series/88/purge-empty")
+    assert resp_fail.status_code == 400
+
+    # Cas 2 : vide et suppression OK
+    monkeypatch.setattr("routes.library_audit._api", lambda: MockApi(empty=True))
+    resp_ok = client.post("/api/series/88/purge-empty")
+    assert resp_ok.status_code == 200
+    assert resp_ok.get_json()["success"] is True
+
+
+def test_cluster_duplicate_series_volumetric_metrics():
+    """Vérifie que cluster_duplicate_series attache volume_counts et recommended_keep_id."""
+    from services.library_audit.duplicates import cluster_duplicate_series
+
+    items = [
+        {
+            "id": 1,
+            "name": "Berserk",
+            "volume_count": 41,
+            "chapter_count": 364,
+            "folder_path": "/manga/Berserk (Complete)",
+            "mal_id": 1234,
+        },
+        {
+            "id": 2,
+            "name": "Berserk",
+            "volume_count": 5,
+            "chapter_count": 40,
+            "folder_path": "/manga/Berserk (Incomplete)",
+            "mal_id": 1234,
+        },
+    ]
+
+    groups = cluster_duplicate_series(items, threshold=0.9)
+    assert len(groups) == 1
+    g = groups[0]
+    assert g["volume_counts"] == [41, 5]
+    assert g["chapter_counts"] == [364, 40]
+    assert g["recommended_keep_id"] == 1  # La série avec 41 tomes
+
+
+def test_signalr_series_removed_handling(monkeypatch):
+    """Vérifie que handle_invocation('SeriesRemoved', ...) purge chirurgicalement la série."""
+    from services.kavita_hub import handle_invocation
+
+    purged = []
+    monkeypatch.setattr(
+        "db_manager.purge_single_series_from_all_caches",
+        lambda sid: purged.append(sid),
+    )
+
+    handled = handle_invocation("SeriesRemoved", {"seriesId": 50})
+    assert handled is False  # Ne déclenche pas de wake scan scanner
+    assert purged == [50]
+
+
+def test_clean_orphaned_cache_prunes_duplicate_group_cache(isolated_db):
+    """Vérifie que clean_orphaned_cache retire les séries supprimées de duplicate_group_cache."""
+    from db_manager import init_db, save_duplicate_groups_cache, get_duplicate_groups_cache, clean_orphaned_cache, save_volume_report_cache
+
+    init_db()
+    # On enregistre les 2 séries dans volume_report_cache pour qu'elles soient suivies
+    save_volume_report_cache(100, {"series_name": "Series A"})
+    save_volume_report_cache(200, {"series_name": "Series B"})
+
+    groups = [
+        {
+            "group_id": "dup-1",
+            "series_ids": [100, 200],
+            "names": ["Series A", "Series B"],
+            "folder_paths": ["/path/A", "/path/B"],
+            "score": 1.0,
+            "reasons": ["same_id"],
+        }
+    ]
+    save_duplicate_groups_cache("all", groups)
+    assert len(get_duplicate_groups_cache("all")) == 1
+
+    # Purge de la série 200 (seule la 100 reste) -> le groupe disparaît car < 2 membres
+    clean_orphaned_cache({100})
+    remaining = get_duplicate_groups_cache("all")
+    assert len(remaining) == 0
+
+
+def test_purge_single_series_from_all_caches_surgical(isolated_db):
+    """Vérifie que purge_single_series_from_all_caches ne supprime QUE la série ciblée."""
+    from db_manager import (
+        init_db,
+        save_volume_report_cache,
+        get_volume_report_cache,
+        save_duplicate_groups_cache,
+        get_duplicate_groups_cache,
+        purge_single_series_from_all_caches,
+    )
+
+    init_db()
+    save_volume_report_cache(101, {"series_name": "Series 101", "badge": "1/10"})
+    save_volume_report_cache(102, {"series_name": "Series 102", "badge": "5/5"})
+
+    groups = [
+        {
+            "group_id": "dup-1",
+            "series_ids": [101, 102, 103],
+            "names": ["Series 101", "Series 102", "Series 103"],
+            "folder_paths": ["/path/101", "/path/102", "/path/103"],
+            "library_ids": [1, 1, 2],
+            "score": 1.0,
+            "reasons": ["same_title"],
+        }
+    ]
+    save_duplicate_groups_cache("all", groups)
+
+    # Purge chirurgicale de 101 uniquement
+    deleted = purge_single_series_from_all_caches(101)
+    assert deleted > 0
+
+    # 101 doit être absent, 102 doit rester intact
+    assert get_volume_report_cache(101) is None
+    rep102 = get_volume_report_cache(102)
+    assert rep102 is not None
+    assert rep102["badge"] == "5/5"
+
+    # Le groupe doit être taillé à [102, 103]
+    grps = get_duplicate_groups_cache("all")
+    assert len(grps) == 1
+    assert grps[0]["series_ids"] == [102, 103]
+    assert grps[0]["names"] == ["Series 102", "Series 103"]
+    assert grps[0]["library_ids"] == [1, 2]
+
+
+def test_missing_volumes_rows_network_error_isolation(isolated_db, monkeypatch):
+    """En cas d'erreur de Kavita sur une lib donnée, le rapport retourne une liste vide et ne fuite pas."""
+    from routes.library_audit import _missing_volumes_rows
+    from db_manager import init_db, save_volume_report_cache
+
+    init_db()
+    save_volume_report_cache(10, {"series_name": "Manga X", "missing_volumes": [1, 2]})
+    save_volume_report_cache(20, {"series_name": "Manga Y", "missing_volumes": [3]})
+
+    class FailingAPI:
+        def __init__(self, *a, **k):
+            pass
+        def get_all_series(self, library_id=None):
+            raise ConnectionError("Kavita timeout")
+
+    monkeypatch.setattr("routes.library_audit.KavitaAPI", FailingAPI)
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {"UI_LANG": "fr", "KAVITA_URL": "http://mock", "KAVITA_API_KEY": "k"},
+    )
+
+    # Pour une bibliothèque spécifique en panne, retourne [] plutôt que de fuiter toutes les libs
+    rows = _missing_volumes_rows(library_id="2", include_unknown=False)
+    assert rows == []
+
+
+def test_duplicates_dismiss_cross_vue_sync(isolated_db, monkeypatch):
+    """Dismisser un doublon en vue lib spécifique purge aussi le cache 'all'."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from db_manager import (
+        init_db,
+        save_duplicate_groups_cache,
+        get_duplicate_groups_cache,
+        set_hygiene_library_meta,
+        get_hygiene_library_meta,
+    )
+
+    init_db()
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+
+    group = {
+        "group_id": "dup-99",
+        "group_key": "k99",
+        "series_ids": [501, 502],
+        "names": ["A", "B"],
+        "folder_paths": ["/a", "/b"],
+        "score": 1.0,
+        "reasons": ["same_id"],
+    }
+    save_duplicate_groups_cache("3", [group])
+    save_duplicate_groups_cache("all", [group])
+    set_hygiene_library_meta("3", {"duplicates": 1})
+    set_hygiene_library_meta("all", {"duplicates": 1})
+
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {"UI_LANG": "fr", "KAVITA_URL": "http://mock", "KAVITA_API_KEY": "k"},
+    )
+
+    client = app.test_client()
+    res = client.post(
+        "/api/libraries/3/duplicates/dismiss",
+        json={"series_ids": [501, 502], "reason": "not_duplicate"},
+    )
+    assert res.status_code == 200
+    assert res.get_json()["success"] is True
+
+    # Doit être purgé de la lib 3 ET de la vue all
+    assert len(get_duplicate_groups_cache("3")) == 0
+    assert len(get_duplicate_groups_cache("all")) == 0
+    assert get_hygiene_library_meta("3")["counts"]["duplicates"] == 0
+    assert get_hygiene_library_meta("all")["counts"]["duplicates"] == 0
+
+
+def test_hygiene_scan_excluded_count_scoped(isolated_db, monkeypatch):
+    """Vérifie que counts['excluded'] reflète les séries exclues de la bibliothèque scannée (et non le total global)."""
+    from services.library_audit.hygiene_scan import _run_scan
+    from db_manager import init_db, set_inventory_excluded, get_hygiene_library_meta
+
+    init_db()
+    # On a 3 séries exclues au total au niveau de la DB
+    set_inventory_excluded(1, True)
+    set_inventory_excluded(2, True)
+    set_inventory_excluded(99, True)
+
+    class FakeAPI:
+        def __init__(self, *a, **k):
+            pass
+        def get_all_series(self, library_id=None):
+            # La lib 5 ne contient que la série 1 (exclue) et la série 10 (active)
+            if str(library_id) == "5":
+                return [
+                    {"id": 1, "name": "Exclue Lib 5", "libraryId": 5},
+                    {"id": 10, "name": "Active Lib 5", "libraryId": 5},
+                ]
+            return []
+        def get_series_metadata(self, sid):
+            return {}
+        def get_series_volumes(self, sid):
+            return []
+        def get_library_type_for_series(self, sid):
+            return "Manga"
+
+    monkeypatch.setattr("services.library_audit.hygiene_scan.KavitaAPI", FakeAPI)
+    monkeypatch.setattr(
+        "services.library_audit.hygiene_scan.load_config",
+        lambda: {"UI_LANG": "fr", "KAVITA_URL": "http://mock", "KAVITA_API_KEY": "k"},
+    )
+    monkeypatch.setattr(
+        "services.library_audit.hygiene_scan.resolve_catalog_expected",
+        lambda *a, **k: {"status": "ok", "expected": 1, "provider": "TEST"},
+    )
+
+    _run_scan(library_id="5", series_ids=[], with_catalog=False)
+    meta = get_hygiene_library_meta("5")
+    assert meta is not None
+    # 1 seule série exclue dans la lib 5, même s'il y en a 3 au global
+    assert meta["counts"]["excluded"] == 1
+
+
+
+

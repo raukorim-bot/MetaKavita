@@ -214,6 +214,8 @@ def test_js_no_longer_calls_kavita_delete():
     assert "_enforceDupKeepOne" in src
     assert "_dupDropMarked" in src
     assert "keepBody" in src
+
+
     assert "dupFolderPathPrefix" in src
     assert 'id="dupFolderPathPrefix"' in modal
     assert 'id="dupFolderTrash"' in modal
@@ -228,3 +230,113 @@ def test_js_no_longer_calls_kavita_delete():
     assert "http://files.example.xx" not in modal
     assert 'placeholder="/mnt/media"' in modal
     assert "/mnt/media/corbeille-doublons" in modal
+
+
+def test_powershell_script_generation():
+    from services.library_audit.dup_script import build_duplicate_folder_script
+
+    groups = [
+        {
+            "group_id": "dup-1",
+            "series_ids": [10, 20],
+            "names": ["Naruto", "Naruto Digital"],
+            "folder_paths": ["/data/Naruto", "/data/Naruto Digital's Copy"],
+            "score": 1.0,
+            "reasons": ["same_external_id"],
+        }
+    ]
+
+    # Test mode trash ps1
+    script_trash, meta_trash = build_duplicate_folder_script(
+        groups,
+        [20],
+        mode="trash",
+        script_format="ps1",
+        trash_dir="/data/trash",
+    )
+    assert meta_trash["format"] == "ps1"
+    assert meta_trash["dropped"] == 1
+    assert "$TRASH = '/data/trash'" in script_trash
+    assert "Move-Item -LiteralPath '/data/Naruto Digital''s Copy' -Destination $TRASH -Force" in script_trash
+
+    # Test mode delete ps1
+    script_del, meta_del = build_duplicate_folder_script(
+        groups,
+        [20],
+        mode="delete",
+        script_format="ps1",
+    )
+    assert meta_del["format"] == "ps1"
+    assert "Remove-Item -LiteralPath '/data/Naruto Digital''s Copy' -Recurse -Force" in script_del
+
+
+def test_windows_paths_normalization():
+    """Vérifie que normalize_inventory_folder_trash accepte les lettres de lecteur Windows."""
+    assert normalize_inventory_folder_trash("C:/Media/Trash") == "C:/Media/Trash"
+    assert normalize_inventory_folder_trash("D:\\Manga\\Trash") == "D:/Manga/Trash"
+    assert normalize_inventory_folder_trash("E:\\") == "E:"
+    # Rejette toujours les chemins relatifs et les traversées
+    assert normalize_inventory_folder_trash("relative\\path") == ""
+    assert normalize_inventory_folder_trash("C:/Media/../Secret") == ""
+    assert normalize_inventory_folder_trash("http://example.com/trash") == ""
+
+
+def test_resolve_script_folder_path_windows():
+    """Un chemin Windows absolu n'est pas préfixé de force."""
+    assert resolve_script_folder_path("C:/Manga/One Piece", "") == "C:/Manga/One Piece"
+    assert resolve_script_folder_path("C:\\Manga\\One Piece", "D:/Prefix") == "C:/Manga/One Piece"
+
+
+def test_build_duplicate_folder_script_windows_ps1():
+    """Génération de script PowerShell valide avec chemins Windows."""
+    groups = [
+        {
+            "group_id": "dup-win",
+            "series_ids": [10, 20],
+            "names": ["Batman", "Batman (2016)"],
+            "folder_paths": ["C:\\Comics\\Batman", "C:\\Comics\\Batman 2016"],
+            "library_ids": [2, 2],
+            "score": 1.0,
+            "reasons": ["same_comicvine_id"],
+        }
+    ]
+    script, meta = build_duplicate_folder_script(
+        groups,
+        [20],
+        mode="trash",
+        script_format="ps1",
+        trash_dir="C:\\Corbeille",
+    )
+    assert meta["empty"] is False
+    assert meta["dropped"] == 1
+    assert "$TRASH = 'C:/Corbeille'" in script
+    assert "Move-Item -LiteralPath 'C:/Comics/Batman 2016' -Destination $TRASH -Force" in script
+
+
+def test_cluster_duplicate_series_propagates_library_ids():
+    """Vérifie que cluster_duplicate_series inclut library_ids dans chaque groupe."""
+    groups = cluster_duplicate_series(
+        [
+            {
+                "id": 101,
+                "name": "One Piece",
+                "libraryId": 1,
+                "folderPath": "/comics/op1",
+                "aniListId": 30013,
+            },
+            {
+                "id": 102,
+                "name": "One Piece",
+                "libraryId": 2,
+                "folderPath": "/comics/op2",
+                "aniListId": 30013,
+            },
+        ],
+        library_id=None,
+    )
+    assert len(groups) == 1
+    assert "library_ids" in groups[0]
+    by_sid = dict(zip(groups[0]["series_ids"], groups[0]["library_ids"]))
+    assert by_sid[101] == 1
+    assert by_sid[102] == 2
+

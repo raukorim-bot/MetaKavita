@@ -8,7 +8,7 @@
     var reviewChapterId = null;
     var reviewCandidates = [];
     var VIRTUAL_MIN = 120;
-    var ROW_H = 56;
+    var ROW_H = 48;
     var filteredRail = [];
     var loadingSid = null;
     var pendingNav = null;
@@ -49,12 +49,15 @@
         var tag = (el.tagName || '').toLowerCase();
         if (tag === 'input' || tag === 'textarea' || tag === 'select') return true;
         if (el.isContentEditable) return true;
-        if (document.getElementById('manualReviewModal') &&
-            document.getElementById('manualReviewModal').style.display !== 'none') return true;
-        if (document.getElementById('workshopCoverModal') &&
-            document.getElementById('workshopCoverModal').style.display !== 'none') return true;
         var nag = document.getElementById('licenseNagModal');
         if (nag && (nag.style.display !== 'none' || nag.classList.contains('is-open'))) return true;
+        if (document.getElementById('workshopCoverModal') &&
+            document.getElementById('workshopCoverModal').style.display !== 'none') return true;
+        var mr = document.getElementById('manualReviewModal');
+        if (mr && mr.style.display !== 'none') {
+            if (mr.dataset.kind === 'volume') return false;
+            return true;
+        }
         return false;
     }
 
@@ -158,11 +161,15 @@
         if (String(sid) === String(seriesId) && loadingSid == null) return;
         if (!confirmLeave()) return;
         if (seriesDraftTimer) clearTimeout(seriesDraftTimer);
+        Object.keys(volumeDraftTimers).forEach(function (k) { clearTimeout(volumeDraftTimers[k]); });
+        volumeDraftTimers = {};
         loadSeries(sid, true);
     }
 
     function loadSeries(sid, push) {
         if (seriesDraftTimer) clearTimeout(seriesDraftTimer);
+        Object.keys(volumeDraftTimers).forEach(function (k) { clearTimeout(volumeDraftTimers[k]); });
+        volumeDraftTimers = {};
         if (loadingSid != null) {
             pendingNav = { sid: sid, push: push };
             return;
@@ -237,7 +244,7 @@
     function seriesBaseline() {
         var base = {};
         ((payload.series && payload.series.form) || []).forEach(function (f) {
-            base[f.key] = f.value || '';
+            base[f.key] = (f.initial_value != null ? f.initial_value : f.value) || '';
         });
         return base;
     }
@@ -249,6 +256,8 @@
 
     function seriesIsDirty(edits) {
         if (seriesCoverPending()) return true;
+        var s = payload.series || {};
+        if ((s.override && Object.keys(s.override).length) || s.staged_cover_url) return true;
         var base = seriesBaseline();
         return Object.keys(edits || {}).some(function (k) {
             return String(edits[k] || '') !== String(base[k] || '');
@@ -415,6 +424,88 @@
         return '<input type="text" ' + name + lockAttr + ' value="' + esc(value || '') + '"' + dis + '>';
     }
 
+    var CASCADE_COMPATIBLE_FIELDS = [
+        'summary',
+        'writers',
+        'pencillers',
+        'coverArtists',
+        'translators',
+        'genres',
+        'tags',
+        'ageRating',
+        'language',
+        'webLinks'
+    ];
+
+    function cascadeFieldToVolumes(key) {
+        if (!key) return;
+        var seriesInput = document.querySelector('[data-series-field="' + key + '"]');
+        if (!seriesInput) return;
+        var val = seriesInput.value;
+        if (val == null || String(val).trim() === '' || (seriesInput.tagName === 'SELECT' && String(val) === '0')) {
+            showAppToast(T().workshop_cascade_empty_tip || 'Ce champ est vide sur la série.');
+            return;
+        }
+        var volumeCards = document.querySelectorAll('.workshop-volume-card');
+        if (!volumeCards || !volumeCards.length) return;
+        var count = 0;
+        volumeCards.forEach(function (card) {
+            var target = card.querySelector('[data-field="' + key + '"]');
+            if (target) {
+                target.value = val;
+                syncEmptyClass(target);
+                card.setAttribute('data-dirty', '1');
+                if (typeof scheduleVolumeDraft === 'function') {
+                    scheduleVolumeDraft(card);
+                }
+                count++;
+            }
+        });
+        if (count > 0) {
+            setDirty();
+            updateBarStats();
+            var label = fieldLabel(key);
+            var msg = fmt(T().workshop_cascade_success || 'Champ « {0} » dupliqué sur {1} tomes.', label, count);
+            showAppToast(msg);
+        }
+    }
+
+    function cascadeAllSeriesToVolumes() {
+        var volumeCards = document.querySelectorAll('.workshop-volume-card');
+        if (!volumeCards || !volumeCards.length) return;
+        var cascadedCount = 0;
+        CASCADE_COMPATIBLE_FIELDS.forEach(function (key) {
+            var seriesInput = document.querySelector('[data-series-field="' + key + '"]');
+            if (!seriesInput) return;
+            var val = seriesInput.value;
+            if (val == null || String(val).trim() === '' || (seriesInput.tagName === 'SELECT' && String(val) === '0')) return;
+            var hadTarget = false;
+            volumeCards.forEach(function (card) {
+                var target = card.querySelector('[data-field="' + key + '"]');
+                if (target) {
+                    target.value = val;
+                    syncEmptyClass(target);
+                    card.setAttribute('data-dirty', '1');
+                    hadTarget = true;
+                }
+            });
+            if (hadTarget) cascadedCount++;
+        });
+        if (cascadedCount > 0) {
+            volumeCards.forEach(function (card) {
+                if (card.getAttribute('data-dirty') === '1' && typeof scheduleVolumeDraft === 'function') {
+                    scheduleVolumeDraft(card);
+                }
+            });
+            setDirty();
+            updateBarStats();
+            var msg = fmt(T().workshop_cascade_all_success || 'Métadonnées de la série dupliquées sur {0} tomes.', volumeCards.length);
+            showAppToast(msg);
+        } else {
+            showAppToast(T().workshop_cascade_none_found || 'Aucun champ commun renseigné à dupliquer.');
+        }
+    }
+
     function labeledField(attr, f) {
         var locked = !!f.locked;
         var size = f.size || (f.wide ? 'wide' : 'short');
@@ -424,9 +515,21 @@
             options = ((payload.lookups || {})[f.key]) || [];
         }
         var empty = isEmptyValue(f.kind, f.key, f.value) ? ' workshop-field--empty' : '';
-        return '<label class="workshop-field' + sizeClass + empty + '"><span class="workshop-field-label">' +
-            esc(f.label || fieldLabel(f.key)) + lockMark(locked) + '</span>' +
-            controlHtml(attr, f.key, f.value, f.kind, locked, options, f.rows) + '</label>';
+        var isSeries = (attr === 'data-series-field');
+        var cascadeBtn = '';
+        if (isSeries && CASCADE_COMPATIBLE_FIELDS.indexOf(f.key) >= 0) {
+            var tip = T().workshop_cascade_field_tip || 'Dupliquer sur tous les tomes';
+            var btnText = T().workshop_cascade_btn || 'Vers tomes';
+            cascadeBtn = '<button type="button" class="workshop-cascade-btn" data-cascade-key="' + esc(f.key) + '" title="' + esc(tip) + '">' +
+                '<svg class="workshop-cascade-ico" aria-hidden="true"><use href="#mk-ico-cascade"></use></svg>' +
+                '<span>' + esc(btnText) + '</span></button>';
+        }
+        return '<div class="workshop-field' + sizeClass + empty + '">' +
+            '<div class="workshop-field-head">' +
+            '<span class="workshop-field-label">' + esc(f.label || fieldLabel(f.key)) + lockMark(locked) + '</span>' +
+            cascadeBtn +
+            '</div>' +
+            controlHtml(attr, f.key, f.value, f.kind, locked, options, f.rows) + '</div>';
     }
 
     function forceOn() {
@@ -610,7 +713,10 @@
                     return;
                 }
                 var card = el.closest('.workshop-volume-card');
-                if (card) card.setAttribute('data-dirty', '1');
+                if (card) {
+                    card.setAttribute('data-dirty', '1');
+                    if (typeof scheduleVolumeDraft === 'function') scheduleVolumeDraft(card);
+                }
                 syncEmptyClass(el);
                 setDirty();
             }
@@ -641,6 +747,7 @@
         var ins = u.inscribed || {};
         var relDate = ins.release_date || '';
         if (relDate.indexOf('0001-01-01') === 0) relDate = '';
+        if (relDate.indexOf('T') > 0) relDate = relDate.split('T')[0];
         var primary = [
             { key: 'title', kind: 'text', size: 'wide', label: T().vol_field_title || 'Title', value: ins.title || '', locked: !!ins.title_locked },
             { key: 'isbn', kind: 'text', size: 'mid', label: T().vol_field_isbn || 'ISBN', value: ins.isbn || '', locked: !!ins.isbn_locked },
@@ -657,7 +764,7 @@
                 label: fieldLabel(spec.key),
                 value: ins[spec.key] || (spec.kind === 'select' ? '0' : ''),
                 locked: !!ins[spec.key + '_locked'],
-                options: spec.kind === 'select' ? ((payload.lookups || {}).ageRating || []) : null
+                options: spec.options || null
             };
         });
         return primary.concat(extras);
@@ -668,7 +775,7 @@
         var ref = ov.provider_ref || '';
         if (!ref) return '';
         var name = prettyProvider(ov.provider, ref);
-        return '<a class="workshop-magic-chip" href="' + esc(ref) + '" target="_blank" rel="noopener noreferrer" title="' + esc(ref) + '">' +
+        return '<a class="workshop-magic-chip workshop-chip" href="' + esc(ref) + '" target="_blank" rel="noopener noreferrer" title="' + esc(ref) + '">' +
             esc(name) +
             '<svg class="workshop-ext" aria-hidden="true"><use href="#mk-ico-external"></use></svg></a>';
     }
@@ -676,20 +783,24 @@
     function magicFieldHtml(u) {
         var ref = (u.override && u.override.provider_ref) || '';
         var empty = ref ? '' : ' workshop-field--empty';
-        return '<label class="workshop-field workshop-field--wide workshop-field--magic' + empty + '">' +
+        return '<div class="workshop-field workshop-field--wide workshop-field--magic' + empty + '">' +
+            '<div class="workshop-field-head">' +
             '<span class="workshop-field-label">' +
             '<svg class="workshop-magic-ico" aria-hidden="true"><use href="#mk-ico-wand"></use></svg>' +
             esc(T().workshop_magic_label || T().workshop_event_magic || '') + '</span>' +
+            '</div>' +
             '<div class="workshop-magic-row">' +
             '<input type="url" class="workshop-magic" placeholder="' + esc(T().workshop_magic_placeholder || '') + '"' +
             ' value="' + esc(ref) + '">' +
             '<button type="button" class="btn-secondary" data-act="magic">' + esc(T().workshop_magic_apply || '') + '</button>' +
-            '</div></label>';
+            '</div></div>';
     }
 
     function volumeCardHtml(u) {
         var ins = u.inscribed || {};
         var ov = u.override || {};
+        var isStaged = !!(ov.payload && ov.payload._staged);
+        var dirtyAttr = isStaged ? ' data-dirty="1"' : '';
         var stagedCover = (ov.payload && ov.payload.cover_url) || u.staged_cover_url || (ins && ins.cover_url) || '';
         var coverAttr = stagedCover
             ? ' data-cover-url="' + esc(stagedCover) + '" data-cover-display="' + esc(stagedCover) + '"'
@@ -707,7 +818,12 @@
               extra.map(function (f) { return labeledField('data-field', f); }).join('') +
               '</div></div></details>'
             : '';
+        var st = isStaged ? 'STAGED' : (u.status || 'PENDING');
+        var chipClass = 'workshop-status-chip workshop-status-chip--' + String(st).toLowerCase();
+        var chipLabel = isStaged ? (T().status_stage || 'Brouillon') : railStatusLabel(st);
+        var statusBadge = '<span class="' + chipClass + '">' + esc(chipLabel) + '</span>';
         return '<article class="workshop-volume-card" data-chapter-id="' + u.chapter_id + '"' +
+            dirtyAttr +
             coverAttr +
             ' data-volume-id="' + esc(u.volume_id || '') + '"' +
             ' data-volume-number="' + esc(u.volume_number == null ? '' : u.volume_number) + '"' +
@@ -732,7 +848,7 @@
             '</div>' +
             '<div class="workshop-volume-meta">' +
             '<div class="workshop-volume-head">' +
-            '<div class="workshop-volume-title">' + esc(unitLabel(u)) + magicChipHtml(u) + '</div>' +
+            '<div class="workshop-volume-title">' + esc(unitLabel(u)) + statusBadge + magicChipHtml(u) + '</div>' +
             '</div>' +
             magicFieldHtml(u) +
             '<div class="workshop-volume-fields">' +
@@ -793,8 +909,10 @@
             var unit = unitFromHistory(h);
             if (unit) bits.push(unit);
             var detail = h.detail || {};
-            if (detail.sent != null && detail.total != null) {
-                bits.push(detail.sent + '/' + detail.total + ' ' + (T().stats_chapter_volumes || 'tomes').toLowerCase());
+            var sent = detail.sent != null ? detail.sent : detail.count;
+            var total = detail.total != null ? detail.total : detail.count;
+            if (sent != null && total != null) {
+                bits.push(sent + '/' + total + ' ' + (T().stats_chapter_volumes || 'Volumes').toLowerCase());
             }
             if (detail.provider) bits.push(prettyProvider(detail.provider, detail.provider_ref));
             var fields = detail.fields || [];
@@ -1120,7 +1238,7 @@
     }
 
     function onVolumeAct(act, card) {
-        if (!card) return;
+        if (!card || !seriesId) return;
         var cid = parseInt(card.getAttribute('data-chapter-id'), 10);
         if (act === 'send') {
             var item = itemFromCard(card);
@@ -1139,7 +1257,14 @@
             }).then(function (data) {
                 setSending(false);
                 toastSend(data);
-                if (data.success && !data.noop) card.removeAttribute('data-dirty');
+                if (data.success && !data.noop) {
+                    markDoneClean([data]);
+                    try {
+                        if (window.SupporterNag && typeof window.SupporterNag.onWorkshopComplete === 'function') {
+                            window.SupporterNag.onWorkshopComplete({ series_count: 0, volumes_count: 1 });
+                        }
+                    } catch (e) {}
+                }
                 if (data.success || data.partial) reload();
             }).catch(function () { setSending(false); toast(T().err_network); });
             return;
@@ -1182,6 +1307,7 @@
     }
 
     function reload() {
+        if (!seriesId) return;
         api('/api/series/' + seriesId + '/workshop').then(function (data) {
             if (data.success) {
                 applyPayload(data);
@@ -1216,6 +1342,8 @@
             if (vtitle) label += ' — ' + vtitle;
             ctxEl.textContent = label;
         }
+        var confirmBtn = document.getElementById('mrVolumeConfirmBtn');
+        if (confirmBtn) confirmBtn.disabled = true;
         api('/api/series/' + seriesId + '/workshop/review', {
             method: 'POST',
             body: { chapter_id: cid, isbn: visbn, super: !!superReview }
@@ -1224,8 +1352,10 @@
             if (!above) return;
             if (!reviewCandidates.length) {
                 above.innerHTML = '<p>' + esc(T().vol_preview_none || '') + '</p>';
+                if (confirmBtn) confirmBtn.disabled = true;
                 return;
             }
+            if (confirmBtn) confirmBtn.disabled = false;
             above.innerHTML = reviewCandidates.map(function (c, i) {
                 var metaBits = [];
                 if (c.isbn) metaBits.push(c.isbn);
@@ -1249,8 +1379,19 @@
                         b.classList.remove('is-picked');
                     });
                     btn.classList.add('is-picked');
+                    if (confirmBtn) confirmBtn.disabled = false;
+                });
+                btn.addEventListener('dblclick', function () {
+                    above.querySelectorAll('.workshop-candidate').forEach(function (b) {
+                        b.classList.remove('is-picked');
+                    });
+                    btn.classList.add('is-picked');
+                    confirmVolumeReview();
                 });
             });
+        }).catch(function () {
+            if (above) above.innerHTML = '<p class="error-text">' + esc(T().err_network || 'Erreur réseau.') + '</p>';
+            if (confirmBtn) confirmBtn.disabled = true;
         });
     }
 
@@ -1260,7 +1401,11 @@
         var edits = (data && data.edits) || {};
         Object.keys(edits).forEach(function (f) {
             var el = card.querySelector('[data-field="' + f + '"]');
-            if (el && edits[f]) el.value = edits[f];
+            if (el && edits[f]) {
+                var v = String(edits[f]);
+                if (f === 'release_date' && v.indexOf('T') > 0) v = v.split('T')[0];
+                el.value = v;
+            }
         });
         if (data && data.cover_url) {
             paintPickedCover(card, data.cover_url, data.cover_url);
@@ -1308,17 +1453,23 @@
         var candidate = reviewCandidates[idx];
         if (!candidate || reviewChapterId == null) return;
         var cid = reviewChapterId;
+        var confirmBtn = document.getElementById('mrVolumeConfirmBtn');
+        if (confirmBtn) confirmBtn.disabled = true;
         api('/api/series/' + seriesId + '/workshop/review/confirm', {
             method: 'POST',
             body: { chapter_id: cid, candidate: candidate }
         }).then(function (data) {
             if (!data.success) {
+                if (confirmBtn) confirmBtn.disabled = false;
                 toast(data.error || T().workshop_err || '');
                 return;
             }
             applyVolumeReview(cid, data);
             closeVolumeModal();
             toast(T().workshop_review_staged || '');
+        }).catch(function () {
+            if (confirmBtn) confirmBtn.disabled = false;
+            toast(T().err_network || '');
         });
     }
 
@@ -1332,6 +1483,8 @@
         reviewCandidates = [];
         var ctxEl = document.getElementById('mrVolumeContextText');
         if (ctxEl) ctxEl.textContent = '';
+        var confirmBtn = document.getElementById('mrVolumeConfirmBtn');
+        if (confirmBtn) confirmBtn.disabled = false;
     }
 
     var coverPickTarget = null;
@@ -1377,6 +1530,7 @@
             if (typeof scheduleSeriesDraft === 'function') scheduleSeriesDraft();
         } else if (coverPickTarget.card) {
             paintPickedCover(coverPickTarget.card, url, display);
+            if (typeof scheduleVolumeDraft === 'function') scheduleVolumeDraft(coverPickTarget.card);
         }
         closeCoverPicker();
     }
@@ -1433,6 +1587,7 @@
 
     function forceSync(flags) {
         var s = payload.series || {};
+        if (!s || !s.id) return;
         var modal = document.getElementById('manualReviewModal');
         if (modal) modal.dataset.kind = 'series';
         window.WORKSHOP_FORCE_REVIEW = {
@@ -1473,6 +1628,27 @@
             api('/api/series/' + targetSid + '/workshop/draft-series', {
                 method: 'POST',
                 body: { edits: edits, cover_url: coverUrl }
+            });
+        }, 500);
+    }
+
+    var volumeDraftTimers = {};
+    function scheduleVolumeDraft(card) {
+        if (!seriesId || !card) return;
+        var cid = card.getAttribute('data-chapter-id');
+        if (!cid) return;
+        var targetSid = seriesId;
+        if (volumeDraftTimers[cid]) clearTimeout(volumeDraftTimers[cid]);
+        volumeDraftTimers[cid] = setTimeout(function () {
+            delete volumeDraftTimers[cid];
+            if (String(seriesId) !== String(targetSid)) return;
+            var c = document.querySelector('.workshop-volume-card[data-chapter-id="' + cid + '"]');
+            if (!c || c.getAttribute('data-dirty') !== '1') return;
+            var edits = currentEdits(c);
+            var coverUrl = c.getAttribute('data-cover-url') || '';
+            api('/api/series/' + targetSid + '/workshop/draft-volume', {
+                method: 'POST',
+                body: { chapter_id: cid, edits: edits, cover_url: coverUrl }
             });
         }, 500);
     }
@@ -1542,6 +1718,56 @@
             if (ev.target === coverModal) closeCoverPicker();
         });
         document.addEventListener('keydown', function (ev) {
+            var volModal = document.getElementById('manualReviewModal');
+            var volModalOpen = volModal && volModal.dataset.kind === 'volume' &&
+                volModal.style.display !== 'none';
+            if (volModalOpen) {
+                if (ev.key === 'Escape') {
+                    ev.preventDefault();
+                    closeVolumeModal();
+                    return;
+                }
+                if (isTypingTarget(ev.target)) return;
+                if (ev.key === 'Enter') {
+                    ev.preventDefault();
+                    confirmVolumeReview();
+                    return;
+                }
+                if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+                    ev.preventDefault();
+                    var candidates = Array.prototype.slice.call(
+                        document.querySelectorAll('#mrAboveList .workshop-candidate')
+                    );
+                    if (!candidates.length) return;
+                    var curIdx = candidates.findIndex(function (btn) {
+                        return btn.classList.contains('is-picked');
+                    });
+                    if (curIdx < 0) curIdx = 0;
+                    var nextIdx = ev.key === 'ArrowDown' ? curIdx + 1 : curIdx - 1;
+                    if (nextIdx < 0) nextIdx = candidates.length - 1;
+                    if (nextIdx >= candidates.length) nextIdx = 0;
+                    candidates.forEach(function (b) { b.classList.remove('is-picked'); });
+                    candidates[nextIdx].classList.add('is-picked');
+                    candidates[nextIdx].scrollIntoView({ block: 'nearest' });
+                    var volConfirmBtn = document.getElementById('mrVolumeConfirmBtn');
+                    if (volConfirmBtn) volConfirmBtn.disabled = false;
+                    return;
+                }
+                if (ev.key >= '1' && ev.key <= '9') {
+                    var numIdx = parseInt(ev.key, 10) - 1;
+                    var allCand = document.querySelectorAll('#mrAboveList .workshop-candidate');
+                    if (allCand[numIdx]) {
+                        ev.preventDefault();
+                        allCand.forEach(function (b) { b.classList.remove('is-picked'); });
+                        allCand[numIdx].classList.add('is-picked');
+                        allCand[numIdx].scrollIntoView({ block: 'nearest' });
+                        var volConfirm = document.getElementById('mrVolumeConfirmBtn');
+                        if (volConfirm) volConfirm.disabled = false;
+                        return;
+                    }
+                }
+                return;
+            }
             var coverOpen = document.getElementById('workshopCoverModal') &&
                 document.getElementById('workshopCoverModal').style.display !== 'none';
             if (ev.key === 'Escape' && coverOpen) {
@@ -1563,6 +1789,7 @@
             if (ev.key === 'ArrowRight') { ev.preventDefault(); stepRail(1); }
         });
         document.getElementById('workshopSendSeries').addEventListener('click', function () {
+            if (!seriesId) return;
             var seriesCard = document.getElementById('workshopSeriesCard');
             setSending(true);
             var editsToSend = seriesEdits();
@@ -1595,9 +1822,10 @@
                     } catch (e) {}
                     reload();
                 }
-            }).catch(function () { setSending(false); });
+            }).catch(function () { setSending(false); toast(T().err_network); });
         });
         document.getElementById('workshopSendSelection').addEventListener('click', function () {
+            if (!seriesId) return;
             var items = selectedCards().map(itemFromCard);
             if (!items.length) { toast(T().vol_nothing_selected || ''); return; }
             setSending(true);
@@ -1619,9 +1847,10 @@
                     } catch (e) {}
                     reload();
                 }
-            }).catch(function () { setSending(false); });
+            }).catch(function () { setSending(false); toast(T().err_network); });
         });
         document.getElementById('workshopSendAll').addEventListener('click', function () {
+            if (!seriesId) return;
             var items = Array.prototype.slice.call(document.querySelectorAll('.workshop-volume-card')).map(itemFromCard);
             if (!items.length) {
                 toast(T().vol_nothing_selected || '');
@@ -1647,7 +1876,7 @@
                     } catch (e) {}
                     reload();
                 }
-            }).catch(function () { setSending(false); });
+            }).catch(function () { setSending(false); toast(T().err_network); });
         });
         document.getElementById('workshopSelectAll').addEventListener('click', function () {
             document.querySelectorAll('.workshop-vol-check').forEach(function (c) { c.checked = true; });
@@ -1658,6 +1887,7 @@
             updateBarStats();
         });
         document.getElementById('workshopResetSeries').addEventListener('click', function () {
+            if (!seriesId) return;
             if (!window.confirm(T().workshop_reset_confirm || '')) return;
             api('/api/series/' + seriesId + '/volume-enrich/reset', {
                 method: 'POST',
@@ -1672,6 +1902,21 @@
         });
         document.getElementById('workshopSuperSeries').addEventListener('click', function () {
             forceSync({ super: true });
+        });
+        var cascadeAll = document.getElementById('workshopCascadeAllBtn');
+        if (cascadeAll) {
+            cascadeAll.addEventListener('click', function () {
+                cascadeAllSeriesToVolumes();
+            });
+        }
+        document.addEventListener('click', function (ev) {
+            var btn = ev.target.closest('.workshop-cascade-btn');
+            if (btn) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                var key = btn.getAttribute('data-cascade-key');
+                if (key) cascadeFieldToVolumes(key);
+            }
         });
         var cancel = document.getElementById('workshopCancelPass');
         if (cancel) cancel.addEventListener('click', function () {

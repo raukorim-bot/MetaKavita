@@ -83,10 +83,33 @@ def _merge_override_inscribed(inscribed: Dict[str, Any], override: Optional[dict
     if not isinstance(payload, dict):
         return inscribed
     out = dict(inscribed)
-    for field in ("title", "summary", "isbn", "release_date"):
+    fields_to_check = (
+        "title",
+        "summary",
+        "isbn",
+        "release_date",
+        "language",
+        "webLinks",
+        "ageRating",
+        "genres",
+        "tags",
+        "writers",
+        "pencillers",
+        "coverArtists",
+        "translators",
+    )
+    for field in fields_to_check:
         val = payload.get(field)
-        if val:
-            out[field] = val
+        if val is not None and val != "":
+            if field == "release_date":
+                val_str = str(val).strip()
+                if val_str.startswith("0001-01-01"):
+                    continue
+                if "T" in val_str:
+                    val_str = val_str.split("T")[0]
+                out[field] = val_str
+            else:
+                out[field] = val
     if payload.get("cover_url"):
         out["cover_url"] = payload["cover_url"]
     return out
@@ -192,6 +215,8 @@ def workshop_payload(api: KavitaAPI, series_id: int, *, config: dict = None) -> 
     s_ov = get_workshop_series_override(series_id) or {}
     staged_payload = s_ov.get("payload") or {}
     staged_cover = str(s_ov.get("cover_url") or "")
+    for field in form:
+        field["initial_value"] = field.get("value")
     if staged_payload:
         for field in form:
             k = field.get("key")
@@ -313,12 +338,15 @@ def save_magic_override(series_id: int, chapter_id: int, url: str, volume_number
     if not payload:
         return {"success": False, "error": "no_match"}
     provider = payload.get("provider") or detect_volume_provider_from_url(url) or ""
+    clean = {k: payload.get(k) for k in INDEX_FIELDS if payload.get(k)}
+    clean["_staged"] = True
+    clean["_source"] = "magic"
     save_volume_unit_override(
         series_id,
         chapter_id,
         provider=provider,
         provider_ref=payload.get("provider_ref") or url,
-        payload={k: payload.get(k) for k in INDEX_FIELDS if payload.get(k)},
+        payload=clean,
     )
     record_lifetime_event("workshop_magic")
     record_workshop_history(
@@ -327,7 +355,7 @@ def save_magic_override(series_id: int, chapter_id: int, url: str, volume_number
         chapter_id=chapter_id,
         detail={"provider": provider, "fields": [k for k in INDEX_FIELDS if payload.get(k)], "volume_number": volume_number},
     )
-    return {"success": True, "provider": provider, "payload": payload}
+    return {"success": True, "provider": provider, "payload": clean}
 
 
 def _entry_from_edits(chapter_id: int, edits: dict, cover_url: str = "", extra: dict = None) -> Dict[str, Any]:
@@ -405,14 +433,26 @@ def send_volume(
                     written_fields=outcome.get("written"),
                 )
                 if (ov.get("payload") or {}).get("_staged"):
-                    clean_payload = {k: v for k, v in ov["payload"].items() if k != "_staged"}
-                    save_volume_unit_override(
-                        series_id,
-                        chapter_id,
-                        provider=str(ov.get("provider") or ""),
-                        provider_ref=str(ov.get("provider_ref") or ""),
-                        payload=clean_payload,
-                    )
+                    clean_payload = {
+                        k: v for k, v in ov["payload"].items()
+                        if k not in ("_staged", "cover_url")
+                    }
+                    if clean_payload:
+                        save_volume_unit_override(
+                            series_id,
+                            chapter_id,
+                            provider=str(ov.get("provider") or ""),
+                            provider_ref=str(ov.get("provider_ref") or ""),
+                            payload=clean_payload,
+                        )
+                    else:
+                        clear_volume_unit_overrides(series_id, chapter_id)
+                try:
+                    from services.volume_enrichment.apply import purge_series_hygiene_cache
+
+                    purge_series_hygiene_cache(series_id, keep_overrides=True)
+                except Exception:
+                    pass
             except Exception:
                 pass
             if record_origin:
@@ -552,6 +592,13 @@ def send_series(
         # Consomme et efface le brouillon persistant après envoi réussi
         clear_workshop_series_override(series_id)
 
+        try:
+            from services.volume_enrichment.apply import purge_series_hygiene_cache
+
+            purge_series_hygiene_cache(series_id, keep_overrides=True)
+        except Exception:
+            pass
+
         # Met à jour le statut en COMPLETED et purge les reviews pendantes de la série
         try:
             from services.enrichment_engine import _emit_series_status
@@ -618,7 +665,12 @@ def send_selection(
             record_workshop_history(
                 series_id,
                 "send-selection",
-                detail={"count": dones, "chapters": [r["chapter_id"] for r in results if r.get("status") == "DONE"]},
+                detail={
+                    "count": dones,
+                    "sent": dones,
+                    "total": len(results),
+                    "chapters": [r["chapter_id"] for r in results if r.get("status") == "DONE"],
+                },
             )
         failed = [r for r in results if not r.get("success")]
         sent = sum(1 for r in results if r.get("status") == "DONE")
@@ -718,11 +770,12 @@ def begin_volume_review(
         hit = fetch_volume_from_url(ref, volume_number=unit.get("volume_number"))
         if hit:
             candidates.append(hit)
-    target_isbn = (
+    raw_target_isbn = (
         str(isbn or "").strip()
         or str((ov.get("payload") or {}).get("isbn") or "").strip()
         or str((unit.get("chapter") or {}).get("isbn") or "").strip()
     )
+    target_isbn = re.sub(r"[\s\-]", "", raw_target_isbn)
     if target_isbn:
         from services.volume_enrichment.providers import fetch_by_isbn
 
@@ -732,22 +785,30 @@ def begin_volume_review(
             chap = dict(search_unit["chapter"])
             chap["isbn"] = target_isbn
             search_unit["chapter"] = chap
-        extra = fetch_by_isbn(
-            [search_unit],
-            library_type=series.get("libraryType") or "Manga",
-            config=cfg,
-        )
+        kwargs = {"library_type": series.get("libraryType") or "Manga", "config": cfg}
+        try:
+            extra = fetch_by_isbn([search_unit], all_scrapers=True, **kwargs)
+        except TypeError:
+            extra = fetch_by_isbn([search_unit], **kwargs)
         for payload in (extra or {}).values():
             if isinstance(payload, dict):
                 candidates.append(payload)
     if super_review or cfg.get("VOLUME_ENRICH_EXPERIMENTAL"):
         from services.volume_enrichment.providers import fetch_by_title_volume
 
-        extra = fetch_by_title_volume(
-            name,
-            [unit],
-            library_type=series.get("libraryType") or "Manga",
-        )
+        try:
+            extra = fetch_by_title_volume(
+                name,
+                [unit],
+                library_type=series.get("libraryType") or "Manga",
+                all_scrapers=True,
+            )
+        except TypeError:
+            extra = fetch_by_title_volume(
+                name,
+                [unit],
+                library_type=series.get("libraryType") or "Manga",
+            )
         for payload in (extra or {}).values():
             if isinstance(payload, dict):
                 candidates.append(payload)

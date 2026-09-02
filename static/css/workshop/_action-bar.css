@@ -1,0 +1,93 @@
+/* --------------------------------------------------------------------------
+   9. Barre d'action collante des tomes (Sticky Bar)
+   -------------------------------------------------------------------------- */
+
+.workshop-action-bar {
+    position: sticky;
+    top: 0;
+    z-index: 15;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    align-items: center;
+    margin: 10px 0 12px;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: rgba(14, 20, 32, 0.88);
+    border: 1px solid rgba(253, 186, 116, 0.28);
+    backdrop-filter: blur(16px);
+    -webkit-backdrop-filter: blur(16px);
+    box-shadow: 0 4px 18px rgba(0, 0, 0, 0.32);
+}
+
+[data-theme="light"] .workshop-action-bar {
+    background: rgba(255, 247, 237, 0.92);
+    border-color: rgba(253, 186, 116, 0.4);
+    box-shadow: 0 2px 10px rgba(251, 146, 60, 0.1);
+}
+
+.workshop-bar-grow { flex: 1 1 8px; }
+
+.workshop-force-note {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    margin: 0;
+    padding: 0;
+    border: 1px solid rgba(253, 186, 116, 0.35);
+    border-radius: 6px;
+    background: rgba(15, 23, 42, 0.4);
+    color: #fdba74;
+    cursor: help;
+    transition: all 0.14s ease;
+}
+
+.workshop-force-note svg {
+    width: 14px;
+    height: 14px;
+}
+
+.workshop-force-note:hover {
+    background: rgba(253, 186, 116, 0.16);
+    border-color: #fdba74;
+}
+
+.workshop-bar-stats {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #fdba74;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
+[data-theme="light"] .workshop-bar-stats {
+    color: #c2410c;
+}
+
+.workshop-action-bar .btn-primary,
+.workshop-action-bar .btn-secondary {
+    padding: 3px 9px;
+    font-size: 11px;
+    font-weight: 600;
+    height: 26px;
+    border-radius: 5px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.workshop-action-bar .btn-primary {
+    background: linear-gradient(135deg, #ea580c, #f97316);
+    border: 1px solid rgba(253, 186, 116, 0.4);
+    color: #ffffff;
+    box-shadow: 0 1px 4px rgba(234, 88, 12, 0.25);
+}
+
+.workshop-action-bar .btn-primary:hover {
+    background: linear-gradient(135deg, #c2410c, #ea580c);
+    box-shadow: 0 2px 8px rgba(234, 88, 12, 0.35);
+}
+

@@ -839,4 +839,261 @@ def test_js_workshop_audit_fixes_integrity():
     assert "_lastPassWasRunning && String(st.series_id) === String(seriesId)" in js
 
 
+# ===========================================================================
+# BF194 : Tests de non-régression — Correction intégrale de l'Atelier
+# ===========================================================================
 
+@pytest.fixture
+def workshop_client(monkeypatch, isolated_db):
+    from flask import Flask
+    from routes.workshop import workshop_bp
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.config["SECRET_KEY"] = "test-secret"
+    app.register_blueprint(workshop_bp)
+
+    # Mock _api pour renvoyer une série valide et activer l'atelier
+    monkeypatch.setattr("routes.workshop.workshop_enabled", lambda config=None: True)
+    monkeypatch.setattr("routes.workshop._api", lambda: DummyKavita())
+    return app.test_client()
+
+
+def test_bf194_draft_series_preserves_external_ids(workshop_client, isolated_db):
+    """Vérifie que l'auto-save draft-series préserve les _external_ids déjà stagés."""
+    sid = 991
+    initial_payload = {
+        "summary": "Résumé initial",
+        "_external_ids": {"anilist": 12345, "mal": 67890},
+    }
+    save_workshop_series_override(sid, initial_payload, cover_url="https://example.com/cover.jpg")
+
+    # Appel draft-series sans _external_ids et sans cover_url
+    res = workshop_client.post(
+        f"/api/series/{sid}/workshop/draft-series",
+        json={"edits": {"summary": "Résumé modifié par utilisateur"}, "cover_url": ""},
+    )
+    assert res.status_code == 200
+    assert res.get_json()["success"] is True
+
+    # Vérification en base : _external_ids et la jaquette existante sont préservés
+    stored = get_workshop_series_override(sid)
+    assert stored is not None
+    assert stored["payload"]["summary"] == "Résumé modifié par utilisateur"
+    assert stored["payload"]["_external_ids"] == {"anilist": 12345, "mal": 67890}
+    assert stored["cover_url"] == "https://example.com/cover.jpg"
+
+
+def test_bf194_fetch_by_isbn_and_title_sets_provider(monkeypatch):
+    """Vérifie que fetch_by_isbn et fetch_by_title_volume injectent provider et provider_ref."""
+    from scrapers import ScraperRegistry
+    from services.volume_enrichment.providers import fetch_by_isbn, fetch_by_title_volume
+
+    class DummyScraper:
+        id = "DUMMY_PROVIDER"
+
+        def fetch(self, query, **kwargs):
+            return {
+                "title": "Tome Test",
+                "summary": "Résumé Test",
+                "isbn": "9782000000001",
+                "provider_ref": "https://dummy.org/book/1",
+            }
+
+        def fetch_volume(self, query, volume_number=None, **kwargs):
+            return {
+                "title": f"Tome {volume_number}",
+                "summary": "Résumé Test",
+                "provider_ref": f"https://dummy.org/vol/{volume_number}",
+            }
+
+    monkeypatch.setattr(ScraperRegistry, "get", lambda pid: DummyScraper())
+
+    # 1. fetch_by_isbn
+    units = [{"volume_number": 1, "isbn": "978-2-000-00000-1"}]
+    res_isbn = fetch_by_isbn(units, provider_ids=["DUMMY_PROVIDER"])
+    assert "1" in res_isbn
+    assert res_isbn["1"]["provider"] == "DUMMY_PROVIDER"
+    assert res_isbn["1"]["provider_ref"] == "https://dummy.org/book/1"
+
+    # 2. fetch_by_title_volume
+    res_tv = fetch_by_title_volume("Série Test", units, provider_ids=["DUMMY_PROVIDER"])
+    assert "1" in res_tv
+    assert res_tv["1"]["provider"] == "DUMMY_PROVIDER"
+    assert res_tv["1"]["provider_ref"] == "https://dummy.org/vol/1"
+
+
+def test_bf194_send_selection_records_sent_and_total(isolated_db, monkeypatch):
+    """Vérifie que send_selection enregistre sent et total dans l'historique."""
+    from services.workshop import send_selection, list_workshop_history
+
+    api = DummyKavita()
+    # DummyKavita chapters setup
+    sid = 992
+    items = [
+        {"chapter_id": 10, "edits": {"title": "Tome 1"}},
+        {"chapter_id": 11, "edits": {"title": "Tome 2"}},
+    ]
+    res = send_selection(api, sid, items, force=True)
+    assert res["success"] is True
+
+    hist = list_workshop_history(sid)
+    selection_events = [h for h in hist if h.get("event") == "send-selection"]
+    assert len(selection_events) > 0
+    detail = selection_events[0].get("detail") or {}
+    assert detail.get("sent") == 2
+    assert detail.get("total") == 2
+    assert detail.get("count") == 2
+
+
+def test_bf194_frontend_safeguards_and_volume_modal():
+    """Vérifie la présence de tous les correctifs BF194 dans le code JavaScript."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    with open(os.path.join(root, "static", "js", "manual_review.js"), "r", encoding="utf-8") as f:
+        mr_js = f.read()
+    with open(os.path.join(root, "static", "js", "volumes.js"), "r", encoding="utf-8") as f:
+        vol_js = f.read()
+
+    # 1. Isolation de la modale manual review en mode volume
+    assert 'if (!modal || modal.dataset.kind === "volume") return false;' in mr_js
+
+    # 2. Raccourcis clavier modale volume dans volumes.js
+    assert "volModal.dataset.kind === 'volume'" in vol_js
+    assert "closeVolumeModal();" in vol_js
+    assert "confirmVolumeReview();" in vol_js
+    assert "var isStaged = !!(ov.payload && ov.payload._staged);" in vol_js
+    assert "dirtyAttr +" in vol_js
+
+    # 3. seriesIsDirty considère les overrides et jaquettes stagées
+    assert "if ((s.override && Object.keys(s.override).length) || s.staged_cover_url) return true;" in vol_js
+
+    # 4. Envoi unitaire avec markDoneClean et notification supporter
+    assert "markDoneClean([data]);" in vol_js
+    assert "window.SupporterNag.onWorkshopComplete({ series_count: 0, volumes_count: 1 });" in vol_js
+
+    # 5. Gardes défensives sur seriesId
+    assert "if (!card || !seriesId) return;" in vol_js
+    assert "if (!seriesId) return;" in vol_js
+    assert "if (!s || !s.id) return;" in vol_js
+
+
+def test_c112_js_css_hardening():
+    """Vérifie la robustesse du JS et du CSS suite à la refonte C112 de l'Atelier."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    with open(os.path.join(root, "static", "js", "volumes.js"), "r", encoding="utf-8") as f:
+        vol_js = f.read()
+    with open(os.path.join(root, "static", "css", "volumes.css"), "r", encoding="utf-8") as f:
+        vol_css = f.read()
+
+    # 1. ROW_H à 48px aligné sur le scroll virtuel du rail
+    assert "var ROW_H = 48;" in vol_js
+    assert "height: 48px;" in vol_css
+
+    # 2. isTypingTarget ne bloque pas les raccourcis dans la modale de review de tome
+    assert "if (mr.dataset.kind === 'volume') return false;" in vol_js
+
+    # 3. Sauvegarde automatique de brouillon lors du choix de jaquette de tome
+    assert "scheduleVolumeDraft(coverPickTarget.card);" in vol_js
+
+    # 4. display: none !important garanti sur les images [hidden]
+    assert ".workshop-cover-well img[hidden]" in vol_css
+    assert ".workshop-pass-banner[hidden] { display: none !important; }" in vol_css
+
+    # 5. Dimensions valorisées des jaquettes (104px tomes, 124px séries) et responsive propre
+    assert "grid-template-columns: 20px 104px 1fr;" in vol_css
+    assert "grid-template-columns: 124px 1fr;" in vol_css
+    assert ".workshop-cover--volume {\n    width: 104px;\n}" in vol_css
+    assert ".workshop-cover--series {\n    width: 124px;\n}" in vol_css
+    assert ".workshop-volume-meta {\n        grid-column: 1 / -1;\n    }" in vol_css
+
+def test_c113_series_to_volumes_cascade_and_modern_cards():
+    """Vérifie la duplication série -> tomes et la modernisation des cartes de l'Atelier (C113)."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    with open(os.path.join(root, "static", "js", "volumes.js"), "r", encoding="utf-8") as f:
+        vol_js = f.read()
+    with open(os.path.join(root, "static", "css", "volumes.css"), "r", encoding="utf-8") as f:
+        vol_css = f.read()
+    with open(os.path.join(root, "templates", "volumes.html"), "r", encoding="utf-8") as f:
+        vol_html = f.read()
+    with open(os.path.join(root, "templates", "partials", "_icons_sprite.html"), "r", encoding="utf-8") as f:
+        icons_html = f.read()
+    from translations import translations
+
+    # 1. Présence des clés de cascade bilingues FR et EN en parité stricte
+    cascade_keys = (
+        "workshop_cascade_btn",
+        "workshop_cascade_field_tip",
+        "workshop_cascade_all",
+        "workshop_cascade_all_tip",
+        "workshop_cascade_success",
+        "workshop_cascade_all_success",
+        "workshop_cascade_empty_tip",
+        "workshop_cascade_none_found",
+    )
+    for k in cascade_keys:
+        assert k in translations["fr"], f"Clé manquante en FR: {k}"
+        assert k in translations["en"], f"Clé manquante en EN: {k}"
+
+    # 2. Bouton global et icône de cascade dans le template
+    assert 'id="workshopCascadeAllBtn"' in vol_html
+    assert 'mk-ico-cascade' in vol_html
+    assert 'id="mk-ico-cascade"' in icons_html
+
+    # 3. Mécanisme de duplication dans volumes.js
+    assert "CASCADE_COMPATIBLE_FIELDS" in vol_js
+    assert "cascadeFieldToVolumes" in vol_js
+    assert "cascadeAllSeriesToVolumes" in vol_js
+    assert "workshop-cascade-btn" in vol_js
+    assert "data-cascade-key" in vol_js
+    assert "workshopCascadeAllBtn" in vol_js
+
+    # 4. Modernisation CSS inspirée de la Revue Manuelle
+    assert ".workshop-cascade-btn" in vol_css
+    assert "background: #141926;" in vol_css or "background-color: #141926;" in vol_css or "#141926" in vol_css
+    assert "text-transform: none;" in vol_css
+    assert ".workshop-status-chip" in vol_css
+    assert ".workshop-status-chip--done" in vol_css
+    assert ".workshop-status-chip--staged" in vol_css
+
+
+def test_workshop_css_modular_architecture():
+    """Vérifie l'architecture modulaire de volumes.css et l'intégrité des 14 modules."""
+    root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+    manifest_path = os.path.join(root, "static", "css", "volumes.css")
+    backup_path = os.path.join(root, "static", "css", "volumes.backup.css")
+    workshop_css_dir = os.path.join(root, "static", "css", "workshop")
+
+    # 1. Sauvegarde bit-à-bit présente
+    assert os.path.isfile(backup_path)
+    assert os.path.getsize(backup_path) > 30000
+
+    # 2. volumes.css est un manifest @import lisible (lu en binaire pour contourner l'expansion conftest)
+    with open(manifest_path, "rb") as f:
+        raw_manifest = f.read().decode("utf-8")
+    assert "@import url(" in raw_manifest
+    assert len(raw_manifest.splitlines()) < 40
+
+    # 3. Les 14 modules thématiques existent et sont importés
+    expected_modules = (
+        "_base.css",
+        "_navbar.css",
+        "_layout.css",
+        "_rail.css",
+        "_main.css",
+        "_series-card.css",
+        "_covers.css",
+        "_forms.css",
+        "_action-bar.css",
+        "_volume-cards.css",
+        "_candidates.css",
+        "_logs.css",
+        "_modals.css",
+        "_responsive.css",
+    )
+    for mod in expected_modules:
+        mod_path = os.path.join(workshop_css_dir, mod)
+        assert os.path.isfile(mod_path), f"Module manquant : {mod}"
+        assert f"workshop/{mod}" in raw_manifest, f"Module non importé : {mod}"
+        with open(mod_path, "rb") as f:
+            content = f.read().decode("utf-8")
+        assert content.count("{") == content.count("}"), f"Accolades asymétriques dans {mod}"

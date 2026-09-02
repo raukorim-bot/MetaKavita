@@ -1,0 +1,46 @@
+/* --------------------------------------------------------------------------
+   13. Modales & Contexte Tome (#manualReviewModal)
+   -------------------------------------------------------------------------- */
+
+html.workshop-page #manualReviewModal,
+html.workshop-page #workshopCoverModal {
+    position: fixed !important;
+    inset: 0;
+    z-index: 2000;
+}
+
+html.workshop-page #workshopCoverModal {
+    z-index: 2100;
+}
+
+.mr-volume-context {
+    padding: 6px 10px;
+    background: rgba(45, 212, 191, 0.08);
+    border-radius: 6px;
+    border: 1px solid rgba(45, 212, 191, 0.2);
+    margin: 6px 0 8px 0;
+}
+
+.mr-volume-context-text {
+    margin: 0;
+    font-size: 12px;
+    font-weight: 600;
+    color: #5eead4;
+}
+
+#manualReviewModal[data-kind="volume"] .mr-series-block,
+#manualReviewModal[data-kind="volume"] #mrQueueBadge,
+#manualReviewModal[data-kind="volume"] .mr-list-toggle-btn,
+#manualReviewModal[data-kind="volume"] #mrFusionBar,
+#manualReviewModal[data-kind="volume"] .mr-show-below-row,
+#manualReviewModal[data-kind="volume"] #mrPurgeBtn,
+#manualReviewModal[data-kind="volume"] #mrSkipBtn,
+#manualReviewModal[data-kind="volume"] #mrLaterBtn,
+#manualReviewModal[data-kind="volume"] #mrListToggleBtn,
+#manualReviewModal[data-kind="volume"] #mrPickBtn { display: none !important; }
+#manualReviewModal[data-kind="volume"] #mrVolumeContext { display: block !important; }
+#manualReviewModal[data-kind="volume"] #mrVolumeConfirmBtn { display: inline-flex !important; }
+
+html.workshop-page .mr-list-toggle-btn,
+html.workshop-page #mrListToggleBtn { display: none !important; }
+

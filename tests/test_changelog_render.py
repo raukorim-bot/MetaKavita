@@ -261,7 +261,7 @@ def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
 
     for retire in (
         "BF143", "BF154", "BF155", "BF162", "BF164", "BF165", "BF166", "BF168", "BF169",
-        "BF188", "BF189", "BF190", "BF191",
+        "BF188", "BF189", "BF190", "BF191", "BF192", "BF193", "BF194", "BF196", "BF197",
     ):
         assert retire not in bloc
 
@@ -312,10 +312,12 @@ def test_la_derniere_version_dit_depuis_quand_elle_compte():
         "C96", "C97", "C98", "C99",
         # Atelier & tomes
         "C100", "C101", "C102", "C103", "C104", "C105", "C106", "C107", "C108",
+        "C109", "C110", "C111", "C112", "C113",
         # Correctifs réels préexistants
         "BF174", "BF175", "BF176", "BF177", "BF178", "BF179",
         "BF180", "BF181", "BF182",
         "BF183", "BF184", "BF185", "BF186", "BF187",
+        "BF195",
     )
     for code in codes_attendus:
         assert code in bloc

@@ -206,6 +206,18 @@ def maybe_emit_scan_wake(now=None, *, min_quiet=None) -> bool:
 
 def handle_invocation(name, body, now=None) -> bool:
     """True si un wake a été poussé (tests : frames fictives)."""
+    n = str(name or "").strip()
+    if n == "SeriesRemoved":
+        try:
+            b = body if isinstance(body, dict) else {}
+            sid = b.get("seriesId") or b.get("id") or (b.get("value") if isinstance(b.get("value"), (int, str)) else None)
+            if sid is not None:
+                from db_manager import purge_single_series_from_all_caches
+                purge_single_series_from_all_caches(int(sid))
+                logging.info("[SignalR] SeriesRemoved reçu pour série #%s : caches invalidés.", sid)
+        except Exception as e:
+            logging.debug("SeriesRemoved cleanup failed: %s", e)
+
     if not is_scanner_event(name, body):
         return False
     ts = time.time() if now is None else float(now)

@@ -8,6 +8,7 @@ from typing import Any, Dict, List, Optional
 
 from config_manager import load_config
 from db_manager import (
+    clean_orphaned_cache,
     get_all_cached_data,
     get_catalog_expected_override,
     get_inventory_excluded_ids,
@@ -216,6 +217,7 @@ def _run_scan(
     missing_count_total = 0
     no_id_count = 0
     failed_count = 0
+    empty_series_count = 0
     incremental = mode == "incremental"
     state_counts: Dict[str, int] = {}
     reused = 0
@@ -238,6 +240,7 @@ def _run_scan(
 
         cached = get_all_cached_data()
         excluded_ids = get_inventory_excluded_ids()
+        skipped = 0
         if excluded_ids:
             skipped_before = len(targets)
             targets = [t for t in targets if int(t.get("id") or 0) not in excluded_ids]
@@ -358,9 +361,15 @@ def _run_scan(
                     missing_count_total += 1
                 pub_status = report.get("publication_status") or "UNKNOWN"
 
-                # Identity enriched for clustering
+                # Identity enriched for clustering & volume metrics
+                vol_c = int(report.get("primary", {}).get("count") or 0)
+                chap_c = int(report.get("chapters", {}).get("count") or 0)
                 identity["id"] = sid
                 identity["libraryId"] = s.get("libraryId") or api_library_id
+                identity["volume_count"] = vol_c
+                identity["chapter_count"] = chap_c
+                if vol_c == 0 and chap_c == 0:
+                    empty_series_count += 1
                 identities_for_dup.append(identity)
 
                 logging.info(
@@ -441,10 +450,16 @@ def _run_scan(
         )
         save_duplicate_groups_cache(library_id, groups)
 
+        # Nettoyage automatique des caches orphelins (séries supprimées dans Kavita)
+        if scan_all and targets:
+            active_sids = {int(t["id"]) for t in targets if t.get("id") is not None}
+            clean_orphaned_cache(active_sids)
+
         counts = {
             "missing": missing_count_total,
             "duplicates": len(groups),
             "no_external_id": no_id_count,
+            "empty_series": empty_series_count,
             "series": len(targets),
             # Répartition pour la barre de santé de la bibliothèque.
             **summarize_states(state_counts),
@@ -452,7 +467,10 @@ def _run_scan(
             # d'une série) : sans ce compteur, elles n'entraient dans aucun
             # segment et la barre affichait moins de séries qu'elle n'en annonçait.
             "failed": failed_count,
-            "excluded": len(excluded_ids),
+            # `skipped` compte les séries exclues dans le périmètre de CE scan
+            # (une bibliothèque donnée). `len(excluded_ids)` est le total global
+            # de toutes les bibliothèques confondues : ne l'utiliser qu'en scan_all.
+            "excluded": len(excluded_ids) if scan_all else skipped,
             "states": dict(state_counts),
             "mode": mode,
         }

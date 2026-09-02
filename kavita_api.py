@@ -5,7 +5,7 @@ import time
 import requests
 from curl_cffi import requests as cffi_requests
 
-from typing import Optional, Tuple
+from typing import Any, Optional, Tuple
 
 from config_manager import get_kavita_http_timeout
 from kavita_constants import LIBRARY_TYPE_BY_ENUM
@@ -1444,3 +1444,76 @@ class KavitaAPI:
         except Exception as e:
             logging.error("[Kavita] jaquette %s %s : %s", name, entity_id, safe_exc_str(e))
             return None, "kavita_unreachable"
+
+    def scan_library(self, library_id: Any) -> bool:
+        """Déclenche un scan de bibliothèque dans Kavita (POST /api/Library/scan).
+
+        `library_id` peut être un entier, une chaîne ou None/0/""/'all' pour scanner toutes les libs.
+        """
+        try:
+            if library_id and str(library_id).lower() != "all":
+                url = f"{self.url}/api/Library/scan?libraryId={int(library_id)}"
+                res = self._send("post", url, timeout=15)
+                return bool(res is not None and res.status_code in (200, 204))
+
+            # Scan de toutes les bibliothèques
+            res = self._send("post", f"{self.url}/api/Library/scan-all", timeout=15)
+            if res is not None and res.status_code in (200, 204):
+                return True
+            # Repli : scanner chaque bibliothèque individuellement
+            libs = self.get_libraries()
+            ok = False
+            for lib in libs:
+                lid = lib.get("id")
+                if lid is not None:
+                    r = self._send("post", f"{self.url}/api/Library/scan?libraryId={lid}", timeout=10)
+                    if r is not None and r.status_code in (200, 204):
+                        ok = True
+            return ok
+        except Exception as e:
+            logging.error("[Kavita] scan_library(%s) échoué : %s", library_id, safe_exc_str(e))
+            return False
+
+    def delete_series(self, series_id: int) -> bool:
+        """Supprime une fiche série dans Kavita (DELETE /api/Series?seriesId=...).
+
+        ATTENTION : Ne supprimer que si les fichiers n'existent plus sur disque
+        (ou si la série est vide), sous peine de réapparition au scan suivant.
+        """
+        try:
+            url = f"{self.url}/api/Series?seriesId={int(series_id)}"
+            res = self._send("delete", url, timeout=15)
+            if res is not None and res.status_code in (200, 204):
+                return True
+            # Repli sur DELETE /api/Series/{id}
+            url_alt = f"{self.url}/api/Series/{int(series_id)}"
+            res_alt = self._send("delete", url_alt, timeout=15)
+            return bool(res_alt is not None and res_alt.status_code in (200, 204))
+        except Exception as e:
+            logging.error("[Kavita] delete_series(%s) échoué : %s", series_id, safe_exc_str(e))
+            return False
+
+    def is_series_empty(self, series_id: int) -> bool:
+        """Vérifie si une série ne possède aucun volume et aucun chapitre dans Kavita.
+
+        Permet de valider qu'une suppression est 100% sûre sans résurrection.
+        """
+        try:
+            volumes, err = self.fetch_series_volumes(series_id)
+            if err:
+                return False
+            if not volumes:
+                return True
+            # S'il y a des volumes, vérifier s'ils contiennent des chapitres avec fichiers
+            for vol in volumes:
+                if not isinstance(vol, dict):
+                    continue
+                chaps = vol.get("chapters") or []
+                if chaps:
+                    return False
+                if vol.get("pages") or vol.get("Pages"):
+                    return False
+            return True
+        except Exception as e:
+            logging.error("[Kavita] is_series_empty(%s) échoué : %s", series_id, safe_exc_str(e))
+            return False

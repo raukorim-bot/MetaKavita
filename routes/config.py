@@ -74,6 +74,28 @@ def save_config_ajax():
             save_config(config)
             return jsonify(success=True)
 
+        # Partial: hygiene duplicate folder paths (duplicates modal)
+        if request.form.get('INVENTORY_FOLDER_SAVE') == '1':
+            from services.library_audit.dup_script import (
+                inventory_folder_path_prefix_from_config,
+                normalize_inventory_folder_trash,
+            )
+            if (
+                'INVENTORY_FOLDER_PATH_PREFIX' in request.form
+                or 'INVENTORY_FOLDER_URL_PREFIX' in request.form
+            ):
+                config['INVENTORY_FOLDER_PATH_PREFIX'] = inventory_folder_path_prefix_from_config({
+                    'INVENTORY_FOLDER_PATH_PREFIX': request.form.get('INVENTORY_FOLDER_PATH_PREFIX'),
+                    'INVENTORY_FOLDER_URL_PREFIX': request.form.get('INVENTORY_FOLDER_URL_PREFIX'),
+                })
+                config.pop('INVENTORY_FOLDER_URL_PREFIX', None)
+            if 'INVENTORY_FOLDER_TRASH' in request.form:
+                config['INVENTORY_FOLDER_TRASH'] = normalize_inventory_folder_trash(
+                    request.form.get('INVENTORY_FOLDER_TRASH')
+                )
+            save_config(config)
+            return jsonify(success=True)
+
         config['TRANSLATION_PROVIDER'] = request.form.get('TRANSLATION_PROVIDER', 'GOOGLE').strip()
         config['KAVITA_URL'] = request.form.get('KAVITA_URL', '').strip().rstrip('/')
         config['KAVITA_EXTERNAL_URL'] = request.form.get('KAVITA_EXTERNAL_URL', '').strip().rstrip('/')

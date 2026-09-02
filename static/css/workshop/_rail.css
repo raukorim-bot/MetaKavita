@@ -1,0 +1,167 @@
+/* --------------------------------------------------------------------------
+   4. Rail de navigation gauche (Series Rail)
+   -------------------------------------------------------------------------- */
+
+.workshop-rail {
+    border-right: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    background: rgba(11, 16, 28, 0.7);
+    backdrop-filter: blur(12px);
+}
+
+[data-theme="light"] .workshop-rail {
+    background: rgba(248, 250, 252, 0.85);
+    border-right-color: rgba(15, 23, 42, 0.08);
+}
+
+.workshop-rail-toolbar {
+    padding: 8px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.workshop-rail-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+}
+
+.workshop-rail-search,
+.workshop-rail-lib {
+    width: 100%;
+    height: 28px;
+    padding: 3px 8px;
+    font-size: 11.5px;
+    border-radius: 6px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #090e1a;
+    color: inherit;
+    box-sizing: border-box;
+    transition: border-color 0.14s ease, box-shadow 0.14s ease;
+}
+
+[data-theme="light"] .workshop-rail-search,
+[data-theme="light"] .workshop-rail-lib {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.12);
+}
+
+.workshop-rail-search:focus,
+.workshop-rail-lib:focus {
+    outline: none;
+    border-color: #2dd4bf;
+    box-shadow: 0 0 0 2px rgba(45, 212, 191, 0.2);
+}
+
+.workshop-rail-extra {
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+}
+
+.workshop-rail-extra summary {
+    cursor: pointer;
+    user-select: none;
+    font-weight: 500;
+}
+
+.workshop-rail-extra .workshop-rail-check {
+    display: flex;
+    margin-top: 4px;
+}
+
+.workshop-rail-check {
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+    gap: 6px;
+}
+
+.workshop-rail-list {
+    flex: 1 1 auto;
+    overflow-y: auto;
+    min-height: 0;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+}
+
+.workshop-rail-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 48px;
+    box-sizing: border-box;
+    padding: 4px 8px;
+    text-decoration: none;
+    color: inherit;
+    border-left: 3px solid transparent;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.workshop-rail-item:hover {
+    background: rgba(45, 212, 191, 0.06);
+}
+
+.workshop-rail-item.is-current {
+    border-left-color: #2dd4bf;
+    background: linear-gradient(90deg, rgba(45, 212, 191, 0.14), rgba(45, 212, 191, 0.03));
+}
+
+.workshop-rail-thumb {
+    width: 26px;
+    height: 38px;
+    object-fit: cover;
+    border-radius: 3px;
+    background: #1e293b;
+    flex: 0 0 auto;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+.workshop-rail-text {
+    min-width: 0;
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.workshop-rail-name {
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.25;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text-main, #f1f5f9);
+}
+
+.workshop-rail-chip {
+    display: inline-block;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 9.5px;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 1px 5px;
+    border-radius: 4px;
+    background: rgba(148, 163, 184, 0.14);
+    color: var(--text-muted, #94a3b8);
+}
+
+.workshop-rail-chip--completed { background: rgba(45, 212, 191, 0.15); color: #5eead4; }
+.workshop-rail-chip--pending_review { background: rgba(167, 139, 250, 0.18); color: #c4b5fd; }
+.workshop-rail-chip--needs_relock { background: rgba(251, 191, 36, 0.18); color: #fcd34d; }
+.workshop-rail-chip--not_found { background: rgba(248, 113, 113, 0.18); color: #fca5a5; }
+.workshop-rail-chip--pending { background: rgba(148, 163, 184, 0.14); }
+.workshop-rail-chip--ignored { background: rgba(100, 116, 139, 0.2); }
+
+[data-theme="light"] .workshop-rail-chip--completed { color: #0f766e; }
+[data-theme="light"] .workshop-rail-chip--pending_review { color: #6d28d9; }
+[data-theme="light"] .workshop-rail-chip--needs_relock { color: #b45309; }
+[data-theme="light"] .workshop-rail-chip--not_found { color: #b91c1c; }
+

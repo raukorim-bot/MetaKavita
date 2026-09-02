@@ -25,8 +25,8 @@ import pytest
 from flask_test_app import get_series_bp  # noqa: E402
 
 # --- RESOLUTION CSS MODULAIRE POUR TESTS ------------------------------------
-# style.css a été découpé en 21 modules via un manifest @import.
-# Les tests existants qui lisent style.css s'attendent à la feuille globale
+# style.css et volumes.css ont été découpés en modules via un manifest @import.
+# Les tests existants qui lisent style.css ou volumes.css s'attendent à la feuille globale
 # telle qu'interprétée par le navigateur (résolution récursive des @import).
 import io
 import re
@@ -35,6 +35,10 @@ from pathlib import Path
 
 _orig_path_read_text = Path.read_text
 _orig_builtins_open = builtins.open
+
+
+def _is_modular_css(norm: str) -> bool:
+    return norm.endswith("static/css/style.css") or norm.endswith("static/css/volumes.css")
 
 
 def _resolve_css_imports(file_path: Path, visited=None) -> str:
@@ -66,7 +70,7 @@ def _resolve_css_imports(file_path: Path, visited=None) -> str:
 def _patched_read_text(self, *args, **kwargs):
     text = _orig_path_read_text(self, *args, **kwargs)
     norm = str(self).replace("\\", "/")
-    if norm.endswith("static/css/style.css") and "@import url(" in text:
+    if _is_modular_css(norm) and "@import url(" in text:
         return _resolve_css_imports(self)
     return text
 
@@ -81,7 +85,7 @@ def _patched_open(file, *args, **kwargs):
     mode = args[0] if args else kwargs.get("mode", "r")
     if "r" in mode and "b" not in mode:
         norm = str(file).replace("\\", "/")
-        if norm.endswith("static/css/style.css"):
+        if _is_modular_css(norm):
             expanded = _resolve_css_imports(Path(file))
             return _CssExpandedTextIO(expanded, name=str(file))
     return _orig_builtins_open(file, *args, **kwargs)

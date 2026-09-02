@@ -35,7 +35,8 @@
             waiting: {{ t.waiting|tojson }},
             terminal_ready: {{ t.terminal_ready|tojson }},
             cover_streaming_start: {{ t.cover_streaming_start|tojson }},
-            cover_live_search_for: {{ t.cover_live_search_for|tojson }}
+            cover_live_search_for: {{ t.cover_live_search_for|tojson }},
+            stats_chapter_volumes: {{ t.stats_chapter_volumes|tojson }}
         };
     </script>
 </head>
@@ -142,6 +143,7 @@
                         <button type="button" class="btn-primary" id="workshopSendSeries">{{ t.workshop_send_series }}</button>
                         <button type="button" class="btn-secondary" id="workshopReviewSeries">{{ t.workshop_review_series }}</button>
                         <button type="button" class="btn-secondary" id="workshopSuperSeries">{{ t.workshop_super_series }}</button>
+                        <button type="button" class="btn-secondary" id="workshopCascadeAllBtn" title="{{ t.workshop_cascade_all_tip }}"><svg class="workshop-btn-ico" aria-hidden="true"><use href="#mk-ico-cascade"></use></svg><span>{{ t.workshop_cascade_all }}</span></button>
                         <button type="button" class="btn-danger" id="workshopResetSeries">{{ t.workshop_reset_series }}</button>
                     </div>
                 </div>

@@ -72,8 +72,16 @@
                         <option value="delete">{{ t.audit_dup_script_delete }}</option>
                     </select>
                 </label>
+                <label class="audit-dup-mode">
+                    <span>{{ t.audit_dup_script_format }}</span>
+                    <select id="dupScriptFormat" class="toolbar-select">
+                        <option value="sh" selected>{{ t.audit_dup_format_sh }}</option>
+                        <option value="ps1">{{ t.audit_dup_format_ps1 }}</option>
+                    </select>
+                </label>
                 <button type="button" class="btn-opt" id="dupCopyScript">{{ t.audit_dup_copy_script }}</button>
                 <button type="button" class="btn-opt" id="dupDownloadScript">{{ t.audit_dup_download_script }}</button>
+                <button type="button" class="btn-sync" id="dupTriggerKavitaScan">{{ t.audit_dup_trigger_scan }}</button>
                 <a id="duplicatesCsv" class="btn-opt" href="#" target="_blank">{{ t.audit_export_csv }}</a>
                 <a id="duplicatesTxt" class="btn-opt" href="#" target="_blank">{{ t.audit_export_txt }}</a>
             </div>
