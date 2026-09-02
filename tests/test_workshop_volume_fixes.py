@@ -8,13 +8,9 @@ le déblocage de reprise de passe automatique et le brouillon unitaire de tome.
 from __future__ import annotations
 
 import os
-import pytest
 
 from db_manager import (
-    SERIES_PASS_CHAPTER_ID,
-    SERIES_PASS_STATUS,
     clear_volume_unit_states,
-    clear_volume_unit_overrides,
     get_volume_unit_overrides,
     list_enriched_series_ids,
     mark_series_pass_done,

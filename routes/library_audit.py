@@ -15,7 +15,6 @@ from db_manager import (
     get_hygiene_library_meta,
     get_inventory_excluded_ids,
     get_series_audit_flags,
-    get_volume_report_badges,
     get_volume_report_cache,
     get_volume_report_hygiene_map,
     has_duplicate_groups_cache,
@@ -353,7 +352,6 @@ def library_duplicates_dismiss(library_id):
     try:
         gkey = save_dup_dismissal(library_id, series_ids, reason)
         # Drop from cache groups if present
-        groups = get_duplicate_groups_cache(library_id)
         from services.library_audit.duplicates import dup_group_key
         from db_manager import save_duplicate_groups_cache
 
