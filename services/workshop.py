@@ -50,9 +50,90 @@ from services.workshop_form import (
     series_form,
     unwrap_metadata,
 )
+import logging
+from secure_logging import series_label
 from translations import translations
 
 _COVER_KINDS = frozenset({"series", "chapter", "volume"})
+
+_FIELD_NAMES_FR = {
+    "title": "titre",
+    "summary": "résumé",
+    "isbn": "ISBN",
+    "release_date": "date",
+    "releaseYear": "année",
+    "publicationStatus": "statut",
+    "ageRating": "âge",
+    "language": "langue",
+    "publishers": "éditeur",
+    "webLinks": "liens",
+    "genres": "genres",
+    "tags": "tags",
+    "writers": "scénario",
+    "pencillers": "dessin",
+    "coverArtists": "couverture",
+    "colorists": "couleur",
+    "inkers": "encrage",
+    "letterers": "lettrage",
+    "editors": "édition",
+    "translators": "traduction",
+    "characters": "personnages",
+    "imprints": "collection",
+    "teams": "équipes",
+    "locations": "lieux",
+    "cover": "couverture",
+    "localizedName": "titre alternatif",
+    "externalIds": "identifiants",
+}
+
+_FIELD_NAMES_EN = {
+    "title": "title",
+    "summary": "summary",
+    "isbn": "ISBN",
+    "release_date": "date",
+    "releaseYear": "year",
+    "publicationStatus": "status",
+    "ageRating": "age rating",
+    "language": "language",
+    "publishers": "publisher",
+    "webLinks": "links",
+    "genres": "genres",
+    "tags": "tags",
+    "writers": "writers",
+    "pencillers": "pencillers",
+    "coverArtists": "cover artists",
+    "colorists": "colorists",
+    "inkers": "inkers",
+    "letterers": "letterers",
+    "editors": "editors",
+    "translators": "translators",
+    "characters": "characters",
+    "imprints": "imprint",
+    "teams": "teams",
+    "locations": "locations",
+    "cover": "cover",
+    "localizedName": "localized name",
+    "externalIds": "external IDs",
+}
+
+
+def _format_written_fields(fields: List[str], lang: str = "fr") -> str:
+    mapping = _FIELD_NAMES_FR if lang == "fr" else _FIELD_NAMES_EN
+    return ", ".join(mapping.get(f, f) for f in fields)
+
+
+def _format_unit_label(entry: Dict[str, Any], lang: str = "fr") -> str:
+    vol_word = "tome" if lang == "fr" else "volume"
+    chap_word = "chapitre" if lang == "fr" else "chapter"
+    for key, mot in (("matched_on", vol_word), ("volume_number", vol_word),
+                     ("chapter_number", chap_word)):
+        value = entry.get(key)
+        if value not in (None, "", 0):
+            return f"{mot} {value}"
+    chapter_id = entry.get("chapter_id")
+    if chapter_id:
+        return f"{chap_word} {chapter_id}"
+    return "tome inconnu" if lang == "fr" else "unknown volume"
 
 
 def inscribed_from_chapter(chapter: Optional[dict]) -> Dict[str, Any]:
@@ -392,6 +473,7 @@ def send_volume(
     record_origin: bool = True,
     extra: dict = None,
     claim: bool = True,
+    series_name: str = "",
 ) -> Dict[str, Any]:
     if _pass_blocks(series_id):
         return {"success": False, "error": "busy", "busy": True, "chapter_id": int(chapter_id)}
@@ -460,6 +542,57 @@ def send_volume(
             if edits:
                 record_lifetime_event("workshop_edits")
         noop = status in ("SKIPPED", "NOTHING_FOUND")
+
+        # Journalisation temps réel pour la console de l'Atelier
+        try:
+            resolved_series_name = series_name or (extra or {}).get("series_name") or ""
+            if not resolved_series_name:
+                try:
+                    s_obj = api.get_series(series_id) or {}
+                    resolved_series_name = s_obj.get("name") or ""
+                except Exception:
+                    resolved_series_name = ""
+            label = series_label(resolved_series_name, series_id)
+            cfg = load_config()
+            lang = cfg.get("UI_LANG", "fr")
+            t = translations.get(lang, translations["fr"])
+            u_label = _format_unit_label(entry, lang=lang)
+            written = outcome.get("written") or []
+
+            if status == "DONE":
+                if written:
+                    fields_str = _format_written_fields(written, lang=lang)
+                    logging.info(
+                        t.get(
+                            "log_workshop_volume_success",
+                            "[{0}] ✅ {1} envoyé avec succès dans Kavita ({2}) !",
+                        ).format(label, u_label, fields_str)
+                    )
+                else:
+                    logging.info(
+                        t.get(
+                            "log_workshop_volume_success_simple",
+                            "[{0}] ✅ {1} envoyé avec succès dans Kavita !",
+                        ).format(label, u_label)
+                    )
+            elif record_origin:
+                if noop:
+                    logging.info(
+                        t.get(
+                            "log_workshop_volume_noop",
+                            "[{0}] ⏭️ {1} : rien à modifier dans Kavita.",
+                        ).format(label, u_label)
+                    )
+                elif status == "FAILED" or outcome.get("error"):
+                    logging.error(
+                        t.get(
+                            "log_workshop_volume_fail",
+                            "[{0}] ❌ {1} : échec de l'envoi — {2}",
+                        ).format(label, u_label, outcome.get("error") or "")
+                    )
+        except Exception:
+            pass
+
         return {
             "success": status == "DONE" or noop,
             "noop": noop,
@@ -516,6 +649,7 @@ def send_series(
     *,
     force: bool = False,
     cover_url: str = "",
+    series_name: str = "",
 ) -> Dict[str, Any]:
     if _pass_blocks(series_id):
         return {"success": False, "error": "busy", "busy": True}
@@ -530,7 +664,9 @@ def send_series(
         series = api.get_series(series_id) or {}
         edits = edits or {}
         cfg = load_config()
-        t = translations.get(cfg.get("UI_LANG", "fr"), translations["fr"])
+        lang = cfg.get("UI_LANG", "fr")
+        t = translations.get(lang, translations["fr"])
+        label = series_label(series_name or series.get("name"), series_id)
         form = series_form(series, metadata, t)
         meta, written, localized = apply_series_edits(
             metadata, series, form, edits, force=force
@@ -541,6 +677,12 @@ def send_series(
             ok = result[0] if isinstance(result, tuple) else bool(result)
             detail = result[1] if isinstance(result, tuple) and len(result) > 1 else ""
             if not ok:
+                logging.error(
+                    t.get(
+                        "log_workshop_series_fail",
+                        "[{0}] ❌ Fiche série : échec de l'envoi — {1}",
+                    ).format(label, detail)
+                )
                 return {"success": False, "error": detail, "written": []}
 
         if localized is not None:
@@ -548,6 +690,12 @@ def send_series(
             ok = gen_res[0] if isinstance(gen_res, tuple) else bool(gen_res)
             detail = gen_res[1] if isinstance(gen_res, tuple) and len(gen_res) > 1 else ""
             if not ok:
+                logging.error(
+                    t.get(
+                        "log_workshop_series_fail",
+                        "[{0}] ❌ Fiche série : échec de l'envoi — {1}",
+                    ).format(label, detail)
+                )
                 already = [w for w in written if w != "localizedName"]
                 return {
                     "success": False,
@@ -561,6 +709,12 @@ def send_series(
             ok = cov_res[0] if isinstance(cov_res, tuple) else bool(cov_res)
             detail = cov_res[1] if isinstance(cov_res, tuple) and len(cov_res) > 1 else ""
             if not ok:
+                logging.error(
+                    t.get(
+                        "log_workshop_series_fail",
+                        "[{0}] ❌ Fiche série : échec de l'envoi — {1}",
+                    ).format(label, detail)
+                )
                 return {
                     "success": False,
                     "partial": bool(written),
@@ -587,6 +741,12 @@ def send_series(
                 pass
 
         if not written:
+            logging.info(
+                t.get(
+                    "log_workshop_series_noop",
+                    "[{0}] ⏭️ Fiche série : rien à modifier dans Kavita.",
+                ).format(label)
+            )
             return {"success": True, "noop": True, "written": []}
 
         # Consomme et efface le brouillon persistant après envoi réussi
@@ -618,6 +778,13 @@ def send_series(
             "send-series",
             detail={"fields": written},
         )
+        fields_str = _format_written_fields(written, lang=lang)
+        logging.info(
+            t.get(
+                "log_workshop_series_success",
+                "[{0}] ✅ Fiche série envoyée avec succès dans Kavita ({1}) !",
+            ).format(label, fields_str)
+        )
         return {"success": True, "written": written}
     finally:
         release(series_id)
@@ -629,6 +796,7 @@ def send_selection(
     items: List[Dict[str, Any]],
     *,
     force: bool = False,
+    series_name: str = "",
 ) -> Dict[str, Any]:
     if _pass_blocks(series_id):
         return {"success": False, "error": "busy", "busy": True}
@@ -637,6 +805,15 @@ def send_selection(
         return {"success": False, "error": "busy", "busy": True, "series_busy": True}
     results = []
     try:
+        resolved_series_name = series_name
+        if not resolved_series_name:
+            try:
+                s_obj = api.get_series(series_id) or {}
+                resolved_series_name = s_obj.get("name") or ""
+            except Exception:
+                resolved_series_name = ""
+        label = series_label(resolved_series_name, series_id)
+
         for item in items or []:
             if not isinstance(item, dict):
                 continue
@@ -654,9 +831,11 @@ def send_selection(
                     "volume_id": item.get("volume_id"),
                     "volume_number": item.get("volume_number"),
                     "chapter_number": item.get("chapter_number"),
+                    "series_name": resolved_series_name,
                 },
                 claim=False,
                 record_origin=False,
+                series_name=resolved_series_name,
             )
             results.append(outcome)
         dones = sum(1 for r in results if r.get("status") == "DONE")
@@ -674,6 +853,27 @@ def send_selection(
             )
         failed = [r for r in results if not r.get("success")]
         sent = sum(1 for r in results if r.get("status") == "DONE")
+
+        cfg = load_config()
+        lang = cfg.get("UI_LANG", "fr")
+        t = translations.get(lang, translations["fr"])
+
+        if len(results) > 1:
+            if failed:
+                logging.warning(
+                    t.get(
+                        "log_workshop_selection_partial",
+                        "[{0}] ⚠️ {1}/{2} tome(s) envoyés dans Kavita ({3} échec(s))",
+                    ).format(label, sent, len(results), len(failed))
+                )
+            elif dones > 0:
+                logging.info(
+                    t.get(
+                        "log_workshop_selection_success",
+                        "[{0}] ✅ {1} tomes envoyés avec succès dans Kavita !",
+                    ).format(label, dones)
+                )
+
         if failed:
             return {
                 "success": False,

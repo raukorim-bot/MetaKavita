@@ -999,11 +999,11 @@ def test_c112_js_css_hardening():
     assert ".workshop-cover-well img[hidden]" in vol_css
     assert ".workshop-pass-banner[hidden] { display: none !important; }" in vol_css
 
-    # 5. Dimensions valorisées des jaquettes (104px tomes, 124px séries) et responsive propre
-    assert "grid-template-columns: 20px 104px 1fr;" in vol_css
-    assert "grid-template-columns: 124px 1fr;" in vol_css
+    # 5. Dimensions valorisées des jaquettes (104px tomes, 136px séries) et responsive propre
+    assert "20px 104px" in vol_css
+    assert "repeat(6, minmax(0, 1fr));" in vol_css
     assert ".workshop-cover--volume {\n    width: 104px;\n}" in vol_css
-    assert ".workshop-cover--series {\n    width: 124px;\n}" in vol_css
+    assert ".workshop-cover--series {\n    width: 136px;\n}" in vol_css
     assert ".workshop-volume-meta {\n        grid-column: 1 / -1;\n    }" in vol_css
 
 def test_c113_series_to_volumes_cascade_and_modern_cards():

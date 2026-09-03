@@ -157,13 +157,14 @@ def workshop_send_one(series_id):
     t = _t()
     config = load_config()
     api = _api()
-    _, err = _guard_series(api, series_id, config)
+    series, err = _guard_series(api, series_id, config)
     if err:
         return err
     payload = request.get_json(silent=True) or {}
     chapter_id = payload.get("chapter_id")
     if not chapter_id:
         return jsonify({"success": False, "error": t.get("workshop_err", "Requête incomplète.")}), 400
+    series_name = (series or {}).get("name") or ""
     result = send_volume(
         api,
         series_id,
@@ -176,7 +177,9 @@ def workshop_send_one(series_id):
             "volume_id": payload.get("volume_id"),
             "volume_number": payload.get("volume_number"),
             "chapter_number": payload.get("chapter_number"),
+            "series_name": series_name,
         },
+        series_name=series_name,
     )
     return _send_response(result, t)
 
@@ -186,16 +189,18 @@ def workshop_send_series_only(series_id):
     t = _t()
     config = load_config()
     api = _api()
-    _, err = _guard_series(api, series_id, config)
+    series, err = _guard_series(api, series_id, config)
     if err:
         return err
     payload = request.get_json(silent=True) or {}
+    series_name = (series or {}).get("name") or ""
     result = send_series(
         api,
         series_id,
         payload.get("edits") or {},
         force=True,
         cover_url=str(payload.get("cover_url") or ""),
+        series_name=series_name,
     )
     return _send_response(result, t)
 
@@ -265,15 +270,17 @@ def workshop_send_checked(series_id):
     t = _t()
     config = load_config()
     api = _api()
-    _, err = _guard_series(api, series_id, config)
+    series, err = _guard_series(api, series_id, config)
     if err:
         return err
     payload = request.get_json(silent=True) or {}
+    series_name = (series or {}).get("name") or ""
     result = send_selection(
         api,
         series_id,
         payload.get("items") or [],
         force=True,
+        series_name=series_name,
     )
     return _send_response(result, t)
 

@@ -21,13 +21,15 @@
 
 .workshop-volume-card {
     display: grid;
-    grid-template-columns: 20px 104px 1fr;
-    gap: 14px;
+    grid-template-columns: 20px 104px repeat(6, minmax(0, 1fr));
+    column-gap: 14px;
+    row-gap: 7px;
     padding: 12px 16px;
     border-radius: 12px;
     border: 1px solid rgba(255, 255, 255, 0.08);
     background: linear-gradient(180deg, rgba(18, 24, 38, 0.9) 0%, rgba(11, 15, 26, 0.96) 100%);
     backdrop-filter: blur(14px);
+    align-items: start;
     box-shadow: 0 4px 16px -2px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.04);
     transition: box-shadow 0.16s ease, border-color 0.16s ease, background 0.16s ease;
 }
@@ -49,7 +51,9 @@
 }
 
 .workshop-volume-card .workshop-vol-check {
-    margin-top: 6px;
+    grid-column: 1;
+    grid-row: 1;
+    margin-top: 5px;
     width: 16px;
     height: 16px;
     accent-color: #f97316;
@@ -57,20 +61,26 @@
     justify-self: center;
 }
 
+.workshop-volume-card .workshop-cover--volume {
+    grid-column: 2;
+    grid-row: 1 / 5;
+    width: 104px;
+    align-self: start;
+}
+
 .workshop-volume-meta {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    min-width: 0;
+    display: contents;
 }
 
 .workshop-volume-head {
+    grid-column: 3 / -1;
     display: flex;
     align-items: center;
     justify-content: space-between;
     gap: 6px;
     flex-wrap: wrap;
-    margin-bottom: 2px;
+    margin: 0;
+    align-self: center;
 }
 
 .workshop-volume-title {
@@ -152,6 +162,10 @@
 }
 
 /* Champ Magique en bandeau moderne */
+.workshop-field--magic {
+    grid-column: 3 / -1;
+}
+
 .workshop-field--magic .workshop-field-label {
     display: inline-flex;
     align-items: center;
@@ -190,7 +204,43 @@
     border-radius: 6px;
 }
 
+.workshop-volume-meta > .workshop-volume-fields {
+    display: contents;
+}
+
+/* Champs primaires du tome à droite de la jaquette */
+.workshop-volume-fields > .workshop-field[data-field-key="title"],
+.workshop-volume-fields > .workshop-field:has([data-field="title"]) {
+    grid-column: 3 / -1;
+}
+
+.workshop-volume-fields > .workshop-field[data-field-key="isbn"],
+.workshop-volume-fields > .workshop-field:has([data-field="isbn"]) {
+    grid-column: 3 / span 3;
+}
+
+.workshop-volume-fields > .workshop-field[data-field-key="release_date"],
+.workshop-volume-fields > .workshop-field:has([data-field="release_date"]) {
+    grid-column: 6 / -1;
+}
+
+/* Bloc inférieur : s'étend SOUS la jaquette sur TOUTE la largeur de la carte (aucun vide) */
+.workshop-volume-fields > .workshop-field[data-field-key="summary"],
+.workshop-volume-fields > .workshop-field:has([data-field="summary"]) {
+    grid-column: 1 / -1;
+}
+
+.workshop-volume-fields > .workshop-field[data-field-key="summary"] textarea {
+    height: 52px;
+    min-height: 44px;
+}
+
+.workshop-volume-card .workshop-more {
+    grid-column: 1 / -1;
+}
+
 .workshop-volume-actions {
+    grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
     align-items: center;

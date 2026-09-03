@@ -524,7 +524,7 @@
                 '<svg class="workshop-cascade-ico" aria-hidden="true"><use href="#mk-ico-cascade"></use></svg>' +
                 '<span>' + esc(btnText) + '</span></button>';
         }
-        return '<div class="workshop-field' + sizeClass + empty + '">' +
+        return '<div class="workshop-field' + sizeClass + empty + '" data-field-key="' + esc(f.key) + '">' +
             '<div class="workshop-field-head">' +
             '<span class="workshop-field-label">' + esc(f.label || fieldLabel(f.key)) + lockMark(locked) + '</span>' +
             cascadeBtn +

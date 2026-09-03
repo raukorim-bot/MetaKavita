@@ -22,11 +22,24 @@
         max-height: 220px;
     }
     .workshop-series-card {
-        grid-template-columns: 104px 1fr;
+        grid-template-columns: 1fr;
         gap: 12px;
     }
-    .workshop-cover--series {
+    .workshop-series-card .workshop-cover--series {
         width: 104px;
+        grid-column: 1 / -1;
+        grid-row: auto;
+    }
+    .workshop-series-fields {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+    }
+    #workshopSeriesFields {
+        display: grid;
+    }
+    #workshopSeriesFields > .workshop-field {
+        grid-column: 1 / -1 !important;
     }
     .workshop-series-grid,
     .workshop-volume-fields {
@@ -43,11 +56,19 @@
         grid-column: span 1;
     }
     .workshop-volume-card {
-        grid-template-columns: 18px 90px 1fr;
+        grid-template-columns: 18px 90px repeat(2, minmax(0, 1fr));
         gap: 10px;
     }
     .workshop-cover--volume {
         width: 90px;
+    }
+    .workshop-volume-fields > .workshop-field[data-field-key="isbn"],
+    .workshop-volume-fields > .workshop-field:has([data-field="isbn"]) {
+        grid-column: 3;
+    }
+    .workshop-volume-fields > .workshop-field[data-field-key="release_date"],
+    .workshop-volume-fields > .workshop-field:has([data-field="release_date"]) {
+        grid-column: 4;
     }
     .workshop-rail-row {
         grid-template-columns: 1fr;
@@ -72,9 +93,18 @@
     }
     .workshop-cover--volume {
         width: 84px;
+        grid-column: 2;
+        grid-row: auto;
     }
     .workshop-volume-card .workshop-volume-meta {
         grid-column: 1 / -1;
+    }
+    .workshop-volume-head,
+    .workshop-field--magic,
+    .workshop-volume-fields > .workshop-field,
+    .workshop-volume-card .workshop-more,
+    .workshop-volume-actions {
+        grid-column: 1 / -1 !important;
     }
     .workshop-series-grid,
     .workshop-volume-fields {

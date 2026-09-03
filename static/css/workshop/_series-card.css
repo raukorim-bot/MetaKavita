@@ -4,8 +4,9 @@
 
 .workshop-series-card {
     display: grid;
-    grid-template-columns: 124px 1fr;
-    gap: 16px;
+    grid-template-columns: 136px repeat(6, minmax(0, 1fr));
+    column-gap: 16px;
+    row-gap: 8px;
     padding: 14px 16px;
     border-radius: 12px;
     border: 1px solid rgba(45, 212, 191, 0.25);
@@ -27,8 +28,21 @@
     box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.38), 0 8px 24px -4px rgba(13, 148, 136, 0.28);
 }
 
+.workshop-series-card .workshop-cover--series {
+    width: 136px;
+    grid-column: 1;
+    grid-row: 1 / 4;
+    align-self: start;
+}
+
+.workshop-series-fields {
+    display: contents;
+}
+
 .workshop-series-heading {
-    margin: 0 0 4px;
+    grid-column: 2 / -1;
+    margin: 0 0 2px;
+    align-self: center;
 }
 
 .workshop-series-title {
@@ -80,11 +94,74 @@
     background: rgba(45, 212, 191, 0.22);
 }
 
-.workshop-series-fields {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-width: 0;
+#workshopSeriesFields {
+    display: contents;
+}
+
+/* Champs par défaut */
+#workshopSeriesFields > .workshop-field {
+    grid-column: 1 / -1;
+}
+
+/* Bloc supérieur à droite de la jaquette : Titre alternatif et Résumé */
+#workshopSeriesFields > .workshop-field[data-field-key="localizedName"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="localizedName"]) {
+    grid-column: 2 / -1;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="summary"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="summary"]) {
+    grid-column: 2 / -1;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="summary"] textarea {
+    height: 70px;
+    min-height: 52px;
+}
+
+/* Bloc inférieur : s'étend SOUS la jaquette sur TOUTE la largeur de la carte (aucun vide) */
+#workshopSeriesFields > .workshop-field[data-field-key="releaseYear"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="releaseYear"]) {
+    grid-column: 1 / span 2;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="publicationStatus"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="publicationStatus"]) {
+    grid-column: span 2;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="ageRating"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="ageRating"]) {
+    grid-column: span 3;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="publishers"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="publishers"]) {
+    grid-column: 1 / -1;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="genres"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="genres"]) {
+    grid-column: 1 / -1;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="tags"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="tags"]) {
+    grid-column: 1 / -1;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="writers"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="writers"]) {
+    grid-column: 1 / span 3;
+}
+
+#workshopSeriesFields > .workshop-field[data-field-key="pencillers"],
+#workshopSeriesFields > .workshop-field:has([data-series-field="pencillers"]) {
+    grid-column: 4 / -1;
+}
+
+#workshopSeriesMore {
+    grid-column: 1 / -1;
 }
 
 .workshop-series-grid,
@@ -103,6 +180,7 @@
 
 /* Actions Fiche Série */
 .workshop-series-actions {
+    grid-column: 1 / -1;
     display: flex;
     flex-wrap: wrap;
     align-items: center;

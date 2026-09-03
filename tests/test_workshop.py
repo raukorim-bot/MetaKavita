@@ -1269,3 +1269,96 @@ def test_workshop_403_when_library_is_disabled(client, monkeypatch):
     monkeypatch.setattr(rp, "KavitaAPI", lambda *a, **k: api)
     assert client.get("/api/series/7/workshop").status_code == 403
     assert client.get("/series/7/volumes").status_code == 403
+
+
+def test_workshop_send_volume_logs_success(monkeypatch, isolated_db, caplog):
+    import logging
+    from services.workshop import send_volume
+
+    _enable(monkeypatch)
+    api = FakeApi()
+    monkeypatch.setattr(
+        "services.workshop.apply_entry",
+        lambda *a, **k: {"status": "DONE", "written": ["title", "isbn"], "error": ""},
+    )
+
+    with caplog.at_level(logging.INFO):
+        res = send_volume(
+            api,
+            7,
+            101,
+            edits={"title": "Tome 1"},
+            extra={"volume_number": "1", "series_name": "Saga"},
+            series_name="Saga",
+        )
+    assert res["success"] is True
+    assert res["status"] == "DONE"
+    assert any("✅" in record.message and "« Saga » (7)" in record.message and "tome 1" in record.message for record in caplog.records)
+
+
+def test_workshop_send_selection_logs_success(monkeypatch, isolated_db, caplog):
+    import logging
+    from services.workshop import send_selection
+
+    _enable(monkeypatch)
+    api = FakeApi()
+    monkeypatch.setattr(
+        "services.workshop.apply_entry",
+        lambda *a, **k: {"status": "DONE", "written": ["title"], "error": ""},
+    )
+
+    items = [
+        {"chapter_id": 101, "volume_number": "1", "edits": {"title": "Tome 1"}},
+        {"chapter_id": 102, "volume_number": "2", "edits": {"title": "Tome 2"}},
+    ]
+
+    with caplog.at_level(logging.INFO):
+        res = send_selection(api, 7, items, series_name="Saga")
+    assert res["success"] is True
+    assert res["sent"] == 2
+    assert any("2 tomes envoyés avec succès" in record.message for record in caplog.records)
+
+
+def test_workshop_send_series_logs_success(monkeypatch, isolated_db, caplog):
+    import logging
+    from services.workshop import send_series
+
+    _enable(monkeypatch)
+
+    class SeriesApi(FakeApi):
+        def update_series_metadata(self, *a, **k):
+            return True, "ok"
+
+    api = SeriesApi()
+    with caplog.at_level(logging.INFO):
+        res = send_series(
+            api,
+            7,
+            edits={"summary": "Nouveau résumé captivant."},
+            force=True,
+            series_name="Saga",
+        )
+    assert res["success"] is True
+    assert any("✅ Fiche série envoyée avec succès" in record.message for record in caplog.records)
+
+
+def test_workshop_send_log_translations_parity():
+    from translations import translations
+
+    keys = [
+        "log_workshop_volume_success",
+        "log_workshop_volume_success_simple",
+        "log_workshop_volume_noop",
+        "log_workshop_volume_fail",
+        "log_workshop_selection_success",
+        "log_workshop_selection_partial",
+        "log_workshop_series_success",
+        "log_workshop_series_noop",
+        "log_workshop_series_fail",
+    ]
+    for k in keys:
+        assert k in translations["fr"], f"{k} manquant en FR"
+        assert k in translations["en"], f"{k} manquant en EN"
+        assert len(translations["fr"][k]) > 0
+        assert len(translations["en"][k]) > 0
+        assert "✅" in translations["fr"][k] or "❌" in translations["fr"][k] or "⏭️" in translations["fr"][k] or "⚠️" in translations["fr"][k]
