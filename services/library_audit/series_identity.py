@@ -36,7 +36,10 @@ def _collect_id_fields(obj: Optional[dict]) -> Dict[str, str]:
     )
     for key, dest in mapping:
         if _truthy_id(obj.get(key)):
-            out[dest] = str(obj.get(key)).strip()
+            val = str(obj.get(key)).strip()
+            if dest == "comicvine" and val.startswith("4050-"):
+                val = val[5:]
+            out[dest] = val
     return out
 
 

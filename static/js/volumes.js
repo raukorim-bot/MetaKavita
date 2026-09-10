@@ -268,6 +268,13 @@
         return T()['workshop_series_' + key] || T()['vol_field_' + key] || key;
     }
 
+    // Même clé, deux libellés : `summary` s'appelle « Résumé de la série » sur la
+    // fiche et « Résumé » sur un tome. `fieldLabel` sert la fiche ; le journal
+    // d'un tome lisait donc « Résumé de la série » sous « T. 5 ».
+    function unitFieldLabel(key) {
+        return T()['vol_field_' + key] || fieldLabel(key);
+    }
+
     function isEmptyValue(kind, key, value) {
         var v = String(value == null ? '' : value).trim();
         if (key === 'ageRating') return !v || v === '0' || v === '-1';
@@ -443,7 +450,7 @@
         if (!seriesInput) return;
         var val = seriesInput.value;
         if (val == null || String(val).trim() === '' || (seriesInput.tagName === 'SELECT' && String(val) === '0')) {
-            showAppToast(T().workshop_cascade_empty_tip || 'Ce champ est vide sur la série.');
+            toast(T().workshop_cascade_empty_tip || 'Ce champ est vide sur la série.');
             return;
         }
         var volumeCards = document.querySelectorAll('.workshop-volume-card');
@@ -466,7 +473,7 @@
             updateBarStats();
             var label = fieldLabel(key);
             var msg = fmt(T().workshop_cascade_success || 'Champ « {0} » dupliqué sur {1} tomes.', label, count);
-            showAppToast(msg);
+            toast(msg);
         }
     }
 
@@ -500,9 +507,9 @@
             setDirty();
             updateBarStats();
             var msg = fmt(T().workshop_cascade_all_success || 'Métadonnées de la série dupliquées sur {0} tomes.', volumeCards.length);
-            showAppToast(msg);
+            toast(msg);
         } else {
-            showAppToast(T().workshop_cascade_none_found || 'Aucun champ commun renseigné à dupliquer.');
+            toast(T().workshop_cascade_none_found || 'Aucun champ commun renseigné à dupliquer.');
         }
     }
 
@@ -549,6 +556,11 @@
             return;
         }
         if (data && data.success) {
+            // BF203 : un envoi réussi peut porter un refus structurel de Kavita
+            // (titre alternatif en collision, ou dossier fusionné ancré dessus).
+            // Le motif prime sur le « envoyé » générique : c'est la seule trace
+            // que l'utilisateur verra du champ que Kavita a laissé de côté.
+            if (data.warning) { toast(data.warning); return; }
             toast(data.noop ? (T().workshop_noop || '') : (T().workshop_sent || ''));
             return;
         }
@@ -796,6 +808,28 @@
             '</div></div>';
     }
 
+    // Le payload porte l'état persistant d'une unité sous `state` (le
+    // `volume_unit_cache` : DONE / SKIPPED / FAILED / NOTHING_FOUND). Lire
+    // `u.status`, qui n'existe pas, figeait toute carte sur « En attente » et
+    // rendait la pastille verte inatteignable.
+    var UNIT_STATUS_KEYS = {
+        STAGED: 'workshop_unit_staged',
+        DONE: 'workshop_unit_done',
+        PENDING: 'workshop_unit_pending',
+        FAILED: 'workshop_unit_failed',
+        SKIPPED: 'workshop_unit_skipped',
+        NOTHING_FOUND: 'workshop_unit_nothing'
+    };
+
+    function unitStatus(u) {
+        var raw = (u && u.state && u.state.status) || '';
+        return String(raw || 'PENDING').toUpperCase();
+    }
+
+    function unitStatusLabel(st) {
+        return T()[UNIT_STATUS_KEYS[st] || 'workshop_unit_pending'] || '';
+    }
+
     function volumeCardHtml(u) {
         var ins = u.inscribed || {};
         var ov = u.override || {};
@@ -818,9 +852,9 @@
               extra.map(function (f) { return labeledField('data-field', f); }).join('') +
               '</div></div></details>'
             : '';
-        var st = isStaged ? 'STAGED' : (u.status || 'PENDING');
-        var chipClass = 'workshop-status-chip workshop-status-chip--' + String(st).toLowerCase();
-        var chipLabel = isStaged ? (T().status_stage || 'Brouillon') : railStatusLabel(st);
+        var st = isStaged ? 'STAGED' : unitStatus(u);
+        var chipClass = 'workshop-status-chip workshop-status-chip--' + st.toLowerCase();
+        var chipLabel = unitStatusLabel(st);
         var statusBadge = '<span class="' + chipClass + '">' + esc(chipLabel) + '</span>';
         return '<article class="workshop-volume-card" data-chapter-id="' + u.chapter_id + '"' +
             dirtyAttr +
@@ -832,7 +866,8 @@
             ' data-isbn-locked="' + (ins.isbn_locked ? '1' : '0') + '"' +
             ' data-release-locked="' + (ins.release_locked ? '1' : '0') + '"' +
             ' data-summary-locked="' + (ins.summary_locked ? '1' : '0') + '">' +
-            '<input type="checkbox" class="workshop-vol-check" checked>' +
+            '<input type="checkbox" class="workshop-vol-check"' +
+            (u.checked === false ? '' : ' checked') + '>' +
             '<div class="workshop-cover workshop-cover--volume">' +
             '<div class="workshop-cover-well workshop-cover-well--volume">' +
             (displayCover
@@ -917,7 +952,8 @@
             if (detail.provider) bits.push(prettyProvider(detail.provider, detail.provider_ref));
             var fields = detail.fields || [];
             if (fields.length) {
-                bits.push(fields.map(function (k) { return fieldLabel(k); }).join(', '));
+                var label = h.chapter_id == null ? fieldLabel : unitFieldLabel;
+                bits.push(fields.map(label).join(', '));
             }
             bits.push(formatWhen(h.created_at));
             return '<li>' + esc(bits.join(' · ')) + '</li>';
@@ -1006,8 +1042,11 @@
     }
 
     function markDoneClean(results) {
+        // `settled` est le verdict du serveur : Kavita détient tout ce que la
+        // carte promettait. Il couvre l'envoi qui n'avait rien à écrire, que le
+        // seul `DONE` laissait marqué modifié pour toujours.
         (results || []).forEach(function (r) {
-            if (!r || r.status !== 'DONE' || r.chapter_id == null) return;
+            if (!r || !r.settled || r.chapter_id == null) return;
             var card = document.querySelector('.workshop-volume-card[data-chapter-id="' + r.chapter_id + '"]');
             if (card) {
                 card.removeAttribute('data-dirty');
@@ -1257,8 +1296,8 @@
             }).then(function (data) {
                 setSending(false);
                 toastSend(data);
+                if (data.settled) markDoneClean([data]);
                 if (data.success && !data.noop) {
-                    markDoneClean([data]);
                     try {
                         if (window.SupporterNag && typeof window.SupporterNag.onWorkshopComplete === 'function') {
                             window.SupporterNag.onWorkshopComplete({ series_count: 0, volumes_count: 1 });
@@ -1280,7 +1319,7 @@
                     card.removeAttribute('data-dirty');
                     reload();
                 }
-            });
+            }).catch(function () { toast(T().err_network); });
             return;
         }
         if (act === 'cover') {
@@ -1297,12 +1336,16 @@
                 method: 'POST',
                 body: { workshop: true, chapter_id: cid }
             }).then(function (data) {
+                if (!data.success) {
+                    toast(data.error || T().workshop_err);
+                    return;
+                }
                 if (data.payload) {
                     card.removeAttribute('data-dirty');
                     applyPayload(data.payload);
                 }
                 toast(T().workshop_event_reset || '');
-            });
+            }).catch(function () { toast(T().err_network); });
         }
     }
 
@@ -1312,7 +1355,7 @@
             if (data.success) {
                 applyPayload(data);
             }
-        });
+        }).catch(function () { toast(T().err_network); });
     }
 
     function openVolumeReview(cid, superReview) {
@@ -1809,9 +1852,6 @@
                         seriesCard.removeAttribute('data-dirty');
                         seriesCard.removeAttribute('data-cover-url');
                         seriesCard.removeAttribute('data-cover-display');
-                        seriesCard.querySelectorAll('[data-series-field]').forEach(function (el) {
-                            el.setAttribute('data-initial', el.value);
-                        });
                     }
                     refreshGlobalDirty();
                     updateRailStatus(seriesId, 'COMPLETED');
@@ -1893,9 +1933,13 @@
                 method: 'POST',
                 body: { workshop: true }
             }).then(function (data) {
+                if (!data.success) {
+                    toast(data.error || T().workshop_err);
+                    return;
+                }
                 if (data.payload) applyPayload(data.payload, false);
                 toast(T().workshop_event_reset || '');
-            });
+            }).catch(function () { toast(T().err_network); });
         });
         document.getElementById('workshopReviewSeries').addEventListener('click', function () {
             forceSync({ review: true });

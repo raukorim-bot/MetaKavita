@@ -160,7 +160,6 @@ def test_confirm_volume_review_marks_staged(isolated_db):
     assert 10 in ovs
     ov = ovs[10]
     assert ov["payload"]["_staged"] is True
-    assert ov["payload"]["_source"] == "review"
     assert ov["payload"]["title"] == "Tome 1 Staged"
     assert ov["payload"]["cover_url"] == "https://example.com/cover1.jpg"
 

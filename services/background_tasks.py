@@ -25,11 +25,31 @@ from services.enrichment_engine import enrich_series
 # consommée par le worker démarré ci-dessous.
 sync_queue = queue.Queue()
 
-# Réveils thread-safe (hub SignalR, tests) : scan / config / timeout.
+# Réveils (hub SignalR, tests) : scan / config / timeout.
+#
+# ⚠️ Le producteur est le thread OS du hub SignalR (sockets non patchées), le
+# consommateur un greenthread eventlet. `put_nowait` réussit, mais son `notify()`
+# est planifié sur le hub eventlet du thread appelant — qui n'est pas celui du
+# consommateur : **un `get()` déjà bloqué n'est jamais réveillé**. Mesuré : le
+# `get(timeout=…)` en cours expire, et c'est seulement l'appel suivant qui rend
+# l'élément, immédiatement. L'événement n'est donc jamais perdu, mais l'attente
+# n'est levée que par l'expiration. C'est `_wait_for_wake` qui rend ce fait
+# explicite et en borne le coût — ne jamais remplacer son découpage par un
+# `get()` sans délai, l'auto-sync se figerait pour de bon.
 auto_sync_wake_queue = queue.Queue()
 
-# Filet heures (trigger scan) : horodatage process, pas en base.
+#: Tranche d'attente du consommateur. Comme seule l'expiration réveille, c'est
+#: elle — et non le `notify()` — qui fixe la latence d'un scan Kavita.
+WAKE_POLL_S = 0.5
+
+#: Attente totale avant de repasser sans raison (« timeout »), pour que le filet
+#: horaire et les changements de configuration soient réévalués régulièrement.
+WAKE_MAX_WAIT_S = 30.0
+
+# Filet heures (trigger scan) : horodatage persisté (voir db_manager), afin
+# qu'un conteneur qui redémarre ne relance pas une passe complète à chaque fois.
 _last_catchup_at = None
+_catchup_loaded = False
 
 # Sérialise put / put_front / drain-detach qui réordonnent la file RAM.
 _sync_queue_lock = threading.Lock()
@@ -68,6 +88,16 @@ _REAL_SEND_MESSAGES = {"Succès", "Success", "NEEDS_RELOCK"}
 # le rapport de vague attend sa fin avant de se clore.
 _inflight_lock = threading.Lock()
 _inflight_origin = ""
+
+# Rend indivisible « ouvrir la vague puis enfiler ses séries ».
+#
+# `begin_auto_sync_run` pose les items en `pending` AVANT que `enqueue_auto` ne
+# les pousse dans `sync_queue`. Une clôture tombant dans cet intervalle voyait
+# une file auto vide et fermait la vague qui venait de naître ; les séries
+# s'exécutaient ensuite sans vague ouverte, et `record_auto_sync_item` jetait
+# chacun de leurs résultats en silence. Pris par `enqueue_auto` et par
+# `try_finish_auto_sync_run`.
+_auto_sync_run_lock = threading.Lock()
 
 
 def set_batch_enqueue_enabled(enabled: bool) -> None:
@@ -475,18 +505,21 @@ def try_finish_auto_sync_run(*, stopped=False, from_worker=False) -> bool:
     `from_worker=True` : l'item courant vient d'être enregistré et a déjà quitté
     la file — on ne recule pas derrière `is_auto_sync_in_flight()`.
     """
-    if queued_series_ids(origin="auto"):
-        return False
-    if not from_worker and is_auto_sync_in_flight():
-        return False
-    try:
-        from db_manager import finish_open_auto_sync_run
-
-        if not finish_open_auto_sync_run(stopped=stopped):
+    # Le verrou couvre le constat ET la clôture : sans lui, une vague ouverte
+    # mais pas encore enfilée passait pour terminée (voir `_auto_sync_run_lock`).
+    with _auto_sync_run_lock:
+        if queued_series_ids(origin="auto"):
             return False
-    except Exception as exc:
-        logging.debug("auto-sync report finish skipped: %s", exc)
-        return False
+        if not from_worker and is_auto_sync_in_flight():
+            return False
+        try:
+            from db_manager import finish_open_auto_sync_run
+
+            if not finish_open_auto_sync_run(stopped=stopped):
+                return False
+        except Exception as exc:
+            logging.debug("auto-sync report finish skipped: %s", exc)
+            return False
     broadcast_auto_sync_report()
     return True
 
@@ -726,8 +759,9 @@ def _seed_scan_snapshot(config, t) -> bool:
     if series is None:
         logging.warning(
             t.get(
-                "log_orphans_skipped",
-                "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet.",
+                "log_auto_sync_inventory_incomplete",
+                "🤖 [Auto-Sync] Passe ignorée : inventaire Kavita incomplet "
+                "(une bibliothèque n'a pas répondu).",
             )
         )
         return False
@@ -741,16 +775,62 @@ def _seed_scan_snapshot(config, t) -> bool:
     return True
 
 
+def _catchup_at():
+    """Dernier passage du filet horaire, relu une fois depuis la base."""
+    global _last_catchup_at, _catchup_loaded
+    if not _catchup_loaded:
+        try:
+            from db_manager import get_auto_sync_catchup_at
+
+            _last_catchup_at = get_auto_sync_catchup_at()
+        except Exception as exc:
+            logging.debug("[Auto-Sync] filet : horodatage illisible (%s)", safe_exc_str(exc))
+            _last_catchup_at = None
+        _catchup_loaded = True
+    return _last_catchup_at
+
+
+def _mark_catchup_done() -> None:
+    """Note le passage du filet, en mémoire et en base."""
+    global _last_catchup_at, _catchup_loaded
+    _last_catchup_at = time.time()
+    _catchup_loaded = True
+    try:
+        from db_manager import set_auto_sync_catchup_at
+
+        set_auto_sync_catchup_at(_last_catchup_at)
+    except Exception as exc:
+        logging.debug("[Auto-Sync] filet : horodatage non persisté (%s)", safe_exc_str(exc))
+
+
+def _wait_for_wake(max_wait=None, slice_s=None) -> str:
+    """Attend un réveil et rend sa raison, ou `"timeout"`.
+
+    Découpe l'attente en tranches courtes **volontairement** : le `notify()` du
+    hub SignalR ne traverse pas la frontière thread OS / greenthread (voir
+    `auto_sync_wake_queue`), si bien qu'une attente en un seul bloc de 30 s
+    faisait patienter un scan Kavita jusqu'à trente secondes de plus que
+    nécessaire. Chaque tranche redemande, et rend la main dès que l'élément est
+    là.
+    """
+    total = WAKE_MAX_WAIT_S if max_wait is None else float(max_wait)
+    step = WAKE_POLL_S if slice_s is None else float(slice_s)
+    waited = 0.0
+    while waited < total:
+        try:
+            return auto_sync_wake_queue.get(timeout=min(step, total - waited))
+        except queue.Empty:
+            waited += step
+    return "timeout"
+
+
 def _auto_sync_worker():
     global _last_catchup_at
     last_interval_run = 0
     prev_trigger = None
     while True:
         try:
-            try:
-                reason = auto_sync_wake_queue.get(timeout=30)
-            except queue.Empty:
-                reason = "timeout"
+            reason = _wait_for_wake()
         except Exception as exc:
             logging.error("❌ [Auto-Sync] File de réveil illisible : %s", safe_exc_str(exc))
             time.sleep(0)
@@ -787,16 +867,16 @@ def _auto_sync_worker():
         if enabled and trigger == "scan":
             if needs_seed(config, prev_trigger):
                 if _seed_scan_snapshot(config, t):
-                    _last_catchup_at = time.time()
+                    _mark_catchup_done()
             if reason == "scan":
                 try:
                     run_scan_fire(config, t)
                 except Exception as exc:
                     logging.error("❌ [Auto-Sync] Erreur scan : %s", safe_exc_str(exc))
-            elif catchup_due(_last_catchup_at, config.get("AUTO_SYNC_CATCHUP_HOURS")):
+            elif catchup_due(_catchup_at(), config.get("AUTO_SYNC_CATCHUP_HOURS")):
                 try:
                     _auto_sync_tick(config, t)
-                    _last_catchup_at = time.time()
+                    _mark_catchup_done()
                 except Exception as exc:
                     logging.error("❌ [Auto-Sync] Erreur filet : %s", safe_exc_str(exc))
         elif enabled and trigger != "scan" and interval > 0:

@@ -6,7 +6,7 @@ import logging
 
 from flask import Blueprint, Response, jsonify, request
 
-from config_manager import get_kavita_ui_url, load_config
+from config_manager import load_config, save_config
 from db_manager import (
     delete_dup_dismissal,
     get_all_cached_data,
@@ -47,6 +47,8 @@ from services.library_audit.export_csv import (
     missing_volumes_to_csv,
     missing_volumes_to_txt,
 )
+from services.library_audit.dup_script import ScriptRequestError
+from services.library_audit.duplicates import group_completeness
 from services.library_audit.hygiene_scan import (
     cancel_hygiene_scan,
     get_hygiene_scan_state,
@@ -83,6 +85,20 @@ def inventory_enabled(config: dict = None) -> bool:
 _REACHABLE_FOR_VOLUME_ENRICHMENT = frozenset(
     {"library_audit.series_volume_report_units"}
 )
+
+#: Plafond de l'attendu saisi à la main. `missing_volume_numbers` en énumère
+#: chaque numéro absent : sans borne, un `999999` tapé par mégarde produisait
+#: une liste de 50 000 entiers, sérialisée dans la réponse, écrite dans le cache
+#: puis relue à chaque badge. Une collection réelle n'approche jamais ce chiffre.
+MAX_CATALOG_EXPECTED = 5000
+
+#: Motif de refus du générateur de script → clé de traduction du message rendu.
+_SCRIPT_ERROR_KEYS = {
+    "no_selection": "audit_dup_script_empty",
+    "invalid_mode": "audit_dup_script_invalid_mode",
+    "invalid_format": "audit_dup_script_invalid_format",
+    "invalid_library": "audit_dup_script_invalid_library",
+}
 
 
 @library_audit_bp.before_request
@@ -147,11 +163,6 @@ def _build_full_report(series_id: int, *, with_catalog: bool = True) -> dict:
     )
     report = build_volume_report(series_id, volumes, series_name=name, catalog=catalog)
     save_volume_report_cache(series_id, report)
-    report["kavita_url"] = (
-        f"{get_kavita_ui_url(config)}/library/{series.get('libraryId')}/series/{series_id}"
-        if series.get("libraryId")
-        else None
-    )
     report["inventory_excluded"] = series_id in get_inventory_excluded_ids()
     return report
 
@@ -191,7 +202,7 @@ def series_volume_report(series_id: int):
         return jsonify({"success": False, "error": str(e)}), 404
     except Exception as e:
         logging.error("volume-report failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/series/<int:series_id>/volume-report/summary", methods=["GET"])
@@ -236,7 +247,7 @@ def series_volume_report_units(series_id: int):
         return jsonify({"success": True, "cached": False, "local_only": True, **report})
     except Exception as e:
         logging.error("volume-report units failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 def _duplicate_flags_payload(series_ids=None) -> dict:
@@ -254,7 +265,36 @@ def _duplicate_flags_payload(series_ids=None) -> dict:
     return out
 
 
+def _with_completeness(groups):
+    """Ajoute à chaque groupe la volumétrie de ses membres, en tomes équivalents.
+
+    Dérivée **au moment de servir**, jamais rangée dans `duplicate_group_cache` :
+    ce payload est retaillé par index lors du nettoyage des orphelines et de la
+    purge d'une série, et une liste dérivée de plus serait une occasion de plus
+    de se périmer. Recalculée ici, elle est juste par construction et les caches
+    d'avant BF201 fonctionnent sans migration.
+
+    C'est aussi ce qui permet au navigateur d'ignorer la règle : il compare des
+    nombres. Le ratio chapitres/tome vit d'un seul côté, en un seul endroit.
+    """
+    out = []
+    for g in groups or []:
+        if not isinstance(g, dict):
+            continue
+        scores = group_completeness(
+            g.get("series_ids") or [],
+            g.get("volume_counts") or [],
+            g.get("chapter_counts") or [],
+            g.get("library_type"),
+        )
+        # Le poids seul : le second terme du score ne sert qu'à départager côté
+        # serveur, et n'a rien à dire au navigateur.
+        out.append({**g, "completeness": [round(w, 3) for w, _chaps in scores]})
+    return out
+
+
 def _duplicates_json(library_id, groups, *, cached: bool, series_ids=None):
+    groups = _with_completeness(groups)
     member_ids = []
     for g in groups or []:
         member_ids.extend(g.get("series_ids") or [])
@@ -340,7 +380,46 @@ def library_duplicates(library_id):
         return jsonify(_duplicates_json(library_id, cached, cached=True))
     except Exception as e:
         logging.error("duplicates report failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
+
+
+@library_audit_bp.route("/api/libraries/<library_id>/duplicates/recluster", methods=["POST"])
+def library_duplicates_recluster(library_id):
+    t = _t()
+    try:
+        data = request.get_json(silent=True) or {}
+        raw_threshold = data.get("threshold")
+        try:
+            threshold = float(raw_threshold) if raw_threshold is not None else 0.92
+        except (TypeError, ValueError):
+            threshold = 0.92
+        threshold = max(0.10, min(1.0, threshold))
+
+        if not has_duplicate_groups_cache(library_id):
+            return jsonify(
+                {
+                    "success": False,
+                    "error": t.get(
+                        "audit_err_run_analyser",
+                        "Lancez Analyser la bibliothèque pour scanner les doublons.",
+                    ),
+                    "groups": [],
+                    "count": 0,
+                }
+            ), 404
+
+        cfg = load_config() or {}
+        cfg["DUP_ACCEPT_THRESHOLD"] = threshold
+        cfg["DUP_THRESHOLD_CUSTOM"] = True
+        save_config(cfg)
+
+        from services.library_audit.duplicates import recluster_library_duplicates
+
+        new_groups = recluster_library_duplicates(library_id, threshold, config=cfg)
+        return jsonify(_duplicates_json(library_id, new_groups, cached=True))
+    except Exception as e:
+        logging.error("duplicates recluster failed: %s", safe_exc_str(e))
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/libraries/<library_id>/duplicates/dismiss", methods=["POST"])
@@ -350,10 +429,17 @@ def library_duplicates_dismiss(library_id):
     series_ids = payload.get("series_ids") or []
     reason = (payload.get("reason") or "not_duplicate").strip()
     try:
-        gkey = save_dup_dismissal(library_id, series_ids, reason)
-        # Drop from cache groups if present
         from services.library_audit.duplicates import dup_group_key
         from db_manager import save_duplicate_groups_cache
+
+        # Récupérer le groupe dans le cache avant éviction pour conserver son payload
+        grps = get_duplicate_groups_cache(library_id)
+        matching_group = next(
+            (g for g in grps if set(g.get("series_ids") or []) == set(series_ids)),
+            None,
+        )
+        gkey = save_dup_dismissal(library_id, series_ids, reason, payload=matching_group)
+        # Drop from cache groups if present
 
         def _evict_from_cache(lid, gk):
             """Retire le groupe dismissé du cache d'une vue donnée."""
@@ -384,25 +470,33 @@ def library_duplicates_dismiss(library_id):
             try:
                 from db_manager import _connect, _ensure_library_audit_tables
                 conn = _connect()
-                c = conn.cursor()
-                _ensure_library_audit_tables(c)
-                c.execute(
-                    "SELECT DISTINCT library_id FROM duplicate_group_cache "
-                    "WHERE library_id != 'all'"
-                )
-                other_libs = [row[0] for row in c.fetchall()]
-                conn.close()
+                try:
+                    c = conn.cursor()
+                    _ensure_library_audit_tables(c)
+                    c.execute(
+                        "SELECT DISTINCT library_id FROM duplicate_group_cache "
+                        "WHERE library_id != 'all'"
+                    )
+                    other_libs = [row[0] for row in c.fetchall()]
+                finally:
+                    # Sans ce `finally`, une exception ici fuitait la connexion —
+                    # et l'`except` englobant l'avalait sans laisser de trace.
+                    conn.close()
                 for lid in other_libs:
                     _evict_from_cache(lid, gkey)
-            except Exception:
-                pass
+            except Exception as e:
+                logging.warning(
+                    "[Inventaire] doublons écartés non propagés aux autres "
+                    "bibliothèques : %s",
+                    safe_exc_str(e),
+                )
 
         return jsonify({"success": True, "group_key": gkey})
     except ValueError as e:
         return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
         logging.error("dismiss failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/libraries/<library_id>/duplicates/dismiss", methods=["DELETE"])
@@ -418,7 +512,7 @@ def library_duplicates_undismiss(library_id):
         return jsonify({"success": False, "error": str(e)}), 400
     except Exception as e:
         logging.error("undismiss failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/hygiene/dismissals", methods=["GET"])
@@ -449,7 +543,7 @@ def library_audit_badges(library_id):
         return jsonify({"success": True, "badges": badges, "items": items})
     except Exception as e:
         logging.error("audit-badges failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": safe_exc_str(e)}), 500
 
 
 def _start_scan_handler(library_id):
@@ -480,6 +574,37 @@ def _start_scan_handler(library_id):
     return jsonify(result)
 
 
+def _library_scope_ids(library_id) -> set:
+    """Séries appartenant à une bibliothèque donnée.
+
+    Le scan range déjà chaque identité avec son `libraryId` : la lire ici évite
+    de redemander l'inventaire complet à Kavita, ce que faisait chaque clic
+    d'exclusion et chaque attendu forcé — deux fois, une fois par vue touchée.
+    Kavita ne sert plus que de recours quand la table n'a pas encore été peuplée
+    (installation d'avant C114, ou aucun scan depuis).
+    """
+    lib = str(library_id)
+    try:
+        from db_manager import get_hygiene_series_identities
+
+        cached = get_hygiene_series_identities(lib) or []
+        ids = {int(i["id"]) for i in cached if i.get("id") is not None}
+        if ids:
+            return ids
+    except Exception as e:
+        logging.debug("[Inventaire] périmètre local indisponible : %s", safe_exc_str(e))
+    try:
+        series = _api().get_all_series(library_id=library_id) or []
+        return {int(s["id"]) for s in series if s.get("id") is not None}
+    except Exception:
+        logging.warning(
+            "[Inventaire] Impossible de résoudre le périmètre de la bibliothèque %s "
+            "— le rapport de manquants sera vide plutôt que global.",
+            library_id,
+        )
+        return set()
+
+
 def _missing_volumes_rows(library_id, *, include_unknown: bool = False) -> list:
     """Build missing-volumes list from hygiene cache (optionally include N/?)."""
     hygiene_map = get_volume_report_hygiene_map()
@@ -487,17 +612,7 @@ def _missing_volumes_rows(library_id, *, include_unknown: bool = False) -> list:
     # when we can resolve it from Kavita; otherwise return all cached (all scope).
     scope_ids = None
     if library_id and str(library_id).lower() != "all":
-        try:
-            api = _api()
-            series = api.get_all_series(library_id=library_id) or []
-            scope_ids = {int(s["id"]) for s in series if s.get("id") is not None}
-        except Exception:
-            logging.warning(
-                "[Inventaire] Impossible de résoudre le périmètre de la bibliothèque %s "
-                "— le rapport de manquants sera vide plutôt que global.",
-                library_id,
-            )
-            scope_ids = set()
+        scope_ids = _library_scope_ids(library_id)
     excluded_ids = get_inventory_excluded_ids()
 
     def _row(sid, hy, missing) -> dict:
@@ -546,6 +661,40 @@ def _missing_volumes_rows(library_id, *, include_unknown: bool = False) -> list:
         )
     )
     return rows
+
+
+def _sync_library_counts(series_id: int, *, excluded_delta: int = 0) -> dict:
+    """Recalcule `missing` (et déplace `excluded`) pour les vues concernées.
+
+    Rend `{library_id: counts}` pour que l'appelant renvoie au navigateur les
+    valeurs exactes plutôt que de le laisser incrémenter ses pastilles à
+    l'estime. Un échec Kavita ne doit pas faire échouer l'action déjà effectuée :
+    on rend alors un dictionnaire vide, et le front garde ses compteurs.
+    """
+    out: dict = {}
+    try:
+        api = _api()
+        s_dto = api.get_series(series_id) or {}
+        target_libs = ["all"]
+        if s_dto.get("libraryId"):
+            target_libs.append(str(s_dto["libraryId"]))
+        for t_lib in target_libs:
+            m = get_hygiene_library_meta(t_lib)
+            if not (m and isinstance(m.get("counts"), dict)):
+                continue
+            c = dict(m["counts"])
+            if excluded_delta:
+                c["excluded"] = max(0, int(c.get("excluded", 0)) + excluded_delta)
+            c["missing"] = len(_missing_volumes_rows(t_lib, include_unknown=False))
+            set_hygiene_library_meta(t_lib, c, scanned_at=m.get("scanned_at"))
+            out[str(t_lib)] = c
+    except Exception as e:
+        logging.warning(
+            "[Inventaire] compteurs non resynchronisés pour la série %s : %s",
+            series_id,
+            safe_exc_str(e),
+        )
+    return out
 
 
 @library_audit_bp.route("/api/libraries/<library_id>/missing-volumes", methods=["GET"])
@@ -619,10 +768,27 @@ def series_catalog_expected(series_id: int):
         if raw is None or raw == "":
             expected = None
         else:
-            expected = int(raw)
-            if expected < 1:
+            try:
+                expected = int(raw)
+            except (TypeError, ValueError):
                 return jsonify(
-                    {"success": False, "error": "expected must be >= 1 or null"}
+                    {
+                        "success": False,
+                        "error": t.get(
+                            "audit_expected_invalid",
+                            "Attendu invalide : saisissez un nombre entier.",
+                        ),
+                    }
+                ), 400
+            if not 1 <= expected <= MAX_CATALOG_EXPECTED:
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": t.get(
+                            "audit_expected_out_of_range",
+                            "L'attendu doit être compris entre 1 et {max}.",
+                        ).format(max=MAX_CATALOG_EXPECTED),
+                    }
                 ), 400
         set_catalog_expected_override(series_id, expected)
         # Réutilise le catalogue déjà en cache s'il existe pour éviter un scrape externe
@@ -641,6 +807,7 @@ def series_catalog_expected(series_id: int):
                 "catalog": report.get("catalog") or {},
                 "publication_status": report.get("publication_status"),
                 "report": report,
+                "counts": _sync_library_counts(series_id),
             }
         )
     except ValueError as e:
@@ -649,7 +816,7 @@ def series_catalog_expected(series_id: int):
         return jsonify({"success": False, "error": str(e)}), 404
     except Exception as e:
         logging.error("catalog-expected failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/libraries/<library_id>/hygiene-scan", methods=["POST"])
@@ -695,16 +862,32 @@ def series_inventory_exclude(series_id: int):
     if isinstance(excluded, str):
         excluded = excluded not in ("0", "false", "no")
     try:
-        set_inventory_excluded(series_id, bool(excluded))
+        # `changed` distingue une bascule réelle d'un POST répété : l'exclusion
+        # s'offre depuis deux surfaces (modale des manquants, modale rapport)
+        # dont l'une peut afficher un instantané périmé, et un compteur ajusté
+        # à l'aveugle dérivait d'autant.
+        changed = set_inventory_excluded(series_id, bool(excluded))
         if excluded:
             # Le rapport en cache ferait survivre la cartouche d'une série exclue.
             purge_series_hygiene_cache(series_id, keep_overrides=True)
+        counts_by_lib = _sync_library_counts(
+            series_id, excluded_delta=(1 if excluded else -1) if changed else 0
+        )
         return jsonify(
-            {"success": True, "series_id": series_id, "excluded": bool(excluded)}
+            {
+                "success": True,
+                "series_id": series_id,
+                "excluded": bool(excluded),
+                "changed": changed,
+                # Les compteurs exacts, recalculés côté serveur : le front les
+                # devinait par incréments et divergeait dès qu'il excluait une
+                # série qui ne manquait de rien.
+                "counts": counts_by_lib,
+            }
         )
     except Exception as e:
         logging.error("inventory-exclude failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/hygiene/catalog-overrides", methods=["GET"])
@@ -729,7 +912,7 @@ def hygiene_catalog_overrides():
         return jsonify({"success": True, "rows": rows, "count": len(rows)})
     except Exception as e:
         logging.error("catalog-overrides failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": str(e)}), 500
+        return jsonify({"success": False, "error": safe_exc_str(e)}), 500
 
 
 @library_audit_bp.route("/api/libraries/<library_id>/duplicates/script", methods=["POST"])
@@ -740,6 +923,7 @@ def library_duplicates_script(library_id):
     series_ids = payload.get("series_ids") or []
     mode = (payload.get("mode") or "trash").strip().lower()
     script_format = (payload.get("format") or "sh").strip().lower()
+    trigger_scan = bool(payload.get("trigger_scan"))
     try:
         if not has_duplicate_groups_cache(library_id):
             return jsonify(
@@ -760,6 +944,13 @@ def library_duplicates_script(library_id):
             script_format=script_format,
             trash_dir=cfg.get("INVENTORY_FOLDER_TRASH") or "",
             path_prefix=inventory_folder_path_prefix_from_config(cfg),
+            trigger_scan=trigger_scan,
+            kavita_url=cfg.get("KAVITA_URL") or "",
+            # Aucune clé API : le script la lit dans l'environnement du terminal.
+            # L'y recopier la faisait passer par le navigateur (aperçu en direct
+            # à chaque coche), le presse-papier, le fichier téléchargé et
+            # l'historique du shell.
+            library_id=library_id,
         )
         if meta.get("empty"):
             return jsonify(
@@ -773,19 +964,23 @@ def library_duplicates_script(library_id):
                 }
             ), 400
         return jsonify({"success": True, "script": script, **meta})
-    except ValueError:
+    except ScriptRequestError as e:
+        # Chaque motif a son message : le `ValueError` nu répondait « Cochez au
+        # moins une série à jeter » aussi bien à un format inconnu qu'à une
+        # bibliothèque non numérique, sans rapport avec le vrai problème.
         return jsonify(
             {
                 "success": False,
                 "error": t.get(
-                    "audit_dup_script_empty",
+                    _SCRIPT_ERROR_KEYS.get(e.code, "audit_dup_script_empty"),
                     "Cochez au moins une série à jeter.",
                 ),
+                "code": e.code,
             }
         ), 400
     except Exception as e:
         logging.error("duplicates-script failed: %s", safe_exc_str(e))
-        return jsonify({"success": False, "error": t.get("audit_err_generic", str(e))}), 500
+        return jsonify({"success": False, "error": t.get("audit_err_generic", safe_exc_str(e))}), 500
 
 
 @library_audit_bp.route("/api/libraries/<library_id>/kavita-scan", methods=["POST"])
@@ -826,20 +1021,26 @@ def series_purge_empty(series_id):
         if not api.is_series_empty(sid):
             return jsonify({
                 "success": False,
-                "error": "Cette série contient des tomes ou des chapitres et ne peut être purgée comme série vide.",
+                "error": t.get(
+                    "audit_empty_series_not_empty",
+                    "Cette série contient des tomes ou des chapitres et ne peut être purgée comme série vide.",
+                ),
             }), 400
         ok = api.delete_series(sid)
         if not ok:
             return jsonify({
                 "success": False,
-                "error": "Échec de la suppression dans Kavita.",
+                "error": t.get(
+                    "audit_empty_series_delete_failed",
+                    "Échec de la suppression dans Kavita.",
+                ),
             }), 502
         # Purger du cache local MetaKavita (chirurgicalement, sans toucher aux autres)
         from db_manager import purge_single_series_from_all_caches
         purge_single_series_from_all_caches(sid)
         try:
-            from flask_socketio import emit as _emit
-            _emit("series_removed", {"series_id": sid}, namespace="/", broadcast=True)
+            from extensions import socketio
+            socketio.emit("series_removed", {"series_id": sid})
         except Exception:
             pass
         return jsonify({

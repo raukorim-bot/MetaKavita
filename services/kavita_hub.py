@@ -25,6 +25,19 @@ LIBRARY_IDLE_DEBOUNCE_S = 2
 RECORD_SEPARATOR = "\x1e"
 _HUB_PATH = "/hubs/messages"
 
+#: Durée au-delà de laquelle une session WebSocket est tenue pour saine, et le
+#: backoff de reconnexion réarmé. En deçà, la session a échoué même si elle n'a
+#: rien levé, et l'attente continue de doubler.
+SESSION_STABLE_S = 30.0
+
+#: Plafond d'une frame WebSocket. La longueur est annoncée sur 64 bits par le
+#: pair : sans borne, une valeur fantaisiste ferait grossir le tampon jusqu'à
+#: épuisement mémoire avant que la frame ne soit jamais complète.
+MAX_FRAME_BYTES = 8 * 1024 * 1024
+
+#: GUID RFC 6455, pour vérifier que le pair a bien répondu à *notre* clé.
+_WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
+
 _SCANNER_EVENTS = frozenset({
     "SeriesAdded",
     "ScanSeries",
@@ -61,8 +74,7 @@ def reset_hub_logic_state():
 
 def hub_public_status() -> dict:
     with _lock:
-        err = _last_error or ""
-    return {"status": _status, "last_error": err}
+        return {"status": _status, "last_error": _last_error or ""}
 
 
 def parse_invocation(raw):
@@ -322,19 +334,31 @@ def run_websocket_loop(stop_event) -> None:
     backoff = 1.0
     while not getattr(stop_event, "is_set", lambda: False)():
         set_hub_status("connecting")
+        started = time.time()
         try:
             _one_session(stop_event)
-            backoff = 1.0
         except Exception as exc:
             from secure_logging import safe_exc_str
 
             set_hub_status("reconnecting", safe_exc_str(exc))
             logging.warning("[Kavita hub] %s", safe_exc_str(exc))
+        # Le backoff ne se réarme qu'après une session qui a **tenu**.
+        # `_one_session` rend la main sans lever dans trois cas d'échec — frame
+        # de fermeture, `recv` vide, `OSError` : réarmer sur un simple retour
+        # transformait un Kavita qui referme aussitôt (proxy mal configuré, clé
+        # plugin révoquée, hub désactivé côté serveur) en une boucle d'un
+        # negotiate + handshake par seconde, indéfiniment.
+        if time.time() - started >= SESSION_STABLE_S:
+            backoff = 1.0
         wait = min(backoff, 60.0)
         backoff = min(backoff * 2.0, 60.0)
         if stop_event.wait(wait):
             break
-    set_hub_status("disconnected")
+    # Un hub relancé pendant que l'ancien thread s'éteint : sans cette garde,
+    # le « disconnected » terminal du sortant atterrissait après le
+    # « connected » du nouveau et faisait clignoter l'état de la modale Config.
+    if _is_current_stop_event(stop_event):
+        set_hub_status("disconnected")
 
 
 _hub_thread = None
@@ -361,8 +385,15 @@ def start_hub() -> None:
         _hub_thread.start()
 
 
+def _is_current_stop_event(stop_event) -> bool:
+    """Ce thread est-il encore celui du hub en cours ?"""
+    with _lock:
+        return _hub_stop is stop_event
+
+
 def stop_hub() -> None:
-    ev = _hub_stop
+    with _lock:
+        ev = _hub_stop
     if ev is not None:
         ev.set()
     set_hub_status("disconnected")
@@ -400,6 +431,7 @@ def _one_session(stop_event) -> None:
         payload = ('{"protocol":"json","version":1}' + RECORD_SEPARATOR).encode("utf-8")
         _ws_send(sock, payload, opcode=1)
         buf = b""
+        pending = None  # message fragmenté en cours de réassemblage
         while not stop_event.is_set():
             maybe_emit_scan_wake()
             try:
@@ -412,14 +444,28 @@ def _one_session(stop_event) -> None:
             if not chunk:
                 break
             frames, buf = _ws_feed(buf + chunk)
-            for opcode, data in frames:
+            for fin, opcode, data in frames:
                 if opcode == 8:
                     return
                 if opcode == 9:
                     _ws_send(sock, data, opcode=10)
                     continue
-                if opcode not in (1, 2):
+                if opcode == 10:
                     continue
+                # Message fragmenté : la première frame porte l'opcode, les
+                # suivantes l'opcode 0, et seule la dernière lève FIN.
+                if opcode in (1, 2):
+                    pending = bytearray(data)
+                elif opcode == 0 and pending is not None:
+                    pending.extend(data)
+                else:
+                    continue
+                if not fin:
+                    if len(pending) > MAX_FRAME_BYTES:
+                        raise RuntimeError("websocket message too large")
+                    continue
+                data = bytes(pending)
+                pending = None
                 text = data.decode("utf-8", "replace") if isinstance(data, (bytes, bytearray)) else str(data)
                 for piece in text.split(RECORD_SEPARATOR):
                     piece = piece.strip()
@@ -524,6 +570,14 @@ def _tcp_connect(host, port, tls, timeout):
     return ctx.wrap_socket(raw, server_hostname=host)
 
 
+def _ws_accept_key(key: str) -> str:
+    """`Sec-WebSocket-Accept` attendu pour la clé envoyée (RFC 6455)."""
+    import hashlib
+
+    digest = hashlib.sha1((str(key) + _WS_GUID).encode("ascii")).digest()
+    return base64.b64encode(digest).decode("ascii")
+
+
 def _ws_connect(ws_url, stop_event):
     host, port, path, tls, netloc = _split_url(ws_url)
     key = base64.b64encode(os.urandom(16)).decode("ascii")
@@ -550,6 +604,10 @@ def _ws_connect(ws_url, stop_event):
         header = data.split(b"\r\n\r\n", 1)[0].decode("ascii", "replace")
         if "101" not in header.split("\r\n", 1)[0]:
             raise RuntimeError(f"websocket upgrade {_safe_netloc(ws_url)}")
+        # Le pair doit prouver qu'il répond à *notre* clé : un 101 seul peut
+        # venir d'un intermédiaire qui a laissé passer l'upgrade sans le parler.
+        if _ws_accept_key(key) not in header.replace(" ", ""):
+            raise RuntimeError(f"websocket accept mismatch {_safe_netloc(ws_url)}")
         return sock
     except Exception:
         try:
@@ -578,11 +636,20 @@ def _ws_send(sock, payload: bytes, opcode=1) -> None:
 
 
 def _ws_feed(buf: bytes):
+    """Découpe le tampon en frames `(fin, opcode, data)`.
+
+    Le bit FIN était ignoré et les continuations (opcode 0) écartées plus haut :
+    un message SignalR découpé en fragments — ce que fait volontiers un reverse
+    proxy — arrivait tronqué, échouait au `json.loads` et disparaissait sans
+    trace, emportant l'événement de scan avec lui. Le réassemblage se fait chez
+    l'appelant, qui seul sait quand la session repart de zéro.
+    """
     frames = []
     while True:
         if len(buf) < 2:
             return frames, buf
         b1, b2 = buf[0], buf[1]
+        fin = bool(b1 & 0x80)
         opcode = b1 & 0x0F
         masked = bool(b2 & 0x80)
         ln = b2 & 0x7F
@@ -597,6 +664,8 @@ def _ws_feed(buf: bytes):
                 return frames, buf
             ln = struct.unpack("!Q", buf[2:10])[0]
             idx = 10
+        if ln > MAX_FRAME_BYTES:
+            raise RuntimeError(f"websocket frame too large ({ln} bytes)")
         if masked:
             if len(buf) < idx + 4:
                 return frames, buf
@@ -610,6 +679,5 @@ def _ws_feed(buf: bytes):
         if mask:
             data = bytes(b ^ mask[i % 4] for i, b in enumerate(data))
         buf = buf[idx + ln:]
-        frames.append((opcode, data))
-    return frames, buf
+        frames.append((fin, opcode, data))
 

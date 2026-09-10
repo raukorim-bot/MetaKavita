@@ -779,6 +779,74 @@ def test_send_series_handles_kavita_3_tuple_from_update_series_general(client, m
     assert "general" in calls
 
 
+def test_send_series_refus_kavita_avertit_sans_bloquer(client, monkeypatch, isolated_db):
+    """BF203 — Kavita 0.9.1 refuse un titre alternatif qui séparerait des fichiers
+    fusionnés, ou qui entre en collision avec une autre série de la bibliothèque.
+    Interrompre l'envoi laisserait la fiche marquée modifiée et l'utilisateur
+    rejouerait le même refus indéfiniment : le reste part, avec un avertissement."""
+    _enable(monkeypatch)
+    import routes.workshop as rw
+    from kavita_api import KavitaRefusal
+
+    calls = []
+
+    class Api(FakeApi):
+        def update_series_metadata(self, payload):
+            calls.append("meta")
+            return True, "ok", True
+
+        def update_series_general(self, *a, **k):
+            calls.append("general")
+            return (
+                False,
+                KavitaRefusal(
+                    "Titre alternatif refusé par Kavita : une autre série…",
+                    "localized_name_exists",
+                ),
+                False,
+            )
+
+    monkeypatch.setattr(rw, "_api", lambda: Api())
+    _lock_writes(monkeypatch)
+    res = client.post(
+        "/api/series/7/workshop/send-series",
+        json={"edits": {"localizedName": "Titre Alternatif", "summary": "Nouveau résumé."}},
+    )
+
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True, "un refus définitif ne doit pas bloquer la fiche"
+    assert "localizedName" not in data["written"], "rien n'a été écrit côté Kavita"
+    assert "summary" in data["written"]
+    assert "refusé" in data["warning"]
+    assert calls == ["meta", "general"]
+
+
+def test_send_series_panne_generale_reste_une_erreur(client, monkeypatch, isolated_db):
+    """BF203 — seul un refus motivé est absous : une panne reste une panne."""
+    _enable(monkeypatch)
+    import routes.workshop as rw
+
+    class Api(FakeApi):
+        def update_series_metadata(self, payload):
+            return True, "ok", True
+
+        def update_series_general(self, *a, **k):
+            return False, "Code 500 : Internal Server Error", False
+
+    monkeypatch.setattr(rw, "_api", lambda: Api())
+    _lock_writes(monkeypatch)
+    res = client.post(
+        "/api/series/7/workshop/send-series",
+        json={"edits": {"localizedName": "Titre Alternatif", "summary": "Nouveau résumé."}},
+    )
+
+    data = res.get_json()
+    assert data["success"] is False
+    assert data["partial"] is True
+    assert "500" in data["error"]
+
+
 def test_send_series_uploads_chosen_cover(client, monkeypatch, isolated_db):
     _enable(monkeypatch)
     import routes.workshop as rw

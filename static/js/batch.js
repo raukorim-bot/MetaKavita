@@ -448,6 +448,17 @@ function _filterSeriesApply() {
             } else if (window.hygieneFilter === 'RELEASING') {
                 var pub = String(item.dataset.publicationStatus || '').toUpperCase();
                 show = pub === 'RELEASING' || pub === 'HIATUS' || pub === 'NOT_YET_RELEASED';
+            } else if (window.hygieneFilter === 'HEALTHY') {
+                var cs = String(item.dataset.completionState || '');
+                show = cs === 'complete' || cs === 'uptodate';
+            } else if (window.hygieneFilter === 'INCOMPLETE') {
+                var cs = String(item.dataset.completionState || '');
+                show = cs === 'poor' || cs === 'partial' || cs === 'near' || cs === 'overshoot' || Number(item.dataset.missingCount || 0) > 0;
+            } else if (window.hygieneFilter === 'UNKNOWN_EXPECTED') {
+                var cs = String(item.dataset.completionState || '');
+                show = cs === 'unknown';
+            } else if (window.hygieneFilter === 'EXCLUDED') {
+                show = item.dataset.inventoryExcluded === '1';
             }
         }
 

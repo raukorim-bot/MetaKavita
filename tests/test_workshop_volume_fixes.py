@@ -169,7 +169,7 @@ def test_workshop_payload_preserves_series_initial_value(isolated_db):
 # ---------------------------------------------------------------------------
 
 def test_save_magic_override_sets_staged_flag(isolated_db, monkeypatch):
-    """save_magic_override marque l'override en _staged: True et _source: magic."""
+    """save_magic_override marque l'override en _staged: True."""
     def mock_fetch_volume(url, volume_number=None):
         return {
             "title": "Titre Magique",
@@ -183,12 +183,10 @@ def test_save_magic_override_sets_staged_flag(isolated_db, monkeypatch):
     res = save_magic_override(1, 10, "https://www.bedetheque.com/album-123.html")
     assert res["success"] is True
     assert res["payload"]["_staged"] is True
-    assert res["payload"]["_source"] == "magic"
 
     overrides = get_volume_unit_overrides(1)
     assert 10 in overrides
     assert overrides[10]["payload"]["_staged"] is True
-    assert overrides[10]["payload"]["_source"] == "magic"
 
 
 # ---------------------------------------------------------------------------
@@ -203,7 +201,7 @@ def test_workshop_sends_purge_hygiene_cache(isolated_db, monkeypatch):
     def mock_purge(sid, **kw):
         purges.append((sid, kw))
 
-    monkeypatch.setattr("services.volume_enrichment.apply.purge_series_hygiene_cache", mock_purge)
+    monkeypatch.setattr("db_manager.purge_series_hygiene_cache", mock_purge)
 
     res_v = send_volume(dummy, 1, 10, edits={"title": "Tome 1 Nouveau"}, force=True)
     assert res_v["success"] is True
@@ -349,4 +347,3 @@ def test_workshop_draft_volume_route(isolated_db, monkeypatch):
     assert ov["summary"] == "Résumé Brouillon"
     assert ov["cover_url"] == "https://example.com/draft.jpg"
     assert ov["_staged"] is True
-    assert ov["_source"] == "manual"

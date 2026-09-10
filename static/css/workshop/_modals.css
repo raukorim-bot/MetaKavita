@@ -28,18 +28,41 @@ html.workshop-page #workshopCoverModal {
     color: #5eead4;
 }
 
+/* La revue de tome emprunte la modale de la revue de série. `setPhase()` laisse
+   les boutons de sa phase visibles, et `closeManualReviewModal` ne les remet pas
+   à zéro : une revue de série abandonnée en édition puis une revue de tome
+   ouverte dans la foulée affichaient « Confirmer » (série) à côté de
+   « Choisir » (tome) — et le premier rejouait `mrConfirmCurrent()` sur une revue
+   morte. Le mode tome masque donc TOUT le pied de la revue de série, pas
+   seulement les boutons de sa phase d'ouverture. */
 #manualReviewModal[data-kind="volume"] .mr-series-block,
 #manualReviewModal[data-kind="volume"] #mrQueueBadge,
 #manualReviewModal[data-kind="volume"] .mr-list-toggle-btn,
 #manualReviewModal[data-kind="volume"] #mrFusionBar,
 #manualReviewModal[data-kind="volume"] .mr-show-below-row,
+#manualReviewModal[data-kind="volume"] #mrKbdHint,
 #manualReviewModal[data-kind="volume"] #mrPurgeBtn,
 #manualReviewModal[data-kind="volume"] #mrSkipBtn,
 #manualReviewModal[data-kind="volume"] #mrLaterBtn,
 #manualReviewModal[data-kind="volume"] #mrListToggleBtn,
+#manualReviewModal[data-kind="volume"] #mrBackBtn,
+#manualReviewModal[data-kind="volume"] #mrWaitBtn,
+#manualReviewModal[data-kind="volume"] #mrConfirmBtn,
+#manualReviewModal[data-kind="volume"] #mrCoverSkipBtn,
+#manualReviewModal[data-kind="volume"] #mrCoverContinueBtn,
+#manualReviewModal[data-kind="volume"] #mrCloseRecapBtn,
+#manualReviewModal[data-kind="volume"] #mrRecapStatsLink,
 #manualReviewModal[data-kind="volume"] #mrPickBtn { display: none !important; }
 #manualReviewModal[data-kind="volume"] #mrVolumeContext { display: block !important; }
 #manualReviewModal[data-kind="volume"] #mrVolumeConfirmBtn { display: inline-flex !important; }
+
+/* Aucun candidat : `openVolumeReview` désactive le bouton, mais rien ne le
+   montrait — il gardait sa teinte pleine et son curseur de clic, et invitait
+   donc à un geste sans effet. Même traitement que les flèches du rail. */
+#mrVolumeConfirmBtn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
 
 html.workshop-page .mr-list-toggle-btn,
 html.workshop-page #mrListToggleBtn { display: none !important; }

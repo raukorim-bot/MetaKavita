@@ -127,8 +127,8 @@ def _prepare_index_data(config, msg="", error_msg="", selected_lib=None):
     inventory_on = config.get("LIBRARY_INVENTORY_ENABLED", True) is not False
     hygiene_lib_key = str(selected_lib) if selected_lib else "all"
     hygiene_meta = get_hygiene_library_meta(hygiene_lib_key) if inventory_on else None
-    audit_flags = get_series_audit_flags() if hygiene_meta else {}
-    hygiene_map = get_volume_report_hygiene_map() if hygiene_meta else {}
+    audit_flags = get_series_audit_flags() if inventory_on else {}
+    hygiene_map = get_volume_report_hygiene_map() if inventory_on else {}
 
     if libraries:
         for s in series_list:

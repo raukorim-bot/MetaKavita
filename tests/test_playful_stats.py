@@ -450,8 +450,8 @@ def test_stats_page_scroll_story_is_not_clipped(pages_client, isolated_db, monke
     assert "overflow: visible" in chapter_css
     assert "overflow: hidden" not in chapter_css
     assert "min-height: 100dvh" in chapter_css
-    assert "min(100dvh, 920px)" not in css
-    assert "scroll-snap-type: y proximity" in css
+    assert "overflow-y: scroll" in css
+    assert "scroll-snap-type: y proximity" not in css  # BF199: libère la molette du piège de snap
     assert 'class="stats-dots"' in html
     assert 'id="stats-hero"' in html
     assert 'id="stats-lifetime"' in html

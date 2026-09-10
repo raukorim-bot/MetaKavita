@@ -557,4 +557,5 @@ def missing_volume_numbers(have_numbers: list, expected: Optional[int]) -> list:
             continue
     if not expected or expected < 1:
         return []
-    return [i for i in range(1, int(expected) + 1) if i not in have]
+    exp = min(int(expected), 50_000)
+    return [i for i in range(1, exp + 1) if i not in have]

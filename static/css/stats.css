@@ -17,8 +17,22 @@ html.stats-page {
     min-height: 100%;
     overflow-x: hidden !important;
     overflow-y: scroll !important;
-    scroll-behavior: smooth;
-    scroll-snap-type: y proximity;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+}
+
+html.stats-page::-webkit-scrollbar {
+    width: 8px;
+}
+html.stats-page::-webkit-scrollbar-track {
+    background: transparent;
+}
+html.stats-page::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 999px;
+}
+html.stats-page::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.5);
 }
 
 html.stats-page body.stats-page,
@@ -75,6 +89,18 @@ html.stats-page[data-theme="light"] body {
     display: flex;
     flex-direction: column;
     gap: 10px;
+    padding: 8px 6px;
+    border-radius: 999px;
+    background: rgba(10, 13, 22, 0.45);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+[data-theme="light"] .stats-dots {
+    background: rgba(255, 255, 255, 0.65);
+    border-color: rgba(15, 23, 42, 0.08);
+    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.06);
 }
 .stats-dots a {
     width: 10px; height: 10px;
@@ -82,11 +108,17 @@ html.stats-page[data-theme="light"] body {
     background: rgba(148,163,184,0.35);
     border: 0;
     display: block;
-    transition: transform 0.2s ease, background 0.2s ease;
+    cursor: pointer;
+    transition: transform 0.25s cubic-bezier(.16, 1, .3, 1), background 0.25s ease, box-shadow 0.25s ease;
+}
+.stats-dots a:hover {
+    background: var(--stats-sky);
+    transform: scale(1.25);
 }
 .stats-dots a.is-active {
     background: var(--stats-teal);
-    transform: scale(1.35);
+    transform: scale(1.4);
+    box-shadow: 0 0 10px rgba(45, 212, 191, 0.55);
 }
 .stats-dots a:focus-visible { outline: 2px solid var(--stats-sky); outline-offset: 3px; }
 
@@ -99,8 +131,6 @@ html.stats-page[data-theme="light"] body {
     align-items: center;
     padding: clamp(72px, 8vw, 96px) clamp(16px, 5vw, 64px);
     overflow: visible;
-    scroll-snap-align: start;
-    scroll-snap-stop: normal;
 }
 .stats-chapter::before {
     content: "";
@@ -219,14 +249,35 @@ html.stats-page[data-theme="light"] body {
 }
 .scroll-hint {
     margin-top: 40px;
-    font-size: 0.8rem;
+    font-size: 0.82rem;
     color: var(--stats-muted);
     animation: bounceHint 2.2s ease-in-out infinite;
+    cursor: pointer;
+    user-select: none;
+    display: inline-block;
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    background: rgba(255, 255, 255, 0.02);
+    transition: color 0.25s ease, border-color 0.25s ease, background-color 0.25s ease, transform 0.25s ease, box-shadow 0.25s ease;
 }
-.scroll-hint span { display: inline-block; margin-top: 8px; font-size: 1.2rem; opacity: 0.7; }
+.scroll-hint:hover {
+    color: var(--stats-teal);
+    background: rgba(45, 212, 191, 0.08);
+    border-color: rgba(45, 212, 191, 0.3);
+    animation-play-state: paused;
+    box-shadow: 0 4px 16px rgba(45, 212, 191, 0.15);
+    transform: translateY(2px);
+}
+.scroll-hint:focus-visible {
+    outline: 2px solid var(--stats-teal);
+    outline-offset: 3px;
+}
+.scroll-hint span { display: inline-block; margin-top: 4px; font-size: 1.2rem; opacity: 0.8; transition: transform 0.25s ease; }
+.scroll-hint:hover span { transform: translateY(3px); opacity: 1; }
 @keyframes bounceHint {
-    0%, 100% { transform: translateY(0); opacity: 0.55; }
-    50% { transform: translateY(8px); opacity: 1; }
+    0%, 100% { transform: translateY(0); opacity: 0.6; }
+    50% { transform: translateY(7px); opacity: 1; }
 }
 
 /* Chapter color themes */
@@ -417,6 +468,14 @@ html.stats-page[data-theme="light"] body {
     width: 180px; height: 180px; border-radius: 50%;
     background: radial-gradient(circle, color-mix(in srgb, var(--tile-accent, var(--stats-sky)) 35%, transparent), transparent 70%);
     pointer-events: none;
+.hero-score-value,
+.metric-value,
+.summary-value,
+.podium-wins,
+.podium-rank,
+[data-count],
+[data-count-minutes] {
+    font-variant-numeric: tabular-nums;
 }
 .metric-value {
     font-family: "Bricolage Grotesque", system-ui, sans-serif;
@@ -572,12 +631,14 @@ html.stats-page[data-theme="light"] body {
 /* Reveal animations */
 .reveal {
     opacity: 0;
-    transform: translateY(36px);
-    transition: opacity 0.7s ease, transform 0.7s cubic-bezier(.2,.8,.2,1);
+    transform: translateY(32px);
+    transition: opacity 0.65s ease, transform 0.65s cubic-bezier(.16, 1, .3, 1);
+    will-change: transform, opacity;
 }
 .reveal.is-in {
     opacity: 1;
     transform: none;
+    will-change: auto;
 }
 .reveal-delay-1 { transition-delay: 0.08s; }
 .reveal-delay-2 { transition-delay: 0.16s; }
@@ -598,7 +659,7 @@ html.stats-page[data-theme="light"] body {
     .stats-dots { display: none; }
 }
 @media (prefers-reduced-motion: reduce) {
-    .reveal { opacity: 1; transform: none; transition: none; }
+    .reveal { opacity: 1; transform: none; transition: none; will-change: auto; }
     .scroll-hint { animation: none; }
-    html.stats-page { scroll-behavior: auto; scroll-snap-type: none; }
+    html.stats-page { scroll-behavior: auto; }
 }

@@ -111,7 +111,18 @@ body[data-ui-hidden~="mapping"] .so-cat[data-so-cat="mapping"] {
     overflow: hidden;
     background: color-mix(in srgb, var(--secondary) 25%, transparent);
 }
-.hh-seg { height: 100%; transition: width 0.3s ease; }
+.hh-seg {
+    height: 100%;
+    transition: width 0.3s ease, filter 0.15s ease;
+    cursor: pointer;
+}
+.hh-seg:hover {
+    filter: brightness(1.25);
+}
+.hh-seg.is-active {
+    filter: brightness(1.35);
+    box-shadow: inset 0 0 0 2px var(--bg-card);
+}
 .hh-seg--healthy { background: var(--success); }
 .hh-seg--incomplete { background: var(--warning); }
 .hh-seg--unknown { background: color-mix(in srgb, var(--secondary) 70%, transparent); }
@@ -130,7 +141,28 @@ body[data-ui-hidden~="mapping"] .so-cat[data-so-cat="mapping"] {
     font-size: 0.78rem;
     color: var(--text-muted);
 }
-.hh-key { display: inline-flex; align-items: center; gap: 0.3rem; }
+.hh-key {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+    padding: 0.1rem 0.3rem;
+    border-radius: 4px;
+}
+.hh-key:hover {
+    color: var(--text-main);
+    background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+.hh-key.is-active {
+    color: var(--primary);
+    font-weight: 700;
+    background: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.hh-key.is-active b {
+    color: var(--primary);
+}
 .hh-key::before {
     content: "";
     width: 8px;

@@ -131,7 +131,7 @@ def volume_report_to_csv(report: Dict[str, Any]) -> str:
                 *tail,
             ]
         )
-    return buf.getvalue()
+    return "\ufeff" + buf.getvalue()
 
 
 def volume_report_to_txt(report: Dict[str, Any]) -> str:
@@ -205,7 +205,7 @@ def duplicates_to_csv(groups: List[Dict[str, Any]], *, library_id: Any = "") -> 
                     path,
                 ]
             )
-    return buf.getvalue()
+    return "\ufeff" + buf.getvalue()
 
 
 def missing_volumes_to_csv(rows: List[Dict[str, Any]], *, library_id: Any = "") -> str:
@@ -255,7 +255,7 @@ def missing_volumes_to_csv(rows: List[Dict[str, Any]], *, library_id: Any = "") 
                 bool(r.get("forced_expected")),
             ]
         )
-    return buf.getvalue()
+    return "\ufeff" + buf.getvalue()
 
 
 def missing_volumes_to_txt(rows: List[Dict[str, Any]], *, library_id: Any = "") -> str:

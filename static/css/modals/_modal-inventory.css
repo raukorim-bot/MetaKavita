@@ -558,3 +558,209 @@ button.linkish {
     background: var(--bg-elevated, rgba(255, 255, 255, 0.06));
 }
 
+/* Barre d'actions par lot pour les doublons */
+.audit-dup-batch-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin: 0 0 0.85rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--primary) 8%, var(--bg-card));
+    border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border-color));
+}
+.audit-dup-search-wrap {
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+.audit-dup-search-wrap input {
+    width: 100%;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.82rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-main);
+    box-sizing: border-box;
+}
+.audit-dup-search-wrap input:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary) 65%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.audit-dup-selected-count {
+    font-size: 0.8rem;
+    font-weight: 650;
+    color: var(--primary);
+    white-space: nowrap;
+}
+
+/* Bloc d'aperçu live du script */
+.audit-dup-preview-details {
+    margin: 0.85rem 0 0.4rem;
+    border-radius: 10px;
+    border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    background: color-mix(in srgb, var(--bg-input) 40%, transparent);
+    overflow: hidden;
+}
+.audit-dup-preview-summary {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.82rem;
+    font-weight: 650;
+    cursor: pointer;
+    user-select: none;
+    background: color-mix(in srgb, var(--bg-card) 60%, transparent);
+}
+.audit-dup-preview-summary:hover {
+    background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+}
+.audit-dup-preview-pre {
+    margin: 0;
+    padding: 0.75rem 1rem;
+    max-height: 220px;
+    overflow-y: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.45;
+    color: #e2e8f0;
+    background: #0d1117;
+    border-top: 1px solid var(--border-color);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+.audit-dup-scan-check {
+    font-size: 0.8rem;
+    cursor: pointer;
+}
+
+/* Barre de recherche et filtres de la modale des tomes manquants */
+.audit-missing-filter-bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem 0.75rem;
+    margin: 0 0 0.85rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--primary) 8%, var(--bg-card));
+    border: 1px solid color-mix(in srgb, var(--primary) 22%, var(--border-color));
+}
+.audit-missing-search-wrap {
+    flex: 1 1 14rem;
+    min-width: 0;
+}
+.audit-missing-search-wrap input {
+    width: 100%;
+    padding: 0.35rem 0.6rem;
+    font-size: 0.82rem;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-main);
+    box-sizing: border-box;
+}
+.audit-missing-search-wrap input:focus {
+    outline: none;
+    border-color: color-mix(in srgb, var(--primary) 65%, var(--border-color));
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.audit-missing-status-filters {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+}
+.audit-missing-status-filters .audit-status-filter-btn {
+    padding: 0.22rem 0.6rem;
+    font-size: 0.76rem;
+    line-height: 1.5;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+.audit-missing-status-filters .audit-status-filter-btn.active {
+    background: color-mix(in srgb, var(--primary) 22%, var(--bg-card));
+    border-color: var(--primary);
+    color: var(--primary);
+    font-weight: 650;
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.audit-missing-count-badge {
+    font-size: 0.8rem;
+    font-weight: 650;
+    color: var(--primary);
+    white-space: nowrap;
+    margin-left: auto;
+}
+
+/* Tri dynamique des colonnes de l'inventaire */
+.audit-table thead th.sortable {
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.15s ease;
+}
+.audit-table thead th.sortable:hover {
+    color: var(--text-main);
+}
+.audit-table thead th.sortable .sort-ico {
+    display: inline-block;
+    margin-left: 0.25rem;
+    font-size: 0.62rem;
+    opacity: 0.45;
+    vertical-align: middle;
+}
+.audit-table thead th.sortable:hover .sort-ico {
+    opacity: 0.8;
+}
+.audit-table thead th.sortable[data-sort-dir] {
+    color: var(--primary);
+}
+.audit-table thead th.sortable[data-sort-dir="asc"] .sort-ico::after {
+    content: "▲";
+    opacity: 1;
+    color: var(--primary);
+}
+.audit-table thead th.sortable[data-sort-dir="desc"] .sort-ico::after {
+    content: "▼";
+    opacity: 1;
+    color: var(--primary);
+}
+
+/* Bouton compact vers l'Atelier */
+.btn-opt.btn-opt-workshop {
+    color: #2dd4bf;
+    border-color: color-mix(in srgb, #2dd4bf 40%, transparent);
+    background: color-mix(in srgb, #2dd4bf 10%, transparent);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+.btn-opt.btn-opt-workshop:hover {
+    color: #5eead4;
+    border-color: #2dd4bf;
+    background: color-mix(in srgb, #2dd4bf 22%, transparent);
+}
+
+/* Séries exclues dans le tableau des manquants */
+.audit-table tr.is-excluded {
+    opacity: 0.42;
+    background: color-mix(in srgb, var(--danger) 5%, transparent);
+}
+.audit-table tr.is-excluded td.audit-cell-title {
+    text-decoration: line-through;
+    text-decoration-color: var(--text-muted);
+}
+.audit-quick-reinclude {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.audit-quick-reinclude:hover {
+    border-color: var(--accent);
+    background: color-mix(in srgb, var(--accent) 15%, transparent);
+}
+

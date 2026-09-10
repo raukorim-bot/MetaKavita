@@ -86,6 +86,11 @@ function closeDuplicatesModal() {
         m.style.display = 'none';
         m.setAttribute('aria-hidden', 'true');
     }
+    var dbox = document.getElementById('duplicatesDismissedBox');
+    if (dbox) {
+        dbox.style.display = 'none';
+        dbox.innerHTML = '';
+    }
 }
 
 function closeMissingVolumesModal() {
@@ -501,8 +506,8 @@ function _renderVolumeReport(data) {
                             window.SeriesList.remove(_volumeReportSeriesId);
                         }
                         closeVolumeReportModal();
-                        if (typeof showToast === 'function') {
-                            showToast(tr.audit_empty_series_purged || 'Empty series successfully deleted from Kavita.');
+                        if (typeof toast === 'function') {
+                            toast(tr.audit_empty_series_purged || 'Empty series successfully deleted from Kavita.');
                         }
                     } else {
                         purgeBtn.disabled = false;
@@ -604,6 +609,9 @@ function setSeriesInventoryExcluded(seriesId, excluded) {
             if (!excluded && typeof hydrateAuditBadges === 'function') {
                 hydrateAuditBadges();
             }
+            // Cette surface ne touchait aucune pastille : exclure depuis le
+            // rapport laissait la barre d'outils en arrière jusqu'au F5.
+            _applyServerCounts(data.counts);
             if (typeof filterSeries === 'function') filterSeries();
         })
         .catch(function () { alert(tr.audit_err_generic || 'Error'); });
@@ -643,6 +651,9 @@ function saveCatalogExpected(expected) {
                     forced_expected: !!(report.completion || {}).forced,
                 });
             }
+            // Forcer un attendu déplace le compte de manquants : le serveur le
+            // recalcule, la barre d'outils le reflète sans attendre un F5.
+            _applyServerCounts(data.counts);
             if (typeof filterSeries === 'function') filterSeries();
         })
         .catch(function () { alert(tr.audit_err_generic || 'Error'); });
@@ -692,11 +703,48 @@ function _applyAuditBadge(seriesId, badge, opts) {
 }
 
 function applyHygieneFilter(mode) {
+    if (window.hygieneFilter === mode) {
+        mode = null;
+    }
     window.hygieneFilter = mode || null;
     document.querySelectorAll('.hygiene-chip[data-hygiene]').forEach(function (btn) {
         btn.classList.toggle('is-active', window.hygieneFilter === btn.getAttribute('data-hygiene'));
     });
+    document.querySelectorAll('.hh-seg[data-seg], .hh-key').forEach(function (el) {
+        el.classList.remove('is-active');
+    });
+    if (window.hygieneFilter === 'HEALTHY') {
+        var sH = document.querySelector('.hh-seg[data-seg="healthy"]');
+        var kH = document.querySelector('.hh-key--healthy');
+        if (sH) sH.classList.add('is-active');
+        if (kH) kH.classList.add('is-active');
+    } else if (window.hygieneFilter === 'INCOMPLETE') {
+        var sI = document.querySelector('.hh-seg[data-seg="incomplete"]');
+        var kI = document.querySelector('.hh-key--incomplete');
+        if (sI) sI.classList.add('is-active');
+        if (kI) kI.classList.add('is-active');
+    } else if (window.hygieneFilter === 'UNKNOWN_EXPECTED') {
+        var sU = document.querySelector('.hh-seg[data-seg="unknown"]');
+        var kU = document.querySelector('.hh-key--unknown');
+        if (sU) sU.classList.add('is-active');
+        if (kU) kU.classList.add('is-active');
+    }
     if (typeof filterSeries === 'function') filterSeries();
+}
+
+/* Les compteurs exacts, tels que le serveur vient de les recalculer.
+ *
+ * Le front les ajustait par incréments après chaque exclusion : décrémenter
+ * « manquants » alors que la série exclue ne manquait de rien faisait diverger
+ * la pastille de la base jusqu'au rechargement. Le serveur renvoie désormais
+ * `counts` par bibliothèque ; on retient celle qui est à l'écran. */
+function _applyServerCounts(countsByLib) {
+    if (!countsByLib) return false;
+    var lib = String(_selectedLibraryIdOrAll());
+    var counts = countsByLib[lib] || countsByLib.all;
+    if (!counts) return false;
+    _updateHygieneCounts(counts);
+    return true;
 }
 
 function _updateHygieneCounts(counts) {
@@ -704,9 +752,11 @@ function _updateHygieneCounts(counts) {
     var m = document.getElementById('hygieneCountMissing');
     var d = document.getElementById('hygieneCountDups');
     var n = document.getElementById('hygieneCountNoId');
+    var ex = document.getElementById('hygieneCountExcluded');
     if (m && counts.missing != null) m.textContent = String(counts.missing);
     if (d && counts.duplicates != null) d.textContent = String(counts.duplicates);
     if (n && counts.no_external_id != null) n.textContent = String(counts.no_external_id);
+    if (ex && counts.excluded != null) ex.textContent = String(counts.excluded);
     var chips = document.getElementById('hygieneChips');
     if (chips) chips.setAttribute('data-scanned', '1');
     document.querySelectorAll(
@@ -1022,11 +1072,13 @@ function openDuplicatesModal(opts) {
 function openMissingVolumesModal() {
     var m = document.getElementById('missingVolumesModal');
     var body = document.getElementById('missingVolumesBody');
+    var filterBar = document.getElementById('missingFilterBar');
     var tr = _auditT();
     var lib = _selectedLibraryIdOrAll();
     if (!m || !body) return;
     m.style.display = 'flex';
     m.setAttribute('aria-hidden', 'false');
+    if (filterBar) filterBar.style.display = 'none';
     body.innerHTML = _loadingHtml(tr);
     var includeUnknown = !!(document.getElementById('missingIncludeUnknownCb') || {}).checked;
     var q = includeUnknown ? '?include_unknown=1' : '';
@@ -1046,6 +1098,7 @@ function openMissingVolumesModal() {
         .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
         .then(function (res) {
             if (res.status === 404 || !res.body || !res.body.success) {
+                if (filterBar) filterBar.style.display = 'none';
                 body.innerHTML = _stateHtml('scan',
                     (res.body && res.body.error) || (tr.audit_err_run_analyser || 'Run Analyser'),
                     tr.audit_missing_detail_hint || '', 'todo');
@@ -1054,28 +1107,212 @@ function openMissingVolumesModal() {
             _renderMissingVolumesModalBody(res.body);
         })
         .catch(function () {
+            if (filterBar) filterBar.style.display = 'none';
             body.innerHTML = _errorHtml(tr);
         });
+}
+
+var _missingState = {
+    rows: [],
+    query: '',
+    statusFilter: 'all',
+    sortCol: null,
+    sortDir: 'asc',
+};
+
+function _bindMissingFilterBar() {
+    var bar = document.getElementById('missingFilterBar');
+    if (!bar || bar.dataset.bound) return;
+    bar.dataset.bound = '1';
+    var input = document.getElementById('missingSearchInput');
+    if (input) {
+        // Chaque frappe refiltrait, retriait et réécrivait tout le tableau :
+        // sur une bibliothèque à plusieurs milliers de manquants, la saisie
+        // devenait saccadée. Un court repos suffit à ne rendre qu'une fois.
+        var searchTimer = null;
+        input.addEventListener('input', function () {
+            clearTimeout(searchTimer);
+            searchTimer = setTimeout(function () {
+                _missingState.query = (input.value || '').trim();
+                _renderMissingFilteredRows();
+            }, 120);
+        });
+    }
+    var filterBtns = bar.querySelectorAll('.audit-status-filter-btn');
+    filterBtns.forEach(function (btn) {
+        btn.addEventListener('click', function () {
+            filterBtns.forEach(function (b) { b.classList.remove('active'); });
+            btn.classList.add('active');
+            _missingState.statusFilter = btn.getAttribute('data-filter') || 'all';
+            _renderMissingFilteredRows();
+        });
+    });
 }
 
 function _renderMissingVolumesModalBody(data) {
     var tr = _auditT();
     var body = document.getElementById('missingVolumesBody');
+    var filterBar = document.getElementById('missingFilterBar');
     if (!body) return;
     var rows = (data && data.rows) || [];
+    _missingState.rows = rows;
+    _missingState.query = '';
+    _missingState.statusFilter = 'all';
+    _missingState.sortCol = null;
+    _missingState.sortDir = 'asc';
+
+    var searchInput = document.getElementById('missingSearchInput');
+    if (searchInput) searchInput.value = '';
+    if (filterBar) {
+        filterBar.querySelectorAll('.audit-status-filter-btn').forEach(function (b) {
+            b.classList.toggle('active', b.getAttribute('data-filter') === 'all');
+        });
+    }
+
     if (!rows.length) {
+        if (filterBar) filterBar.style.display = 'none';
         body.innerHTML = _stateHtml('complete', tr.audit_missing_none || 'None',
             tr.audit_missing_none_hint || '', 'ok');
         return;
     }
+
+    if (filterBar) {
+        filterBar.style.display = 'flex';
+        _bindMissingFilterBar();
+    }
+
     var forcedCount = rows.filter(function (r) { return r.forced_expected; }).length;
-    var html = '<p><strong>' + rows.length + '</strong> ' +
+    var html = '<p id="auditMissingSummaryText"><strong>' + rows.length + '</strong> ' +
         _escHtml(tr.audit_missing_series || 'series') +
         (forcedCount
             ? ' · <button type="button" class="linkish" id="auditForcedListBtn">' + forcedCount + ' ' +
               _escHtml(tr.audit_forced_count || 'attendu(s) forcé(s)') + '</button>'
             : '') +
         '</p><div id="auditForcedList"></div>';
+
+    html += '<div class="audit-table-wrap"><table class="audit-table"><thead><tr>' +
+        '<th class="sortable" data-sort="title" title="' + _escHtml(tr.audit_missing_sort_title || 'Trier par titre') + '">' +
+            _escHtml(tr.audit_series || 'Series') + '<span class="sort-ico"></span></th>' +
+        '<th class="sortable" data-sort="badge" title="' + _escHtml(tr.audit_missing_sort_badge || 'Trier par progression') + '">' +
+            _escHtml(tr.audit_col_badge || 'Badge') + '<span class="sort-ico"></span></th>' +
+        '<th class="sortable" data-sort="pub" title="' + _escHtml(tr.audit_missing_sort_pub || 'Trier par statut') + '">' +
+            _escHtml(tr.audit_pub_status || 'Pub') + '<span class="sort-ico"></span></th>' +
+        '<th class="sortable" data-sort="missing" title="' + _escHtml(tr.audit_missing_sort_missing || 'Trier par manquants') + '">' +
+            _escHtml(tr.audit_col_missing || 'Missing') + '<span class="sort-ico"></span></th>' +
+        '<th class="audit-th-actions"></th>' +
+        '</tr></thead><tbody id="missingTableTbody"></tbody></table></div>';
+    body.innerHTML = html;
+
+    var forcedBtn = document.getElementById('auditForcedListBtn');
+    if (forcedBtn) forcedBtn.addEventListener('click', toggleForcedExpectedList);
+
+    body.querySelectorAll('.audit-table thead th.sortable').forEach(function (th) {
+        th.addEventListener('click', function () {
+            var col = th.getAttribute('data-sort');
+            if (_missingState.sortCol === col) {
+                _missingState.sortDir = _missingState.sortDir === 'asc' ? 'desc' : 'asc';
+            } else {
+                _missingState.sortCol = col;
+                _missingState.sortDir = (col === 'missing' || col === 'badge') ? 'desc' : 'asc';
+            }
+            _renderMissingFilteredRows();
+        });
+    });
+
+    _renderMissingFilteredRows();
+}
+
+function _renderMissingFilteredRows() {
+    var tr = _auditT();
+    var tbody = document.getElementById('missingTableTbody');
+    if (!tbody) return;
+
+    var q = (_missingState.query || '').toLowerCase();
+    var status = _missingState.statusFilter || 'all';
+
+    var filtered = _missingState.rows.filter(function (r) {
+        if (status === 'finished') {
+            if (String(r.publication_status || '').toUpperCase() !== 'FINISHED') return false;
+        } else if (status === 'ongoing') {
+            var s = String(r.publication_status || '').toUpperCase();
+            if (s !== 'RELEASING' && s !== 'HIATUS' && s !== 'NOT_YET_RELEASED') return false;
+        }
+        if (q) {
+            var name = String(r.name || '').toLowerCase();
+            var sid = String(r.series_id || '');
+            var missing = String(_missingLabel(r) || '').toLowerCase();
+            var badge = String(r.badge || '').toLowerCase();
+            if (name.indexOf(q) === -1 &&
+                sid.indexOf(q) === -1 &&
+                ('#' + sid).indexOf(q) === -1 &&
+                missing.indexOf(q) === -1 &&
+                badge.indexOf(q) === -1) {
+                return false;
+            }
+        }
+        return true;
+    });
+
+    var sortCol = _missingState.sortCol;
+    var sortDir = _missingState.sortDir;
+    var sorted = filtered.slice();
+    if (sortCol) {
+        var dir = sortDir === 'asc' ? 1 : -1;
+        sorted.sort(function (a, b) {
+            if (sortCol === 'title') {
+                return String(a.name || '').localeCompare(String(b.name || '')) * dir;
+            }
+            if (sortCol === 'badge') {
+                var rA = a.completion_ratio != null ? a.completion_ratio : -1;
+                var rB = b.completion_ratio != null ? b.completion_ratio : -1;
+                if (rA !== rB) return (rA - rB) * dir;
+                return String(a.name || '').localeCompare(String(b.name || '')) * dir;
+            }
+            if (sortCol === 'pub') {
+                var pA = String(a.publication_status || '');
+                var pB = String(b.publication_status || '');
+                if (pA !== pB) return pA.localeCompare(pB) * dir;
+                return String(a.name || '').localeCompare(String(b.name || '')) * dir;
+            }
+            if (sortCol === 'missing') {
+                var countA = (a.missing_volumes || []).length;
+                var countB = (b.missing_volumes || []).length;
+                if (countA !== countB) return (countA - countB) * dir;
+                return String(a.name || '').localeCompare(String(b.name || '')) * dir;
+            }
+            return 0;
+        });
+    }
+
+    var table = tbody.closest('table');
+    if (table) {
+        table.querySelectorAll('thead th.sortable').forEach(function (th) {
+            var col = th.getAttribute('data-sort');
+            if (col === sortCol) {
+                th.setAttribute('data-sort-dir', sortDir);
+            } else {
+                th.removeAttribute('data-sort-dir');
+            }
+        });
+    }
+
+    var countBadge = document.getElementById('missingFilterCountBadge');
+    if (countBadge) {
+        var total = _missingState.rows.length;
+        if (sorted.length === total) {
+            countBadge.textContent = total + ' ' + (tr.audit_missing_series || 'série(s)');
+        } else {
+            countBadge.textContent = sorted.length + ' / ' + total;
+        }
+    }
+
+    if (!sorted.length) {
+        tbody.innerHTML = '<tr class="audit-missing-empty-tr"><td colspan="5" class="muted text-center" style="padding:1.5rem 0.5rem; text-align:center;">' +
+            _escHtml(tr.audit_missing_filtered_empty || 'Aucune série ne correspond aux filtres actifs.') +
+            '</td></tr>';
+        return;
+    }
+
     var cols = [
         tr.audit_series || 'Series',
         tr.audit_col_badge || 'Badge',
@@ -1083,18 +1320,19 @@ function _renderMissingVolumesModalBody(data) {
         tr.audit_col_missing || 'Missing',
         '',
     ];
-    html += '<div class="audit-table-wrap"><table class="audit-table"><thead><tr>' +
-        cols.map(function (c) { return '<th>' + _escHtml(c) + '</th>'; }).join('') +
-        '</tr></thead><tbody>';
-    rows.forEach(function (r) {
+    var rowsHtml = '';
+    sorted.forEach(function (r) {
         var missing = _missingLabel(r) || '—';
         var unitSuffix = r.unit === 'chapters'
             ? ' <span class="muted">' + _escHtml(tr.audit_unit_chapters_short || 'ch') + '</span>'
             : '';
-        html += '<tr data-series-id="' + _escHtml(r.series_id) + '" data-series-name="' + _escHtml(r.name || '') + '">' +
+        var sid = String(r.series_id);
+        var workshopUrl = (typeof getRootPath === 'function' ? getRootPath() : '') +
+            '/series/' + encodeURIComponent(sid) + '/volumes';
+        rowsHtml += '<tr data-series-id="' + _escHtml(sid) + '" data-series-name="' + _escHtml(r.name || '') + '">' +
             _cell('<span class="audit-missing-row-state" data-state="' +
                 _escHtml(r.completion_state || 'unknown') + '"></span>' +
-                _escHtml(r.name) + ' <span class="muted">#' + _escHtml(r.series_id) + '</span>',
+                _escHtml(r.name) + ' <span class="muted">#' + _escHtml(sid) + '</span>',
                 '', 'audit-cell-title', true) +
             _cell('<span class="' + _auditBadgeClass(r.completion_state, r.forced_expected) + '">' +
                 _escHtml(r.badge || '—') + '</span>', cols[1], null, true) +
@@ -1102,19 +1340,21 @@ function _renderMissingVolumesModalBody(data) {
                 (r.reason ? ' <span class="muted">(' + _escHtml(_catalogReasonLabel(r.reason, tr)) + ')</span>' : ''),
                 cols[2], null, true) +
             _cell(_escHtml(missing) + unitSuffix, cols[3], 'audit-cell-num', true) +
-            _cell('<button type="button" class="btn-opt audit-open-missing-report">' +
+            _cell('<button type="button" class="btn-opt audit-open-missing-report" title="' +
+                _escHtml(tr.audit_volume_report || 'Report') + '">' +
                 _escHtml(tr.audit_volume_report || 'Report') + '</button> ' +
+                '<a href="' + workshopUrl + '" class="btn-opt btn-opt-workshop audit-open-workshop" title="' +
+                _escHtml(tr.workshop_open_hint || 'Ouvrir l\'atelier des tomes de cette série') + '">' +
+                '📚 ' + _escHtml(tr.workshop_open || 'Atelier') + '</a> ' +
                 '<button type="button" class="btn-opt audit-quick-exclude" title="' +
                 _escHtml(tr.audit_quick_exclude_title || 'Exclude this series from inventory') + '">' +
                 _escHtml(tr.audit_quick_exclude || 'Exclude') + '</button>',
                 '', 'audit-cell-actions', true) +
             '</tr>';
     });
-    html += '</tbody></table></div>';
-    body.innerHTML = html;
-    var forcedBtn = document.getElementById('auditForcedListBtn');
-    if (forcedBtn) forcedBtn.addEventListener('click', toggleForcedExpectedList);
-    body.querySelectorAll('.audit-open-missing-report').forEach(function (btn) {
+    tbody.innerHTML = rowsHtml;
+
+    tbody.querySelectorAll('.audit-open-missing-report').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var trEl = btn.closest('tr');
             var sid = trEl && trEl.getAttribute('data-series-id');
@@ -1122,64 +1362,93 @@ function _renderMissingVolumesModalBody(data) {
             openVolumeReportModal(sid, name);
         });
     });
-    body.querySelectorAll('.audit-quick-exclude').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            var trEl = btn.closest('tr');
-            var sid = trEl && trEl.getAttribute('data-series-id');
-            var name = (trEl && trEl.getAttribute('data-series-name')) || sid;
-            if (!sid) return;
-            var confirmMsg = (tr.audit_quick_exclude_title || 'Exclude this series from inventory') + ' : ' + name + ' ?';
+    tbody.querySelectorAll('.audit-quick-exclude, .audit-quick-reinclude').forEach(function (btn) {
+        _bindQuickExcludeButton(btn);
+    });
+}
+
+function _bindQuickExcludeButton(btn) {
+    btn.addEventListener('click', function () {
+        var tr = _auditT();
+        var trEl = btn.closest('tr');
+        var sid = trEl && trEl.getAttribute('data-series-id');
+        var name = (trEl && trEl.getAttribute('data-series-name')) || sid;
+        if (!sid) return;
+        var isExcluded = trEl.classList.contains('is-excluded');
+        if (!isExcluded) {
+            var confirmMsg = (tr.audit_quick_exclude_title || 'Exclure cette série de l\'inventaire') + ' : ' + name + ' ?';
             if (!confirm(confirmMsg)) return;
-            btn.disabled = true;
-            fetch(getRootPath() + '/api/series/' + encodeURIComponent(sid) + '/inventory-exclude', {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ excluded: true }),
-            })
-                .then(function (r) { return r.json(); })
-                .then(function (data) {
-                    if (data && data.success) {
-                        trEl.style.opacity = '0.35';
-                        trEl.style.pointerEvents = 'none';
-                        btn.textContent = '✓ ' + (tr.audit_quick_exclude || 'Excluded');
-                        // Synchroniser le dashboard (carte, badges, SeriesList)
-                        // comme le fait setSeriesInventoryExcluded.
-                        document.querySelectorAll('.series-item[data-series-id="' + sid + '"]').forEach(function (row) {
-                            row.setAttribute('data-inventory-excluded', '1');
-                            var statusWrap = row.querySelector('.series-status');
-                            if (statusWrap) {
-                                var exBadge = statusWrap.querySelector('.badge-inventory-excluded');
-                                if (!exBadge) {
-                                    var span = document.createElement('span');
-                                    span.className = 'badge badge-inventory-excluded';
-                                    span.title = tr.audit_excluded_badge_hint || '';
-                                    span.textContent = tr.audit_excluded_badge || '';
-                                    statusWrap.appendChild(span);
-                                }
-                            }
-                        });
-                        if (typeof _applyAuditBadge === 'function') _applyAuditBadge(sid, '');
-                        if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
-                            window.SeriesList.patchOverride(sid, { inventory_excluded: true, audit_badge: '' });
-                        }
-                        // Décrémenter le compteur de manquants dans la barre d'outils
-                        var pill = document.getElementById('hygieneCountMissing');
-                        if (pill) {
-                            var cur = parseInt(pill.textContent, 10);
-                            if (cur > 0) pill.textContent = String(cur - 1);
-                        }
-                        if (typeof filterSeries === 'function') filterSeries();
-                    } else {
-                        btn.disabled = false;
-                        alert((data && data.error) || (tr.audit_err_generic || 'Error'));
+        }
+        btn.disabled = true;
+        var nextExcluded = !isExcluded;
+        fetch(getRootPath() + '/api/series/' + encodeURIComponent(sid) + '/inventory-exclude', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ excluded: nextExcluded }),
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                btn.disabled = false;
+                if (!data || !data.success) {
+                    var err = (data && data.error) || (tr.audit_err_generic || 'Error');
+                    if (typeof showAppToast === 'function') showAppToast(err);
+                    else alert(err);
+                    return;
+                }
+                if (nextExcluded) {
+                    trEl.classList.add('is-excluded');
+                    btn.className = 'btn-opt audit-quick-reinclude';
+                    btn.title = tr.audit_quick_reinclude_title || 'Réinclure cette série dans l\'inventaire';
+                    btn.innerHTML = '↩️ ' + _escHtml(tr.audit_quick_reinclude || 'Réinclure');
+                    if (typeof showAppToast === 'function') {
+                        showAppToast(tr.audit_quick_exclude_success || 'Série exclue de l\'inventaire.');
                     }
-                })
-                .catch(function () {
-                    btn.disabled = false;
-                    alert(tr.audit_err_generic || 'Error');
+                } else {
+                    trEl.classList.remove('is-excluded');
+                    btn.className = 'btn-opt audit-quick-exclude';
+                    btn.title = tr.audit_quick_exclude_title || 'Exclure cette série de l\'inventaire';
+                    btn.innerHTML = _escHtml(tr.audit_quick_exclude || 'Exclure');
+                    if (typeof showAppToast === 'function') {
+                        showAppToast(tr.audit_quick_reinclude_success || 'Série réincluse dans l\'inventaire.');
+                    }
+                }
+                // Synchroniser le dashboard (carte, badges, SeriesList)
+                document.querySelectorAll('.series-item[data-series-id="' + sid + '"]').forEach(function (row) {
+                    row.setAttribute('data-inventory-excluded', nextExcluded ? '1' : '0');
+                    var statusWrap = row.querySelector('.series-status');
+                    if (statusWrap) {
+                        var exBadge = statusWrap.querySelector('.badge-inventory-excluded');
+                        if (nextExcluded && !exBadge) {
+                            var span = document.createElement('span');
+                            span.className = 'badge badge-inventory-excluded';
+                            span.title = tr.audit_excluded_badge_hint || '';
+                            span.textContent = tr.audit_excluded_badge || '';
+                            statusWrap.appendChild(span);
+                        } else if (!nextExcluded && exBadge) {
+                            exBadge.remove();
+                        }
+                    }
                 });
-        });
+                if (nextExcluded) {
+                    if (typeof _applyAuditBadge === 'function') _applyAuditBadge(sid, '');
+                } else {
+                    if (typeof hydrateAuditBadges === 'function') hydrateAuditBadges();
+                }
+                if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
+                    var patch = { inventory_excluded: nextExcluded };
+                    if (nextExcluded) patch.audit_badge = '';
+                    window.SeriesList.patchOverride(sid, patch);
+                }
+                _applyServerCounts(data.counts);
+                if (typeof filterSeries === 'function') filterSeries();
+            })
+            .catch(function () {
+                btn.disabled = false;
+                var err = tr.audit_err_generic || 'Error';
+                if (typeof showAppToast === 'function') showAppToast(err);
+                else alert(err);
+            });
     });
 }
 
@@ -1292,12 +1561,63 @@ function _dupThresholdControlHtml(tr) {
         '</div>';
 }
 
+function _reclusterDuplicates(value, selEl) {
+    var v = parseFloat(value);
+    if (!(v > 0)) return;
+    var sel = selEl || document.getElementById('dupThresholdPreset');
+    var lib = _selectedLibraryIdOrAll();
+    var tr = _auditT();
+    var root = (typeof getRootPath === 'function') ? getRootPath() : '';
+    if (sel) sel.disabled = true;
+
+    var hintEl = sel && sel.parentNode && sel.parentNode.querySelector('.audit-hint');
+    var prevHint = hintEl ? hintEl.textContent : '';
+    if (hintEl) {
+        hintEl.textContent = tr.audit_dup_reclustering || 'Recalcul des doublons en cours…';
+    }
+
+    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/recluster', {
+        method: 'POST',
+        credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ threshold: v }),
+    })
+        .then(function (r) { return r.json().then(function (j) { return { status: r.status, body: j }; }); })
+        .then(function (res) {
+            if (sel) sel.disabled = false;
+            if (hintEl) hintEl.textContent = prevHint;
+            if (res.status === 200 && res.body && res.body.success) {
+                window.DUP_ACCEPT_THRESHOLD = String(v);
+                if (typeof applyDuplicateFlagsToUi === 'function') applyDuplicateFlagsToUi(res.body);
+                _renderDuplicatesModalBody(res.body);
+
+                // `hygieneCountDuplicates` n'existe pas : la pastille de la barre
+                // d'outils s'appelle `hygieneCountDups`, et le recalcul de seuil
+                // ne la mettait donc jamais à jour. On passe par la porte unique.
+                if (res.body.count != null) {
+                    _updateHygieneCounts({ duplicates: res.body.count });
+                }
+                var template = tr.audit_dup_recluster_success || 'Seuil mis à jour : {0} groupe(s) détecté(s)';
+                var toastMsg = template.replace('{0}', res.body.count != null ? res.body.count : 0);
+                showAppToast(toastMsg, 'success');
+            } else {
+                var err = (res.body && res.body.error) || tr.audit_err_generic || 'Erreur de recalcul';
+                showAppToast(err, 'error');
+            }
+        })
+        .catch(function () {
+            if (sel) sel.disabled = false;
+            if (hintEl) hintEl.textContent = prevHint;
+            showAppToast(tr.err_network || 'Erreur réseau', 'error');
+        });
+}
+
 function _bindDupThresholdControl() {
     var sel = document.getElementById('dupThresholdPreset');
-    if (!sel) return;
+    if (!sel || sel.dataset.boundRecluster === '1') return;
+    sel.dataset.boundRecluster = '1';
     sel.addEventListener('change', function () {
-        window.DUP_ACCEPT_THRESHOLD = sel.value;
-        setDupThresholdPreset(sel.value);
+        _reclusterDuplicates(sel.value, sel);
     });
 }
 
@@ -1533,6 +1853,7 @@ function _renderDuplicatesModalBody(data) {
                     _escHtml(reason) + '</span>';
             }).join('') +
             '</div>';
+        var completeness = g.completeness || [];
         (g.series_ids || []).forEach(function (sid, i) {
             var name = (g.names && g.names[i]) || sid;
             var path = (g.folder_paths && g.folder_paths[i]) || '';
@@ -1555,14 +1876,28 @@ function _renderDuplicatesModalBody(data) {
                 volBadge = ' <span class="audit-dup-tag audit-dup-tag--score">' + _escHtml(volTxt) + '</span>';
             }
             var recBadge = '';
-            if (isRecommended && (g.series_ids || []).length > 1) {
+            var hasCountDiff = false;
+            if (g.volume_counts && g.volume_counts.length > 1) {
+                var firstVol = g.volume_counts[0];
+                var firstChap = (g.chapter_counts && g.chapter_counts[0]) || 0;
+                for (var cIdx = 1; cIdx < g.volume_counts.length; cIdx++) {
+                    if (g.volume_counts[cIdx] !== firstVol || ((g.chapter_counts && g.chapter_counts[cIdx]) || 0) !== firstChap) {
+                        hasCountDiff = true;
+                        break;
+                    }
+                }
+            }
+            if (isRecommended && (g.series_ids || []).length > 1 && hasCountDiff) {
                 recBadge = ' <span class="audit-dup-tag audit-dup-tag--exact" title="' +
                     _escHtml(tr.audit_dup_recommended_keep || 'Recommended (most complete)') + '">' +
                     '🌟 ' + _escHtml(tr.audit_dup_recommended_keep || 'Recommended') + '</span>';
             }
             html += '<div class="audit-dup-row" data-series-id="' + _escHtml(sid) +
                 '" data-folder-path="' + _escHtml(path) +
-                '" data-volumes="' + (volCount != null ? volCount : 0) + '">' +
+                '" data-volumes="' + (volCount != null ? volCount : 0) +
+                '" data-chapters="' + (chapCount != null ? chapCount : 0) +
+                '" data-completeness="' + (completeness[i] != null ? completeness[i] : '') +
+                '" data-recommended="' + (isRecommended ? '1' : '0') + '">' +
                 '<button type="button" class="linkish audit-open-report audit-dup-name">' +
                 _escHtml(name) + ' <span class="muted">#' + _escHtml(sid) + '</span></button>' +
                 volBadge + recBadge +
@@ -1601,6 +1936,9 @@ function _renderDuplicatesModalBody(data) {
     body.innerHTML = html;
     _bindDupThresholdControl();
     _restoreDupDropMarked();
+    _updateDupSelectedCount();
+    _updateDupScriptPreview();
+    _bindDupSearchFilter();
     body.querySelectorAll('.audit-open-report').forEach(function (btn) {
         btn.addEventListener('click', function () {
             var row = btn.closest('.audit-dup-row');
@@ -1634,13 +1972,16 @@ function _renderDuplicatesModalBody(data) {
             if (cb.checked) {
                 var row = cb.closest('.audit-dup-row');
                 var groupEl = cb.closest('.audit-dup-group');
-                var myVols = parseInt((row && row.getAttribute('data-volumes')) || '0', 10);
+                // Comparaison en tomes équivalents : un garde-fou qui ne lisait
+                // que `data-volumes` restait muet quand on jetait une copie de
+                // 364 chapitres au profit d'une copie d'un seul tome.
+                var myVols = row ? _rowCompleteness(row) : 0;
                 var largestKept = -1;
                 if (groupEl) {
                     groupEl.querySelectorAll('.audit-dup-row').forEach(function (other) {
                         var otherCb = other.querySelector('.audit-dup-drop-cb');
                         if (other !== row && (!otherCb || !otherCb.checked)) {
-                            var v = parseInt(other.getAttribute('data-volumes') || '0', 10);
+                            var v = _rowCompleteness(other);
                             if (v > largestKept) largestKept = v;
                         }
                     });
@@ -1648,7 +1989,8 @@ function _renderDuplicatesModalBody(data) {
                 if (myVols > 0 && largestKept >= 0 && myVols > largestKept) {
                     var warn = (tr.audit_dup_confirm_drop_larger ||
                         'Warning: this copy has more volumes ({0} volumes) than the kept copy ({1} volumes). Are you sure you want to trash it?')
-                        .replace('{0}', myVols).replace('{1}', largestKept);
+                        .replace('{0}', _volumeEquivalentLabel(myVols))
+                        .replace('{1}', _volumeEquivalentLabel(largestKept));
                     if (!confirm(warn)) {
                         cb.checked = false;
                         return;
@@ -1657,6 +1999,8 @@ function _renderDuplicatesModalBody(data) {
             }
             _enforceDupKeepOne(cb.closest('.audit-dup-group'));
             _syncDupDropMarkedFromDom();
+            _updateDupSelectedCount();
+            _updateDupScriptPreview();
         });
     });
 }
@@ -1680,12 +2024,103 @@ function _dismissDupGroup(seriesIds, reason, btn) {
                 alert((data && data.error) || (tr.audit_err_generic || 'Error'));
                 return;
             }
+            if (reason === 'resolved') {
+                if (typeof toast === 'function') {
+                    toast(tr.audit_dup_resolved_toast || 'Groupe de doublons marqué comme traité.');
+                }
+            }
             openDuplicatesModal({ keepBody: true });
             if (typeof filterSeries === 'function') filterSeries();
         })
         .catch(function () {
             if (btn) btn.disabled = false;
             alert(tr.audit_err_generic || 'Error');
+        });
+}
+
+function toggleDismissedDupsList() {
+    var tr = _auditT();
+    var wrap = document.getElementById('duplicatesDismissedBox');
+    if (!wrap) return;
+    if (wrap.innerHTML && wrap.style.display !== 'none') {
+        wrap.style.display = 'none';
+        wrap.innerHTML = '';
+        return;
+    }
+    wrap.style.display = '';
+    wrap.innerHTML = _loadingHtml(tr, true);
+    var lib = _selectedLibraryIdOrAll();
+    fetch(getRootPath() + '/api/hygiene/dismissals?library_id=' + encodeURIComponent(lib), { credentials: 'same-origin' })
+        .then(function (r) { return r.json(); })
+        .then(function (data) {
+            var rows = (data && data.dismissals) || [];
+            if (!rows.length) {
+                wrap.innerHTML = '<div class="audit-empty-state"><p class="muted">' +
+                    _escHtml(tr.audit_dup_dismissals_none || 'Aucun doublon archivé ou ignoré.') +
+                    '</p></div>';
+                return;
+            }
+            var fcols = [
+                tr.audit_series || 'Séries',
+                tr.audit_catalog_reason || 'Raison',
+                ''
+            ];
+            var html = '<div class="audit-table-wrap" style="margin-bottom:1rem;"><table class="audit-table"><thead><tr>' +
+                fcols.map(function (c) { return '<th>' + _escHtml(c) + '</th>'; }).join('') +
+                '</tr></thead><tbody>';
+            rows.forEach(function (r) {
+                var sids = r.series_ids || [];
+                var names = sids.map(function (id) {
+                    var it = (window.SeriesList && typeof window.SeriesList.getItem === 'function') ? window.SeriesList.getItem(id) : null;
+                    return (it && it.name) ? it.name + ' (#' + id + ')' : '#' + id;
+                }).join(', ');
+                var reasonLabel = r.reason === 'resolved'
+                    ? (tr.audit_dup_mark_resolved || 'Traité')
+                    : (r.reason === 'ignored' ? (tr.audit_ignore_dup || 'Ignoré') : (tr.audit_not_duplicate || 'Pas un doublon'));
+                html += '<tr data-group-key="' + _escHtml(r.group_key || '') + '">' +
+                    _cell(names, '', 'audit-cell-title') +
+                    _cell('<span class="audit-dup-tag">' + _escHtml(reasonLabel) + '</span>', fcols[1], null, true) +
+                    _cell('<button type="button" class="btn-secondary audit-restore-dup" data-group-key="' +
+                        _escHtml(r.group_key || '') + '">' +
+                        _escHtml(tr.audit_dup_restore || 'Restaurer') + '</button>',
+                        '', 'audit-cell-actions', true) +
+                    '</tr>';
+            });
+            wrap.innerHTML = html + '</tbody></table></div>';
+            wrap.querySelectorAll('.audit-restore-dup').forEach(function (btn) {
+                btn.addEventListener('click', function () {
+                    var gk = btn.getAttribute('data-group-key');
+                    if (!gk) return;
+                    btn.disabled = true;
+                    fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/dismiss', {
+                        method: 'DELETE',
+                        credentials: 'same-origin',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ group_key: gk }),
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (res) {
+                            if (res && res.success) {
+                                if (typeof toast === 'function') {
+                                    toast(tr.audit_dup_restored_toast || 'Doublon restauré.');
+                                }
+                                var row = btn.closest('tr');
+                                if (row) row.remove();
+                                openDuplicatesModal({ keepBody: true });
+                            } else {
+                                btn.disabled = false;
+                                alert((res && res.error) || (tr.audit_err_generic || 'Error'));
+                            }
+                        })
+                        .catch(function () {
+                            btn.disabled = false;
+                            alert(tr.audit_err_generic || 'Error');
+                        });
+                });
+            });
+        })
+        .catch(function () {
+            wrap.innerHTML = '<p class="text-error">' + _escHtml(tr.audit_err_generic || 'Error') + '</p>';
         });
 }
 
@@ -1696,6 +2131,28 @@ function _dupDropIds() {
         if (n) ids.push(n);
     });
     return ids;
+}
+
+/* Volumétrie d'une ligne de doublon, en tomes équivalents — telle que le serveur
+ * l'a calculée.
+ *
+ * Le navigateur n'applique aucune règle ici : il lit un nombre. Le ratio
+ * chapitres/tome dépend du type de bibliothèque (manga, comic, roman) et vit
+ * d'un seul côté ; le redéclarer ici, c'était s'exposer à ce que la case
+ * précochée par 🎯 contredise le badge 🌟 rendu par le serveur.
+ *
+ * Repli sur les tomes si l'attribut manque : une page laissée ouverte pendant
+ * une mise à jour vaut mieux qu'un `NaN` qui ne coche plus rien. */
+function _rowCompleteness(rowEl) {
+    var score = parseFloat(rowEl.getAttribute('data-completeness'));
+    if (!isNaN(score)) return score;
+    return parseInt(rowEl.getAttribute('data-volumes') || '0', 10) || 0;
+}
+
+/* Tomes équivalents lisibles : un entier reste un entier, une mesure issue des
+ * chapitres garde une décimale plutôt que d'annoncer « 36.400000000000006 ». */
+function _volumeEquivalentLabel(score) {
+    return Number.isInteger(score) ? String(score) : score.toFixed(1);
 }
 
 function _dupGroupsFullyDropped(ids) {
@@ -1711,36 +2168,177 @@ function _dupGroupsFullyDropped(ids) {
     return emptied;
 }
 
+function selectAllExtraDuplicates() {
+    var groups = document.querySelectorAll('#duplicatesBody .audit-dup-group');
+    if (!groups.length) return;
+    groups.forEach(function (groupEl) {
+        var rows = Array.prototype.slice.call(groupEl.querySelectorAll('.audit-dup-row'));
+        if (rows.length <= 1) return;
+
+        // La copie à garder est celle que le serveur a désignée (`data-recommended`),
+        // pas celle qui porte telle classe de présentation : `.audit-dup-tag--exact`
+        // sert aussi au tag de score, et l'auto-sélection aurait suivi le balisage
+        // au premier remaniement. À défaut de recommandation, on retombe sur la
+        // même mesure que le serveur — tomes, ou chapitres quand il n'y a aucun tome.
+        var bestIdx = -1;
+        var bestScore = -1;
+        rows.forEach(function (r, idx) {
+            if (r.getAttribute('data-recommended') === '1') {
+                bestIdx = idx;
+                bestScore = Infinity;
+                return;
+            }
+            if (bestScore !== Infinity) {
+                var sc = _rowCompleteness(r);
+                if (sc > bestScore) {
+                    bestScore = sc;
+                    bestIdx = idx;
+                }
+            }
+        });
+        if (bestIdx < 0) bestIdx = 0;
+
+        rows.forEach(function (r, idx) {
+            var cb = r.querySelector('.audit-dup-drop-cb');
+            if (!cb) return;
+            cb.disabled = false;
+            if (idx === bestIdx) {
+                cb.checked = false;
+            } else {
+                var path = r.getAttribute('data-folder-path');
+                cb.checked = !!path;
+            }
+        });
+        _enforceDupKeepOne(groupEl);
+    });
+    _syncDupDropMarkedFromDom();
+    _updateDupSelectedCount();
+    _updateDupScriptPreview();
+}
+
+function deselectAllDuplicates() {
+    document.querySelectorAll('#duplicatesBody .audit-dup-drop-cb').forEach(function (cb) {
+        cb.checked = false;
+    });
+    _enforceAllDupKeepOne();
+    _syncDupDropMarkedFromDom();
+    _updateDupSelectedCount();
+    _updateDupScriptPreview();
+}
+
+function _updateDupSelectedCount() {
+    var badge = document.getElementById('dupSelectedCountBadge');
+    if (!badge) return;
+    var checked = document.querySelectorAll('#duplicatesBody .audit-dup-drop-cb:checked').length;
+    var totalGroups = document.querySelectorAll('#duplicatesBody .audit-dup-group').length;
+    var tr = _auditT();
+    if (!checked) {
+        badge.textContent = '';
+        return;
+    }
+    var tpl = tr.audit_dup_selected_count || '{count} sélectionné(s) sur {total} groupe(s)';
+    badge.textContent = tpl.replace('{count}', checked).replace('{total}', totalGroups);
+}
+
+var _dupScriptPreviewTimer = null;
+function _updateDupScriptPreview() {
+    clearTimeout(_dupScriptPreviewTimer);
+    _dupScriptPreviewTimer = setTimeout(function () {
+        var previewEl = document.getElementById('dupScriptPreview');
+        if (!previewEl) return;
+        var ids = _dupDropIds();
+        var tr = _auditT();
+        if (!ids.length) {
+            previewEl.textContent = '# ' + (tr.audit_dup_script_preview_empty || 'Sélectionnez des doublons à jeter pour générer l\'aperçu du script.');
+            return;
+        }
+        var emptied = _dupGroupsFullyDropped(ids);
+        if (emptied.length) {
+            previewEl.textContent = '# ' + (tr.audit_dup_keep_one || 'Gardez au moins une série dans le groupe.');
+            return;
+        }
+        var modeEl = document.getElementById('dupScriptMode');
+        var mode = (modeEl && modeEl.value) || 'trash';
+        var formatEl = document.getElementById('dupScriptFormat');
+        var format = (formatEl && formatEl.value) || 'sh';
+        var scanCb = document.getElementById('dupTriggerScanCb');
+        var triggerScan = !!(scanCb && scanCb.checked);
+        var lib = _selectedLibraryIdOrAll();
+
+        fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/script', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ series_ids: ids, mode: mode, format: format, trigger_scan: triggerScan }),
+        })
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data && data.success && data.script) {
+                    previewEl.textContent = data.script;
+                } else {
+                    previewEl.textContent = '# ' + ((data && data.error) || (tr.audit_err_generic || 'Error'));
+                }
+            })
+            .catch(function () {
+                previewEl.textContent = '# ' + (tr.audit_err_generic || 'Error');
+            });
+    }, 200);
+}
+
+function _bindDupSearchFilter() {
+    var input = document.getElementById('dupSearchInput');
+    if (!input || input.dataset.bound) return;
+    input.dataset.bound = '1';
+    input.addEventListener('input', function () {
+        var q = (input.value || '').trim().toLowerCase();
+        var groups = document.querySelectorAll('#duplicatesBody .audit-dup-group');
+        groups.forEach(function (g) {
+            if (!q) {
+                g.style.display = '';
+                return;
+            }
+            var text = (g.textContent || '').toLowerCase();
+            g.style.display = text.indexOf(q) !== -1 ? '' : 'none';
+        });
+    });
+}
+
 function _requestDupScript(download) {
     var tr = _auditT();
     var ids = _dupDropIds();
     if (!ids.length) {
-        alert(tr.audit_dup_script_empty || 'Tick at least one series to trash.');
+        if (typeof showAppToast === 'function') showAppToast(tr.audit_dup_script_empty || 'Cochez au moins une série à jeter.');
+        else alert(tr.audit_dup_script_empty || 'Tick at least one series to trash.');
         return;
     }
     var emptied = _dupGroupsFullyDropped(ids);
     if (emptied.length) {
-        alert(tr.audit_dup_keep_one || 'Keep at least one series in each group.');
+        if (typeof showAppToast === 'function') showAppToast(tr.audit_dup_keep_one || 'Gardez au moins une série dans le groupe.');
+        else alert(tr.audit_dup_keep_one || 'Keep at least one series in each group.');
         return;
     }
     var modeEl = document.getElementById('dupScriptMode');
     var mode = (modeEl && modeEl.value) || 'trash';
     var formatEl = document.getElementById('dupScriptFormat');
     var format = (formatEl && formatEl.value) || 'sh';
+    var scanCb = document.getElementById('dupTriggerScanCb');
+    var triggerScan = !!(scanCb && scanCb.checked);
     var isPs1 = format === 'ps1';
     var lib = _selectedLibraryIdOrAll();
     saveDupFolderSettings().then(function () {
-    return fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/script', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ series_ids: ids, mode: mode, format: format }),
-    });
+        return fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/duplicates/script', {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ series_ids: ids, mode: mode, format: format, trigger_scan: triggerScan }),
+        });
     })
         .then(function (r) { return r.json(); })
         .then(function (data) {
             if (!data || !data.success || !data.script) {
-                alert((data && data.error) || (tr.audit_err_generic || 'Error'));
+                var err = (data && data.error) || (tr.audit_err_generic || 'Error');
+                if (typeof showAppToast === 'function') showAppToast(err);
+                else alert(err);
                 return;
             }
             if (download) {
@@ -1754,15 +2352,30 @@ function _requestDupScript(download) {
                 a.click();
                 document.body.removeChild(a);
                 URL.revokeObjectURL(a.href);
+                if (typeof showAppToast === 'function') {
+                    showAppToast(tr.audit_dup_script_downloaded || 'Script téléchargé avec succès !');
+                }
                 return;
             }
             _copyText(data.script).then(function () {
-                alert(tr.audit_dup_script_copied || 'Script copied.');
+                if (typeof showAppToast === 'function') {
+                    showAppToast(tr.audit_dup_script_copied || 'Script copié dans le presse-papier !');
+                } else {
+                    alert(tr.audit_dup_script_copied || 'Script copied.');
+                }
             }).catch(function () {
-                alert(tr.audit_dup_script_failed || 'Could not copy.');
+                if (typeof showAppToast === 'function') {
+                    showAppToast(tr.audit_dup_script_failed || 'Could not copy.');
+                } else {
+                    alert(tr.audit_dup_script_failed || 'Could not copy.');
+                }
             });
         })
-        .catch(function () { alert(tr.audit_err_generic || 'Error'); });
+        .catch(function () {
+            var err = tr.audit_err_generic || 'Error';
+            if (typeof showAppToast === 'function') showAppToast(err);
+            else alert(err);
+        });
 }
 
 function _triggerKavitaScan() {
@@ -1778,14 +2391,20 @@ function _triggerKavitaScan() {
         .then(function (data) {
             if (btn) btn.disabled = false;
             if (!data || !data.success) {
-                alert((data && data.error) || (tr.audit_dup_scan_failed || 'Failed to trigger scan.'));
+                var msg = (data && data.error) || (tr.audit_dup_scan_failed || 'Failed to trigger scan.');
+                if (typeof showAppToast === 'function') showAppToast(msg);
+                else alert(msg);
                 return;
             }
-            alert(tr.audit_dup_scan_triggered || 'Kavita library scan triggered successfully!');
+            var okMsg = tr.audit_dup_scan_triggered || 'Kavita library scan triggered successfully!';
+            if (typeof showAppToast === 'function') showAppToast(okMsg);
+            else alert(okMsg);
         })
         .catch(function () {
             if (btn) btn.disabled = false;
-            alert(tr.audit_dup_scan_failed || 'Failed to trigger scan.');
+            var failMsg = tr.audit_dup_scan_failed || 'Failed to trigger scan.';
+            if (typeof showAppToast === 'function') showAppToast(failMsg);
+            else alert(failMsg);
         });
 }
 
@@ -1793,6 +2412,10 @@ function _bindDupScriptButtons() {
     var copyBtn = document.getElementById('dupCopyScript');
     var dlBtn = document.getElementById('dupDownloadScript');
     var scanBtn = document.getElementById('dupTriggerKavitaScan');
+    var modeSelect = document.getElementById('dupScriptMode');
+    var formatSelect = document.getElementById('dupScriptFormat');
+    var scanCb = document.getElementById('dupTriggerScanCb');
+
     if (copyBtn && !copyBtn.dataset.bound) {
         copyBtn.dataset.bound = '1';
         copyBtn.addEventListener('click', function () { _requestDupScript(false); });
@@ -1805,21 +2428,29 @@ function _bindDupScriptButtons() {
         scanBtn.dataset.bound = '1';
         scanBtn.addEventListener('click', _triggerKavitaScan);
     }
+    if (modeSelect && !modeSelect.dataset.bound) {
+        modeSelect.dataset.bound = '1';
+        modeSelect.addEventListener('change', _updateDupScriptPreview);
+    }
+    if (formatSelect && !formatSelect.dataset.bound) {
+        formatSelect.dataset.bound = '1';
+        formatSelect.addEventListener('change', _updateDupScriptPreview);
+    }
+    if (scanCb && !scanCb.dataset.bound) {
+        scanCb.dataset.bound = '1';
+        scanCb.addEventListener('change', _updateDupScriptPreview);
+    }
 }
 
 function setDupThresholdPreset(value) {
     var v = parseFloat(value);
     if (!(v > 0)) return;
-    var root = (typeof getRootPath === 'function') ? getRootPath() : '';
-    var body = new URLSearchParams();
-    body.set('DUP_PRESET_SAVE', '1');
-    body.set('DUP_ACCEPT_THRESHOLD', String(v));
-    fetch(root + '/save-config', {
-        method: 'POST',
-        credentials: 'same-origin',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: body.toString(),
-    }).catch(function () { /* ignore */ });
+    window.DUP_ACCEPT_THRESHOLD = String(v);
+    var sel = document.getElementById('dupThresholdPreset');
+    if (sel && sel.value !== String(v)) {
+        sel.value = String(v);
+    }
+    _reclusterDuplicates(v, sel);
 }
 
 window.startHygieneScan = startHygieneScan;
@@ -1831,11 +2462,16 @@ window.applyHygieneFilter = applyHygieneFilter;
 window.openDuplicatesModal = openDuplicatesModal;
 window.openMissingVolumesModal = openMissingVolumesModal;
 window.closeMissingVolumesModal = closeMissingVolumesModal;
+window._missingState = _missingState;
+window._renderMissingFilteredRows = _renderMissingFilteredRows;
 window.openVolumeReportModal = openVolumeReportModal;
 window.closeVolumeReportModal = closeVolumeReportModal;
 window.closeDuplicatesModal = closeDuplicatesModal;
+window.toggleDismissedDupsList = toggleDismissedDupsList;
 window.updateInventoryFolderPreview = updateInventoryFolderPreview;
 window.saveDupFolderSettings = saveDupFolderSettings;
+window.selectAllExtraDuplicates = selectAllExtraDuplicates;
+window.deselectAllDuplicates = deselectAllDuplicates;
 _bindDupScriptButtons();
 _bindDupFolderFields();
 if (document.readyState === 'loading') {
@@ -2250,38 +2886,43 @@ window._onVolumeEnrichProgress = _onVolumeEnrichProgress;
         });
         if (!ids.length) return;
         var lib = _selectedLibraryIdOrAll();
-        fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/audit-badges?ids=' + ids.slice(0, 80).join(','), {
-            credentials: 'same-origin',
-        })
-            .then(function (r) { return r.json(); })
-            .then(function (data) {
-                if (!data || !data.success || !data.badges) return;
-                if (data.items) {
-                    Object.keys(data.items).forEach(function (sid) {
-                        var it = data.items[sid];
-                        _applyAuditBadge(sid, it.badge, {
-                            state: it.state,
-                            forced: it.forced,
-                            unit: it.unit,
-                        });
-                        if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
-                            window.SeriesList.patchOverride(sid, {
-                                audit_badge: it.badge,
-                                completion_state: it.state,
-                                forced_expected: it.forced,
-                                audit_unit: it.unit,
+        var CHUNK_SIZE = 80;
+        for (var i = 0; i < ids.length; i += CHUNK_SIZE) {
+            (function (chunkIds) {
+                fetch(getRootPath() + '/api/libraries/' + encodeURIComponent(lib) + '/audit-badges?ids=' + chunkIds.join(','), {
+                    credentials: 'same-origin',
+                })
+                    .then(function (r) { return r.json(); })
+                    .then(function (data) {
+                        if (!data || !data.success || !data.badges) return;
+                        if (data.items) {
+                            Object.keys(data.items).forEach(function (sid) {
+                                var it = data.items[sid];
+                                _applyAuditBadge(sid, it.badge, {
+                                    state: it.state,
+                                    forced: it.forced,
+                                    unit: it.unit,
+                                });
+                                if (window.SeriesList && typeof window.SeriesList.patchOverride === 'function') {
+                                    window.SeriesList.patchOverride(sid, {
+                                        audit_badge: it.badge,
+                                        completion_state: it.state,
+                                        forced_expected: it.forced,
+                                        audit_unit: it.unit,
+                                    });
+                                }
+                            });
+                        } else if (window.SeriesList && typeof window.SeriesList.applyAuditBadges === 'function') {
+                            window.SeriesList.applyAuditBadges(data.badges);
+                        } else {
+                            Object.keys(data.badges).forEach(function (sid) {
+                                _applyAuditBadge(sid, data.badges[sid]);
                             });
                         }
-                    });
-                } else if (window.SeriesList && typeof window.SeriesList.applyAuditBadges === 'function') {
-                    window.SeriesList.applyAuditBadges(data.badges);
-                } else {
-                    Object.keys(data.badges).forEach(function (sid) {
-                        _applyAuditBadge(sid, data.badges[sid]);
-                    });
-                }
-            })
-            .catch(function () { /* ignore */ });
+                    })
+                    .catch(function () { /* ignore */ });
+            })(ids.slice(i, i + CHUNK_SIZE));
+        }
     }
     if (typeof document !== 'undefined') {
         document.addEventListener('DOMContentLoaded', function () {

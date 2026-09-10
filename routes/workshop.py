@@ -248,7 +248,6 @@ def workshop_save_draft_volume(series_id):
     merged_payload = dict(existing_payload)
     merged_payload.update(edits)
     merged_payload["_staged"] = True
-    merged_payload["_source"] = "manual"
     if cover_url:
         merged_payload["cover_url"] = cover_url
     elif not cover_url and "cover_url" in existing_payload:

@@ -335,7 +335,6 @@ def test_volume_report_api(isolated_db, monkeypatch):
         "routes.library_audit.load_config",
         lambda: {"UI_LANG": "en", "KAVITA_URL": "http://x", "KAVITA_API_KEY": "k"},
     )
-    monkeypatch.setattr("routes.library_audit.get_kavita_ui_url", lambda c: "http://ui")
     monkeypatch.setattr(
         "routes.library_audit.resolve_catalog_expected",
         lambda *a, **k: {
@@ -709,7 +708,6 @@ def test_catalog_expected_post(isolated_db, monkeypatch):
         "routes.library_audit.load_config",
         lambda: {"UI_LANG": "en", "KAVITA_URL": "http://x", "KAVITA_API_KEY": "k"},
     )
-    monkeypatch.setattr("routes.library_audit.get_kavita_ui_url", lambda c: "http://ui")
     monkeypatch.setattr(
         "routes.library_audit.resolve_catalog_expected",
         lambda *a, **k: {
@@ -1609,5 +1607,692 @@ def test_hygiene_scan_excluded_count_scoped(isolated_db, monkeypatch):
     assert meta["counts"]["excluded"] == 1
 
 
+def test_save_dup_dismissal_resolved(isolated_db):
+    from db_manager import delete_dup_dismissal, list_dup_dismissals, save_dup_dismissal
+    import pytest
+
+    gkey = save_dup_dismissal("1", [101, 102], "resolved")
+    assert gkey is not None
+    dismissals = list_dup_dismissals("1")
+    assert len(dismissals) == 1
+    assert dismissals[0]["reason"] == "resolved"
+    assert dismissals[0]["series_ids"] == [101, 102]
+
+    # Invalid reason raises ValueError
+    with pytest.raises(ValueError, match="invalid dismissal reason"):
+        save_dup_dismissal("1", [101, 102], "foo_invalid")
+
+    # Undismiss works
+    assert delete_dup_dismissal("1", group_key=gkey) is True
+    assert len(list_dup_dismissals("1")) == 0
 
 
+def test_resolve_completion_state_missing_count_guard():
+    from services.library_audit.volume_report import resolve_completion_state
+
+    # have == exp, but missing_count == 1 (e.g. have [2, 3, 4], exp 3) -> should NOT be complete
+    state, ratio = resolve_completion_state(
+        count=3,
+        expected=3,
+        missing_count=1,
+        publication_status="FINISHED",
+    )
+    assert state == "near"
+    assert ratio == 1.0
+
+    # have == exp, missing_count == 0 -> complete
+    state, ratio = resolve_completion_state(
+        count=3,
+        expected=3,
+        missing_count=0,
+        publication_status="FINISHED",
+    )
+    assert state == "complete"
+    assert ratio == 1.0
+
+
+def test_clean_orphaned_cache_full_sync(isolated_db):
+    from db_manager import (
+        clean_orphaned_cache,
+        get_duplicate_groups_cache,
+        get_hygiene_library_meta,
+        save_duplicate_groups_cache,
+        set_hygiene_library_meta,
+    )
+    from services.library_audit.duplicates import dup_group_key
+
+    # Setup 1 duplicate group with 3 series (10, 20, 30)
+    groups = [
+        {
+            "group_id": "dup-1",
+            "group_key": dup_group_key([10, 20, 30]),
+            "series_ids": [10, 20, 30],
+            "names": ["S10", "S20", "S30"],
+            "folder_paths": ["/p10", "/p20", "/p30"],
+            "library_ids": [1, 1, 1],
+            "volume_counts": [5, 3, 1],
+            "chapter_counts": [0, 0, 0],
+            "recommended_keep_id": 10,
+            "score": 0.99,
+            "reasons": ["same_title"],
+        }
+    ]
+    save_duplicate_groups_cache("1", groups)
+    set_hygiene_library_meta("1", {"duplicates": 1, "series": 3})
+
+    # Orphan series 10 (which was recommended_keep_id): remaining are 20 and 30
+    clean_orphaned_cache({20, 30})
+    grps = get_duplicate_groups_cache("1")
+    assert len(grps) == 1
+    g = grps[0]
+    assert g["series_ids"] == [20, 30]
+    assert g["names"] == ["S20", "S30"]
+    assert g["folder_paths"] == ["/p20", "/p30"]
+    assert g["library_ids"] == [1, 1]
+    assert g["volume_counts"] == [3, 1]
+    assert g["group_key"] == dup_group_key([20, 30])
+    # Series 20 has 3 volumes vs 1 volume for series 30 -> 20 becomes recommended
+    assert g["recommended_keep_id"] == 20
+
+    # Meta count remains 1
+    m = get_hygiene_library_meta("1")
+    assert m["counts"]["duplicates"] == 1
+
+    # Orphan series 30: only 20 remains (< 2 members) -> group deleted and meta decremented
+    clean_orphaned_cache({20})
+    grps = get_duplicate_groups_cache("1")
+    assert len(grps) == 0
+    m = get_hygiene_library_meta("1")
+    assert m["counts"]["duplicates"] == 0
+
+
+def test_purge_single_series_from_all_caches_full_sync(isolated_db):
+    from db_manager import (
+        get_duplicate_groups_cache,
+        get_hygiene_library_meta,
+        purge_single_series_from_all_caches,
+        save_duplicate_groups_cache,
+        set_hygiene_library_meta,
+    )
+    from services.library_audit.duplicates import dup_group_key
+
+    groups = [
+        {
+            "group_id": "dup-1",
+            "group_key": dup_group_key([10, 20]),
+            "series_ids": [10, 20],
+            "names": ["S10", "S20"],
+            "folder_paths": ["/p10", "/p20"],
+            "library_ids": [2, 2],
+            "volume_counts": [4, 4],
+            "chapter_counts": [0, 0],
+            "recommended_keep_id": None,
+            "score": 0.99,
+            "reasons": ["same_title"],
+        }
+    ]
+    save_duplicate_groups_cache("2", groups)
+    set_hygiene_library_meta("2", {"duplicates": 1, "series": 2})
+
+    purge_single_series_from_all_caches(10)
+    grps = get_duplicate_groups_cache("2")
+    assert len(grps) == 0
+    m = get_hygiene_library_meta("2")
+    assert m["counts"]["duplicates"] == 0
+
+
+def test_cluster_duplicates_identical_counts_no_recommendation():
+    from services.library_audit.duplicates import cluster_duplicate_series
+
+    # 2 copies with identical counts (5 volumes, 0 chapters each)
+    items_identical = [
+        {"id": 1, "name": "Monster", "volume_count": 5, "chapter_count": 0, "libraryId": 1},
+        {"id": 2, "name": "Monster", "volume_count": 5, "chapter_count": 0, "libraryId": 1},
+    ]
+    groups = cluster_duplicate_series(items_identical, threshold=0.9)
+    assert len(groups) == 1
+    assert groups[0]["recommended_keep_id"] is None
+
+    # 2 copies with different counts (5 vs 3 volumes)
+    items_diff = [
+        {"id": 1, "name": "Monster", "volume_count": 5, "chapter_count": 0, "libraryId": 1},
+        {"id": 2, "name": "Monster", "volume_count": 3, "chapter_count": 0, "libraryId": 1},
+    ]
+    groups_diff = cluster_duplicate_series(items_diff, threshold=0.9)
+    assert len(groups_diff) == 1
+    assert groups_diff[0]["recommended_keep_id"] == 1
+
+
+def test_comicvine_id_prefix_stripped():
+    from services.library_audit.series_identity import _collect_id_fields
+
+    res = _collect_id_fields({"comicVineId": "4050-123456"})
+    assert res.get("comicvine") == "123456"
+
+    res_clean = _collect_id_fields({"comicVineId": "123456"})
+    assert res_clean.get("comicvine") == "123456"
+
+
+def test_csv_exports_have_utf8_bom():
+    from services.library_audit.export_csv import (
+        duplicates_to_csv,
+        missing_volumes_to_csv,
+        volume_report_to_csv,
+    )
+
+    csv1 = volume_report_to_csv({"series_id": 1, "series_name": "Test"})
+    assert csv1.startswith("\ufeff")
+
+    csv2 = duplicates_to_csv([])
+    assert csv2.startswith("\ufeff")
+
+    csv3 = missing_volumes_to_csv([])
+    assert csv3.startswith("\ufeff")
+
+
+def test_missing_volume_numbers_capped():
+    from services.library_audit.catalog_count import missing_volume_numbers
+
+    # Requesting 1 million expected should be capped to 50,000 to protect memory
+    res = missing_volume_numbers([1, 2], 1_000_000)
+    assert len(res) == 49_998
+    assert max(res) == 50_000
+
+
+def test_scan_all_persists_per_library_meta(isolated_db, monkeypatch):
+    from db_manager import get_hygiene_library_meta
+    from services.library_audit.hygiene_scan import _run_scan
+
+    class FakeAPI:
+        def __init__(self, *a, **k):
+            pass
+        def get_all_series(self, library_id=None):
+            return [
+                {"id": 101, "name": "Monster Lib 1", "libraryId": 1},
+                {"id": 102, "name": "Monster Lib 1 Dup", "libraryId": 1},
+                {"id": 201, "name": "Berserk Lib 2", "libraryId": 2},
+            ]
+        def get_series_metadata(self, sid):
+            return {}
+        def get_series_volumes(self, sid):
+            return []
+        def get_library_type_for_series(self, sid):
+            return "Manga"
+
+    monkeypatch.setattr("services.library_audit.hygiene_scan.KavitaAPI", FakeAPI)
+    monkeypatch.setattr(
+        "services.library_audit.hygiene_scan.load_config",
+        lambda: {"UI_LANG": "fr", "KAVITA_URL": "http://mock", "KAVITA_API_KEY": "k"},
+    )
+    monkeypatch.setattr(
+        "services.library_audit.hygiene_scan.resolve_catalog_expected",
+        lambda *a, **k: {"status": "ok", "expected": 1, "provider": "TEST"},
+    )
+
+    _run_scan(library_id="all", series_ids=[], with_catalog=False)
+
+    meta_all = get_hygiene_library_meta("all")
+    assert meta_all is not None
+    assert meta_all["counts"]["series"] == 3
+
+    meta_1 = get_hygiene_library_meta("1")
+    assert meta_1 is not None
+    assert meta_1["counts"]["series"] == 2
+
+    meta_2 = get_hygiene_library_meta("2")
+    assert meta_2 is not None
+    assert meta_2["counts"]["series"] == 1
+
+
+def test_cluster_duplicates_three_way_tie_top_score_no_recommendation():
+    """Quand 2 séries sont à égalité sur le meilleur score volumétrique (ex: 5 tomes chacune,
+    et une troisième à 3 tomes), aucune ne doit être faussement recommandée."""
+    from services.library_audit.duplicates import cluster_duplicate_series
+
+    items = [
+        {"id": 1, "name": "Monster", "volume_count": 5, "chapter_count": 0, "libraryId": 1},
+        {"id": 2, "name": "Monster", "volume_count": 5, "chapter_count": 0, "libraryId": 1},
+        {"id": 3, "name": "Monster", "volume_count": 3, "chapter_count": 0, "libraryId": 1},
+    ]
+    groups = cluster_duplicate_series(items, threshold=0.9)
+    assert len(groups) == 1
+    assert groups[0]["recommended_keep_id"] is None
+
+
+def test_clean_orphaned_cache_preserves_excluded_series(isolated_db):
+    """Les séries exclues de l'inventaire ne doivent JAMAIS être purgées par clean_orphaned_cache
+    tant qu'elles existent toujours dans Kavita."""
+    from db_manager import (
+        clean_orphaned_cache,
+        get_inventory_excluded_ids,
+        get_volume_report_cache,
+        save_volume_report_cache,
+        set_inventory_excluded,
+    )
+
+    # Série 101: série active normale
+    set_inventory_excluded(101, False)
+    # Série 102: série active mais exclue de l'inventaire
+    set_inventory_excluded(102, True)
+    save_volume_report_cache(102, {"series_id": 102, "stats": {"primary_count": 5}})
+    # Série 999: série orpheline qui n'existe plus dans Kavita
+    set_inventory_excluded(999, False)
+    save_volume_report_cache(999, {"series_id": 999, "stats": {"primary_count": 1}})
+
+    # active_ids passé depuis all_targets contient 101 et 102
+    clean_orphaned_cache(active_ids={101, 102})
+
+    # Série 102 est TOUJOURS préservée avec son flag excluded
+    assert 102 in get_inventory_excluded_ids()
+    assert get_volume_report_cache(102) is not None
+
+    # Série 999 a bien été purgée
+    assert get_volume_report_cache(999) is None
+
+    # Garde défensive: active_ids vide ne supprime rien
+    clean_orphaned_cache(active_ids=set())
+    assert 102 in get_inventory_excluded_ids()
+
+
+def test_duplicate_dismissal_restore_reinjects_cache_and_updates_counts(isolated_db):
+    """Ignorer/résoudre un doublon stocke son payload; le restaurer le réinjecte dans le cache
+    des doublons et réincrémente les compteurs de meta."""
+    from db_manager import (
+        delete_dup_dismissal,
+        get_duplicate_groups_cache,
+        get_hygiene_library_meta,
+        list_dup_dismissals,
+        save_dup_dismissal,
+        save_duplicate_groups_cache,
+        set_hygiene_library_meta,
+    )
+    from services.library_audit.duplicates import dup_group_key
+
+    gk = dup_group_key([10, 20])
+    group = {
+        "group_id": "dup-test",
+        "group_key": gk,
+        "series_ids": [10, 20],
+        "names": ["S10", "S20"],
+        "folder_paths": ["/p10", "/p20"],
+        "library_ids": [1, 1],
+        "volume_counts": [5, 5],
+        "chapter_counts": [0, 0],
+        "recommended_keep_id": None,
+        "score": 0.99,
+        "reasons": ["same_title"],
+    }
+    save_duplicate_groups_cache("1", [group])
+    save_duplicate_groups_cache("all", [group])
+    set_hygiene_library_meta("1", {"duplicates": 1, "series": 2})
+    set_hygiene_library_meta("all", {"duplicates": 1, "series": 2})
+
+    # Dismissal avec payload (reason="ignored", series_ids=[10, 20])
+    save_dup_dismissal(1, [10, 20], "ignored", payload=group)
+    # L'éviction du cache duplicate_group_cache a lieu côté route/appelant lors du dismiss
+    save_duplicate_groups_cache("1", [])
+    save_duplicate_groups_cache("all", [])
+    set_hygiene_library_meta("1", {"duplicates": 0, "series": 2})
+    set_hygiene_library_meta("all", {"duplicates": 0, "series": 2})
+
+    dismissals = list_dup_dismissals()
+    assert len(dismissals) == 1
+    assert dismissals[0]["group_key"] == gk
+    assert dismissals[0]["payload"]["group_id"] == "dup-test"
+
+    # Restauration du doublon via delete_dup_dismissal
+    ok = delete_dup_dismissal(1, group_key=gk)
+    assert ok is True
+    assert len(list_dup_dismissals()) == 0
+
+    # delete_dup_dismissal réinjecte automatiquement dans duplicate_group_cache et incrémente le meta
+    cached_1 = get_duplicate_groups_cache("1")
+    assert len(cached_1) == 1
+    assert cached_1[0]["group_key"] == gk
+    assert get_hygiene_library_meta("1")["counts"]["duplicates"] == 1
+
+    cached_all = get_duplicate_groups_cache("all")
+    assert len(cached_all) == 1
+    assert cached_all[0]["group_key"] == gk
+    assert get_hygiene_library_meta("all")["counts"]["duplicates"] == 1
+
+
+def test_series_inventory_exclude_route_syncs_counts(isolated_db, monkeypatch):
+    """La route POST /api/series/<id>/inventory-exclude synchronise en temps réel
+    les compteurs 'excluded' et 'missing' de hygiene_library_meta."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from db_manager import (
+        get_hygiene_library_meta,
+        save_volume_report_cache,
+        set_hygiene_library_meta,
+        set_inventory_excluded,
+    )
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+
+    class FakeAPI:
+        def __init__(self, *a, **k):
+            pass
+        def get_series(self, sid):
+            return {"id": sid, "name": "Test Series", "libraryId": 1}
+        def get_all_series(self, library_id=None):
+            return [{"id": 42, "name": "Test Series", "libraryId": 1}]
+
+    monkeypatch.setattr("routes.library_audit.KavitaAPI", FakeAPI)
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {"UI_LANG": "en", "KAVITA_URL": "http://x", "KAVITA_API_KEY": "k"},
+    )
+
+    set_inventory_excluded(42, False)
+    save_volume_report_cache(42, {
+        "series_id": 42,
+        "library_id": 1,
+        "series_name": "Test Series",
+        "stats": {"primary_count": 2},
+        "catalog": {"status": "ok", "expected": 4},
+        "missing_volumes": [3, 4],
+    })
+    set_hygiene_library_meta("1", {"excluded": 0, "missing": 1, "series": 1})
+    set_hygiene_library_meta("all", {"excluded": 0, "missing": 1, "series": 1})
+
+    client = app.test_client()
+
+    # Exclure la série
+    res = client.post("/api/series/42/inventory-exclude", json={"excluded": True})
+    assert res.status_code == 200
+    assert res.json["success"] is True
+
+    m1 = get_hygiene_library_meta("1")
+    assert m1["counts"]["excluded"] == 1
+    assert m1["counts"]["missing"] == 0
+
+    m_all = get_hygiene_library_meta("all")
+    assert m_all["counts"]["excluded"] == 1
+    assert m_all["counts"]["missing"] == 0
+
+    # Réinclure la série (re-sauvegarder le rapport car l'exclusion avait purgé le cache d'hygiène)
+    save_volume_report_cache(42, {
+        "series_id": 42,
+        "library_id": 1,
+        "series_name": "Test Series",
+        "stats": {"primary_count": 2},
+        "catalog": {"status": "ok", "expected": 4},
+        "missing_volumes": [3, 4],
+    })
+    res2 = client.post("/api/series/42/inventory-exclude", json={"excluded": False})
+    assert res2.status_code == 200
+    assert res2.json["success"] is True
+
+    m1_back = get_hygiene_library_meta("1")
+    assert m1_back["counts"]["excluded"] == 0
+    assert m1_back["counts"]["missing"] == 1
+
+
+def test_series_catalog_expected_route_syncs_missing_count(isolated_db, monkeypatch):
+    """La route POST /api/series/<id>/catalog-expected synchronise le compteur missing
+    dans hygiene_library_meta quand une série devient complète."""
+    from flask import Flask
+    from routes.library_audit import library_audit_bp
+    from db_manager import (
+        get_hygiene_library_meta,
+        save_volume_report_cache,
+        set_hygiene_library_meta,
+        set_inventory_excluded,
+    )
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+
+    class FakeAPI:
+        def __init__(self, *a, **k):
+            pass
+        def get_series(self, sid):
+            return {"id": sid, "name": "Expected Test", "libraryId": 1, "libraryType": "Manga"}
+        def get_library_type_for_series(self, sid):
+            return "Manga"
+        def get_series_metadata(self, sid):
+            return {}
+        def get_series_volumes(self, sid):
+            return [
+                {"id": 1, "number": 1, "chapters": [{"id": 1, "number": 1, "summary": "a"}]},
+                {"id": 2, "number": 2, "chapters": [{"id": 2, "number": 1, "summary": "b"}]},
+            ]
+
+    monkeypatch.setattr("routes.library_audit.KavitaAPI", FakeAPI)
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {"UI_LANG": "en", "KAVITA_URL": "http://x", "KAVITA_API_KEY": "k"},
+    )
+
+    set_inventory_excluded(55, False)
+    save_volume_report_cache(55, {
+        "series_id": 55,
+        "library_id": 1,
+        "series_name": "Expected Test",
+        "stats": {"primary_count": 2},
+        "catalog": {"status": "ok", "expected": 5},
+        "missing_volumes": [3, 4, 5],
+    })
+    set_hygiene_library_meta("1", {"missing": 1, "series": 1})
+    set_hygiene_library_meta("all", {"missing": 1, "series": 1})
+
+    client = app.test_client()
+
+    # Forcer l'attendu à 2 (identique au compte local -> série devient complète)
+    res = client.post("/api/series/55/catalog-expected", json={"expected": 2})
+    assert res.status_code == 200
+    assert res.json["success"] is True
+
+    m1 = get_hygiene_library_meta("1")
+    assert m1["counts"]["missing"] == 0
+
+    m_all = get_hygiene_library_meta("all")
+    assert m_all["counts"]["missing"] == 0
+
+
+
+
+
+
+
+
+
+
+
+# ===== BF200 — audit de l'Inventaire =====
+
+
+def test_completeness_score_measures_chapter_only_copies():
+    """Le couple brut `(tomes, chapitres)` se comparait lexicographiquement :
+    une copie d'un seul tome battait une copie de 364 chapitres, et la
+    recommandation désignait donc la plus vide."""
+    from services.library_audit.duplicates import completeness_score
+
+    assert completeness_score(0, 364) > completeness_score(1, 0)
+    assert completeness_score(41, 364) > completeness_score(5, 40)
+    # À nombre de tomes égal, les chapitres départagent.
+    assert completeness_score(3, 90) > completeness_score(3, 10)
+
+
+def test_recommended_keep_prefers_the_chapter_based_copy():
+    from services.library_audit.duplicates import cluster_duplicate_series
+
+    ids = {"anilist": "111"}
+    items = [
+        {"id": 10, "name": "Berserk", "libraryId": 1, "ids": ids,
+         "volume_count": 0, "chapter_count": 364, "folder_path": "/m/A"},
+        {"id": 11, "name": "Berserk", "libraryId": 1, "ids": ids,
+         "volume_count": 1, "chapter_count": 0, "folder_path": "/m/B"},
+    ]
+    group = cluster_duplicate_series(items, library_id=1, threshold=0.92)[0]
+    assert group["recommended_keep_id"] == 10
+
+
+def test_recommend_keep_id_needs_a_single_winner():
+    from services.library_audit.duplicates import recommend_keep_id
+
+    assert recommend_keep_id([1, 2], [3, 3], [0, 0]) is None  # ex aequo
+    assert recommend_keep_id([1], [9], [0]) is None  # pas un groupe
+    assert recommend_keep_id([1, 2, 3], [5, 3, 1], [0, 0, 0]) == 1
+
+
+def test_set_inventory_excluded_reports_real_transitions(isolated_db):
+    """Deux surfaces proposent l'exclusion : sans ce booléen, un POST répété
+    gonflait le compteur « exclues » d'autant."""
+    from db_manager import set_inventory_excluded
+
+    assert set_inventory_excluded(4242, True) is True
+    assert set_inventory_excluded(4242, True) is False
+    assert set_inventory_excluded(4242, False) is True
+    assert set_inventory_excluded(4242, False) is False
+
+
+def test_catalog_expected_rejects_out_of_range(isolated_db, monkeypatch):
+    """`missing_volume_numbers` énumère chaque numéro absent : sans borne, un
+    attendu absurde produisait des dizaines de milliers d'entiers en cache."""
+    from flask import Flask
+
+    from routes.library_audit import MAX_CATALOG_EXPECTED, library_audit_bp
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {"UI_LANG": "fr", "LIBRARY_INVENTORY_ENABLED": True},
+    )
+    client = app.test_client()
+
+    for bad in (0, MAX_CATALOG_EXPECTED + 1, 999999):
+        res = client.post("/api/series/77/catalog-expected", json={"expected": bad})
+        assert res.status_code == 400, bad
+        assert res.json["success"] is False
+
+    res = client.post("/api/series/77/catalog-expected", json={"expected": "douze"})
+    assert res.status_code == 400
+
+
+# ===== BF201 — ratio chapitres/tome par type de bibliothèque =====
+
+
+def test_chapters_per_volume_table_and_fallback():
+    from services.library_audit.duplicates import (
+        CHAPTERS_PER_VOLUME_BY_TYPE,
+        chapters_per_volume,
+    )
+
+    assert chapters_per_volume("Manga") == 10
+    assert chapters_per_volume("Comic") == 6
+    assert chapters_per_volume("ComicFlexible") == 6
+    assert chapters_per_volume("Book") == 25
+    # Un type inconnu ou absent retombe sur la valeur neutre, jamais sur 0.
+    for unknown in ("Webtoon", "", None):
+        assert chapters_per_volume(unknown) == CHAPTERS_PER_VOLUME_BY_TYPE["Manga"]
+
+
+def test_same_counts_different_verdict_per_library_type():
+    """30 numéros contre 4 recueils : la moyenne manga appliquée partout
+    sous-évaluait les comics rangés au numéro."""
+    from services.library_audit.duplicates import completeness_score
+
+    chapters_win = lambda lt: completeness_score(0, 30, lt) > completeness_score(4, 0, lt)  # noqa: E731
+
+    assert chapters_win("Comic") is True     # seuil 24 : 30 numéros ≈ 5 recueils
+    assert chapters_win("Manga") is False    # seuil 40
+    assert chapters_win("Book") is False     # seuil 100
+
+
+def test_group_library_type_falls_back_when_members_disagree():
+    from services.library_audit.duplicates import group_library_type
+
+    assert group_library_type(["Comic", "Comic"]) == "Comic"
+    assert group_library_type(["Comic", None]) == "Comic"
+    # Arbitrer entre deux conventions reviendrait à trancher au hasard.
+    assert group_library_type(["Comic", "Manga"]) == "Manga"
+    assert group_library_type([None, ""]) == "Manga"
+
+
+def test_cluster_stores_group_library_type():
+    from services.library_audit.duplicates import cluster_duplicate_series
+
+    ids = {"anilist": "9"}
+    group = cluster_duplicate_series(
+        [
+            {"id": 1, "name": "Saga", "libraryId": 3, "ids": ids,
+             "libraryType": "Comic", "volume_count": 0, "chapter_count": 30},
+            {"id": 2, "name": "Saga", "libraryId": 3, "ids": ids,
+             "libraryType": "Comic", "volume_count": 4, "chapter_count": 0},
+        ],
+        library_id=3,
+        threshold=0.92,
+    )[0]
+    assert group["library_type"] == "Comic"
+    assert group["recommended_keep_id"] == 1
+
+
+def test_duplicates_route_serves_completeness_without_persisting_it(
+    isolated_db, monkeypatch
+):
+    """Le navigateur lit un nombre au lieu d'appliquer la règle. La valeur est
+    dérivée au moment de servir : la ranger dans le cache en ferait une liste de
+    plus à retailler par index lors des purges."""
+    from flask import Flask
+
+    from db_manager import get_duplicate_groups_cache, save_duplicate_groups_cache
+    from routes.library_audit import library_audit_bp
+    from services.library_audit.duplicates import dup_group_key
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {"UI_LANG": "fr", "LIBRARY_INVENTORY_ENABLED": True},
+    )
+
+    save_duplicate_groups_cache(
+        "9",
+        [
+            {
+                "group_id": "dup-1",
+                "group_key": dup_group_key([1, 2]),
+                "series_ids": [1, 2],
+                "names": ["Saga", "Saga Digital"],
+                "folder_paths": ["/c/A", "/c/B"],
+                "library_ids": [9, 9],
+                "library_type": "Comic",
+                "volume_counts": [0, 4],
+                "chapter_counts": [30, 0],
+                "recommended_keep_id": 1,
+                "score": 1.0,
+                "reasons": ["same_anilist_id"],
+            }
+        ],
+    )
+
+    res = app.test_client().get("/api/libraries/9/duplicates")
+    assert res.status_code == 200
+    served = res.json["groups"][0]
+    # 30 numéros / 6 = 5.0 équivalents, contre 4 tomes : la copie en chapitres gagne.
+    assert served["completeness"] == [5.0, 4.0]
+
+    # Rien n'a été écrit dans le cache : la valeur reste dérivée.
+    assert "completeness" not in get_duplicate_groups_cache("9")[0]
+
+
+def test_frontend_reads_completeness_and_owns_no_ratio():
+    """Le ratio vit d'un seul côté : le redéclarer en JS exposait la case
+    précochée par 🎯 à contredire le badge 🌟 rendu par le serveur."""
+    from pathlib import Path
+
+    js = (Path(__file__).resolve().parent.parent / "static" / "js" / "library_audit.js").read_text(
+        encoding="utf-8"
+    )
+    assert "CHAPTERS_PER_VOLUME" not in js
+    assert "data-completeness" in js
+    assert "getAttribute('data-completeness')" in js

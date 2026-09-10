@@ -2,6 +2,7 @@ import logging
 import base64
 import json
 import time
+import unicodedata
 import requests
 from curl_cffi import requests as cffi_requests
 
@@ -165,6 +166,117 @@ def series_external_ids(current: dict) -> dict:
     """
     current = current or {}
     return {key: current.get(key) for key in SERIES_EXTERNAL_ID_KEYS}
+
+
+# Fournisseur de métadonnées imposé à une série (Kavita+). Même famille de pièges
+# que `SERIES_EXTERNAL_ID_KEYS`, et découverte au même endroit : depuis Kavita
+# 0.9.1, `SeriesController.UpdateSeries` se termine par
+# `UpdateSeriesMetadataProviderOverride(series.Id, updateSeries.MetadataProviderOverride)`.
+# Une clé absente du corps JSON arrive en `null` côté .NET, et `null` ne veut pas
+# dire « ne touche à rien » : il veut dire « hérite du fournisseur de la
+# bibliothèque ». Une écriture de titre alternatif effaçait donc le fournisseur
+# choisi pour la série, et Kavita en profitait pour purger ses avis, notes et
+# recommandations externes en cache et rouvrir sa liste noire. Comme les sept
+# identifiants, la valeur se relit dans le `SeriesDto` et se renvoie telle quelle.
+SERIES_PROVIDER_OVERRIDE_KEY = "metadataProviderOverride"
+
+
+def series_preserved_state(current: dict) -> dict:
+    """Les champs de `UpdateSeriesDto` qu'un payload partiel détruirait.
+
+    Tout envoi à `POST /api/Series/update` doit les porter, y compris celui qui
+    ne prétend toucher qu'au titre alternatif ou qu'aux verrous.
+    """
+    current = current or {}
+    return {
+        **series_external_ids(current),
+        SERIES_PROVIDER_OVERRIDE_KEY: current.get(SERIES_PROVIDER_OVERRIDE_KEY),
+    }
+
+
+class KavitaRefusal(str):
+    """Message d'un refus **structurel** de Kavita, porteur de son motif.
+
+    Un refus n'est pas une panne : Kavita a compris la demande et la rejette pour
+    une raison qui ne bougera pas au prochain essai. C'est une chaîne partout où
+    l'appelant ne fait qu'afficher le détail — aucun appelant existant n'a à
+    changer — et les rares qui doivent distinguer un refus d'un échec lisent son
+    motif par `refusal_reason()`.
+    """
+
+    def __new__(cls, message, reason: str):
+        refusal = super().__new__(cls, message)
+        refusal.reason = reason
+        return refusal
+
+
+def refusal_reason(detail) -> Optional[str]:
+    """Le motif d'un refus structurel, ou `None` pour un détail ordinaire."""
+    return getattr(detail, "reason", None) if isinstance(detail, KavitaRefusal) else None
+
+
+# Refus structurels de `POST /api/Series/update`, apparus en Kavita 0.9.1 :
+# le nom (ou le titre alternatif) entre en collision, une fois normalisé, avec
+# celui d'une autre série de la même bibliothèque et du même format, ou bien le
+# nom qu'on remplace ancre encore un dossier sur disque et le scanner en ferait
+# une série séparée. Kavita répond 400 avec un message **traduit dans la langue
+# du compte**, jamais avec la clé de traduction : le texte est le seul signal
+# lisible. La table couvre les deux langues de MetaKavita ; sous une autre langue
+# d'interface Kavita, le refus retombe sur le chemin d'erreur ordinaire, comme
+# avant — mieux vaut un échec franc qu'un verdict inventé.
+_SERIES_UPDATE_REFUSALS = (
+    (
+        "localized_name_exists",
+        (
+            "another series in this library already uses this name",
+            "une autre serie de cette bibliotheque utilise deja ce nom",
+        ),
+    ),
+    (
+        "localized_name_orphans_files",
+        (
+            "changing this localized name would split files",
+            "changer ce nom localise diviserait les fichiers",
+        ),
+    ),
+    (
+        "name_exists",
+        (
+            "a series with this name already exists in this library",
+            "une serie avec ce nom existe deja dans cette bibliotheque",
+        ),
+    ),
+    (
+        "name_orphans_files",
+        (
+            "changing this name would split files",
+            "changer ce nom diviserait les fichiers",
+        ),
+    ),
+)
+
+
+def _comparable_refusal_text(raw) -> str:
+    """Texte comparable : sans accents, sans casse, espaces resserrés.
+
+    Les accents tombent pour que le message français reste reconnaissable même
+    quand il arrive mal décodé (un `Ã©` pour un `é` suffit sinon à faire passer
+    un refus pour une panne).
+    """
+    decomposed = unicodedata.normalize("NFKD", str(raw or ""))
+    stripped = "".join(ch for ch in decomposed if not unicodedata.combining(ch))
+    return " ".join(stripped.casefold().split())
+
+
+def classify_series_update_refusal(body) -> Optional[str]:
+    """Motif porté par un corps 400 de `POST /api/Series/update`, ou `None`."""
+    text = _comparable_refusal_text(body)
+    if not text:
+        return None
+    for reason, phrases in _SERIES_UPDATE_REFUSALS:
+        if any(phrase in text for phrase in phrases):
+            return reason
+    return None
 
 
 def lock_keys_from_payload(*payloads) -> list:
@@ -781,11 +893,12 @@ class KavitaAPI:
             "sortNameLocked": current_sort_name_locked,
             "coverImageLocked": current_cover_locked,
             # Même leçon que `localizedName` / `coverImageLocked`, appliquée aux
-            # sept identifiants de correspondance externe : les omettre les remet
-            # à zéro. Cet appel part APRÈS `update_series_external_ids()` dans
-            # `apply_kavita_payload()`, si bien que l'écriture d'un simple titre
-            # alternatif annulait les identifiants tout juste posés.
-            **series_external_ids(current),
+            # sept identifiants de correspondance externe et au fournisseur de
+            # métadonnées imposé : les omettre les remet à zéro. Cet appel part
+            # APRÈS `update_series_external_ids()` dans `apply_kavita_payload()`,
+            # si bien que l'écriture d'un simple titre alternatif annulait les
+            # identifiants tout juste posés.
+            **series_preserved_state(current),
         }
 
         # Titre alternatif (localizedName)
@@ -822,7 +935,7 @@ class KavitaAPI:
             logging.info(self.t.get("log_kavita_response", "   📥 Réponse Kavita (Code {0}) : {1}").format(res_unlock.status_code, res_unlock.text))
 
             if res_unlock.status_code != 200:
-                return False, f"Code {res_unlock.status_code} : {res_unlock.text}", False
+                return False, self._general_write_failure(res_unlock), False
 
             # Passage 2 : Application du verrou de sécurité
             logging.info(self.t.get("log_kavita_audit_general_relock", "👉 [AUDIT KAVITA] Envoi GÉNÉRAL (Étape 2 : RE-LOCK)"))
@@ -838,6 +951,32 @@ class KavitaAPI:
         except Exception as e:
             logging.error(self.t.get("log_kavita_audit_crash_general", "❌ [AUDIT KAVITA] Crash General : {0}").format(e))
             return False, str(e), False
+
+    def _general_write_failure(self, res):
+        """Détail d'une écriture générale rejetée : refus structurel ou panne.
+
+        Kavita 0.9.1 refuse un nom ou un titre alternatif qui entrerait en
+        collision avec une autre série de la bibliothèque, et refuse de remplacer
+        celui qui ancre encore un dossier fusionné sur disque. Ces deux verdicts
+        sont définitifs : les rendre comme une panne ferait rejouer l'écriture à
+        chaque passe, et marquerait indéfiniment en échec une série que Kavita se
+        contente de protéger. Ils partent donc en `KavitaRefusal`, que les
+        appelants savent distinguer, avec le texte de Kavita conservé pour que
+        l'utilisateur sache laquelle de ses séries est concernée.
+        """
+        raw = f"Code {res.status_code} : {res.text}"
+        reason = classify_series_update_refusal(res.text) if res.status_code == 400 else None
+        if not reason:
+            return raw
+        template = self.t.get(f"msg_refusal_{reason}")
+        message = template.format(res.text) if template else raw
+        logging.warning(
+            self.t.get(
+                "log_kavita_refusal",
+                "⚠️ [AUDIT KAVITA] Écriture générale refusée par Kavita : {0}",
+            ).format(message)
+        )
+        return KavitaRefusal(message, reason)
 
     def seal_series_locks(self, series_id, *, lock_keys=None) -> tuple:
         """
@@ -917,10 +1056,11 @@ class KavitaAPI:
             # BF106 : omettre le flag revient à demander un déverrouillage, que Kavita
             # traduit par « efface la couverture et régénère-la depuis les fichiers ».
             "coverImageLocked": bool(current.get("coverImageLocked", False)),
-            # Sceller des verrous ne doit rien détruire au passage : sans ces sept
+            # Sceller des verrous ne doit rien détruire au passage : sans ces
             # clés, le bouton 🔒 remettait à zéro les correspondances Hardcover /
-            # Metron / ComicVine / CBR / AniList / MAL / MangaBaka de la série.
-            **series_external_ids(current),
+            # Metron / ComicVine / CBR / AniList / MAL / MangaBaka de la série,
+            # et son fournisseur de métadonnées avec.
+            **series_preserved_state(current),
         }
 
         try:
@@ -1270,8 +1410,9 @@ class KavitaAPI:
             # Les sept identifiants, pas seulement les trois qu'on sait écrire :
             # n'envoyer qu'AniList / MAL / MangaBaka effaçait Hardcover, Metron,
             # ComicVine et CBR, que l'utilisateur a pu associer à la main dans
-            # Kavita et que MetaKavita n'a aucune raison de toucher.
-            **series_external_ids(current),
+            # Kavita et que MetaKavita n'a aucune raison de toucher. Le
+            # fournisseur imposé voyage avec eux, pour la même raison.
+            **series_preserved_state(current),
         }
 
         if new_anilist is not None:

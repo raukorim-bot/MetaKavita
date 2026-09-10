@@ -11,7 +11,7 @@ Kavita n'émet pas de webhooks HTTP sortants pour les mises à jour de biblioth�
 Un **interrupteur maître** éteint toute la carte (pas de minuterie, pas de hub de scan). Allumé, choisis **un** déclencheur :
 
 * **Toutes les X minutes** — comme avant : séries absentes du cache ou encore `PENDING`. Les minutes ne sont plus l'interrupteur (`0` voulait dire off).
-* **À la fin d'un scan de bibliothèque Kavita** — Meta écoute le hub de messages de Kavita (le même canal que l'UI Kavita). Après un court silence, il compare le catalogue à un instantané et n'enfile que les séries **nouvelles**. Un **filet** en heures (défaut 24, `0` = off) rattrape un scan fini pendant que Meta ou le socket était coupé.
+* **À la fin d'un scan de bibliothèque Kavita** — Meta écoute le hub de messages de Kavita (le même canal que l'UI Kavita). Après un court silence — une quinzaine de secondes, le temps que le scan se termine vraiment — il compare le catalogue à un instantané et n'enfile que les séries **nouvelles**. Comptez donc une petite vingtaine de secondes entre la fin du scan et les premières séries en file. Un **filet** en heures (défaut 24, `0` = off) rattrape un scan fini pendant que Meta ou le socket était coupé ; sa dernière exécution est retenue en base, si bien qu'un redémarrage du conteneur ne relance plus une passe complète à chaque fois.
 
 Le **mode** ne s'applique qu'aux jobs Auto-sync (pas le lot du tableau de bord, un clic ligne, ni Companion) :
 

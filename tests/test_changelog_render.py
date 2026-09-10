@@ -261,7 +261,16 @@ def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
 
     for retire in (
         "BF143", "BF154", "BF155", "BF162", "BF164", "BF165", "BF166", "BF168", "BF169",
-        "BF188", "BF189", "BF190", "BF191", "BF192", "BF193", "BF194", "BF196", "BF197",
+        "BF188", "BF189", "BF190", "BF191", "BF192", "BF193", "BF194", "BF196", "BF197", "BF198", "BF199",
+        # BF201 ne touche que le comparatif volumétrique des doublons, apparu
+        # avec C110/C114 dans cette même version : personne ne l'a encore vu.
+        "BF201",
+        # BF202 répare l'Auto-sync sur scan (C96–C99), lui aussi publié pour la
+        # première fois par cette version.
+        "BF202",
+        # BF204 répare l'Atelier (C101–C114), qui sort avec cette version : ses
+        # brouillons coincés et ses pastilles figées n'ont jamais atteint personne.
+        "BF204",
     ):
         assert retire not in bloc
 

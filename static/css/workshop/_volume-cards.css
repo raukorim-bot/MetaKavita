@@ -117,10 +117,20 @@
     border: 1px solid rgba(45, 212, 191, 0.35);
 }
 
-.workshop-status-chip--pending {
+.workshop-status-chip--pending,
+/* Une unité que la passe a laissée de côté n'est ni un succès ni un échec :
+   même gris neutre que « En attente ». */
+.workshop-status-chip--skipped,
+.workshop-status-chip--nothing_found {
     background: rgba(148, 163, 184, 0.12);
     color: #94a3b8;
     border: 1px solid rgba(148, 163, 184, 0.25);
+}
+
+.workshop-status-chip--failed {
+    background: rgba(239, 68, 68, 0.14);
+    color: #fca5a5;
+    border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 /* Puces de lien externe fournisseur */

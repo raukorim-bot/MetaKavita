@@ -15,6 +15,7 @@ from db_manager import (
     get_volume_report_cache,
     list_dismissed_group_keys,
     save_duplicate_groups_cache,
+    save_hygiene_series_identities,
     save_volume_report_cache,
     set_hygiene_library_meta,
     set_series_external_id_flags,
@@ -221,6 +222,8 @@ def _run_scan(
     incremental = mode == "incremental"
     state_counts: Dict[str, int] = {}
     reused = 0
+    per_lib_stats: Dict[str, dict] = {}
+    per_lib_skipped: Dict[str, int] = {}
 
     # "all" is the storage/cache key for "Toutes les bibliothèques" ; l'API
     # Kavita et le clustering doublons veulent None pour ne filtrer aucune lib.
@@ -241,10 +244,17 @@ def _run_scan(
         cached = get_all_cached_data()
         excluded_ids = get_inventory_excluded_ids()
         skipped = 0
+        all_targets = targets
         if excluded_ids:
-            skipped_before = len(targets)
-            targets = [t for t in targets if int(t.get("id") or 0) not in excluded_ids]
+            skipped_before = len(all_targets)
+            targets = [t for t in all_targets if int(t.get("id") or 0) not in excluded_ids]
             skipped = skipped_before - len(targets)
+            if scan_all:
+                for t in all_targets:
+                    if int(t.get("id") or 0) in excluded_ids:
+                        lk = str(t.get("libraryId") or "").strip()
+                        if lk:
+                            per_lib_skipped[lk] = per_lib_skipped.get(lk, 0) + 1
             if skipped:
                 logging.info(
                     "[Inventaire] %s série(s) exclue(s) de l'inventaire, ignorée(s)",
@@ -303,9 +313,6 @@ def _run_scan(
                     library_type=lib_type,
                 )
                 has_ext = identity_has_external_id(identity)
-                ext_flags[sid] = has_ext
-                if not has_ext:
-                    no_id_count += 1
 
                 with _lock:
                     _state["phase"] = "volumes"
@@ -351,6 +358,13 @@ def _run_scan(
                     sid, volumes, series_name=name, catalog=catalog
                 )
                 save_volume_report_cache(sid, report)
+                # Le flag et son compteur ne sont écrits qu'une fois l'analyse
+                # menée à son terme : les poser dès l'identité rangeait une série
+                # tombée sur un 503 Kavita à la fois dans `no_external_id` et dans
+                # `failed`, et la barre de santé comptait deux fois la même.
+                ext_flags[sid] = has_ext
+                if not has_ext:
+                    no_id_count += 1
                 badge = report.get("badge") or "—"
                 completion = report.get("completion") or {}
                 completion_state = completion.get("state") or "unknown"
@@ -372,6 +386,30 @@ def _run_scan(
                     empty_series_count += 1
                 identities_for_dup.append(identity)
 
+                target_lib = str(s.get("libraryId") or api_library_id or "").strip()
+                if scan_all and target_lib:
+                    pl = per_lib_stats.setdefault(
+                        target_lib,
+                        {
+                            "missing": 0,
+                            "no_external_id": 0,
+                            "empty_series": 0,
+                            "series": 0,
+                            "failed": 0,
+                            "state_counts": {},
+                        },
+                    )
+                    pl["series"] += 1
+                    if not has_ext:
+                        pl["no_external_id"] += 1
+                    if missing_n:
+                        pl["missing"] += 1
+                    if vol_c == 0 and chap_c == 0:
+                        pl["empty_series"] += 1
+                    pl["state_counts"][completion_state] = (
+                        pl["state_counts"].get(completion_state, 0) + 1
+                    )
+
                 logging.info(
                     "[Inventaire] %s/%s %s — %s",
                     _state["done"] + 1,
@@ -387,6 +425,25 @@ def _run_scan(
                 # seulement quand l'analyse aboutit).
                 failed = True
                 failed_count += 1
+                if scan_all:
+                    target_lib = str(s.get("libraryId") or api_library_id or "").strip()
+                    if target_lib:
+                        pl = per_lib_stats.setdefault(
+                            target_lib,
+                            {
+                                "missing": 0,
+                                "no_external_id": 0,
+                                "empty_series": 0,
+                                "series": 0,
+                                "failed": 0,
+                                "state_counts": {},
+                            },
+                        )
+                        pl["series"] += 1
+                        pl["failed"] += 1
+                        pl["state_counts"]["unknown"] = (
+                            pl["state_counts"].get("unknown", 0) + 1
+                        )
                 logging.warning(
                     "[Inventaire] %s : analyse en échec — %s",
                     series_label(kavita_name, sid),
@@ -449,10 +506,13 @@ def _run_scan(
             config=config,
         )
         save_duplicate_groups_cache(library_id, groups)
+        save_hygiene_series_identities(identities_for_dup)
 
         # Nettoyage automatique des caches orphelins (séries supprimées dans Kavita)
-        if scan_all and targets:
-            active_sids = {int(t["id"]) for t in targets if t.get("id") is not None}
+        # Immunité pour les séries exclues (all_targets inclut les séries exclues)
+        # et exécution UNIQUEMENT lors d'un scan global complet sans filtre series_ids
+        if scan_all and not series_ids and getattr(api, "last_inventory_complete", False) and all_targets:
+            active_sids = {int(t["id"]) for t in all_targets if t.get("id") is not None}
             clean_orphaned_cache(active_sids)
 
         counts = {
@@ -475,6 +535,37 @@ def _run_scan(
             "mode": mode,
         }
         set_hygiene_library_meta(library_id, counts)
+
+        if scan_all and per_lib_stats:
+            lib_groups_map: Dict[str, list] = {}
+            for g in groups or []:
+                unique_lids = {
+                    str(lid).strip()
+                    for lid in (g.get("library_ids") or [])
+                    if lid is not None and str(lid).strip()
+                }
+                for lid in unique_lids:
+                    lib_groups_map.setdefault(lid, []).append(g)
+
+            for lib_k, lstats in per_lib_stats.items():
+                if not lib_k:
+                    continue
+                lib_groups = lib_groups_map.get(lib_k) or []
+                save_duplicate_groups_cache(lib_k, lib_groups)
+                lib_counts = {
+                    "missing": lstats["missing"],
+                    "duplicates": len(lib_groups),
+                    "no_external_id": lstats["no_external_id"],
+                    "empty_series": lstats["empty_series"],
+                    "series": lstats["series"],
+                    **summarize_states(lstats["state_counts"]),
+                    "failed": lstats["failed"],
+                    "excluded": per_lib_skipped.get(lib_k, 0),
+                    "states": dict(lstats["state_counts"]),
+                    "mode": mode,
+                }
+                set_hygiene_library_meta(lib_k, lib_counts)
+
         with _lock:
             _state["counts"] = counts
 
@@ -491,7 +582,11 @@ def _run_scan(
     except Exception as e:
         logging.error("[Inventaire] scan failed: %s", safe_exc_str(e))
         with _lock:
-            _state["error"] = str(e)
+            # Cet état part vers `/hygiene-scan/status` **et** vers tous les
+            # navigateurs connectés par WebSocket. Un `str(e)` brut après un
+            # appel Kavita y aurait recopié l'URL complète, `?apiKey=` compris
+            # (voir secure_logging).
+            _state["error"] = safe_exc_str(e)
     finally:
         with _lock:
             _state["running"] = False

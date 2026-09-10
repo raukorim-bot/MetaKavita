@@ -38,8 +38,39 @@
             <button type="button" class="close-btn" onclick="closeDuplicatesModal()" aria-label="Close">&times;</button>
         </div>
         <div class="modal-scroll-body audit-modal-body">
-            <p class="muted audit-hint">{{ t.audit_duplicates_hint }}</p>
+            <div class="audit-toprow">
+                <p class="muted audit-hint">{{ t.audit_duplicates_hint }}</p>
+                <div class="audit-dup-dismissals-toggle">
+                    <button type="button" class="btn-opt btn-sm" id="auditDismissedDupsBtn" onclick="toggleDismissedDupsList()">
+                        {{ t.audit_dup_dismissals_btn }}
+                    </button>
+                </div>
+            </div>
+            <div class="audit-dup-batch-bar" id="dupBatchBar">
+                <div class="audit-dup-search-wrap">
+                    <input type="search" id="dupSearchInput"
+                           placeholder="{{ t.audit_dup_search_placeholder }}"
+                           aria-label="{{ t.audit_dup_search_placeholder }}">
+                </div>
+                <button type="button" class="btn-opt btn-sm" id="dupSelectAllExtraBtn" onclick="selectAllExtraDuplicates()">
+                    {{ t.audit_dup_select_all_extra }}
+                </button>
+                <button type="button" class="btn-opt btn-sm" id="dupDeselectAllBtn" onclick="deselectAllDuplicates()">
+                    {{ t.audit_dup_deselect_all }}
+                </button>
+                <span class="audit-dup-selected-count" id="dupSelectedCountBadge"></span>
+            </div>
+            <div id="duplicatesDismissedBox" class="audit-dup-dismissed-box" style="display:none;"></div>
             <div id="duplicatesBody" class="audit-body">{{ t.audit_loading }}</div>
+            <details id="dupScriptPreviewDetails" class="audit-dup-preview-details">
+                <summary class="audit-dup-preview-summary">
+                    <span>📜 {{ t.audit_dup_script_preview_title }}</span>
+                    <span class="audit-dup-preview-hint muted">{{ t.audit_dup_script_preview_hint }}</span>
+                </summary>
+                <div class="audit-dup-preview-body">
+                    <pre class="audit-dup-preview-pre"><code id="dupScriptPreview"># {{ t.audit_dup_script_preview_empty }}</code></pre>
+                </div>
+            </details>
         </div>
         <div class="modal-footer audit-footer audit-dup-footer">
             <div class="audit-dup-settings">
@@ -79,6 +110,10 @@
                         <option value="ps1">{{ t.audit_dup_format_ps1 }}</option>
                     </select>
                 </label>
+                <label class="checkbox-label audit-inline-check audit-dup-scan-check" title="{{ t.audit_dup_include_scan_cmd_hint }}">
+                    <input type="checkbox" id="dupTriggerScanCb">
+                    {{ t.audit_dup_include_scan_cmd }}
+                </label>
                 <button type="button" class="btn-opt" id="dupCopyScript">{{ t.audit_dup_copy_script }}</button>
                 <button type="button" class="btn-opt" id="dupDownloadScript">{{ t.audit_dup_download_script }}</button>
                 <button type="button" class="btn-sync" id="dupTriggerKavitaScan">{{ t.audit_dup_trigger_scan }}</button>
@@ -103,6 +138,26 @@
                     <input type="checkbox" id="missingIncludeUnknownCb" onchange="openMissingVolumesModal()">
                     {{ t.audit_include_unknown }}
                 </label>
+            </div>
+            <div class="audit-missing-filter-bar" id="missingFilterBar" style="display:none;">
+                <div class="audit-missing-search-wrap">
+                    <input type="search" id="missingSearchInput"
+                           placeholder="{{ t.audit_missing_search_placeholder }}"
+                           aria-label="{{ t.audit_missing_search_placeholder }}">
+                </div>
+                <div class="audit-missing-status-filters" role="group" aria-label="{{ t.audit_missing_filter_status }}">
+                    <button type="button" class="btn-opt btn-sm audit-status-filter-btn active" data-filter="all">
+                        {{ t.audit_missing_filter_all }}
+                    </button>
+                    <button type="button" class="btn-opt btn-sm audit-status-filter-btn" data-filter="finished"
+                            title="{{ t.audit_missing_filter_finished_hint }}">
+                        {{ t.audit_missing_filter_finished }}
+                    </button>
+                    <button type="button" class="btn-opt btn-sm audit-status-filter-btn" data-filter="ongoing">
+                        {{ t.audit_missing_filter_ongoing }}
+                    </button>
+                </div>
+                <span class="audit-missing-count-badge" id="missingFilterCountBadge"></span>
             </div>
             <div id="missingVolumesBody" class="audit-body">{{ t.audit_loading }}</div>
         </div>

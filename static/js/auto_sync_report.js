@@ -9,10 +9,21 @@ function _asrT(key, fallback) {
     return T[key] || fallback;
 }
 
+/* Le repli échappe lui aussi.
+ *
+ * Il rendait la valeur brute quand `escapeHtmlText` manquait — un ordre de
+ * chargement modifié, un `utils.js` non servi — et le résultat part dans
+ * `innerHTML` : noms de séries et messages d'erreur des scrapers compris. Un
+ * repli peut être plus fruste que la fonction qu'il remplace, jamais moins
+ * protecteur qu'elle. */
 function _asrEsc(value) {
-    return (typeof escapeHtmlText === 'function')
-        ? escapeHtmlText(value)
-        : String(value == null ? '' : value);
+    if (typeof escapeHtmlText === 'function') return escapeHtmlText(value);
+    return String(value == null ? '' : value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
 }
 
 function _asrIdsFromPayload(payload) {

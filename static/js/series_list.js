@@ -298,6 +298,17 @@
                 } else if (hygiene === 'RELEASING') {
                     var pub = String(s.publication_status || '').toUpperCase();
                     show = pub === 'RELEASING' || pub === 'HIATUS' || pub === 'NOT_YET_RELEASED';
+                } else if (hygiene === 'HEALTHY') {
+                    var cs = String(s.completion_state || '');
+                    show = cs === 'complete' || cs === 'uptodate';
+                } else if (hygiene === 'INCOMPLETE') {
+                    var cs = String(s.completion_state || '');
+                    show = cs === 'poor' || cs === 'partial' || cs === 'near' || cs === 'overshoot' || (Number(s.missing_count) || 0) > 0;
+                } else if (hygiene === 'UNKNOWN_EXPECTED') {
+                    var cs = String(s.completion_state || '');
+                    show = cs === 'unknown';
+                } else if (hygiene === 'EXCLUDED') {
+                    show = !!(s.inventory_excluded === true || s.inventory_excluded === 1 || s.inventory_excluded === '1');
                 }
             }
             if (show && searchQuery) {

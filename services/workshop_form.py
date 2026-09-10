@@ -163,6 +163,8 @@ def series_form(series: dict, metadata: dict, t: dict) -> List[Dict[str, Any]]:
     """Champs éditables de la fiche série, dans l'ordre d'affichage."""
     series = series if isinstance(series, dict) else {}
     meta = unwrap_metadata(metadata)
+    # Une seule fois, pas une par champ `select` : la table est la même pour tous.
+    all_options = lookups(t)
     out = []
     for key, dto_key, lock, kind in SERIES_SPECS:
         source = series if key == "localizedName" else meta
@@ -181,7 +183,7 @@ def series_form(series: dict, metadata: dict, t: dict) -> List[Dict[str, Any]]:
         if kind == "textarea":
             item["rows"] = 2
         if kind == "select":
-            item["options"] = lookups(t).get(key, [])
+            item["options"] = all_options.get(key, [])
         out.append(item)
     return out
 

@@ -221,6 +221,19 @@ def volume_enrich_reset(series_id):
                 series_id,
                 int(chapter_id) if chapter_id not in (None, "") else None,
             )
+            if result.get("busy"):
+                # Une passe écrit cette série : lui retirer `volume_unit_cache`
+                # en plein vol lui ferait refaire des unités déjà écrites.
+                return jsonify(
+                    {
+                        **result,
+                        "success": False,
+                        "error": t.get(
+                            "workshop_busy",
+                            "Une écriture est déjà en cours sur cette série.",
+                        ),
+                    }
+                ), 409
             return jsonify(
                 {
                     "success": True,

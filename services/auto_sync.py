@@ -143,15 +143,39 @@ def enqueue_auto(series_list, config) -> int:
     if not prepared:
         return 0
     from db_manager import begin_auto_sync_run
+    from services.background_tasks import _auto_sync_run_lock
 
-    begin_auto_sync_run(
-        normalize_trigger((config or {}).get("AUTO_SYNC_TRIGGER")),
-        [(sid, name) for sid, name, _item in prepared],
-    )
-    for _sid, _name, item in prepared:
-        put_sync(item)
+    # Ouvrir la vague et enfiler ses séries doit être indivisible : entre les
+    # deux, la file auto est vide et une clôture concurrente fermerait la vague
+    # qui vient de naître (voir `_auto_sync_run_lock`).
+    with _auto_sync_run_lock:
+        begin_auto_sync_run(
+            normalize_trigger((config or {}).get("AUTO_SYNC_TRIGGER")),
+            [(sid, name) for sid, name, _item in prepared],
+        )
+        queued = 0
+        try:
+            for _sid, _name, item in prepared:
+                put_sync(item)
+                queued += 1
+        finally:
+            if queued < len(prepared):
+                # La vague annonçait N séries dont M seulement ont été enfilées :
+                # les autres resteraient « en attente » à jamais.
+                _drop_unqueued_from_run(prepared[queued:])
     broadcast_auto_sync_report()
-    return len(prepared)
+    return queued
+
+
+def _drop_unqueued_from_run(leftovers) -> None:
+    """Marque en échec les séries qu'une vague annonçait sans les enfiler."""
+    from db_manager import record_auto_sync_item
+
+    for sid, name, _item in leftovers or []:
+        try:
+            record_auto_sync_item(sid, name, False, "enqueue_failed")
+        except Exception as exc:
+            logging.debug("auto-sync leftover not recorded: %s", exc)
 
 
 def replace_snapshot(series_list) -> None:
@@ -210,8 +234,9 @@ def run_scan_fire(config, t) -> int:
     if series is None:
         logging.warning(
             t.get(
-                "log_orphans_skipped",
-                "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet.",
+                "log_auto_sync_inventory_incomplete",
+                "🤖 [Auto-Sync] Passe ignorée : inventaire Kavita incomplet "
+                "(une bibliothèque n'a pas répondu).",
             )
         )
         return 0
@@ -242,8 +267,9 @@ def run_interval_or_catchup(config, t) -> int:
     if series is None:
         logging.warning(
             t.get(
-                "log_orphans_skipped",
-                "🧹 Nettoyage des orphelines ignoré : inventaire Kavita incomplet.",
+                "log_auto_sync_inventory_incomplete",
+                "🤖 [Auto-Sync] Passe ignorée : inventaire Kavita incomplet "
+                "(une bibliothèque n'a pas répondu).",
             )
         )
         return 0

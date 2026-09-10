@@ -200,6 +200,21 @@ def init_db():
 
 def _ensure_library_audit_tables(c):
     """Caches for library hygiene reports (volume gaps / duplicate groups)."""
+    if _schema_pending("hygiene_series_identities"):
+        c.execute(
+            '''CREATE TABLE IF NOT EXISTS hygiene_series_identities (
+                 series_id INTEGER PRIMARY KEY,
+                 library_id TEXT NOT NULL,
+                 identity_json TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+               )'''
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_hygiene_identities_lib "
+            "ON hygiene_series_identities(library_id)"
+        )
+        _schema_done("hygiene_series_identities")
+
     if not _schema_pending("library_audit_tables"):
         return
     c.execute(
@@ -245,9 +260,14 @@ def _ensure_library_audit_tables(c):
              series_ids_json TEXT NOT NULL,
              reason TEXT NOT NULL,
              updated_at TEXT NOT NULL,
+             payload_json TEXT,
              PRIMARY KEY (library_id, group_key)
            )'''
     )
+    try:
+        c.execute("ALTER TABLE hygiene_dup_dismissals ADD COLUMN payload_json TEXT")
+    except Exception:
+        pass
     c.execute(
         "CREATE INDEX IF NOT EXISTS idx_hygiene_dismiss_lib "
         "ON hygiene_dup_dismissals(library_id)"
@@ -442,7 +462,58 @@ def _ensure_auto_sync_tables(c):
         "CREATE INDEX IF NOT EXISTS idx_auto_sync_run_items_run "
         "ON auto_sync_run_items(run_id)"
     )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS auto_sync_state (
+             key TEXT PRIMARY KEY,
+             value REAL
+           )'''
+    )
     _schema_done("auto_sync_report_tables")
+
+
+def get_auto_sync_catchup_at():
+    """Dernier passage du filet horaire, ou `None` s'il n'a jamais tourné.
+
+    Persisté : gardé en mémoire de processus, il repartait à « jamais » à chaque
+    démarrage, et le filet relançait donc une passe complète de l'inventaire à
+    chaque redémarrage du conteneur — une boucle de crash suffisait à en
+    enchaîner autant.
+    """
+    if not os.path.exists(DB_FILE):
+        return None
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        row = c.execute(
+            "SELECT value FROM auto_sync_state WHERE key = 'catchup_at'"
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or row[0] is None:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def set_auto_sync_catchup_at(ts) -> None:
+    """Note le passage du filet horaire."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        c.execute(
+            "INSERT INTO auto_sync_state (key, value) VALUES ('catchup_at', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (float(ts),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def get_auto_sync_known_ids() -> set:
@@ -1607,18 +1678,32 @@ def is_cover_manual(series_id) -> bool:
     return bool(row[0]) if row and row[0] is not None else False
 
 
-def set_inventory_excluded(series_id, excluded: bool = True):
-    """Exclut (ou réintègre) une série de l'inventaire, sans toucher au reste."""
+def set_inventory_excluded(series_id, excluded: bool = True) -> bool:
+    """Exclut (ou réintègre) une série de l'inventaire, sans toucher au reste.
+
+    Rend `True` seulement si l'état a **changé**. L'écriture est idempotente,
+    mais l'appelant ajustait un compteur « exclues » à l'aveugle : deux surfaces
+    proposent l'exclusion (la modale des manquants et celle du rapport), et
+    l'une pouvant afficher un instantané périmé, la même série pouvait être
+    exclue deux fois et gonfler le compteur d'autant.
+    """
     if not os.path.exists(DB_FILE):
         init_db()
+    sid = int(series_id)
+    target = 1 if excluded else 0
     conn = _connect()
     c = conn.cursor()
     _ensure_schema(c)
+    row = c.execute(
+        "SELECT inventory_excluded FROM series_cache WHERE series_id = ?", (sid,)
+    ).fetchone()
+    was = int(row[0] or 0) if row else 0
     c.execute('''INSERT INTO series_cache (series_id, status, inventory_excluded) VALUES (?, 'PENDING', ?)
                  ON CONFLICT(series_id) DO UPDATE SET inventory_excluded=excluded.inventory_excluded''',
-              (int(series_id), 1 if excluded else 0))
+              (sid, target))
     conn.commit()
     conn.close()
+    return was != target
 
 
 def get_inventory_excluded_ids() -> set:
@@ -1728,6 +1813,7 @@ _SERIES_SCOPED_TABLES = (
     "pending_reviews",
     "volume_report_cache",
     "series_audit_flags",
+    "hygiene_series_identities",
     "hygiene_catalog_overrides",
     "volume_unit_cache",
     "auto_sync_known_series",
@@ -1771,6 +1857,28 @@ def clean_orphaned_cache(active_ids):
         cached_ids.update(row[0] for row in c.fetchall())
     except Exception:
         pass
+    try:
+        c.execute("SELECT series_id FROM series_audit_flags")
+        cached_ids.update(row[0] for row in c.fetchall())
+    except Exception:
+        pass
+    try:
+        c.execute("SELECT series_id FROM hygiene_series_identities")
+        cached_ids.update(row[0] for row in c.fetchall())
+    except Exception:
+        pass
+    try:
+        import json
+        c.execute("SELECT payload_json FROM duplicate_group_cache WHERE group_id != '__meta__'")
+        for (pj,) in c.fetchall():
+            try:
+                p = json.loads(pj or "{}")
+                for s in p.get("series_ids") or []:
+                    cached_ids.add(int(s))
+            except Exception:
+                pass
+    except Exception:
+        pass
     orphans = cached_ids - active_ids
     if orphans:
         orphan_list = list(orphans)
@@ -1784,31 +1892,60 @@ def clean_orphaned_cache(active_ids):
                 )
         try:
             import json
+            from services.library_audit.duplicates import dup_group_key, recommend_keep_id
+
             orphans_int = {int(x) for x in orphans}
             c.execute("SELECT library_id, group_id, payload_json FROM duplicate_group_cache")
-            for lib_id, grp_id, p_json in c.fetchall():
+            rows = c.fetchall()
+            touched_libs = set()
+            for lib_id, grp_id, p_json in rows:
                 if not p_json:
                     continue
                 try:
                     p = json.loads(p_json)
                     sids = p.get("series_ids") or []
-                    remaining = [s for s in sids if int(s) not in orphans_int]
-                    if len(remaining) < 2:
+                    remaining_idx = [i for i, s in enumerate(sids) if int(s) not in orphans_int]
+                    if len(remaining_idx) < 2:
                         c.execute("DELETE FROM duplicate_group_cache WHERE library_id = ? AND group_id = ?", (lib_id, grp_id))
-                    elif len(remaining) < len(sids):
-                        p["names"] = [p["names"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and "names" in p and i < len(p["names"])]
-                        p["folder_paths"] = [p["folder_paths"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and "folder_paths" in p and i < len(p["folder_paths"])]
-                        if "volume_counts" in p:
-                            p["volume_counts"] = [p["volume_counts"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and i < len(p["volume_counts"])]
-                        if "chapter_counts" in p:
-                            p["chapter_counts"] = [p["chapter_counts"][i] for i, s in enumerate(sids) if int(s) not in orphans_int and i < len(p["chapter_counts"])]
-                        p["series_ids"] = remaining
+                        touched_libs.add(lib_id)
+                    elif len(remaining_idx) < len(sids):
+                        for key in ("names", "folder_paths", "volume_counts", "chapter_counts", "library_ids"):
+                            lst = p.get(key)
+                            if isinstance(lst, list):
+                                p[key] = [lst[i] for i in remaining_idx if i < len(lst)]
+                        p["series_ids"] = [int(sids[i]) for i in remaining_idx]
+                        p["group_key"] = dup_group_key(p["series_ids"])
+
+                        p["recommended_keep_id"] = recommend_keep_id(
+                            p["series_ids"],
+                            p.get("volume_counts") or [],
+                            p.get("chapter_counts") or [],
+                            p.get("library_type"),
+                        )
+
                         c.execute(
                             "UPDATE duplicate_group_cache SET payload_json = ? WHERE library_id = ? AND group_id = ?",
                             (json.dumps(p, ensure_ascii=False), lib_id, grp_id),
                         )
+                        touched_libs.add(lib_id)
                 except Exception:
                     pass
+
+            for t_lib in touched_libs:
+                c.execute("SELECT COUNT(*) FROM duplicate_group_cache WHERE library_id = ? AND group_id != '__meta__'", (t_lib,))
+                cnt = c.fetchone()[0]
+                c.execute("SELECT scanned_at, counts_json FROM hygiene_library_meta WHERE library_id = ?", (t_lib,))
+                meta_row = c.fetchone()
+                if meta_row:
+                    try:
+                        m_counts = json.loads(meta_row[1] or "{}")
+                    except Exception:
+                        m_counts = {}
+                    m_counts["duplicates"] = cnt
+                    c.execute(
+                        "UPDATE hygiene_library_meta SET counts_json = ? WHERE library_id = ?",
+                        (json.dumps(m_counts, ensure_ascii=False), t_lib),
+                    )
         except Exception:
             pass
         conn.commit()
@@ -1851,9 +1988,12 @@ def purge_single_series_from_all_caches(series_id: int) -> int:
 
     # Nettoyage chirurgical de duplicate_group_cache (séries stockées en JSON).
     try:
+        from services.library_audit.duplicates import dup_group_key, recommend_keep_id
+
         c.execute(
             "SELECT library_id, group_id, payload_json FROM duplicate_group_cache"
         )
+        touched_libs = set()
         for lib_id, grp_id, p_json in c.fetchall():
             if not p_json:
                 continue
@@ -1870,6 +2010,7 @@ def purge_single_series_from_all_caches(series_id: int) -> int:
                         "WHERE library_id = ? AND group_id = ?",
                         (lib_id, grp_id),
                     )
+                    touched_libs.add(lib_id)
                 else:
                     for key in ("names", "folder_paths", "volume_counts",
                                 "chapter_counts", "library_ids"):
@@ -1877,13 +2018,39 @@ def purge_single_series_from_all_caches(series_id: int) -> int:
                         if isinstance(lst, list):
                             p[key] = [lst[i] for i in remaining_idx if i < len(lst)]
                     p["series_ids"] = [int_sids[i] for i in remaining_idx]
+                    p["group_key"] = dup_group_key(p["series_ids"])
+
+                    p["recommended_keep_id"] = recommend_keep_id(
+                        p["series_ids"],
+                        p.get("volume_counts") or [],
+                        p.get("chapter_counts") or [],
+                        p.get("library_type"),
+                    )
+
                     c.execute(
                         "UPDATE duplicate_group_cache SET payload_json = ? "
                         "WHERE library_id = ? AND group_id = ?",
                         (json.dumps(p, ensure_ascii=False), lib_id, grp_id),
                     )
+                    touched_libs.add(lib_id)
             except Exception:
                 pass
+
+        for t_lib in touched_libs:
+            c.execute("SELECT COUNT(*) FROM duplicate_group_cache WHERE library_id = ? AND group_id != '__meta__'", (t_lib,))
+            cnt = c.fetchone()[0]
+            c.execute("SELECT scanned_at, counts_json FROM hygiene_library_meta WHERE library_id = ?", (t_lib,))
+            meta_row = c.fetchone()
+            if meta_row:
+                try:
+                    m_counts = json.loads(meta_row[1] or "{}")
+                except Exception:
+                    m_counts = {}
+                m_counts["duplicates"] = cnt
+                c.execute(
+                    "UPDATE hygiene_library_meta SET counts_json = ? WHERE library_id = ?",
+                    (json.dumps(m_counts, ensure_ascii=False), t_lib),
+                )
     except Exception:
         pass
 
@@ -2235,6 +2402,70 @@ def get_duplicate_groups_cache(library_id) -> list:
     return out
 
 
+def save_hygiene_series_identities(identities: list):
+    """Persist series identities for instant in-memory duplicate re-clustering."""
+    if not identities:
+        return
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    rows = []
+    for item in identities:
+        if not isinstance(item, dict):
+            continue
+        sid = item.get("id")
+        if sid is None:
+            continue
+        lid = str(item.get("libraryId") or "").strip()
+        rows.append((int(sid), lid, json.dumps(item, ensure_ascii=False), now))
+    if rows:
+        c.executemany(
+            '''INSERT INTO hygiene_series_identities(series_id, library_id, identity_json, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(series_id) DO UPDATE SET
+                 library_id=excluded.library_id,
+                 identity_json=excluded.identity_json,
+                 updated_at=excluded.updated_at''',
+            rows,
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_hygiene_series_identities(library_id=None) -> list:
+    """Retrieve cached series identities (all or by library)."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    lib = str(library_id).strip() if library_id is not None else ""
+    if lib and lib not in ("all", "*"):
+        c.execute(
+            "SELECT identity_json FROM hygiene_series_identities WHERE library_id = ? ORDER BY series_id",
+            (lib,),
+        )
+    else:
+        c.execute("SELECT identity_json FROM hygiene_series_identities ORDER BY series_id")
+    rows = c.fetchall()
+    conn.close()
+    out = []
+    for (raw,) in rows:
+        try:
+            out.append(json.loads(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def set_series_external_id_flags(flags: dict):
     """flags: {series_id: bool has_external_id}"""
     from datetime import datetime, timezone
@@ -2358,13 +2589,13 @@ def list_hygiene_library_meta() -> list:
     return rows
 
 
-def save_dup_dismissal(library_id, series_ids, reason: str):
+def save_dup_dismissal(library_id, series_ids, reason: str, payload: Optional[dict] = None):
     import json
     from datetime import datetime, timezone
 
     from services.library_audit.duplicates import dup_group_key
 
-    if reason not in ("not_duplicate", "ignored"):
+    if reason not in ("not_duplicate", "ignored", "resolved"):
         raise ValueError("invalid dismissal reason")
     ids = [int(x) for x in series_ids]
     if len(ids) < 2:
@@ -2376,14 +2607,31 @@ def save_dup_dismissal(library_id, series_ids, reason: str):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
+
+    payload_json = None
+    if payload and isinstance(payload, dict):
+        payload_json = json.dumps(payload, ensure_ascii=False)
+    else:
+        # Tenter de récupérer le groupe depuis duplicate_group_cache avant éviction
+        for lid in (str(library_id), "all"):
+            c.execute(
+                "SELECT payload_json FROM duplicate_group_cache WHERE library_id = ? AND payload_json LIKE ?",
+                (lid, f'%{gkey}%'),
+            )
+            row = c.fetchone()
+            if row and row[0]:
+                payload_json = row[0]
+                break
+
     c.execute(
-        """INSERT INTO hygiene_dup_dismissals(library_id, group_key, series_ids_json, reason, updated_at)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO hygiene_dup_dismissals(library_id, group_key, series_ids_json, reason, updated_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(library_id, group_key) DO UPDATE SET
              series_ids_json=excluded.series_ids_json,
              reason=excluded.reason,
-             updated_at=excluded.updated_at""",
-        (str(library_id), gkey, json.dumps(sorted(ids)), reason, now),
+             updated_at=excluded.updated_at,
+             payload_json=coalesce(excluded.payload_json, hygiene_dup_dismissals.payload_json)""",
+        (str(library_id), gkey, json.dumps(sorted(ids)), reason, now, payload_json),
     )
     conn.commit()
     conn.close()
@@ -2403,6 +2651,13 @@ def delete_dup_dismissal(library_id, series_ids=None, group_key=None):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
+
+    c.execute(
+        "SELECT payload_json, library_id FROM hygiene_dup_dismissals WHERE group_key = ?",
+        (gkey,),
+    )
+    rows_before = c.fetchall()
+
     lib = str(library_id).strip().lower() if library_id is not None else ""
     if lib == "all":
         c.execute(
@@ -2417,6 +2672,33 @@ def delete_dup_dismissal(library_id, series_ids=None, group_key=None):
     deleted = c.rowcount
     conn.commit()
     conn.close()
+
+    if deleted and rows_before:
+        import json
+        for p_json, orig_lib in rows_before:
+            if not p_json:
+                continue
+            try:
+                grp = json.loads(p_json)
+                target_libs = {orig_lib, "all"}
+                for mlid in (grp.get("library_ids") or []):
+                    if mlid is not None and str(mlid).strip():
+                        target_libs.add(str(mlid).strip())
+                for t_lib in target_libs:
+                    if not t_lib:
+                        continue
+                    cur_grps = get_duplicate_groups_cache(t_lib)
+                    if not any(g.get("group_key") == gkey for g in cur_grps):
+                        cur_grps.append(grp)
+                        save_duplicate_groups_cache(t_lib, cur_grps)
+                        m = get_hygiene_library_meta(t_lib)
+                        if m and isinstance(m.get("counts"), dict):
+                            c_dict = dict(m["counts"])
+                            c_dict["duplicates"] = len(cur_grps)
+                            set_hygiene_library_meta(t_lib, c_dict, scanned_at=m.get("scanned_at"))
+            except Exception:
+                pass
+
     return deleted > 0
 
 
@@ -2431,18 +2713,18 @@ def list_dup_dismissals(library_id=None):
     lib = str(library_id).strip().lower() if library_id is not None else ""
     if not lib or lib == "all":
         c.execute(
-            "SELECT group_key, series_ids_json, reason, updated_at "
+            "SELECT group_key, series_ids_json, reason, updated_at, payload_json "
             "FROM hygiene_dup_dismissals"
         )
     else:
         c.execute(
-            "SELECT group_key, series_ids_json, reason, updated_at "
+            "SELECT group_key, series_ids_json, reason, updated_at, payload_json "
             "FROM hygiene_dup_dismissals WHERE library_id = ? OR library_id = 'all'",
             (str(library_id),),
         )
     out = []
     seen = set()
-    for gkey, sids, reason, updated in c.fetchall():
+    for gkey, sids, reason, updated, p_json in c.fetchall():
         if gkey in seen:
             continue
         seen.add(gkey)
@@ -2450,12 +2732,19 @@ def list_dup_dismissals(library_id=None):
             ids = json.loads(sids or "[]")
         except (TypeError, ValueError):
             ids = []
+        payload = None
+        if p_json:
+            try:
+                payload = json.loads(p_json)
+            except Exception:
+                pass
         out.append(
             {
                 "group_key": gkey,
                 "series_ids": ids,
                 "reason": reason,
                 "updated_at": updated,
+                "payload": payload,
             }
         )
     conn.close()
@@ -2481,6 +2770,7 @@ def purge_series_hygiene_cache(series_id: int, *, keep_overrides: bool = False):
     _ensure_library_audit_tables(c)
     c.execute("DELETE FROM volume_report_cache WHERE series_id = ?", (sid,))
     c.execute("DELETE FROM series_audit_flags WHERE series_id = ?", (sid,))
+    c.execute("DELETE FROM hygiene_series_identities WHERE series_id = ?", (sid,))
     if not keep_overrides:
         c.execute("DELETE FROM hygiene_catalog_overrides WHERE series_id = ?", (sid,))
         # Série réellement partie : son état par tome n'a plus d'objet. Une

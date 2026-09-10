@@ -22,7 +22,7 @@ from db_manager import (
 )
 from translator import translate_text
 from scrapers.utils import MATCH_SCORE_KEY
-from kavita_api import lock_keys_from_payload
+from kavita_api import lock_keys_from_payload, refusal_reason
 from kavita_constants import PUBLICATION_STATUS_MAP, AGE_RATING_MAP
 from translations import get_ui_translations
 from secure_logging import series_label
@@ -630,8 +630,7 @@ def apply_kavita_payload(
     general_ok = True
     general_msg = ""
     general_sealed = True
-    # Verrous que l'écriture des champs généraux ferme : `update_series_general`
-    # pose `localizedNameLocked` dès qu'un titre alternatif part, et rien d'autre.
+    # Verrous que l'écriture des champs généraux a réellement fermés.
     general_locks = {}
     # BF67: n'appeler general que si la metadata a réussi (atomicité soft).
     #
@@ -641,12 +640,31 @@ def apply_kavita_payload(
     # pour n'y rien écrire, et faisait dépendre son verdict de verrouillage d'un
     # appel sans objet.
     if success and localized_name:
-        general_locks = {"localizedNameLocked": True}
         general_ok, general_msg, general_sealed = kavita.update_series_general(
             series_id,
             localized_name=localized_name,
         )
-        if not general_ok:
+        if refusal_reason(general_msg):
+            # BF203 — Refus structurel de Kavita : le titre alternatif entre en
+            # collision avec une autre série de la bibliothèque, ou celui qu'il
+            # remplacerait ancre encore un dossier fusionné sur disque. Rien n'a
+            # été écrit, et rien ne le sera au prochain essai — compter la série
+            # en échec la ferait rejouer à chaque passe pour le même verdict.
+            # Les métadonnées, elles, sont déjà en base : la passe reste un
+            # succès, avec un avertissement. Aucun verrou de titre alternatif
+            # n'est revendiqué, puisqu'aucun n'a été posé.
+            logging.warning(
+                t.get(
+                    "log_kavita_refusal_series",
+                    "[{0}] ⚠️ Titre alternatif refusé par Kavita : {1}",
+                ).format(label, general_msg)
+            )
+            general_ok, general_sealed = True, True
+        elif general_ok:
+            # `update_series_general` pose `localizedNameLocked` dès qu'un titre
+            # alternatif part, et rien d'autre.
+            general_locks = {"localizedNameLocked": True}
+        else:
             logging.error(
                 t.get(
                     "log_kavita_refused",

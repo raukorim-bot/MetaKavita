@@ -308,3 +308,18 @@ socket.on('batch_queue_updated', function(payload) {
         loadBatchQueueModal();
     }
 });
+
+socket.on('series_removed', function(payload) {
+    if (!payload || payload.series_id == null) return;
+    var sid = String(payload.series_id);
+    document.querySelectorAll('.series-item[data-series-id="' + sid + '"]').forEach(function(item) {
+        item.remove();
+    });
+    if (typeof window.SeriesList !== 'undefined' && window.SeriesList && typeof window.SeriesList.remove === 'function') {
+        window.SeriesList.remove(sid);
+    }
+    if (typeof filterSeries === 'function') {
+        filterSeries();
+    }
+});
+

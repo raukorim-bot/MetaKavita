@@ -27,7 +27,7 @@ from db_manager import (
     save_volume_unit_state,
     update_status,
 )
-from kavita_api import KavitaAPI
+from kavita_api import KavitaAPI, refusal_reason
 from services.kavita_payload import mark_cover_manual
 from services.magic_input import (
     detect_volume_provider_from_url,
@@ -254,10 +254,6 @@ def overlay_overrides(
     return merged
 
 
-def has_volume_overrides(series_id: int) -> bool:
-    return bool(get_volume_unit_overrides(series_id))
-
-
 def _pass_blocks(series_id: int) -> bool:
     """Vrai seulement si la passe auto est *sur cette série*.
 
@@ -421,7 +417,6 @@ def save_magic_override(series_id: int, chapter_id: int, url: str, volume_number
     provider = payload.get("provider") or detect_volume_provider_from_url(url) or ""
     clean = {k: payload.get(k) for k in INDEX_FIELDS if payload.get(k)}
     clean["_staged"] = True
-    clean["_source"] = "magic"
     save_volume_unit_override(
         series_id,
         chapter_id,
@@ -439,10 +434,22 @@ def save_magic_override(series_id: int, chapter_id: int, url: str, volume_number
     return {"success": True, "provider": provider, "payload": clean}
 
 
+def _http_or_empty(value) -> str:
+    """URL http(s) nettoyée, ou chaîne vide. Tout le reste est jeté."""
+    text = str(value or "").strip()
+    return text if is_http_url(text) else ""
+
+
 def _entry_from_edits(chapter_id: int, edits: dict, cover_url: str = "", extra: dict = None) -> Dict[str, Any]:
     payload = dict(edits or {})
-    if cover_url:
-        payload["cover_url"] = cover_url
+    # `upload_chapter_cover` va chercher l'image lui-même : une URL qui n'est pas
+    # http(s) ferait faire au serveur un appel qu'il n'a aucune raison de faire.
+    # `send_series` filtrait déjà sa jaquette ; le tome ne le faisait pas.
+    clean_cover = _http_or_empty(cover_url)
+    if clean_cover:
+        payload["cover_url"] = clean_cover
+    else:
+        payload.pop("cover_url", None)
     entry = {
         "chapter_id": int(chapter_id),
         "changes": {
@@ -460,6 +467,47 @@ def _claim(series_id: int):
     from services.volume_enrichment.job import claim_series_write, release_series_write
 
     return claim_series_write(series_id), release_series_write
+
+
+def _settle_volume_override(series_id: int, chapter_id: int, ov: dict) -> None:
+    """Retire le drapeau de brouillon quand Kavita détient ce que la carte promettait.
+
+    Le drapeau `_staged` a deux effets tant qu'il subsiste : la carte reste
+    marquée modifiée à chaque rechargement, et `overlay_overrides` écarte
+    l'override de la passe automatique. Ne le lever que sur un `DONE` laissait
+    donc pour toujours dans cet état un tome dont l'envoi n'avait simplement rien
+    à écrire — le cas d'une Review qui propose ce que Kavita détient déjà.
+    """
+    payload = (ov or {}).get("payload") or {}
+    if not payload.get("_staged"):
+        return
+    # `_source` part avec : il n'était lu nulle part, et le garder rendait
+    # inatteignable la purge de l'override devenu vide.
+    clean = {
+        key: value
+        for key, value in payload.items()
+        if key not in ("_staged", "_source", "cover_url")
+    }
+    if clean:
+        save_volume_unit_override(
+            series_id,
+            chapter_id,
+            provider=str(ov.get("provider") or ""),
+            provider_ref=str(ov.get("provider_ref") or ""),
+            payload=clean,
+        )
+    else:
+        clear_volume_unit_overrides(series_id, chapter_id)
+
+
+def _purge_hygiene(series_id: int) -> None:
+    """Le rapport de tomes de l'Inventaire sert son analyse depuis un cache."""
+    try:
+        from db_manager import purge_series_hygiene_cache
+
+        purge_series_hygiene_cache(series_id, keep_overrides=True)
+    except Exception:
+        pass
 
 
 def send_volume(
@@ -492,6 +540,10 @@ def send_volume(
         ov = get_volume_unit_overrides(series_id).get(int(chapter_id)) or {}
         if not cover_url:
             cover_url = str((ov.get("payload") or {}).get("cover_url") or "")
+        # Filtrée une fois, ici : tout ce qui suit — l'entrée envoyée et le
+        # verdict `settled` — doit parler de la même jaquette. Une URL écartée
+        # n'est pas une jaquette en attente.
+        cover_url = _http_or_empty(cover_url)
         entry = _entry_from_edits(chapter_id, edits, cover_url, extra=extra)
         entry["edits"] = dict(edits or {})
         outcome = apply_entry(
@@ -502,6 +554,20 @@ def send_volume(
             origin="workshop",
         )
         status = outcome.get("status") or "SKIPPED"
+        written = outcome.get("written") or []
+        failure = str(outcome.get("error") or "")
+        # Une jaquette refusée n'est pas « rien à faire » : `apply_entry` rend
+        # `SKIPPED` avec un motif quand le texte n'avait rien à écrire et que le
+        # téléversement a échoué. Le compter comme un envoi sans objet annonçait
+        # un succès et effaçait le brouillon que l'utilisateur doit pouvoir
+        # rejouer.
+        cover_pending = bool(cover_url) and "cover" not in written
+        noop = status in ("SKIPPED", "NOTHING_FOUND") and not failure
+        # « Réglé » : Kavita détient tout ce que la carte promettait. C'est ce
+        # seul verdict qui lève le brouillon — ici et, via la réponse, côté
+        # interface, qui ne le recalcule pas.
+        settled = (status == "DONE" or noop) and not cover_pending
+
         if status == "DONE":
             try:
                 save_volume_unit_state(
@@ -512,36 +578,20 @@ def send_volume(
                     volume_number=(extra or {}).get("volume_number"),
                     chapter_number=(extra or {}).get("chapter_number"),
                     provider=str((ov.get("provider") or "")),
-                    written_fields=outcome.get("written"),
+                    written_fields=written,
                 )
-                if (ov.get("payload") or {}).get("_staged"):
-                    clean_payload = {
-                        k: v for k, v in ov["payload"].items()
-                        if k not in ("_staged", "cover_url")
-                    }
-                    if clean_payload:
-                        save_volume_unit_override(
-                            series_id,
-                            chapter_id,
-                            provider=str(ov.get("provider") or ""),
-                            provider_ref=str(ov.get("provider_ref") or ""),
-                            payload=clean_payload,
-                        )
-                    else:
-                        clear_volume_unit_overrides(series_id, chapter_id)
-                try:
-                    from services.volume_enrichment.apply import purge_series_hygiene_cache
-
-                    purge_series_hygiene_cache(series_id, keep_overrides=True)
-                except Exception:
-                    pass
             except Exception:
                 pass
+            _purge_hygiene(series_id)
             if record_origin:
                 record_run_origin("workshop")
             if edits:
                 record_lifetime_event("workshop_edits")
-        noop = status in ("SKIPPED", "NOTHING_FOUND")
+        if settled:
+            try:
+                _settle_volume_override(series_id, int(chapter_id), ov)
+            except Exception:
+                pass
 
         # Journalisation temps réel pour la console de l'Atelier
         try:
@@ -557,7 +607,6 @@ def send_volume(
             lang = cfg.get("UI_LANG", "fr")
             t = translations.get(lang, translations["fr"])
             u_label = _format_unit_label(entry, lang=lang)
-            written = outcome.get("written") or []
 
             if status == "DONE":
                 if written:
@@ -583,12 +632,12 @@ def send_volume(
                             "[{0}] ⏭️ {1} : rien à modifier dans Kavita.",
                         ).format(label, u_label)
                     )
-                elif status == "FAILED" or outcome.get("error"):
+                else:
                     logging.error(
                         t.get(
                             "log_workshop_volume_fail",
                             "[{0}] ❌ {1} : échec de l'envoi — {2}",
-                        ).format(label, u_label, outcome.get("error") or "")
+                        ).format(label, u_label, failure)
                     )
         except Exception:
             pass
@@ -596,10 +645,14 @@ def send_volume(
         return {
             "success": status == "DONE" or noop,
             "noop": noop,
+            "settled": settled,
             "status": status,
             "chapter_id": int(chapter_id),
-            "written": outcome.get("written") or [],
-            "error": outcome.get("error") or "",
+            "written": written,
+            # Le texte est passé, la jaquette non : même canal que le refus
+            # structurel de BF203, pour que le motif prime sur le « envoyé ».
+            "warning": failure if status == "DONE" else "",
+            "error": failure,
         }
     finally:
         if claim:
@@ -685,11 +738,27 @@ def send_series(
                 )
                 return {"success": False, "error": detail, "written": []}
 
+        warning = ""
         if localized is not None:
             gen_res = api.update_series_general(series_id, localized_name=localized)
             ok = gen_res[0] if isinstance(gen_res, tuple) else bool(gen_res)
             detail = gen_res[1] if isinstance(gen_res, tuple) and len(gen_res) > 1 else ""
-            if not ok:
+            if refusal_reason(detail):
+                # BF203 — Refus structurel de Kavita (collision de nom, ou dossier
+                # fusionné ancré sur le titre alternatif actuel). Interrompre
+                # l'envoi laisserait la fiche marquée modifiée et l'utilisateur
+                # rejouerait le même refus indéfiniment : le reste de l'envoi
+                # continue, la fiche part propre, et le titre alternatif ne figure
+                # pas parmi les champs écrits.
+                logging.warning(
+                    t.get(
+                        "log_workshop_series_refusal",
+                        "[{0}] ⚠️ Titre alternatif refusé par Kavita : {1}",
+                    ).format(label, detail)
+                )
+                written = [w for w in written if w != "localizedName"]
+                warning = detail
+            elif not ok:
                 logging.error(
                     t.get(
                         "log_workshop_series_fail",
@@ -704,7 +773,7 @@ def send_series(
                     "error": detail,
                 }
 
-        if cover_url and is_http_url(cover_url):
+        if _http_or_empty(cover_url):
             cov_res = api.upload_series_cover(series_id, cover_url)
             ok = cov_res[0] if isinstance(cov_res, tuple) else bool(cov_res)
             detail = cov_res[1] if isinstance(cov_res, tuple) and len(cov_res) > 1 else ""
@@ -747,17 +816,24 @@ def send_series(
                     "[{0}] ⏭️ Fiche série : rien à modifier dans Kavita.",
                 ).format(label)
             )
-            return {"success": True, "noop": True, "written": []}
+            # Rien à écrire : le brouillon n'a plus rien à apporter, et le garder
+            # re-marquait la fiche « modifiée » à chaque rechargement, sans qu'aucun
+            # envoi ne puisse jamais la nettoyer. Un refus structurel fait
+            # exception : c'est précisément le brouillon qui permet à
+            # l'utilisateur de corriger le titre alternatif que Kavita a rejeté.
+            if not warning:
+                clear_workshop_series_override(series_id)
+            return {
+                "success": True,
+                "noop": True,
+                "settled": not warning,
+                "written": [],
+                "warning": warning,
+            }
 
         # Consomme et efface le brouillon persistant après envoi réussi
         clear_workshop_series_override(series_id)
-
-        try:
-            from services.volume_enrichment.apply import purge_series_hygiene_cache
-
-            purge_series_hygiene_cache(series_id, keep_overrides=True)
-        except Exception:
-            pass
+        _purge_hygiene(series_id)
 
         # Met à jour le statut en COMPLETED et purge les reviews pendantes de la série
         try:
@@ -785,7 +861,7 @@ def send_series(
                 "[{0}] ✅ Fiche série envoyée avec succès dans Kavita ({1}) !",
             ).format(label, fields_str)
         )
-        return {"success": True, "written": written}
+        return {"success": True, "settled": True, "written": written, "warning": warning}
     finally:
         release(series_id)
 
@@ -839,8 +915,10 @@ def send_selection(
             )
             results.append(outcome)
         dones = sum(1 for r in results if r.get("status") == "DONE")
-        record_run_origin("workshop")
         if dones:
+            # Invariant de l'atelier : l'origine d'un run ne se note que sur une
+            # écriture Kavita. Une sélection entièrement sans objet la créditait.
+            record_run_origin("workshop")
             record_workshop_history(
                 series_id,
                 "send-selection",
@@ -897,32 +975,44 @@ def send_selection(
 def reset_workshop(api: KavitaAPI, series_id: int, chapter_id=None) -> Dict[str, Any]:
     """Efface Meta (overrides, historique, cache de passe, index) et relit Kavita.
 
-    N'écrit pas dans Kavita.
+    N'écrit pas dans Kavita, mais efface `volume_unit_cache` — c'est ce qui rend
+    la passe reprenable. Le faire sous une passe en cours sur la même série lui
+    retirait sa mémoire en plein vol : elle refaisait des unités déjà écrites.
+    D'où le même verrou que les envois, seul chemin Meta de l'atelier qui en
+    était dépourvu.
     """
-    if chapter_id is None:
-        clear_workshop_series_override(series_id)
-        clear_volume_unit_overrides(series_id)
-        clear_workshop_history(series_id)
-        clear_volume_unit_states(series_id)
-        forgotten = forget_series(series_id)
-    else:
-        clear_volume_unit_overrides(series_id, chapter_id)
-        clear_workshop_history(series_id, chapter_id)
-        clear_volume_unit_states(series_id, chapter_id=chapter_id)
-        forgotten = 0
-    record_lifetime_event("workshop_resets")
-    record_workshop_history(
-        series_id,
-        "reset",
-        chapter_id=chapter_id,
-        detail={"source": "reset"},
-    )
-    payload = workshop_payload(api, series_id)
-    return {
-        "success": True,
-        "index_forgotten": forgotten,
-        "payload": payload,
-    }
+    if _pass_blocks(series_id):
+        return {"success": False, "error": "busy", "busy": True}
+    claimed, release = _claim(series_id)
+    if not claimed:
+        return {"success": False, "error": "busy", "busy": True, "series_busy": True}
+    try:
+        if chapter_id is None:
+            clear_workshop_series_override(series_id)
+            clear_volume_unit_overrides(series_id)
+            clear_workshop_history(series_id)
+            clear_volume_unit_states(series_id)
+            forgotten = forget_series(series_id)
+        else:
+            clear_volume_unit_overrides(series_id, chapter_id)
+            clear_workshop_history(series_id, chapter_id)
+            clear_volume_unit_states(series_id, chapter_id=chapter_id)
+            forgotten = 0
+        record_lifetime_event("workshop_resets")
+        record_workshop_history(
+            series_id,
+            "reset",
+            chapter_id=chapter_id,
+            detail={"source": "reset"},
+        )
+        payload = workshop_payload(api, series_id)
+        return {
+            "success": True,
+            "index_forgotten": forgotten,
+            "payload": payload,
+        }
+    finally:
+        release(series_id)
 
 
 def _dedupe_candidates(raw: List[dict]) -> List[Dict[str, Any]]:
@@ -1039,21 +1129,31 @@ def confirm_volume_review(
     """
     del api, force
     cand = candidate if isinstance(candidate, dict) else {}
+    # Le candidat arrive du corps de la requête. En pratique il vient de la
+    # réponse de `begin_volume_review`, mais rien ne l'impose : les deux URL
+    # qu'il porte sont l'une affichée en lien, l'autre allée chercher par le
+    # serveur au moment de l'envoi. Le Champ Magique passe déjà par cette porte
+    # (`detect_volume_provider_from_url` refuse ce qui n'est pas http) ; la
+    # Review l'ouvrait en grand.
+    cover = _http_or_empty(cand.get("cover_url"))
+    provider_ref = _http_or_empty(cand.get("provider_ref"))
     edits = {
         field: cand.get(field)
         for field in INDEX_FIELDS
         if field != "cover_url" and cand.get(field)
     }
-    cover = str(cand.get("cover_url") or "")
     payload = {k: cand.get(k) for k in INDEX_FIELDS if cand.get(k)}
-    if payload or cand.get("provider") or cand.get("provider_ref"):
+    if cover:
+        payload["cover_url"] = cover
+    else:
+        payload.pop("cover_url", None)
+    if payload or cand.get("provider") or provider_ref:
         payload["_staged"] = True
-        payload["_source"] = "review"
         save_volume_unit_override(
             series_id,
             chapter_id,
             provider=str(cand.get("provider") or ""),
-            provider_ref=str(cand.get("provider_ref") or ""),
+            provider_ref=provider_ref,
             payload=payload,
         )
     fields = list(edits.keys())

@@ -30,7 +30,7 @@ The same card also holds [Manual Review](manual-review.md).
 
 **Select all (visible)** and the item / batch counters sit above **Search** (title start, or **Inside title**) and **Filters** (library, status, hide ignored). **Expand/Collapse All** toggles every series options panel; **Save All Overrides** writes them together.
 
-Below that: the [Inventory](inventory.md) strip (health bar, Missing / Duplicates / No id) and the [Volumes](volumes.md) **Workshop** link plus **Enrich selected volumes**. Each row has 📑 inventory and 📚 [workshop](volumes.md).
+Below that: the [Inventory](inventory.md) strip (interactive health bar, Missing / Duplicates / No id / Excluded chips) and the [Volumes](volumes.md) **Workshop** link plus **Enrich selected volumes**. Each row has 📑 inventory and 📚 [workshop](volumes.md).
 
 ![Search, filters, Inventory and Volumes](../../assets/docs-toolbar-inventory.png)
 
@@ -61,9 +61,17 @@ The **Live log** in the left sidebar uses the same type as the rest of the app. 
 
 If the Kavita metadata write succeeds but field re-locking fails, the series gets an orange **Needs seal** badge. MetaKavita retries automatically; you can also use the 🔒 action or filter.
 
+## Alternative title refused by Kavita
+
+Kavita 0.9.1 and later refuse an alternative title in two cases: another series in the same library **and the same format** already carries that name, or the current alternative title still matches a folder on disk that is what attaches files to the series — replacing it would split them off at the next scan.
+
+MetaKavita then shows the reason, **keeps everything it just wrote** (summary, genres, tags, cover…) and does not mark the series as failed: the refusal will not change on the next pass. To set that title anyway, rename the competing series in Kavita, or rename the folder on disk first and run a scan.
+
+A metadata provider you pinned on a single series in Kavita (Kavita+) is no longer touched by MetaKavita's writes.
+
 ## Playful statistics (`/stats`)
 
-Optional (default on via `ENABLE_PLAYFUL_STATS`). The landing is **Your library, as a story**: lifetime counters plus the current cache, and a playful **Library score** (0–100). Scroll for the rest — Chart.js charts, hit-rate, fun cards, Manual Review achievements. Occasional **Buy Me a Coffee** tips may appear after a strong batch — never a paywall.
+Optional (default on via `ENABLE_PLAYFUL_STATS`). The landing is **Your library, as a story**: lifetime counters plus the current cache, and a playful **Library score** (0–100). Scroll for the rest — Chart.js charts, hit-rate, fun cards, Manual Review achievements. Mouse wheel scrolling is fully continuous and fluid, paired with a floating navigation dots rail to glide between chapters in 1 click and <kbd>PageDown</kbd> / <kbd>PageUp</kbd> keyboard shortcuts to page through the chronicle. Occasional **Buy Me a Coffee** tips may appear after a strong batch — never a paywall.
 
 ![Playful statistics](../../assets/docs-stats.png)
 

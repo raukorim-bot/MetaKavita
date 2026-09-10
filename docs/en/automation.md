@@ -11,7 +11,7 @@ Kavita has no outgoing HTTP webhooks for library updates. Auto-sync is the backg
 A **master switch** turns the whole card off (no timer, no scan hub). When it is on, pick **one** trigger:
 
 * **Every X minutes** — same idea as before: series missing from the cache or still `PENDING`. Minutes are no longer the off switch (`0` used to mean off).
-* **When a Kavita library scan finishes** — Meta listens on Kavita’s message hub (the same channel the Kavita UI uses). After a short quiet period it compares the catalogue to a snapshot and enqueues **new** series only. An hours-long **safety net** (default 24, `0` = off) covers a scan that finished while Meta or the socket was down.
+* **When a Kavita library scan finishes** — Meta listens on Kavita’s message hub (the same channel the Kavita UI uses). After a short quiet period — about fifteen seconds, long enough for the scan to truly settle — it compares the catalogue to a snapshot and enqueues **new** series only. Expect roughly twenty seconds between the end of the scan and the first series reaching the queue. An hours-long **safety net** (default 24, `0` = off) covers a scan that finished while Meta or the socket was down; its last run is now remembered in the database, so restarting the container no longer replays a full pass every time.
 
 **Mode** applies to Auto-sync jobs only (not the dashboard batch, a row click, or Companion):
 
