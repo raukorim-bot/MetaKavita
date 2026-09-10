@@ -3,7 +3,10 @@ name: Docker Build and Push
 on:
   push:
     branches: [ "main", "dev" ]
-    tags: [ "v*" ]
+    # Les releases GitHub taguent `1.7.2` (sans v) depuis la 1.5.7 ; le filtre
+    # `v*` seul a laissé six versions sans image numérotée. Les deux formes
+    # déclenchent, et `type=semver` retire le v s'il est là.
+    tags: [ "v*", "[0-9]*" ]
     # Guides et captures GitHub : pas dans l'image (assets/ est déjà
     # dans .dockerignore). CHANGELOG.md n'est pas ignoré — la modale
     # Nouveautés le lit au runtime depuis le conteneur.
@@ -53,7 +56,7 @@ jobs:
       # Tags :
       #   push sur main → :latest (+ :main)
       #   push sur dev  → :dev seulement (ne touche PAS à :latest)
-      #   tag git v1.6.1 → :1.6.1 (+ :1.6 + :1)
+      #   tag git 1.7.2 ou v1.7.2 → :1.7.2 (+ :1.7 + :1)
       - name: Docker meta (tags)
         id: meta
         uses: docker/metadata-action@v5
