@@ -10,7 +10,7 @@ On by default (`LIBRARY_INVENTORY_ENABLED`). Read-only: it never writes volume m
 
 An **Inventory** panel above the series list tells you which series are incomplete. **Analyze library** / **Quick analyze** run in the background: they count the volumes (or chapters) you own in Kavita, ask the provider cascade how many there should be, and cluster look-alike series. **Missing details** and **Duplicate details** (or the **Duplicates** chip) open the lists.
 
-![Inventory panel — health bar, Missing / Duplicates / No id](../../assets/docs-toolbar-inventory.png)
+![Inventory panel — health bar, Missing / Duplicates / No id](../../assets/docs-inventory-health.png)
 
 You get:
 

@@ -10,7 +10,7 @@ Allumé par défaut (`LIBRARY_INVENTORY_ENABLED`). Lecture seule : n'écrit aucu
 
 Un panneau **Inventaire**, au-dessus de la liste, dit quelles séries sont incomplètes. **Analyser la bibliothèque** / **Analyse rapide** travaillent en arrière-plan : ils comptent les tomes (ou chapitres) dans Kavita, demandent à la cascade combien il devrait y en avoir, et regroupent les séries qui se ressemblent. **Détail des manquants** et **Détail des doublons** (ou le chip **Doublons**) ouvrent les listes.
 
-![Panneau Inventaire — barre de santé, Manquants / Doublons / Sans id](../../assets/docs-toolbar-inventory.png)
+![Panneau Inventaire — barre de santé, Manquants / Doublons / Sans id](../../assets/docs-inventory-health.png)
 
 Tu obtiens :
 
