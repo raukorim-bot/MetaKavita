@@ -262,6 +262,10 @@ def test_la_derniere_version_ne_raconte_plus_son_propre_developpement():
     for retire in (
         "BF143", "BF154", "BF155", "BF162", "BF164", "BF165", "BF166", "BF168", "BF169",
         "BF188", "BF189", "BF190", "BF191", "BF192", "BF193", "BF194", "BF196", "BF197", "BF198", "BF199",
+        # BF200 durcit le script de nettoyage des doublons : la corbeille, le
+        # scan de fin et la clé API n'existaient pas dans `dup_script.py` en
+        # 1.7.1 — ils arrivent avec C110/C114, donc le défaut aussi.
+        "BF200",
         # BF201 ne touche que le comparatif volumétrique des doublons, apparu
         # avec C110/C114 dans cette même version : personne ne l'a encore vu.
         "BF201",
@@ -310,23 +314,44 @@ def test_une_version_jamais_publiee_na_pas_de_titre_a_elle():
 
 def test_la_derniere_version_dit_depuis_quand_elle_compte():
     """Un correctif nomme la version sur laquelle il s'appuie, pour que l'on
-    sache ce que l'on a déjà."""
+    sache ce que l'on a déjà. Les nouveautés, elles, ne portent plus de code
+    C : depuis la 1.7.2 elles sont racontées par thème (Atelier, Inventaire,
+    auto-sync) et les codes restent dans ROADMAP.md, qui est leur registre."""
     bloc = "\n".join(_bloc_derniere_version())
 
     assert bloc.count("1.7.1") >= 2  # une mention par langue
     codes_attendus = (
-        # Stats & Diagnostics
-        "C92", "C93", "C94", "C95",
-        # Auto-sync
-        "C96", "C97", "C98", "C99",
-        # Atelier & tomes
-        "C100", "C101", "C102", "C103", "C104", "C105", "C106", "C107", "C108",
-        "C109", "C110", "C111", "C112", "C113",
         # Correctifs réels préexistants
         "BF174", "BF175", "BF176", "BF177", "BF178", "BF179",
         "BF180", "BF181", "BF182",
         "BF183", "BF184", "BF185", "BF186", "BF187",
-        "BF195",
+        "BF195", "BF203",
     )
     for code in codes_attendus:
         assert code in bloc
+    assert not re.search(r"\*\*C\d+\.", bloc), "les codes C ne sont plus des titres d'entrée"
+
+
+def test_les_nouveautes_sont_racontees_par_theme_dans_les_deux_langues():
+    """Sans code C pour apparier les entrées, ce sont les sous-parties et le
+    nombre de puces qui garantissent que FR et EN racontent la même chose."""
+    par_langue = {"en": {"sous_parties": 0, "puces": 0}, "fr": {"sous_parties": 0, "puces": 0}}
+    langue = "en"
+    dans_nouveautes = False
+    for ligne in _bloc_derniere_version():
+        if ligne.strip() in ("EN", "FR"):
+            langue = ligne.strip().lower()
+            dans_nouveautes = False
+            continue
+        if ligne.startswith("### "):
+            dans_nouveautes = "What's new" in ligne or "Nouveautés" in ligne
+            continue
+        if not dans_nouveautes:
+            continue
+        if ligne.startswith("#### "):
+            par_langue[langue]["sous_parties"] += 1
+        elif ligne.startswith("* **"):
+            par_langue[langue]["puces"] += 1
+
+    assert par_langue["en"]["sous_parties"] >= 3, par_langue
+    assert par_langue["en"] == par_langue["fr"], par_langue

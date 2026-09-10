@@ -616,7 +616,7 @@ def _apply_auto_sync_keys(config: dict, file_config: dict) -> None:
     """C96 : maître / trigger / mode. Migration si les nouvelles clés absentes du fichier.
 
     INTERVAL == 0 → ENABLED false ; INTERVAL > 0 → ENABLED true + trigger intervalle.
-    Ne allume jamais le trigger scan tout seul.
+    N'allume jamais le déclencheur « scan » tout seul.
     """
     interval = _coerce_non_negative_int(config.get("AUTO_SYNC_INTERVAL"), 0)
     config["AUTO_SYNC_INTERVAL"] = interval

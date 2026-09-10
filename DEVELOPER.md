@@ -502,7 +502,7 @@ Starting with the architecture refactor, `app.py` is a thin ~130-line assembly p
     * `modals/_modal-covers.css` — cover picker modal
     * `modals/_modal-changelog.css` — changelog / What's New modal (`.cl-*`)
     * `modals/_modal-batch-queue.css` — batch queue modal C63
-*   **`static/css/volumes.css` (Workshop CSS manifest)**: entry-point for all workshop styles — 14 `@import` statements in cascade order. The former 1 578-line monolith was split into **14 focused modules** under `static/css/workshop/`. A byte-for-byte backup is kept at `static/css/volumes.backup.css`. Do not edit `volumes.css` directly — edit the relevant module and rely on the `@import` chain. Module map:
+*   **`static/css/volumes.css` (Workshop CSS manifest)**: entry-point for all workshop styles — 14 `@import` statements in cascade order. The former 1 577-line monolith was split into **14 focused modules** under `static/css/workshop/`. A byte-for-byte backup is kept at `static/css/volumes.backup.css`. Do not edit `volumes.css` directly — edit the relevant module and rely on the `@import` chain. Module map:
     * `workshop/_base.css` — base canvas, html/body locking, dark/light theme foundation (`html.workshop-page`)
     * `workshop/_navbar.css` — sticky top navigation bar, controls, amber Buy-Me-A-Coffee button
     * `workshop/_layout.css` — main 3-column grid (`.workshop-shell`)
@@ -875,7 +875,7 @@ The Volume Workshop (`/volumes` and `/series/<id>/volumes`) provides a dedicated
 
 #### G. Sovereign Workshop Access from the Dashboard (C108 refactor)
 - The Workshop button (`#btnOpenWorkshop`) is a sovereign first-class navigation element, no longer buried as an add-on inside the volume batch panel (`#volumeEnrichPanel`).
-- It sits prominently in the sticky topbar (`header.topbar .topbar-btn-workshop`) with a dedicated 24×24 SVG craft icon (`#mk-ico-workshop`), as well as in the series toolbar header (`.toolbar-head-actions .btn-toolbar-workshop`), ensuring instant, permanent 1-click access regardless of scroll depth or volume module enablement.
+- It sits in the sticky topbar (`header.topbar .topbar-btn-workshop`, next to the Kavita+ button) with a dedicated 24×24 SVG craft icon (`#mk-ico-workshop`), ensuring 1-click access regardless of scroll depth or volume module enablement. A second copy in the series toolbar header (`.btn-toolbar-workshop`) was removed before 1.7.2 shipped: one global entry point plus the per-series 📚 buttons is enough.
 
 #### H. Inventory Reliability, Config Safety & Modal Stacking (BF195)
 - *Config Partial Save (`INVENTORY_FOLDER_SAVE`)*: Duplicate folder paths use a dedicated partial branch in `routes/config.py`. Posting `INVENTORY_FOLDER_PATH_PREFIX` and `INVENTORY_FOLDER_TRASH` never falls through to full config parsing, protecting `KAVITA_URL`, `SMART_COMPLETION`, `SMART_SCORING`, and language settings from erasure.
@@ -1454,7 +1454,7 @@ Depuis le refactor d'architecture, `app.py` n'est plus qu'un point d'assemblage 
     * `modals/_modal-covers.css` — modale sélecteur de couvertures
     * `modals/_modal-changelog.css` — modale Nouveautés / Changelog (`.cl-*`)
     * `modals/_modal-batch-queue.css` — modale file d'attente batch C63
-*   **`static/css/volumes.css` (manifest CSS de l'Atelier)** : point d'entrée de tous les styles de l'Atelier — 14 déclarations `@import` dans l'ordre de cascade. L'ancien monolithe de 1 578 lignes a été découpé en **14 modules ciblés** sous `static/css/workshop/`. Une copie bit-à-bit de sauvegarde est conservée dans `static/css/volumes.backup.css`. Ne jamais modifier `volumes.css` directement — modifier le module concerné et s'appuyer sur la chaîne `@import`. Carte des modules :
+*   **`static/css/volumes.css` (manifest CSS de l'Atelier)** : point d'entrée de tous les styles de l'Atelier — 14 déclarations `@import` dans l'ordre de cascade. L'ancien monolithe de 1 577 lignes a été découpé en **14 modules ciblés** sous `static/css/workshop/`. Une copie bit-à-bit de sauvegarde est conservée dans `static/css/volumes.backup.css`. Ne jamais modifier `volumes.css` directement — modifier le module concerné et s'appuyer sur la chaîne `@import`. Carte des modules :
     * `workshop/_base.css` — structure globale, canvas, verrouillage html/body, thèmes sombre & clair (`html.workshop-page`)
     * `workshop/_navbar.css` — barre de navigation sticky, contrôles, bouton Café ambré
     * `workshop/_layout.css` — grille 3 colonnes principale (`.workshop-shell`)
@@ -1827,7 +1827,7 @@ L'Atelier des tomes (`/volumes` et `/series/<id>/volumes`) fournit un espace de 
 
 #### G. Accès souverain à l'Atelier depuis le Tableau de bord (refonte C108)
 - Le bouton Atelier (`#btnOpenWorkshop`) est un élément de navigation de premier ordre, émancipé du panneau secondaire des tomes (`#volumeEnrichPanel`).
-- Il trône en évidence dans la barre d'en-tête supérieure sticky (`header.topbar .topbar-btn-workshop`) paré d'une icône SVG 24×24 dédiée (`#mk-ico-workshop`), ainsi que dans l'en-tête de la barre d'outils des séries (`.toolbar-head-actions .btn-toolbar-workshop`), garantissant un accès instantané et permanent en 1 clic indépendamment du défilement et de l'activation du module tomes.
+- Il siège dans la barre d'en-tête supérieure sticky (`header.topbar .topbar-btn-workshop`, à côté du bouton Kavita+) avec une icône SVG 24×24 dédiée (`#mk-ico-workshop`), garantissant un accès en 1 clic indépendamment du défilement et de l'activation du module tomes. Un second exemplaire dans l'en-tête de la barre d'outils (`.btn-toolbar-workshop`) a été retiré avant la sortie de la 1.7.2 : un point d'entrée global plus les boutons 📚 par série suffisent.
 
 #### H. Fiabilisation de l'Inventaire, Sécurité de la Configuration & Empilement des Modales (BF195)
 - *Sauvegarde partielle de configuration (`INVENTORY_FOLDER_SAVE`)* : Les dossiers de doublons utilisent un embranchement partiel dédié dans `routes/config.py`. L'envoi de `INVENTORY_FOLDER_PATH_PREFIX` et `INVENTORY_FOLDER_TRASH` n'atteint plus le parsing global, protégeant `KAVITA_URL`, `SMART_COMPLETION`, `SMART_SCORING` et la langue d'interface contre tout écrasement accidentel.

@@ -131,11 +131,12 @@ def test_dashboard_toolbar_links_to_the_workshop_landing():
     index_html = (root / "templates" / "index.html").read_text(encoding="utf-8")
     toolbar = (root / "templates" / "partials" / "_toolbar.html").read_text(encoding="utf-8")
     assert 'id="btnOpenWorkshop"' in index_html
-    assert 'id="toolbarBtnOpenWorkshop"' in toolbar
-    assert "pages.volumes" in toolbar
     assert "pages.volumes" in index_html
     assert "#mk-ico-workshop" in index_html
-    assert "#mk-ico-workshop" in toolbar
+    # Un seul accès global : celui de la barre du haut, à côté de Kavita+. Le
+    # doublon de l'en-tête de barre d'outils a été retiré avant la 1.7.2.
+    assert 'id="toolbarBtnOpenWorkshop"' not in toolbar
+    assert "btn-toolbar-workshop" not in toolbar
     js = (root / "static" / "js" / "volumes.js").read_text(encoding="utf-8")
     assert "workshop_last_sid" in js
     assert "function pickLandingSeries" in js
@@ -152,14 +153,14 @@ def test_workshop_button_design_and_svg_icon_integrity():
     assert 'id="btnOpenWorkshop"' in index_html
 
     toolbar = (root / "templates" / "partials" / "_toolbar.html").read_text(encoding="utf-8")
-    assert 'class="btn-toolbar-workshop"' in toolbar
-    assert 'id="toolbarBtnOpenWorkshop"' in toolbar
     assert 'id="btnOpenWorkshop"' not in toolbar  # n'est plus un addon enfermé dans le panneau de volume
+    assert "btn-toolbar-workshop" not in toolbar  # le doublon de barre d'outils est parti
 
     css = (root / "static" / "css" / "style.css").read_text(encoding="utf-8")
     assert ".topbar-btn-workshop" in css
-    assert ".btn-toolbar-workshop" in css
     assert ".topbar-workshop-label" in css
+    buttons_css = (root / "static" / "css" / "components" / "_buttons.css").read_text(encoding="utf-8")
+    assert ".btn-toolbar-workshop" not in buttons_css  # pas de CSS orphelin derrière le bouton retiré
 
 
 def test_workshop_payload_has_no_scrape(client, monkeypatch):
