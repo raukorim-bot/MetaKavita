@@ -44,7 +44,7 @@ Manga-News liste les tomes VF (titre, résumé, ISBN, date), une page par tome *
 
 ## Fournisseur imposé (`VOLUME_PROVIDER`)
 
-Le menu distingue deux familles. Ceux qui *listent les albums d'une série* les ramènent tous en un appel. Ceux qui *identifient un tome par son ISBN* (Google Books, Open Library, Hardcover) travaillent tome par tome à partir de l'ISBN Kavita. Imposer l'un d'eux n'interroge que lui ; quand il n'a aucune prise, le journal le dit.
+Le menu distingue deux familles. Ceux qui *listent les albums d'une série* les ramènent tous en un appel. Ceux qui *identifient un tome par son ISBN* (Google Books, Open Library, Hardcover, openBD) travaillent tome par tome à partir de l'ISBN Kavita. Imposer l'un d'eux n'interroge que lui ; quand il n'a aucune prise, le journal le dit.
 
 Masquer les tomes dans le [mode léger](dashboard.md#mode-léger) éteint aussi la passe.
 

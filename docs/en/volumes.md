@@ -42,6 +42,10 @@ Manga-News lists French volumes (album title, summary, ISBN, release date), one 
 
 `VOLUME_ENRICH_EXPERIMENTAL` searches Google Books by series title plus volume number when there is no ISBN and no Manga-News hit. Each candidate's title must contain the series name *and* announce the volume number before anything is written. Read the preview before applying.
 
+## Forced provider (`VOLUME_PROVIDER`)
+
+The menu tells two families apart. Providers that *list a series' albums* bring them all back in one call. Providers that *identify a volume by its ISBN* (Google Books, Open Library, Hardcover, openBD) work volume by volume from the ISBN Kavita holds. Forcing one of them queries that one only; when it has nothing to go on, the log says so.
+
 Hiding volume enrichment in [Light mode](dashboard.md#light-mode) also switches the pass off.
 
 See [Configuration](configuration.md) for `VOLUME_PROVIDER`, `VOLUME_NO_MANGA_FALLBACK`, and related keys.
