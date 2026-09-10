@@ -22,6 +22,8 @@ from config_manager import (
     save_config,
     CONFIG_LOCK,
     target_lang_from_ui_lang,
+    normalize_auto_sync_trigger,
+    clamp_auto_sync_catchup_hours,
 )
 from translations import translations
 
@@ -130,6 +132,25 @@ def _apply_setup_config(config: dict) -> bool:
         interval = _SETUP_AUTO_SYNC_DEFAULT
     config['AUTO_SYNC_INTERVAL'] = max(0, interval)
 
+    if 'AUTO_SYNC_ENABLED' in request.form:
+        config['AUTO_SYNC_ENABLED'] = _form_bool('AUTO_SYNC_ENABLED', False)
+    else:
+        config['AUTO_SYNC_ENABLED'] = interval > 0
+
+    if 'AUTO_SYNC_TRIGGER' in request.form:
+        config['AUTO_SYNC_TRIGGER'] = normalize_auto_sync_trigger(
+            request.form.get('AUTO_SYNC_TRIGGER')
+        )
+    else:
+        config['AUTO_SYNC_TRIGGER'] = 'interval'
+
+    if 'AUTO_SYNC_CATCHUP_HOURS' in request.form:
+        config['AUTO_SYNC_CATCHUP_HOURS'] = clamp_auto_sync_catchup_hours(
+            request.form.get('AUTO_SYNC_CATCHUP_HOURS'), 24
+        )
+    elif config['AUTO_SYNC_TRIGGER'] == 'scan':
+        config['AUTO_SYNC_CATCHUP_HOURS'] = 24
+
     for s in ScraperRegistry.get_all(scope="series"):
         if getattr(s, 'needs_api_key', False):
             key_name = f"{s.id}_API_KEY"
@@ -164,6 +185,12 @@ def _form_values_from_config(config: dict) -> dict:
         fv['AUTO_SYNC_INTERVAL'] = str(int(config.get('AUTO_SYNC_INTERVAL', _SETUP_AUTO_SYNC_DEFAULT)))
     except (TypeError, ValueError):
         fv['AUTO_SYNC_INTERVAL'] = str(_SETUP_AUTO_SYNC_DEFAULT)
+    fv['AUTO_SYNC_ENABLED'] = 'true' if bool(config.get('AUTO_SYNC_ENABLED')) else 'false'
+    fv['AUTO_SYNC_TRIGGER'] = normalize_auto_sync_trigger(config.get('AUTO_SYNC_TRIGGER'))
+    try:
+        fv['AUTO_SYNC_CATCHUP_HOURS'] = str(int(config.get('AUTO_SYNC_CATCHUP_HOURS', 24)))
+    except (TypeError, ValueError):
+        fv['AUTO_SYNC_CATCHUP_HOURS'] = '24'
     return fv
 
 
@@ -173,6 +200,7 @@ def _form_values_from_request() -> dict:
         'username', 'KAVITA_URL', 'ROOT_PATH', 'UI_LANG', 'TARGET_LANG',
         'TRANSLATION_PROVIDER', 'AZURE_REGION', 'PUBLISHER_PREFERENCE',
         'LOCALIZED_TITLE_MODE', 'LOCALIZED_TITLE_LANGS', 'AUTO_SYNC_INTERVAL',
+        'AUTO_SYNC_ENABLED', 'AUTO_SYNC_TRIGGER', 'AUTO_SYNC_CATCHUP_HOURS',
         *_PROVIDER_KEYS,
     ):
         if key in request.form:

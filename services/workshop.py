@@ -1,0 +1,1182 @@
+"""Atelier des tomes : hydratation Kavita/Meta, envoi, Magic, journal, reset.
+
+À l'ouverture : aucun scrape. Les cartes sont les unités de `units_from_volumes`.
+"""
+from __future__ import annotations
+
+import hashlib
+import re
+from typing import Any, Dict, List, Optional, Tuple
+
+from config_manager import get_disabled_library_ids, load_config
+from db_manager import (
+    clear_volume_unit_overrides,
+    clear_volume_unit_states,
+    clear_workshop_history,
+    clear_workshop_series_override,
+    delete_pending_by_series,
+    get_all_cached_data,
+    get_volume_unit_overrides,
+    get_volume_unit_states,
+    get_workshop_series_override,
+    list_workshop_history,
+    record_lifetime_event,
+    record_run_origin,
+    record_workshop_history,
+    save_volume_unit_override,
+    save_volume_unit_state,
+    update_status,
+)
+from kavita_api import KavitaAPI, refusal_reason
+from services.kavita_payload import mark_cover_manual
+from services.magic_input import (
+    detect_volume_provider_from_url,
+    extract_id_for_provider,
+    is_http_url,
+)
+from services.volume_enrichment.apply import apply_entry
+from services.volume_enrichment.index_cache import forget_series
+from services.volume_enrichment.matching import (
+    CHAPTER_KEY_PREFIX,
+    INDEX_FIELDS,
+    unmatchable_reason,
+    unit_key,
+    units_from_volumes,
+)
+from services.workshop_form import (
+    apply_series_edits,
+    chapter_extra_inscribed,
+    lookups as workshop_lookups,
+    series_form,
+    unwrap_metadata,
+)
+import logging
+from secure_logging import series_label
+from translations import translations
+
+_COVER_KINDS = frozenset({"series", "chapter", "volume"})
+
+_FIELD_NAMES_FR = {
+    "title": "titre",
+    "summary": "résumé",
+    "isbn": "ISBN",
+    "release_date": "date",
+    "releaseYear": "année",
+    "publicationStatus": "statut",
+    "ageRating": "âge",
+    "language": "langue",
+    "publishers": "éditeur",
+    "webLinks": "liens",
+    "genres": "genres",
+    "tags": "tags",
+    "writers": "scénario",
+    "pencillers": "dessin",
+    "coverArtists": "couverture",
+    "colorists": "couleur",
+    "inkers": "encrage",
+    "letterers": "lettrage",
+    "editors": "édition",
+    "translators": "traduction",
+    "characters": "personnages",
+    "imprints": "collection",
+    "teams": "équipes",
+    "locations": "lieux",
+    "cover": "couverture",
+    "localizedName": "titre alternatif",
+    "externalIds": "identifiants",
+}
+
+_FIELD_NAMES_EN = {
+    "title": "title",
+    "summary": "summary",
+    "isbn": "ISBN",
+    "release_date": "date",
+    "releaseYear": "year",
+    "publicationStatus": "status",
+    "ageRating": "age rating",
+    "language": "language",
+    "publishers": "publisher",
+    "webLinks": "links",
+    "genres": "genres",
+    "tags": "tags",
+    "writers": "writers",
+    "pencillers": "pencillers",
+    "coverArtists": "cover artists",
+    "colorists": "colorists",
+    "inkers": "inkers",
+    "letterers": "letterers",
+    "editors": "editors",
+    "translators": "translators",
+    "characters": "characters",
+    "imprints": "imprint",
+    "teams": "teams",
+    "locations": "locations",
+    "cover": "cover",
+    "localizedName": "localized name",
+    "externalIds": "external IDs",
+}
+
+
+def _format_written_fields(fields: List[str], lang: str = "fr") -> str:
+    mapping = _FIELD_NAMES_FR if lang == "fr" else _FIELD_NAMES_EN
+    return ", ".join(mapping.get(f, f) for f in fields)
+
+
+def _format_unit_label(entry: Dict[str, Any], lang: str = "fr") -> str:
+    vol_word = "tome" if lang == "fr" else "volume"
+    chap_word = "chapitre" if lang == "fr" else "chapter"
+    for key, mot in (("matched_on", vol_word), ("volume_number", vol_word),
+                     ("chapter_number", chap_word)):
+        value = entry.get(key)
+        if value not in (None, "", 0):
+            return f"{mot} {value}"
+    chapter_id = entry.get("chapter_id")
+    if chapter_id:
+        return f"{chap_word} {chapter_id}"
+    return "tome inconnu" if lang == "fr" else "unknown volume"
+
+
+def inscribed_from_chapter(chapter: Optional[dict]) -> Dict[str, Any]:
+    """Champs d'un ChapterDto imbriqué, pour préremplir les inputs."""
+    chap = chapter if isinstance(chapter, dict) else {}
+    rel_date = chap.get("releaseDate") or ""
+    if rel_date.startswith("0001-01-01"):
+        rel_date = ""
+    out = {
+        "title": chap.get("titleName") or chap.get("title") or "",
+        "summary": chap.get("summary") or "",
+        "isbn": chap.get("isbn") or "",
+        "release_date": rel_date,
+        "title_locked": bool(chap.get("titleNameLocked")),
+        "summary_locked": bool(chap.get("summaryLocked")),
+        "isbn_locked": bool(chap.get("isbnLocked")),
+        "release_locked": bool(chap.get("releaseDateLocked")),
+        "cover_locked": bool(chap.get("coverImageLocked")),
+        "cover_image": chap.get("coverImage") or "",
+    }
+    out.update(chapter_extra_inscribed(chap))
+    return out
+
+
+def _merge_override_inscribed(inscribed: Dict[str, Any], override: Optional[dict]) -> Dict[str, Any]:
+    """Le Champ Magique / Review gagne sur Kavita pour ce que le formulaire affiche."""
+    payload = (override or {}).get("payload") if isinstance(override, dict) else None
+    if not isinstance(payload, dict):
+        return inscribed
+    out = dict(inscribed)
+    fields_to_check = (
+        "title",
+        "summary",
+        "isbn",
+        "release_date",
+        "language",
+        "webLinks",
+        "ageRating",
+        "genres",
+        "tags",
+        "writers",
+        "pencillers",
+        "coverArtists",
+        "translators",
+    )
+    for field in fields_to_check:
+        val = payload.get(field)
+        if val is not None and val != "":
+            if field == "release_date":
+                val_str = str(val).strip()
+                if val_str.startswith("0001-01-01"):
+                    continue
+                if "T" in val_str:
+                    val_str = val_str.split("T")[0]
+                out[field] = val_str
+            else:
+                out[field] = val
+    if payload.get("cover_url"):
+        out["cover_url"] = payload["cover_url"]
+    return out
+
+
+def cover_etag(raw: str) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return "0"
+    return hashlib.sha1(text.encode("utf-8")).hexdigest()[:12]
+
+
+def cover_url_for(kind: str, entity_id, cover_image: str = "") -> str:
+    kind = str(kind or "chapter")
+    if kind not in _COVER_KINDS:
+        kind = "chapter"
+    etag = cover_etag(cover_image)
+    try:
+        from flask import has_request_context, url_for
+
+        if has_request_context():
+            return url_for(
+                "workshop.kavita_cover",
+                kind=kind,
+                entity_id=int(entity_id),
+                v=etag,
+            )
+    except Exception:
+        pass
+    return f"/api/kavita-cover/{kind}/{int(entity_id)}?v={etag}"
+
+
+def overlay_overrides(
+    series_id: int,
+    index: Optional[Dict[str, Any]],
+    units: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """L'override gagne champ par champ sur l'index fournisseur."""
+    merged = dict(index or {})
+    overrides = get_volume_unit_overrides(series_id)
+    if not overrides:
+        return merged
+    for unit in units or []:
+        cid = int(unit.get("chapter_id") or 0)
+        ov = overrides.get(cid)
+        if not ov:
+            continue
+        payload = ov.get("payload") or {}
+        if payload.get("_staged"):
+            continue
+        key = unit_key(unit) or f"{CHAPTER_KEY_PREFIX}{cid}"
+        base = dict(merged.get(key) or {})
+        for field in INDEX_FIELDS:
+            if payload.get(field):
+                base[field] = payload[field]
+        if ov.get("provider_ref"):
+            base["provider_ref"] = ov["provider_ref"]
+        if ov.get("provider"):
+            base["provider"] = ov["provider"]
+        merged[key] = base
+    return merged
+
+
+def _pass_blocks(series_id: int) -> bool:
+    """Vrai seulement si la passe auto est *sur cette série*.
+
+    Une passe de bibliothèque sur une autre série ne doit pas geler l'atelier.
+    Le `claim_series_write` rattrape le croisement si la passe arrive ici.
+    """
+    from services.volume_enrichment.job import get_volume_enrich_state
+
+    state = get_volume_enrich_state()
+    if not state.get("running"):
+        return False
+    current = state.get("series_id")
+    if current in (None, "", False):
+        return False
+    try:
+        return int(current) == int(series_id)
+    except (TypeError, ValueError):
+        return False
+
+
+def workshop_payload(api: KavitaAPI, series_id: int, *, config: dict = None) -> Optional[Dict[str, Any]]:
+    """Série + unités Kavita/Meta. Aucun scrape."""
+    cfg = config if config is not None else load_config()
+    series = api.get_series(series_id)
+    if not isinstance(series, dict) or not series.get("id"):
+        return None
+    metadata = unwrap_metadata(api.get_series_metadata(series_id) or {})
+    volumes = api.get_series_volumes(series_id) or []
+    units = units_from_volumes(volumes)
+    states = get_volume_unit_states(series_id)
+    overrides = get_volume_unit_overrides(series_id)
+    history = list_workshop_history(series_id)
+    series_cover = cover_url_for("series", series_id, series.get("coverImage") or "")
+    t = translations.get(cfg.get("UI_LANG", "fr"), translations["fr"])
+    form = series_form(series, metadata, t)
+    s_ov = get_workshop_series_override(series_id) or {}
+    staged_payload = s_ov.get("payload") or {}
+    staged_cover = str(s_ov.get("cover_url") or "")
+    for field in form:
+        field["initial_value"] = field.get("value")
+    if staged_payload:
+        for field in form:
+            k = field.get("key")
+            if k in staged_payload and staged_payload[k] is not None:
+                field["value"] = staged_payload[k]
+                field["staged"] = True
+    cards = []
+    for unit in units:
+        chap = unit.get("chapter") if isinstance(unit.get("chapter"), dict) else {}
+        inscribed = inscribed_from_chapter(chap)
+        cid = int(unit.get("chapter_id") or 0)
+        ov = overrides.get(cid) or {}
+        inscribed = _merge_override_inscribed(inscribed, ov)
+        staged_cover_unit = str((ov.get("payload") or {}).get("cover_url") or "")
+        cards.append(
+            {
+                "chapter_id": cid,
+                "volume_id": unit.get("volume_id"),
+                "volume_number": unit.get("volume_number"),
+                "chapter_number": unit.get("chapter_number"),
+                "is_special": bool(unit.get("is_special")),
+                "name": unit.get("name") or "",
+                "inscribed": inscribed,
+                "state": states.get(cid) or {},
+                "override": ov,
+                "cover_url": cover_url_for("chapter", cid, inscribed.get("cover_image") or ""),
+                "staged_cover_url": staged_cover_unit,
+                "checked": True,
+            }
+        )
+    summary = ""
+    if isinstance(metadata, dict):
+        summary = metadata.get("summary") or ""
+    reason = unmatchable_reason(units, series.get("name") or "")
+    if reason and overrides:
+        reason = ""
+    return {
+        "series": {
+            "id": int(series["id"]),
+            "name": series.get("name") or "",
+            "localizedName": staged_payload.get("localizedName") or series.get("localizedName") or "",
+            "libraryId": series.get("libraryId"),
+            "libraryType": series.get("libraryType") or "",
+            "summary": staged_payload.get("summary") or summary,
+            "cover_url": staged_cover or series_cover,
+            "staged_cover_url": staged_cover,
+            "override": staged_payload,
+            "coverImage": series.get("coverImage") or "",
+            "year": series.get("year"),
+            "form": form,
+        },
+        "lookups": workshop_lookups(t),
+        "units": cards,
+        "history": history,
+        "force": True,
+        "pass_running": _pass_blocks(series_id),
+        "skipped_reason": reason,
+    }
+
+
+def workshop_rail(api: KavitaAPI, *, config: dict = None) -> List[Dict[str, Any]]:
+    """Inventaire des séries (biblios désactivées exclues), pour le rail."""
+    cfg = config if config is not None else load_config()
+    disabled = {str(i) for i in get_disabled_library_ids(cfg)}
+    series = api.get_all_series() or []
+    cached = get_all_cached_data()
+    rail = []
+    for item in series:
+        if not isinstance(item, dict) or item.get("id") is None:
+            continue
+        lib = str(item.get("libraryId") or "")
+        if lib in disabled:
+            continue
+        cover = item.get("coverImage") or ""
+        sid = item["id"]
+        row = cached.get(sid) or {}
+        rail.append(
+            {
+                "id": item["id"],
+                "name": item.get("name") or "",
+                "libraryId": item.get("libraryId"),
+                "libraryName": item.get("libraryName") or "",
+                "search": (item.get("name") or "").lower(),
+                "status": row.get("status") or "PENDING",
+                "cover_url": cover_url_for("series", sid, cover),
+            }
+        )
+    rail.sort(key=lambda s: (s["name"] or "").casefold())
+    return rail
+
+
+def fetch_volume_from_url(url: str, volume_number=None) -> Optional[Dict[str, Any]]:
+    provider = detect_volume_provider_from_url(url)
+    if not provider:
+        return None
+    from scrapers import ScraperRegistry
+
+    scraper = ScraperRegistry.get(provider)
+    if not scraper or not callable(getattr(scraper, "fetch_volume", None)):
+        return None
+    extracted = extract_id_for_provider(provider, url) or url
+    from services.provider_throttle import throttle_provider
+
+    throttle_provider(scraper)
+    payload = scraper.fetch_volume(
+        extracted,
+        volume_number=volume_number,
+        existing_metadata={"url": url},
+    )
+    if isinstance(payload, dict):
+        payload.setdefault("provider", provider)
+        payload.setdefault("provider_ref", url)
+        return payload
+    return None
+
+
+def save_magic_override(series_id: int, chapter_id: int, url: str, volume_number=None) -> Dict[str, Any]:
+    payload = fetch_volume_from_url(url, volume_number=volume_number)
+    if not payload:
+        return {"success": False, "error": "no_match"}
+    provider = payload.get("provider") or detect_volume_provider_from_url(url) or ""
+    clean = {k: payload.get(k) for k in INDEX_FIELDS if payload.get(k)}
+    clean["_staged"] = True
+    save_volume_unit_override(
+        series_id,
+        chapter_id,
+        provider=provider,
+        provider_ref=payload.get("provider_ref") or url,
+        payload=clean,
+    )
+    record_lifetime_event("workshop_magic")
+    record_workshop_history(
+        series_id,
+        "magic",
+        chapter_id=chapter_id,
+        detail={"provider": provider, "fields": [k for k in INDEX_FIELDS if payload.get(k)], "volume_number": volume_number},
+    )
+    return {"success": True, "provider": provider, "payload": clean}
+
+
+def _http_or_empty(value) -> str:
+    """URL http(s) nettoyée, ou chaîne vide. Tout le reste est jeté."""
+    text = str(value or "").strip()
+    return text if is_http_url(text) else ""
+
+
+def _entry_from_edits(chapter_id: int, edits: dict, cover_url: str = "", extra: dict = None) -> Dict[str, Any]:
+    payload = dict(edits or {})
+    # `upload_chapter_cover` va chercher l'image lui-même : une URL qui n'est pas
+    # http(s) ferait faire au serveur un appel qu'il n'a aucune raison de faire.
+    # `send_series` filtrait déjà sa jaquette ; le tome ne le faisait pas.
+    clean_cover = _http_or_empty(cover_url)
+    if clean_cover:
+        payload["cover_url"] = clean_cover
+    else:
+        payload.pop("cover_url", None)
+    entry = {
+        "chapter_id": int(chapter_id),
+        "changes": {
+            field: {"proposed": payload[field], "write": True, "reason": "workshop"}
+            for field in INDEX_FIELDS
+            if payload.get(field)
+        },
+    }
+    if extra:
+        entry.update(extra)
+    return entry
+
+
+def _claim(series_id: int):
+    from services.volume_enrichment.job import claim_series_write, release_series_write
+
+    return claim_series_write(series_id), release_series_write
+
+
+def _settle_volume_override(series_id: int, chapter_id: int, ov: dict) -> None:
+    """Retire le drapeau de brouillon quand Kavita détient ce que la carte promettait.
+
+    Le drapeau `_staged` a deux effets tant qu'il subsiste : la carte reste
+    marquée modifiée à chaque rechargement, et `overlay_overrides` écarte
+    l'override de la passe automatique. Ne le lever que sur un `DONE` laissait
+    donc pour toujours dans cet état un tome dont l'envoi n'avait simplement rien
+    à écrire — le cas d'une Review qui propose ce que Kavita détient déjà.
+    """
+    payload = (ov or {}).get("payload") or {}
+    if not payload.get("_staged"):
+        return
+    # `_source` part avec : il n'était lu nulle part, et le garder rendait
+    # inatteignable la purge de l'override devenu vide.
+    clean = {
+        key: value
+        for key, value in payload.items()
+        if key not in ("_staged", "_source", "cover_url")
+    }
+    if clean:
+        save_volume_unit_override(
+            series_id,
+            chapter_id,
+            provider=str(ov.get("provider") or ""),
+            provider_ref=str(ov.get("provider_ref") or ""),
+            payload=clean,
+        )
+    else:
+        clear_volume_unit_overrides(series_id, chapter_id)
+
+
+def _purge_hygiene(series_id: int) -> None:
+    """Le rapport de tomes de l'Inventaire sert son analyse depuis un cache."""
+    try:
+        from db_manager import purge_series_hygiene_cache
+
+        purge_series_hygiene_cache(series_id, keep_overrides=True)
+    except Exception:
+        pass
+
+
+def send_volume(
+    api: KavitaAPI,
+    series_id: int,
+    chapter_id: int,
+    edits: dict,
+    *,
+    force: bool = False,
+    cover_url: str = "",
+    record_origin: bool = True,
+    extra: dict = None,
+    claim: bool = True,
+    series_name: str = "",
+) -> Dict[str, Any]:
+    if _pass_blocks(series_id):
+        return {"success": False, "error": "busy", "busy": True, "chapter_id": int(chapter_id)}
+    release = lambda _sid: None
+    if claim:
+        claimed, release = _claim(series_id)
+        if not claimed:
+            return {
+                "success": False,
+                "error": "busy",
+                "busy": True,
+                "series_busy": True,
+                "chapter_id": int(chapter_id),
+            }
+    try:
+        ov = get_volume_unit_overrides(series_id).get(int(chapter_id)) or {}
+        if not cover_url:
+            cover_url = str((ov.get("payload") or {}).get("cover_url") or "")
+        # Filtrée une fois, ici : tout ce qui suit — l'entrée envoyée et le
+        # verdict `settled` — doit parler de la même jaquette. Une URL écartée
+        # n'est pas une jaquette en attente.
+        cover_url = _http_or_empty(cover_url)
+        entry = _entry_from_edits(chapter_id, edits, cover_url, extra=extra)
+        entry["edits"] = dict(edits or {})
+        outcome = apply_entry(
+            api,
+            series_id,
+            entry,
+            force=force,
+            origin="workshop",
+        )
+        status = outcome.get("status") or "SKIPPED"
+        written = outcome.get("written") or []
+        failure = str(outcome.get("error") or "")
+        # Une jaquette refusée n'est pas « rien à faire » : `apply_entry` rend
+        # `SKIPPED` avec un motif quand le texte n'avait rien à écrire et que le
+        # téléversement a échoué. Le compter comme un envoi sans objet annonçait
+        # un succès et effaçait le brouillon que l'utilisateur doit pouvoir
+        # rejouer.
+        cover_pending = bool(cover_url) and "cover" not in written
+        noop = status in ("SKIPPED", "NOTHING_FOUND") and not failure
+        # « Réglé » : Kavita détient tout ce que la carte promettait. C'est ce
+        # seul verdict qui lève le brouillon — ici et, via la réponse, côté
+        # interface, qui ne le recalcule pas.
+        settled = (status == "DONE" or noop) and not cover_pending
+
+        if status == "DONE":
+            try:
+                save_volume_unit_state(
+                    series_id,
+                    chapter_id,
+                    "DONE",
+                    volume_id=(extra or {}).get("volume_id"),
+                    volume_number=(extra or {}).get("volume_number"),
+                    chapter_number=(extra or {}).get("chapter_number"),
+                    provider=str((ov.get("provider") or "")),
+                    written_fields=written,
+                )
+            except Exception:
+                pass
+            _purge_hygiene(series_id)
+            if record_origin:
+                record_run_origin("workshop")
+            if edits:
+                record_lifetime_event("workshop_edits")
+        if settled:
+            try:
+                _settle_volume_override(series_id, int(chapter_id), ov)
+            except Exception:
+                pass
+
+        # Journalisation temps réel pour la console de l'Atelier
+        try:
+            resolved_series_name = series_name or (extra or {}).get("series_name") or ""
+            if not resolved_series_name:
+                try:
+                    s_obj = api.get_series(series_id) or {}
+                    resolved_series_name = s_obj.get("name") or ""
+                except Exception:
+                    resolved_series_name = ""
+            label = series_label(resolved_series_name, series_id)
+            cfg = load_config()
+            lang = cfg.get("UI_LANG", "fr")
+            t = translations.get(lang, translations["fr"])
+            u_label = _format_unit_label(entry, lang=lang)
+
+            if status == "DONE":
+                if written:
+                    fields_str = _format_written_fields(written, lang=lang)
+                    logging.info(
+                        t.get(
+                            "log_workshop_volume_success",
+                            "[{0}] ✅ {1} envoyé avec succès dans Kavita ({2}) !",
+                        ).format(label, u_label, fields_str)
+                    )
+                else:
+                    logging.info(
+                        t.get(
+                            "log_workshop_volume_success_simple",
+                            "[{0}] ✅ {1} envoyé avec succès dans Kavita !",
+                        ).format(label, u_label)
+                    )
+            elif record_origin:
+                if noop:
+                    logging.info(
+                        t.get(
+                            "log_workshop_volume_noop",
+                            "[{0}] ⏭️ {1} : rien à modifier dans Kavita.",
+                        ).format(label, u_label)
+                    )
+                else:
+                    logging.error(
+                        t.get(
+                            "log_workshop_volume_fail",
+                            "[{0}] ❌ {1} : échec de l'envoi — {2}",
+                        ).format(label, u_label, failure)
+                    )
+        except Exception:
+            pass
+
+        return {
+            "success": status == "DONE" or noop,
+            "noop": noop,
+            "settled": settled,
+            "status": status,
+            "chapter_id": int(chapter_id),
+            "written": written,
+            # Le texte est passé, la jaquette non : même canal que le refus
+            # structurel de BF203, pour que le motif prime sur le « envoyé ».
+            "warning": failure if status == "DONE" else "",
+            "error": failure,
+        }
+    finally:
+        if claim:
+            release(series_id)
+
+
+def extract_external_ids_from_weblinks(
+    weblinks: str,
+    extra_ids: dict = None,
+) -> Tuple[Optional[int], Optional[int], Optional[int]]:
+    """Extrait (anilist_id, mal_id, mangabaka_id) depuis webLinks ou extra_ids."""
+    anilist_id = (extra_ids or {}).get("anilist")
+    mal_id = (extra_ids or {}).get("mal")
+    mangabaka_id = (extra_ids or {}).get("mangabaka")
+
+    tokens = [t.strip() for t in str(weblinks or "").replace("\n", ",").split(",") if t.strip()]
+    for token in tokens:
+        if not anilist_id:
+            m = re.search(r"anilist\.co/manga/(\d+)", token, re.IGNORECASE)
+            if m:
+                anilist_id = m.group(1)
+        if not mal_id:
+            m = re.search(r"myanimelist\.net/manga/(\d+)", token, re.IGNORECASE)
+            if m:
+                mal_id = m.group(1)
+        if not mangabaka_id:
+            m = re.search(r"mangabaka\.(?:org|dev|com)/series/(\d+)", token, re.IGNORECASE)
+            if m:
+                mangabaka_id = m.group(1)
+
+    def _clean(val):
+        if val is None or val is False:
+            return None
+        try:
+            v = int(str(val).strip())
+            return v if v > 0 else None
+        except (TypeError, ValueError):
+            return None
+
+    return _clean(anilist_id), _clean(mal_id), _clean(mangabaka_id)
+
+
+def send_series(
+    api: KavitaAPI,
+    series_id: int,
+    edits: dict,
+    *,
+    force: bool = False,
+    cover_url: str = "",
+    series_name: str = "",
+) -> Dict[str, Any]:
+    if _pass_blocks(series_id):
+        return {"success": False, "error": "busy", "busy": True}
+    claimed, release = _claim(series_id)
+    if not claimed:
+        return {"success": False, "error": "busy", "busy": True, "series_busy": True}
+    try:
+        raw_meta = api.get_series_metadata(series_id)
+        if raw_meta is None:
+            return {"success": False, "error": "series-read-failed"}
+        metadata = unwrap_metadata(raw_meta)
+        series = api.get_series(series_id) or {}
+        edits = edits or {}
+        cfg = load_config()
+        lang = cfg.get("UI_LANG", "fr")
+        t = translations.get(lang, translations["fr"])
+        label = series_label(series_name or series.get("name"), series_id)
+        form = series_form(series, metadata, t)
+        meta, written, localized = apply_series_edits(
+            metadata, series, form, edits, force=force
+        )
+
+        if any(key != "localizedName" for key in written):
+            result = api.update_series_metadata(meta)
+            ok = result[0] if isinstance(result, tuple) else bool(result)
+            detail = result[1] if isinstance(result, tuple) and len(result) > 1 else ""
+            if not ok:
+                logging.error(
+                    t.get(
+                        "log_workshop_series_fail",
+                        "[{0}] ❌ Fiche série : échec de l'envoi — {1}",
+                    ).format(label, detail)
+                )
+                return {"success": False, "error": detail, "written": []}
+
+        warning = ""
+        if localized is not None:
+            gen_res = api.update_series_general(series_id, localized_name=localized)
+            ok = gen_res[0] if isinstance(gen_res, tuple) else bool(gen_res)
+            detail = gen_res[1] if isinstance(gen_res, tuple) and len(gen_res) > 1 else ""
+            if refusal_reason(detail):
+                # BF203 — Refus structurel de Kavita (collision de nom, ou dossier
+                # fusionné ancré sur le titre alternatif actuel). Interrompre
+                # l'envoi laisserait la fiche marquée modifiée et l'utilisateur
+                # rejouerait le même refus indéfiniment : le reste de l'envoi
+                # continue, la fiche part propre, et le titre alternatif ne figure
+                # pas parmi les champs écrits.
+                logging.warning(
+                    t.get(
+                        "log_workshop_series_refusal",
+                        "[{0}] ⚠️ Titre alternatif refusé par Kavita : {1}",
+                    ).format(label, detail)
+                )
+                written = [w for w in written if w != "localizedName"]
+                warning = detail
+            elif not ok:
+                logging.error(
+                    t.get(
+                        "log_workshop_series_fail",
+                        "[{0}] ❌ Fiche série : échec de l'envoi — {1}",
+                    ).format(label, detail)
+                )
+                already = [w for w in written if w != "localizedName"]
+                return {
+                    "success": False,
+                    "partial": bool(already),
+                    "written": already,
+                    "error": detail,
+                }
+
+        if _http_or_empty(cover_url):
+            cov_res = api.upload_series_cover(series_id, cover_url)
+            ok = cov_res[0] if isinstance(cov_res, tuple) else bool(cov_res)
+            detail = cov_res[1] if isinstance(cov_res, tuple) and len(cov_res) > 1 else ""
+            if not ok:
+                logging.error(
+                    t.get(
+                        "log_workshop_series_fail",
+                        "[{0}] ❌ Fiche série : échec de l'envoi — {1}",
+                    ).format(label, detail)
+                )
+                return {
+                    "success": False,
+                    "partial": bool(written),
+                    "written": written,
+                    "error": detail,
+                }
+            written.append("cover")
+            mark_cover_manual(series_id)
+
+        # IDs Externes (AniList, MyAnimeList, MangaBaka)
+        s_ov = get_workshop_series_override(series_id) or {}
+        extra_ids = (s_ov.get("payload") or {}).get("_external_ids")
+        links = edits.get("webLinks") if "webLinks" in edits else metadata.get("webLinks") or ""
+        a_id, m_id, mb_id = extract_external_ids_from_weblinks(links, extra_ids=extra_ids)
+        if a_id or m_id or mb_id:
+            try:
+                ids_res = api.update_series_external_ids(
+                    series_id, anilist_id=a_id, mal_id=m_id, mangabaka_id=mb_id
+                )
+                ids_ok = ids_res[0] if isinstance(ids_res, tuple) else bool(ids_res)
+                if ids_ok:
+                    written.append("externalIds")
+            except Exception:
+                pass
+
+        if not written:
+            logging.info(
+                t.get(
+                    "log_workshop_series_noop",
+                    "[{0}] ⏭️ Fiche série : rien à modifier dans Kavita.",
+                ).format(label)
+            )
+            # Rien à écrire : le brouillon n'a plus rien à apporter, et le garder
+            # re-marquait la fiche « modifiée » à chaque rechargement, sans qu'aucun
+            # envoi ne puisse jamais la nettoyer. Un refus structurel fait
+            # exception : c'est précisément le brouillon qui permet à
+            # l'utilisateur de corriger le titre alternatif que Kavita a rejeté.
+            if not warning:
+                clear_workshop_series_override(series_id)
+            return {
+                "success": True,
+                "noop": True,
+                "settled": not warning,
+                "written": [],
+                "warning": warning,
+            }
+
+        # Consomme et efface le brouillon persistant après envoi réussi
+        clear_workshop_series_override(series_id)
+        _purge_hygiene(series_id)
+
+        # Met à jour le statut en COMPLETED et purge les reviews pendantes de la série
+        try:
+            from services.enrichment_engine import _emit_series_status
+            from services.manual_review import emit_pending_count
+
+            update_status(series_id, "COMPLETED")
+            deleted = delete_pending_by_series(series_id)
+            if deleted:
+                emit_pending_count()
+            _emit_series_status(series_id, "COMPLETED", series.get("name") or "")
+        except Exception:
+            pass
+
+        record_run_origin("workshop")
+        record_workshop_history(
+            series_id,
+            "send-series",
+            detail={"fields": written},
+        )
+        fields_str = _format_written_fields(written, lang=lang)
+        logging.info(
+            t.get(
+                "log_workshop_series_success",
+                "[{0}] ✅ Fiche série envoyée avec succès dans Kavita ({1}) !",
+            ).format(label, fields_str)
+        )
+        return {"success": True, "settled": True, "written": written, "warning": warning}
+    finally:
+        release(series_id)
+
+
+def send_selection(
+    api: KavitaAPI,
+    series_id: int,
+    items: List[Dict[str, Any]],
+    *,
+    force: bool = False,
+    series_name: str = "",
+) -> Dict[str, Any]:
+    if _pass_blocks(series_id):
+        return {"success": False, "error": "busy", "busy": True}
+    claimed, release = _claim(series_id)
+    if not claimed:
+        return {"success": False, "error": "busy", "busy": True, "series_busy": True}
+    results = []
+    try:
+        resolved_series_name = series_name
+        if not resolved_series_name:
+            try:
+                s_obj = api.get_series(series_id) or {}
+                resolved_series_name = s_obj.get("name") or ""
+            except Exception:
+                resolved_series_name = ""
+        label = series_label(resolved_series_name, series_id)
+
+        for item in items or []:
+            if not isinstance(item, dict):
+                continue
+            cid = item.get("chapter_id")
+            if cid is None:
+                continue
+            outcome = send_volume(
+                api,
+                series_id,
+                int(cid),
+                item.get("edits") or {},
+                force=force,
+                cover_url=str(item.get("cover_url") or ""),
+                extra={
+                    "volume_id": item.get("volume_id"),
+                    "volume_number": item.get("volume_number"),
+                    "chapter_number": item.get("chapter_number"),
+                    "series_name": resolved_series_name,
+                },
+                claim=False,
+                record_origin=False,
+                series_name=resolved_series_name,
+            )
+            results.append(outcome)
+        dones = sum(1 for r in results if r.get("status") == "DONE")
+        if dones:
+            # Invariant de l'atelier : l'origine d'un run ne se note que sur une
+            # écriture Kavita. Une sélection entièrement sans objet la créditait.
+            record_run_origin("workshop")
+            record_workshop_history(
+                series_id,
+                "send-selection",
+                detail={
+                    "count": dones,
+                    "sent": dones,
+                    "total": len(results),
+                    "chapters": [r["chapter_id"] for r in results if r.get("status") == "DONE"],
+                },
+            )
+        failed = [r for r in results if not r.get("success")]
+        sent = sum(1 for r in results if r.get("status") == "DONE")
+
+        cfg = load_config()
+        lang = cfg.get("UI_LANG", "fr")
+        t = translations.get(lang, translations["fr"])
+
+        if len(results) > 1:
+            if failed:
+                logging.warning(
+                    t.get(
+                        "log_workshop_selection_partial",
+                        "[{0}] ⚠️ {1}/{2} tome(s) envoyés dans Kavita ({3} échec(s))",
+                    ).format(label, sent, len(results), len(failed))
+                )
+            elif dones > 0:
+                logging.info(
+                    t.get(
+                        "log_workshop_selection_success",
+                        "[{0}] ✅ {1} tomes envoyés avec succès dans Kavita !",
+                    ).format(label, dones)
+                )
+
+        if failed:
+            return {
+                "success": False,
+                "partial": sent > 0,
+                "sent": sent,
+                "total": len(results),
+                "results": results,
+                "error": failed[0].get("error") or "",
+            }
+        return {
+            "success": True,
+            "noop": sent == 0,
+            "sent": sent,
+            "total": len(results),
+            "results": results,
+        }
+    finally:
+        release(series_id)
+
+
+def reset_workshop(api: KavitaAPI, series_id: int, chapter_id=None) -> Dict[str, Any]:
+    """Efface Meta (overrides, historique, cache de passe, index) et relit Kavita.
+
+    N'écrit pas dans Kavita, mais efface `volume_unit_cache` — c'est ce qui rend
+    la passe reprenable. Le faire sous une passe en cours sur la même série lui
+    retirait sa mémoire en plein vol : elle refaisait des unités déjà écrites.
+    D'où le même verrou que les envois, seul chemin Meta de l'atelier qui en
+    était dépourvu.
+    """
+    if _pass_blocks(series_id):
+        return {"success": False, "error": "busy", "busy": True}
+    claimed, release = _claim(series_id)
+    if not claimed:
+        return {"success": False, "error": "busy", "busy": True, "series_busy": True}
+    try:
+        if chapter_id is None:
+            clear_workshop_series_override(series_id)
+            clear_volume_unit_overrides(series_id)
+            clear_workshop_history(series_id)
+            clear_volume_unit_states(series_id)
+            forgotten = forget_series(series_id)
+        else:
+            clear_volume_unit_overrides(series_id, chapter_id)
+            clear_workshop_history(series_id, chapter_id)
+            clear_volume_unit_states(series_id, chapter_id=chapter_id)
+            forgotten = 0
+        record_lifetime_event("workshop_resets")
+        record_workshop_history(
+            series_id,
+            "reset",
+            chapter_id=chapter_id,
+            detail={"source": "reset"},
+        )
+        payload = workshop_payload(api, series_id)
+        return {
+            "success": True,
+            "index_forgotten": forgotten,
+            "payload": payload,
+        }
+    finally:
+        release(series_id)
+
+
+def _dedupe_candidates(raw: List[dict]) -> List[Dict[str, Any]]:
+    seen = set()
+    out = []
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        key = (
+            str(item.get("provider_ref") or ""),
+            str(item.get("isbn") or ""),
+            str(item.get("title") or ""),
+        )
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append(item)
+    return out
+
+
+def begin_volume_review(
+    api: KavitaAPI,
+    series_id: int,
+    chapter_id: int,
+    *,
+    super_review: bool = False,
+    isbn: Optional[str] = None,
+    config: dict = None,
+) -> Dict[str, Any]:
+    """Candidats tome (ISBN / URL / titre+numéro). Pas de PENDING_REVIEW série."""
+    cfg = config if config is not None else load_config()
+    volumes = api.get_series_volumes(series_id) or []
+    units = [
+        u for u in units_from_volumes(volumes) if int(u.get("chapter_id") or 0) == int(chapter_id)
+    ]
+    if not units:
+        return {"success": False, "error": "not_found"}
+    unit = units[0]
+    series = api.get_series(series_id) or {}
+    name = series.get("name") or ""
+    candidates: List[dict] = []
+    ov = get_volume_unit_overrides(series_id).get(int(chapter_id)) or {}
+    ref = ov.get("provider_ref") or ""
+    if is_http_url(ref):
+        hit = fetch_volume_from_url(ref, volume_number=unit.get("volume_number"))
+        if hit:
+            candidates.append(hit)
+    raw_target_isbn = (
+        str(isbn or "").strip()
+        or str((ov.get("payload") or {}).get("isbn") or "").strip()
+        or str((unit.get("chapter") or {}).get("isbn") or "").strip()
+    )
+    target_isbn = re.sub(r"[\s\-]", "", raw_target_isbn)
+    if target_isbn:
+        from services.volume_enrichment.providers import fetch_by_isbn
+
+        search_unit = dict(unit)
+        search_unit["isbn"] = target_isbn
+        if isinstance(search_unit.get("chapter"), dict):
+            chap = dict(search_unit["chapter"])
+            chap["isbn"] = target_isbn
+            search_unit["chapter"] = chap
+        kwargs = {"library_type": series.get("libraryType") or "Manga", "config": cfg}
+        try:
+            extra = fetch_by_isbn([search_unit], all_scrapers=True, **kwargs)
+        except TypeError:
+            extra = fetch_by_isbn([search_unit], **kwargs)
+        for payload in (extra or {}).values():
+            if isinstance(payload, dict):
+                candidates.append(payload)
+    if super_review or cfg.get("VOLUME_ENRICH_EXPERIMENTAL"):
+        from services.volume_enrichment.providers import fetch_by_title_volume
+
+        try:
+            extra = fetch_by_title_volume(
+                name,
+                [unit],
+                library_type=series.get("libraryType") or "Manga",
+                all_scrapers=True,
+            )
+        except TypeError:
+            extra = fetch_by_title_volume(
+                name,
+                [unit],
+                library_type=series.get("libraryType") or "Manga",
+            )
+        for payload in (extra or {}).values():
+            if isinstance(payload, dict):
+                candidates.append(payload)
+    record_lifetime_event("workshop_reviews")
+    return {
+        "success": True,
+        "kind": "volume",
+        "chapter_id": int(chapter_id),
+        "series_id": series_id,
+        "series_name": name,
+        "candidates": _dedupe_candidates(candidates)[:12],
+        "super": bool(super_review),
+    }
+
+
+def confirm_volume_review(
+    api: KavitaAPI,
+    series_id: int,
+    chapter_id: int,
+    candidate: dict,
+    *,
+    force: bool = False,
+) -> Dict[str, Any]:
+    """Pose le candidat sur la carte atelier. Kavita n'est écrit qu'à l'envoi.
+
+    ``api`` / ``force`` restent pour le contrat d'appel de la route ; le
+    staging n'écrit pas et n'honore pas ``force``.
+    """
+    del api, force
+    cand = candidate if isinstance(candidate, dict) else {}
+    # Le candidat arrive du corps de la requête. En pratique il vient de la
+    # réponse de `begin_volume_review`, mais rien ne l'impose : les deux URL
+    # qu'il porte sont l'une affichée en lien, l'autre allée chercher par le
+    # serveur au moment de l'envoi. Le Champ Magique passe déjà par cette porte
+    # (`detect_volume_provider_from_url` refuse ce qui n'est pas http) ; la
+    # Review l'ouvrait en grand.
+    cover = _http_or_empty(cand.get("cover_url"))
+    provider_ref = _http_or_empty(cand.get("provider_ref"))
+    edits = {
+        field: cand.get(field)
+        for field in INDEX_FIELDS
+        if field != "cover_url" and cand.get(field)
+    }
+    payload = {k: cand.get(k) for k in INDEX_FIELDS if cand.get(k)}
+    if cover:
+        payload["cover_url"] = cover
+    else:
+        payload.pop("cover_url", None)
+    if payload or cand.get("provider") or provider_ref:
+        payload["_staged"] = True
+        save_volume_unit_override(
+            series_id,
+            chapter_id,
+            provider=str(cand.get("provider") or ""),
+            provider_ref=provider_ref,
+            payload=payload,
+        )
+    fields = list(edits.keys())
+    if cover:
+        fields.append("cover")
+    record_workshop_history(
+        series_id,
+        "review",
+        chapter_id=int(chapter_id),
+        detail={
+            "fields": fields,
+            "provider": cand.get("provider") or "",
+        },
+    )
+    return {
+        "success": True,
+        "staged": True,
+        "chapter_id": int(chapter_id),
+        "edits": edits,
+        "cover_url": cover,
+    }
+
+
+def library_is_disabled(series: dict, config: dict) -> bool:
+    lib = str((series or {}).get("libraryId") or "")
+    return lib in {str(i) for i in get_disabled_library_ids(config)}

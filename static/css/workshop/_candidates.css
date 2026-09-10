@@ -1,0 +1,65 @@
+/* --------------------------------------------------------------------------
+   11. Candidats Revue de Tome & Complétion
+   -------------------------------------------------------------------------- */
+
+.workshop-candidate {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    width: 100%;
+    text-align: left;
+    padding: 8px 10px;
+    margin: 0 0 6px;
+    border-radius: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: #090e1a;
+    color: inherit;
+    cursor: pointer;
+    transition: all 0.14s ease;
+}
+
+.workshop-candidate:hover {
+    border-color: rgba(45, 212, 191, 0.4);
+    background: rgba(45, 212, 191, 0.04);
+}
+
+.workshop-candidate.is-picked {
+    border-color: #2dd4bf;
+    background: rgba(45, 212, 191, 0.09);
+    box-shadow: 0 0 0 1px rgba(45, 212, 191, 0.3);
+}
+
+.workshop-candidate-cover {
+    width: 40px;
+    height: 56px;
+    object-fit: cover;
+    border-radius: 3px;
+    flex-shrink: 0;
+    background: rgba(255, 255, 255, 0.04);
+}
+
+.workshop-candidate-body {
+    flex: 1;
+    min-width: 0;
+}
+
+.workshop-candidate-body strong {
+    display: block;
+    font-size: 12px;
+    margin-bottom: 2px;
+}
+
+.workshop-candidate-body span {
+    display: block;
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+    margin-bottom: 3px;
+}
+
+.workshop-candidate-body p {
+    margin: 0;
+    font-size: 11px;
+    color: var(--text-secondary, #cbd5e1);
+    line-height: 1.3;
+}
+

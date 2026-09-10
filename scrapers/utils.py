@@ -396,6 +396,34 @@ def album_number_key(raw) -> Optional[str]:
     return f"{value:g}"
 
 
+def select_wanted_album_links(links, wanted_numbers, max_n):
+    """Filtre les albums à visiter, puis applique le plafond.
+
+    `wanted_numbers` est l'ensemble des clés Kavita (`number_key`). Absent
+    (`None`), on garde l'ordre de la liste comme avant. Un lien sans numéro
+    n'est jamais visité : on ne saurait pas sous quelle clé le ranger.
+    """
+    selected = []
+    cap = int(max_n) if max_n else None
+    wanted = set(wanted_numbers) if wanted_numbers is not None else None
+    for link in links or []:
+        if not isinstance(link, dict):
+            continue
+        number = link.get("number")
+        if number is None:
+            continue
+        if wanted is not None:
+            key = album_number_key(number)
+            if key is None:
+                key = str(number).strip()
+            if not key or key not in wanted:
+                continue
+        selected.append(link)
+        if cap is not None and len(selected) >= cap:
+            break
+    return selected
+
+
 def calculate_similarity(s1, s2):
     """Calcule le pourcentage de ressemblance entre deux titres (0.0 à 1.0)"""
     n1 = normalize_str(convert_roman_vol(s1))

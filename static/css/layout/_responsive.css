@@ -1,0 +1,238 @@
+/* ================================================================
+   MetaKavita CSS — _responsive.css
+   Responsive Design : media queries globales mobile/tablette/desktop
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* RESPONSIVE DESIGN */
+@media (max-width: 850px) {
+    body {
+        height: auto !important;
+        overflow-y: auto !important;
+    }
+
+    .live-kpis {
+        order: 3;
+        flex: 1 1 100%;
+        justify-content: flex-start;
+        margin: 0 0 8px;
+        overflow-x: auto;
+        padding-bottom: 2px;
+    }
+
+    .dashboard-wrapper {
+        height: auto !important;
+        overflow: visible !important;
+    }
+    
+    .dashboard-body {
+        flex-direction: column;
+        overflow: visible;
+        height: auto !important;
+    }
+    
+    .sidebar {
+        width: 100%;
+        border-right: none;
+        border-bottom: 1px solid var(--border-color);
+        padding: 15px;
+        overflow-y: visible;
+    }
+	
+    .search-input {
+        width: 100%;
+        margin-bottom: 10px;
+    }
+	
+    .content {
+        overflow: visible;
+        height: auto !important;
+        padding: 15px;
+    }
+    
+    .main-form {
+        overflow: visible;
+        height: auto !important;
+    }
+
+    .series-container {
+        height: auto !important;
+        overflow: visible;
+    }
+    
+    .series-list {
+        overflow-y: visible;
+        max-height: none;
+        height: auto !important;
+    }
+    
+    .logs-container {
+        min-height: 200px !important;
+    }
+    
+    .topbar {
+        padding: 10px 15px;
+        flex-wrap: wrap;
+        gap: 10px;
+        justify-content: center;
+    }
+    
+    .topbar-actions {
+        display: flex;
+        gap: 10px;
+    }
+
+    /* La barre d'actions s'empile déjà à 900 px (voir `.ba-btn`) : ici on ne
+       garde que le repli à une colonne, un bouton d'arrêt de 33 % étant
+       intouchable au pouce. */
+    .ba-cluster--run {
+        grid-template-columns: 1fr;
+    }
+
+    /* Liste séries : fallback viewport (containers non supportés / page scroll) */
+    .series-row {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "title"
+            "status"
+            "actions";
+        align-items: stretch;
+        gap: 6px;
+        min-height: 0;
+    }
+    .series-title-line {
+        width: 100%;
+    }
+    .series-name {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .series-status {
+        padding-left: calc(1.1em + 10px);
+    }
+    .series-actions {
+        justify-content: flex-start;
+        padding-left: calc(1.1em + 10px);
+        width: 100%;
+    }
+    .series-actions .btn-opt,
+    .series-actions .btn-sync {
+        flex: 1 1 auto;
+        min-width: 0;
+        text-align: center;
+    }
+
+    /* Modales : colonne unique + champs empilés */
+    .config-grid {
+        grid-template-columns: 1fr;
+        gap: 12px;
+    }
+
+    .form-group-row,
+    .providers-row,
+    .fm-grid {
+        grid-template-columns: 1fr;
+    }
+    .fm-tabs {
+        width: 100%;
+    }
+    .fm-tab {
+        flex: 1 1 auto;
+    }
+
+    .modal-content {
+        max-height: min(94dvh, 94vh);
+    }
+
+    .modal-header,
+    .modal-scroll-body,
+    .modal-footer {
+        padding-left: 14px;
+        padding-right: 14px;
+    }
+
+    .inline-field-row {
+        flex-direction: column;
+    }
+    .inline-field-row > .btn-secondary {
+        width: 100%;
+    }
+
+    .covers-grid {
+        grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+        gap: 10px;
+    }
+    .cover-item img {
+        height: 160px;
+    }
+}
+
+@media (max-width: 480px) {
+    .modal-overlay {
+        padding: 0;
+        align-items: stretch;
+    }
+
+    .modal-content {
+        width: 100%;
+        max-width: 100%;
+        max-height: 100dvh;
+        min-height: 100dvh;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+
+    .modal-header h3 {
+        font-size: 15px;
+    }
+}
+
+/* Animation d'entrée fluide pour les couvertures en streaming */
+@keyframes coverFadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(12px) scale(0.96);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+    }
+}
+
+.cover-item {
+    animation: coverFadeIn 0.3s ease-out forwards;
+}
+
+/* Bandeau d'état du streaming dans la modal */
+.stream-status-bar {
+    font-size: 12px;
+    padding: 6px 12px;
+    background: rgba(59, 130, 246, 0.1);
+    border: 1px solid rgba(59, 130, 246, 0.3);
+    border-radius: 6px;
+    color: var(--primary);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 8px;
+    font-weight: 500;
+}
+
+.stream-spinner {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border: 2px solid var(--primary);
+    border-radius: 50%;
+    border-top-color: transparent;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+

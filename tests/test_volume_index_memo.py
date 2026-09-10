@@ -134,6 +134,10 @@ def test_un_index_obtenu_sous_annulation_n_est_pas_retenu(monkeypatch):
         pytest.param({"experimental": True}, id="recherche par titre et numéro"),
         pytest.param({"units": [{"chapter_id": 1}]}, id="un tome de moins"),
         pytest.param(
+            {"units": [{"chapter_id": 1, "volume_number": 1}, {"chapter_id": 2, "volume_number": 41}]},
+            id="même effectif, autres numéros",
+        ),
+        pytest.param(
             {"config": {"COMIC_PROVIDER_1": "BEDETHEQUE"}}, id="ordre de cascade"
         ),
     ],

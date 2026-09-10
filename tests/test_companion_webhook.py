@@ -63,7 +63,14 @@ def test_make_sync_item_defaults_compat():
     item = bg.make_sync_item(1, "Title", True)
     assert item["super_review"] is False
     assert item["force_auto"] is False
+    assert item["manual_review_override"] is False
     assert item["is_batch"] is False
+    assert item["origin"] == "row"
+
+
+def test_make_sync_item_batch_defaults_to_batch_origin():
+    item = bg.make_sync_item(1, "Title", False, is_batch=True)
+    assert item["origin"] == "batch"
 
 
 def test_webhook_empty_body_good_token_returns_400(client):
@@ -109,6 +116,7 @@ def test_webhook_series_id_only_resolves_name(client, webhook_app, monkeypatch):
     assert item["series_name"] == "Resolved Title"
     assert item["force_auto"] is True
     assert item["super_review"] is False
+    assert item["origin"] == "webhook"
 
 
 def test_webhook_series_id_unknown_returns_404(client, webhook_app, monkeypatch):

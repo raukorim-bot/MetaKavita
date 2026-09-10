@@ -130,3 +130,37 @@ def test_a_non_numeric_series_id_is_refused(monkeypatch, isolated_db):
     assert res.status_code == 400
     assert res.get_json()["success"] is False
     assert _drain(bg.sync_queue) == []
+
+
+def test_force_sync_forwards_review_flags(monkeypatch, isolated_db):
+    client = _client(monkeypatch)
+    res = client.post(
+        "/force-sync",
+        data={
+            "series_id": "42",
+            "series_name": "Review me",
+            "manual_review_override": "true",
+        },
+    )
+    assert res.status_code == 202
+    item = _drain(bg.sync_queue)[0]
+    assert item["origin"] == "row"
+    assert item["manual_review_override"] is True
+    assert item["super_review"] is False
+
+
+def test_force_sync_super_wins_over_review_flag(monkeypatch, isolated_db):
+    client = _client(monkeypatch)
+    res = client.post(
+        "/force-sync",
+        data={
+            "series_id": "42",
+            "series_name": "Super me",
+            "super_review": "true",
+            "manual_review_override": "true",
+        },
+    )
+    assert res.status_code == 202
+    item = _drain(bg.sync_queue)[0]
+    assert item["super_review"] is True
+    assert item["manual_review_override"] is False

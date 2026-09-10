@@ -24,6 +24,7 @@ from typing import Any, Dict, List, Optional
 from config_manager import load_config
 from db_manager import (
     get_all_cached_data,
+    get_volume_unit_overrides,
     get_volume_unit_states,
     list_enriched_series_ids,
     mark_series_pass_done,
@@ -83,6 +84,30 @@ def provider_hints(series: Optional[dict]) -> Dict[str, Any]:
             continue
         if value > 0:
             hints[hint_key] = str(value)
+    loc = str(series.get("localizedName") or "").strip()
+    if loc:
+        hints["localizedName"] = loc
+    alts: List[str] = []
+    original = str(series.get("originalName") or "").strip()
+    if original:
+        alts.append(original)
+    raw_alts = series.get("alternativeNames") or series.get("alternative_titles") or []
+    if isinstance(raw_alts, str):
+        raw_alts = [raw_alts]
+    for title in raw_alts:
+        text = str(title or "").strip()
+        if text:
+            alts.append(text)
+    seen = {loc.casefold()} if loc else set()
+    unique = []
+    for title in alts:
+        key = title.casefold()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        unique.append(title)
+    if unique:
+        hints["alternative_titles"] = unique
     return hints
 
 
@@ -219,6 +244,22 @@ _SKIP_REASONS = {
     "specials": "aucune unité n'a de numéro de tome ni d'ISBN, rien à apparier "
                 "— aucun fournisseur interrogé",
 }
+
+
+def _unmatchable_without_override(series_id: int, units, name: str) -> str:
+    """Écarte un one-shot sans ISBN, sauf si l'atelier a déjà posé un lien magique."""
+    reason = unmatchable_reason(units, name)
+    if not reason:
+        return ""
+    if get_volume_unit_overrides(series_id):
+        return ""
+    return reason
+
+
+def _overlay_index(series_id: int, index, units):
+    from services.workshop import overlay_overrides
+
+    return overlay_overrides(series_id, index, units)
 
 #: États d'unité sur lesquels une reprise n'a plus rien à faire. `FAILED` en est
 #: absent exprès : c'est précisément ce qu'une reprise doit retenter (Kavita qui
@@ -378,8 +419,9 @@ def _enrich_one_series_locked(
         return {"counts": {"done": 0, "skipped": 0, "failed": 0, "nothing": 0}, "errors": []}
 
     # Sans numéro de tome ni ISBN, aucune cascade ne peut rien apparier, quel que
-    # soit le fournisseur. On retire la recherche avant de la payer.
-    out_of_scope = unmatchable_reason(units, name)
+    # soit le fournisseur. On retire la recherche avant de la payer — sauf si
+    # l'atelier a déjà collé un lien magique sur un one-shot.
+    out_of_scope = _unmatchable_without_override(series_id, units, name)
     if out_of_scope:
         logging.info("[Tomes] %s : %s", label, _SKIP_REASONS.get(out_of_scope, out_of_scope))
         mark_series_pass_done(series_id, provider="")
@@ -397,10 +439,16 @@ def _enrich_one_series_locked(
             pending = [u for u in units if int(u.get("chapter_id") or 0) not in settled]
             resumed = len(units) - len(pending)
             units = pending
+    staged = {
+        int(cid)
+        for cid, ov in (get_volume_unit_overrides(series_id) or {}).items()
+        if (ov.get("payload") or {}).get("_staged")
+    }
+    if staged:
+        units = [u for u in units if int(u.get("chapter_id") or 0) not in staged]
     if not units:
-        # Toutes les unités portent déjà leur verdict : la série est finie, même
-        # si la sentinelle manque (arrêt du conteneur entre la dernière unité et
-        # la fin de la série).
+        # Toutes les unités portent déjà leur verdict ou sont en attente d'envoi dans l'atelier :
+        # la passe auto ne doit pas écrire par-dessus.
         mark_series_pass_done(series_id, provider="")
         return {"counts": {"done": 0, "skipped": 0, "failed": 0, "nothing": 0,
                            "resumed": resumed}, "errors": [], "provider": ""}
@@ -416,18 +464,22 @@ def _enrich_one_series_locked(
 
     cached = (cache or {}).get(series_id) or {}
     index_started = time.monotonic()
-    provider, index = resolve_index(
-        name,
-        units,
-        library_type=library_type,
-        forced_id=str(cached.get("forced_id") or ""),
-        forced_provider=str(cached.get("forced_provider") or ""),
-        existing_metadata=provider_hints(series),
-        should_cancel=should_cancel,
-        experimental=experimental,
-        config=config,
-        kavita_series_id=series_id,
-    )
+    if unmatchable_reason(units, name) and get_volume_unit_overrides(series_id):
+        provider, index = "", {}
+    else:
+        provider, index = resolve_index(
+            name,
+            units,
+            library_type=library_type,
+            forced_id=str(cached.get("forced_id") or ""),
+            forced_provider=str(cached.get("forced_provider") or ""),
+            existing_metadata=provider_hints(series),
+            should_cancel=should_cancel,
+            experimental=experimental,
+            config=config,
+            kavita_series_id=series_id,
+        )
+    index = _overlay_index(series_id, index, units)
     if not index:
         # Personne ne connaît cette série. C'est un résultat, et il se retient :
         # ce sont précisément les séries les plus coûteuses (recherche complète
@@ -697,8 +749,9 @@ def build_series_plan(
 
     # Même raccourci que dans la passe, et au même endroit : avant le premier
     # appel réseau. L'aperçu d'un one-shot faisait patienter sur une recherche
-    # dont le résultat était connu, puis affichait un vide sans le dire.
-    out_of_scope = unmatchable_reason(units, name)
+    # dont le résultat était connu, puis affichait un vide sans le dire. Un
+    # Champ Magique d'atelier lève le raccourci.
+    out_of_scope = _unmatchable_without_override(series_id, units, name)
     if out_of_scope:
         logging.info("[Tomes] %s : %s", label, _SKIP_REASONS.get(out_of_scope, out_of_scope))
         return {
@@ -720,19 +773,23 @@ def build_series_plan(
 
     cached = (cache if cache is not None else get_all_cached_data()).get(series_id) or {}
     index_started = time.monotonic()
-    provider, index, from_cache = resolve_index_cached(
-        series_id,
-        name,
-        units,
-        library_type=library_type,
-        force=force,
-        forced_id=str(cached.get("forced_id") or ""),
-        forced_provider=str(cached.get("forced_provider") or ""),
-        existing_metadata=provider_hints(series),
-        experimental=experimental,
-        config=config,
-        should_cancel=should_cancel,
-    )
+    if unmatchable_reason(units, name) and get_volume_unit_overrides(series_id):
+        provider, index, from_cache = "", {}, False
+    else:
+        provider, index, from_cache = resolve_index_cached(
+            series_id,
+            name,
+            units,
+            library_type=library_type,
+            force=force,
+            forced_id=str(cached.get("forced_id") or ""),
+            forced_provider=str(cached.get("forced_provider") or ""),
+            existing_metadata=provider_hints(series),
+            experimental=experimental,
+            config=config,
+            should_cancel=should_cancel,
+        )
+    index = _overlay_index(series_id, index, units)
     index_seconds = time.monotonic() - index_started
     logging.info(
         "[Tomes] %s : %s album(s) trouvé(s) via %s en %.1f s (%s) — tomes lus en %.1f s",

@@ -11,7 +11,7 @@ import logging
 from flask import Blueprint, request, jsonify
 
 from config_manager import load_config
-from db_manager import get_all_cached_data, update_status, save_series_override
+from db_manager import get_all_cached_data, update_status, save_series_override, record_lifetime_event
 from kavita_api import KavitaAPI
 from models import SeriesOverride
 from services.cover_search import collect_covers_http
@@ -185,6 +185,7 @@ def seal_series_locks(series_id):
         return jsonify(success=False, error=msg), 502
 
     update_status(int(series_id), 'COMPLETED')
+    record_lifetime_event("locks_sealed")
     try:
         from services.kavita_payload import _emit_series_status
         cache = get_all_cached_data().get(int(series_id), {})
@@ -223,6 +224,8 @@ def seal_all_needs_relock():
             sealed.append(int(sid))
         else:
             failed.append({"series_id": int(sid), "error": msg})
+    if sealed:
+        record_lifetime_event("locks_sealed", len(sealed))
     return jsonify(
         success=True,
         sealed_count=len(sealed),

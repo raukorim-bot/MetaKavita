@@ -30,7 +30,7 @@ La même carte contient aussi la [Review manuelle](manual-review.md).
 
 **Tout sélectionner (visible)** et les compteurs d'items / batch au-dessus de **Recherche** (début de titre, ou **Dans le titre**) et **Filtres** (bibliothèque, statut, masquer les ignorés). **Déplier/Replier tout** ouvre tous les panneaux d'options ; **Enregistrer tous les forçages** les écrit ensemble.
 
-En dessous : la bande [Inventaire](inventory.md) (barre de santé, Manquants / Doublons / Sans id) et le bouton [Tomes](volumes.md) **Enrichir les tomes sélectionnés**.
+En dessous : la bande [Inventaire](inventory.md) (barre de santé interactive, puces Manquants / Doublons / Sans id / Exclues) et la barre [Tomes](volumes.md) : **Atelier** (page, sans choisir une série) et **Enrichir les tomes cochés**. Sur chaque ligne : 📑 inventaire, 📚 [atelier](volumes.md).
 
 ![Recherche, filtres, Inventaire et Tomes](../../assets/docs-toolbar-inventory.png)
 
@@ -61,9 +61,17 @@ Le **Journal** de la barre latérale reprend la police du reste de l'app. L'heur
 
 Si l'écriture Kavita réussit mais que le re-verrouillage échoue, badge orange **À sceller**. MetaKavita retente automatiquement ; action 🔒 ou filtre aussi.
 
+## Titre alternatif refusé par Kavita
+
+Kavita 0.9.1 et suivants refusent un titre alternatif dans deux cas : une autre série de la même bibliothèque **et du même format** porte déjà ce nom, ou le titre alternatif actuel correspond encore à un dossier du disque qui sert à rattacher des fichiers à la série — le remplacer les en séparerait au prochain scan.
+
+MetaKavita affiche alors le motif, **garde tout ce qu'il vient d'écrire** (résumé, genres, tags, couverture…) et n'inscrit pas la série en échec : le refus ne changera pas au passage suivant. Pour poser ce titre malgré tout, renommez la série concurrente dans Kavita, ou renommez d'abord le dossier sur le disque puis relancez un scan.
+
+Le fournisseur de métadonnées que vous auriez imposé à une seule série dans Kavita (Kavita+) n'est plus touché par les écritures de MetaKavita.
+
 ## Statistiques ludiques (`/stats`)
 
-Optionnel (défaut on via `ENABLE_PLAYFUL_STATS`). L'accueil est **Ta bibliothèque, en récit** : compteurs lifetime + état du cache, et un **Score bibliothèque** ludique (0–100). Fais défiler pour la suite — graphiques Chart.js, taux de hit, cartes fun, hauts-faits Review manuelle. Des tips **Buy Me a Coffee** peuvent apparaître après un bon batch — jamais de paywall.
+Optionnel (défaut on via `ENABLE_PLAYFUL_STATS`). L'accueil est **Ta bibliothèque, en récit** : compteurs lifetime + état du cache, et un **Score bibliothèque** ludique (0–100). Fais défiler pour la suite — graphiques Chart.js, taux de hit, cartes fun, hauts-faits Review manuelle. Le défilement à la molette est entièrement libre et fluide, complété par un rail latéral de points pour naviguer d'un clic entre les chapitres et les raccourcis clavier <kbd>PageDown</kbd> / <kbd>PageUp</kbd> pour feuilleter le récit. Des tips **Buy Me a Coffee** peuvent apparaître après un bon batch — jamais de paywall.
 
 ![Statistiques ludiques](../../assets/docs-stats.png)
 

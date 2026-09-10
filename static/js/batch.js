@@ -69,9 +69,16 @@ var batchNagFired = false;
 var mainBatchBtnBusy = false;
 /** Empêche un 2ᵉ launchBatch d’abort le premier envoi (×50). */
 var batchEnqueueInFlight = false;
+/** Jobs Auto-sync encore en file (poll `/api/auto-sync/status`). */
+var autoSyncWaiting = false;
+var autoSyncStatusTimer = null;
 
 function isBatchInProgress() {
     return batchProgressTotal > 0;
+}
+
+function isStopArmed() {
+    return isBatchInProgress() || !!autoSyncWaiting;
 }
 
 /**
@@ -118,7 +125,7 @@ function syncMainBatchBtnLabel() {
     // L'état de la barre ne dépend pas d'un message passager : le bouton d'arrêt
     // doit devenir franc dès qu'un lot tourne, « Envoi… » affiché ou non.
     const bar = document.getElementById('batchActions');
-    if (bar) bar.dataset.state = isBatchInProgress() ? 'running' : 'idle';
+    if (bar) bar.dataset.state = isStopArmed() ? 'running' : 'idle';
     if (!btn) return;
     if (btn.dataset) btn.dataset.mode = isBatchInProgress() ? 'append' : 'run';
     if (mainBatchBtnBusy) return;
@@ -412,10 +419,17 @@ function _filterSeriesApply() {
             || '').toLowerCase();
 
         let show = false;
+        const cb = item.querySelector('.series-cb');
+        const sid = cb ? String(cb.value) : '';
 
         if (filter === 'ALL') {
             show = true;
             if (hideIgnored && status === 'IGNORED') {
+                show = false;
+            }
+        } else if (filter === 'AUTO_SYNC') {
+            show = !!(sid && window.autoSyncSeriesIds && window.autoSyncSeriesIds.has(sid));
+            if (show && hideIgnored && status === 'IGNORED') {
                 show = false;
             }
         } else if (status === filter) {
@@ -434,6 +448,17 @@ function _filterSeriesApply() {
             } else if (window.hygieneFilter === 'RELEASING') {
                 var pub = String(item.dataset.publicationStatus || '').toUpperCase();
                 show = pub === 'RELEASING' || pub === 'HIATUS' || pub === 'NOT_YET_RELEASED';
+            } else if (window.hygieneFilter === 'HEALTHY') {
+                var cs = String(item.dataset.completionState || '');
+                show = cs === 'complete' || cs === 'uptodate';
+            } else if (window.hygieneFilter === 'INCOMPLETE') {
+                var cs = String(item.dataset.completionState || '');
+                show = cs === 'poor' || cs === 'partial' || cs === 'near' || cs === 'overshoot' || Number(item.dataset.missingCount || 0) > 0;
+            } else if (window.hygieneFilter === 'UNKNOWN_EXPECTED') {
+                var cs = String(item.dataset.completionState || '');
+                show = cs === 'unknown';
+            } else if (window.hygieneFilter === 'EXCLUDED') {
+                show = item.dataset.inventoryExcluded === '1';
             }
         }
 
@@ -447,8 +472,6 @@ function _filterSeriesApply() {
         // Ne pas décocher : une faute de frappe / un filtre ne doit pas détruire la sélection.
         item.classList.toggle('is-filtered-out', !show);
         if (show) {
-            const cb = item.querySelector('.series-cb');
-            const sid = cb ? String(cb.value) : '';
             if (sid) {
                 matchedIds.push(sid);
                 matchedSet.add(sid);
@@ -920,10 +943,27 @@ async function resumeBatchQueue() {
 document.addEventListener('DOMContentLoaded', function () {
     refreshBatchQueueBadge();
     syncMainBatchBtnLabel();
+    refreshAutoSyncWaiting();
+    autoSyncStatusTimer = setInterval(refreshAutoSyncWaiting, 5000);
 });
+
+function refreshAutoSyncWaiting() {
+    fetch(getRootPath() + '/api/auto-sync/status')
+        .then(function (res) { return res.json(); })
+        .then(function (data) {
+            autoSyncWaiting = !!(data && data.waiting_auto);
+            syncMainBatchBtnLabel();
+            if (typeof applyAutoSyncReportBadge === 'function') {
+                applyAutoSyncReportBadge(data);
+            }
+        })
+        .catch(function () { /* ignore */ });
+}
 
 /** Coupe l'envoi des paquets UI (×50) ET vide la file serveur. */
 function stopBatch() {
+    const T = window.AppTranslations || {};
+    if (!window.confirm(T.stop_batch_confirm || 'Stop waiting batches and Auto-sync?')) return;
     batchEnqueueAbort = true;
     if (batchEnqueueController) {
         try { batchEnqueueController.abort(); } catch (e) { /* ignore */ }
@@ -936,6 +976,8 @@ function stopBatch() {
         mainBatchBtnBusy = true;
         setBatchBtnBusy(btn, true);
         setBatchBtnLabel(btn, window.AppTranslations.batch_stopped || window.AppTranslations.launchBatch);
+        autoSyncWaiting = false;
+        refreshAutoSyncWaiting();
         setTimeout(function () {
             mainBatchBtnBusy = false;
             syncMainBatchBtnLabel();

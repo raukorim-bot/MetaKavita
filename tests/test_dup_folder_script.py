@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 from flask import Flask
 
 from services.library_audit.dup_script import (
@@ -113,7 +115,7 @@ def test_script_trashes_only_marked_ids_and_quotes_spaces():
     assert meta["empty"] is False
     assert meta["groups_all_dropped"] == []
     assert "# KEEP  /comics/One Piece" in script
-    assert "mv -n -- '/comics/One Piece - Digital' \"$TRASH/\"" in script
+    assert "mk_trash '/comics/One Piece - Digital'" in script
     assert "rm -rf" not in script
     assert "TRASH=/mnt/media/corbeille-doublons" in script
 
@@ -127,7 +129,7 @@ def test_script_applies_path_prefix():
         path_prefix="/mnt/media",
     )
     assert meta["dropped"] == 1
-    assert "mv -n -- '/mnt/media/comics/One Piece - Digital' \"$TRASH/\"" in script
+    assert "mk_trash '/mnt/media/comics/One Piece - Digital'" in script
     assert "# KEEP  /mnt/media/comics/One Piece" in script
 
 
@@ -135,7 +137,7 @@ def test_script_delete_mode_uses_rm():
     script, meta = build_duplicate_folder_script([_group()], [2], mode="delete")
     assert meta["dropped"] == 1
     assert "rm -rf -- '/comics/One Piece - Digital'" in script
-    assert "mv -n" not in script
+    assert "mk_trash " not in script
 
 
 def test_script_skips_missing_path_and_flags_empty_group():
@@ -151,12 +153,68 @@ def test_script_skips_missing_path_and_flags_empty_group():
 
 
 def test_script_refuses_empty_selection():
-    try:
+    from services.library_audit.dup_script import ScriptRequestError
+
+    with pytest.raises(ScriptRequestError) as exc:
         build_duplicate_folder_script([_group()], [], mode="trash")
-    except ValueError as exc:
-        assert "no series" in str(exc)
-    else:
-        raise AssertionError("expected ValueError")
+    assert exc.value.code == "no_selection"
+
+
+@pytest.mark.parametrize(
+    "kwargs, expected_code",
+    [
+        ({"mode": "incinerate"}, "invalid_mode"),
+        ({"script_format": "exe"}, "invalid_format"),
+        ({"trigger_scan": True, "library_id": "lib-x"}, "invalid_library"),
+    ],
+)
+def test_script_refusals_carry_their_own_motive(kwargs, expected_code):
+    """Chaque refus porte son motif : un `ValueError` nu faisait répondre
+    « Cochez au moins une série à jeter » à un format ou une bibliothèque
+    invalides, sans rapport avec le vrai problème."""
+    from services.library_audit.dup_script import ScriptRequestError
+
+    with pytest.raises(ScriptRequestError) as exc:
+        build_duplicate_folder_script([_group()], [2], **kwargs)
+    assert exc.value.code == expected_code
+
+
+def test_script_comments_cannot_inject_a_command():
+    """Un nom de série contenant un saut de ligne refermait le commentaire et
+    injectait une ligne exécutable dans un script destiné au terminal (BF200)."""
+    group = {
+        "group_id": "dup-1",
+        "score": 1.0,
+        "reasons": ["same_isbn"],
+        "series_ids": [1, 2],
+        "names": ["Naruto\nrm -rf ~/Comics", "Naruto v2"],
+        "folder_paths": ["/comics/A", "/comics/B"],
+    }
+    script, _ = build_duplicate_folder_script(
+        [group], [2], mode="trash", trash_dir="/data/trash"
+    )
+    assert "rm -rf ~/Comics" in script  # le libellé reste lisible…
+    for line in script.splitlines():
+        # …mais aucune ligne n'échappe à son commentaire.
+        if "rm -rf ~/Comics" in line:
+            assert line.lstrip().startswith("#")
+
+
+def test_trash_helper_never_clobbers_and_is_symmetric():
+    """`mv -n` renonçait en silence là où `Move-Item -Force` écrasait : les deux
+    formats annoncent désormais le saut et préservent la corbeille."""
+    group = _group()
+    sh_script, _ = build_duplicate_folder_script(
+        [group], [2], mode="trash", script_format="sh", trash_dir="/data/trash"
+    )
+    ps_script, _ = build_duplicate_folder_script(
+        [group], [2], mode="trash", script_format="ps1", trash_dir="C:/Trash"
+    )
+    assert "mk_trash() {" in sh_script
+    assert "already present in the trash folder" in sh_script
+    assert "function Move-ToTrash" in ps_script
+    assert "already present in the trash folder" in ps_script
+    assert "-Force" not in ps_script.split("function Move-ToTrash")[1].split("}")[0]
 
 
 def test_script_route_returns_text_and_delete_route_is_gone(isolated_db, monkeypatch):
@@ -195,7 +253,7 @@ def test_script_route_returns_text_and_delete_route_is_gone(isolated_db, monkeyp
     data = res.get_json()
     assert data["success"] is True
     assert data["dropped"] == 1
-    assert "mv -n --" in data["script"]
+    assert "mk_trash " in data["script"]
     assert "/mnt/media/comics/One Piece - Digital" in data["script"]
 
 
@@ -214,6 +272,8 @@ def test_js_no_longer_calls_kavita_delete():
     assert "_enforceDupKeepOne" in src
     assert "_dupDropMarked" in src
     assert "keepBody" in src
+
+
     assert "dupFolderPathPrefix" in src
     assert 'id="dupFolderPathPrefix"' in modal
     assert 'id="dupFolderTrash"' in modal
@@ -228,3 +288,249 @@ def test_js_no_longer_calls_kavita_delete():
     assert "http://files.example.xx" not in modal
     assert 'placeholder="/mnt/media"' in modal
     assert "/mnt/media/corbeille-doublons" in modal
+
+
+def test_powershell_script_generation():
+    from services.library_audit.dup_script import build_duplicate_folder_script
+
+    groups = [
+        {
+            "group_id": "dup-1",
+            "series_ids": [10, 20],
+            "names": ["Naruto", "Naruto Digital"],
+            "folder_paths": ["/data/Naruto", "/data/Naruto Digital's Copy"],
+            "score": 1.0,
+            "reasons": ["same_external_id"],
+        }
+    ]
+
+    # Test mode trash ps1
+    script_trash, meta_trash = build_duplicate_folder_script(
+        groups,
+        [20],
+        mode="trash",
+        script_format="ps1",
+        trash_dir="/data/trash",
+    )
+    assert meta_trash["format"] == "ps1"
+    assert meta_trash["dropped"] == 1
+    assert "$TRASH = '/data/trash'" in script_trash
+    assert "Move-ToTrash '/data/Naruto Digital''s Copy'" in script_trash
+
+    # Test mode delete ps1
+    script_del, meta_del = build_duplicate_folder_script(
+        groups,
+        [20],
+        mode="delete",
+        script_format="ps1",
+    )
+    assert meta_del["format"] == "ps1"
+    assert "Remove-Item -LiteralPath '/data/Naruto Digital''s Copy' -Recurse -Force" in script_del
+
+
+def test_windows_paths_normalization():
+    """Vérifie que normalize_inventory_folder_trash accepte les lettres de lecteur Windows."""
+    assert normalize_inventory_folder_trash("C:/Media/Trash") == "C:/Media/Trash"
+    assert normalize_inventory_folder_trash("D:\\Manga\\Trash") == "D:/Manga/Trash"
+    assert normalize_inventory_folder_trash("E:\\") == "E:"
+    # Rejette toujours les chemins relatifs et les traversées
+    assert normalize_inventory_folder_trash("relative\\path") == ""
+    assert normalize_inventory_folder_trash("C:/Media/../Secret") == ""
+    assert normalize_inventory_folder_trash("http://example.com/trash") == ""
+
+
+def test_resolve_script_folder_path_windows():
+    """Un chemin Windows absolu n'est pas préfixé de force."""
+    assert resolve_script_folder_path("C:/Manga/One Piece", "") == "C:/Manga/One Piece"
+    assert resolve_script_folder_path("C:\\Manga\\One Piece", "D:/Prefix") == "C:/Manga/One Piece"
+
+
+def test_build_duplicate_folder_script_windows_ps1():
+    """Génération de script PowerShell valide avec chemins Windows."""
+    groups = [
+        {
+            "group_id": "dup-win",
+            "series_ids": [10, 20],
+            "names": ["Batman", "Batman (2016)"],
+            "folder_paths": ["C:\\Comics\\Batman", "C:\\Comics\\Batman 2016"],
+            "library_ids": [2, 2],
+            "score": 1.0,
+            "reasons": ["same_comicvine_id"],
+        }
+    ]
+    script, meta = build_duplicate_folder_script(
+        groups,
+        [20],
+        mode="trash",
+        script_format="ps1",
+        trash_dir="C:\\Corbeille",
+    )
+    assert meta["empty"] is False
+    assert meta["dropped"] == 1
+    assert "$TRASH = 'C:/Corbeille'" in script
+    assert "Move-ToTrash 'C:/Comics/Batman 2016'" in script
+
+
+def test_cluster_duplicate_series_propagates_library_ids():
+    """Vérifie que cluster_duplicate_series inclut library_ids dans chaque groupe."""
+    groups = cluster_duplicate_series(
+        [
+            {
+                "id": 101,
+                "name": "One Piece",
+                "libraryId": 1,
+                "folderPath": "/comics/op1",
+                "aniListId": 30013,
+            },
+            {
+                "id": 102,
+                "name": "One Piece",
+                "libraryId": 2,
+                "folderPath": "/comics/op2",
+                "aniListId": 30013,
+            },
+        ],
+        library_id=None,
+    )
+    assert len(groups) == 1
+    assert "library_ids" in groups[0]
+    by_sid = dict(zip(groups[0]["series_ids"], groups[0]["library_ids"]))
+    assert by_sid[101] == 1
+    assert by_sid[102] == 2
+
+
+def test_script_trigger_scan_bash():
+    """Génération de la commande de scan Kavita à la fin du script bash."""
+    groups = [_group()]
+    # Avec library_id spécifique
+    script, meta = build_duplicate_folder_script(
+        groups,
+        [2],
+        mode="trash",
+        script_format="sh",
+        trash_dir="/data/trash",
+        trigger_scan=True,
+        kavita_url="http://kavita.local:5000",
+        library_id=3,
+    )
+    assert meta["trigger_scan"] is True
+    assert "Trigger Kavita Library Scan" in script
+    assert "KAVITA_URL=http://kavita.local:5000" in script
+    # BF200 : la cle API n'est jamais rendue, le script la lit dans l'environnement.
+    assert "secret-api-key" not in script
+    assert 'KAVITA_API_KEY="${KAVITA_API_KEY:-}"' in script
+    assert "api/Library/scan?libraryId=3" in script
+
+    # Avec library_id "all"
+    script_all, meta_all = build_duplicate_folder_script(
+        groups,
+        [2],
+        mode="trash",
+        script_format="sh",
+        trash_dir="/data/trash",
+        trigger_scan=True,
+        kavita_url="http://kavita.local:5000",
+        library_id="all",
+    )
+    assert meta_all["trigger_scan"] is True
+    assert "api/Library/scan-all" in script_all
+
+
+def test_script_trigger_scan_powershell():
+    """Génération de la commande de scan Kavita à la fin du script PowerShell."""
+    groups = [_group()]
+    script, meta = build_duplicate_folder_script(
+        groups,
+        [2],
+        mode="trash",
+        script_format="ps1",
+        trash_dir="C:/Trash",
+        trigger_scan=True,
+        kavita_url="http://kavita.local:5000",
+        library_id=7,
+    )
+    assert meta["trigger_scan"] is True
+    assert "Trigger Kavita Library Scan" in script
+    assert "$kavitaUrl = 'http://kavita.local:5000'" in script
+    assert "secret-key" not in script
+    assert "$kavitaApiKey = $env:KAVITA_API_KEY" in script
+    assert "api/Library/scan?libraryId=7" in script
+
+    # Avec library_id "all"
+    script_all, _ = build_duplicate_folder_script(
+        groups,
+        [2],
+        mode="trash",
+        script_format="ps1",
+        trash_dir="C:/Trash",
+        trigger_scan=True,
+        kavita_url="http://kavita.local:5000",
+        library_id="all",
+    )
+    assert "api/Library/scan-all" in script_all
+
+
+def test_script_route_supports_trigger_scan(isolated_db, monkeypatch):
+    """Vérifie que la route API /duplicates/script accepte trigger_scan et l'injecte dans le script."""
+    from db_manager import save_duplicate_groups_cache
+    from routes.library_audit import library_audit_bp
+
+    app = Flask(__name__)
+    app.secret_key = "test"
+    app.register_blueprint(library_audit_bp)
+    monkeypatch.setattr(
+        "routes.library_audit.load_config",
+        lambda: {
+            "UI_LANG": "fr",
+            "LIBRARY_INVENTORY_ENABLED": True,
+            "INVENTORY_FOLDER_TRASH": "/data/trash",
+            "INVENTORY_FOLDER_PATH_PREFIX": "/data",
+            "KAVITA_URL": "http://127.0.0.1:5000",
+            "KAVITA_API_KEY": "my-kavita-token",
+        },
+    )
+    save_duplicate_groups_cache(42, [_group()])
+    client = app.test_client()
+
+    res = client.post(
+        "/api/libraries/42/duplicates/script",
+        json={"series_ids": [2], "mode": "trash", "trigger_scan": True},
+    )
+    assert res.status_code == 200
+    data = res.get_json()
+    assert data["success"] is True
+    assert data["trigger_scan"] is True
+    assert "scan?libraryId=42" in data["script"]
+    # BF200 : le jeton reste cote serveur, meme dans l'apercu en direct.
+    assert "my-kavita-token" not in data["script"]
+    assert "$KAVITA_API_KEY" in data["script"]
+
+
+def test_batch_duplicate_elements_in_html_and_js():
+    """Vérifie la présence des éléments de batch, live preview et search dans le template et le JS."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    src = (root / "static" / "js" / "library_audit.js").read_text(encoding="utf-8")
+    modal = (root / "templates" / "partials" / "_library_audit_modal.html").read_text(
+        encoding="utf-8"
+    )
+
+    # HTML
+    assert 'id="dupSearchInput"' in modal
+    assert 'id="dupSelectAllExtraBtn"' in modal
+    assert 'id="dupDeselectAllBtn"' in modal
+    assert 'id="dupSelectedCountBadge"' in modal
+    assert 'id="dupScriptPreviewDetails"' in modal
+    assert 'id="dupScriptPreview"' in modal
+    assert 'id="dupTriggerScanCb"' in modal
+
+    # JS
+    assert "selectAllExtraDuplicates" in src
+    assert "deselectAllDuplicates" in src
+    assert "_updateDupSelectedCount" in src
+    assert "_updateDupScriptPreview" in src
+    assert "_bindDupSearchFilter" in src
+    assert "window.selectAllExtraDuplicates" in src
+    assert "window.deselectAllDuplicates" in src
+

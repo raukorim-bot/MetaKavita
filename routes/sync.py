@@ -16,7 +16,13 @@ import time
 from flask import Blueprint, request, jsonify, Response
 
 from config_manager import load_config
-from db_manager import get_all_cached_data, reset_errors
+from db_manager import (
+    get_all_cached_data,
+    get_auto_sync_report_badge,
+    get_latest_auto_sync_report,
+    mark_auto_sync_report_read,
+    reset_errors,
+)
 from kavita_api import KavitaAPI
 from secure_logging import series_label
 from translations import translations
@@ -31,6 +37,9 @@ from services.background_tasks import (
     register_batch_enqueue_if_first,
     put_sync,
     put_front,
+    is_auto_sync_waiting,
+    _auto_sync_enabled,
+    broadcast_auto_sync_report,
 )
 from services import batch_queue as batch_queue_svc
 
@@ -99,11 +108,37 @@ def force_sync():
     except (TypeError, ValueError):
         return jsonify(success=False, msg=t.get('err_missing')), 400
 
+    payload_json = request.get_json(silent=True) or {}
+
+    def _truthy(val):
+        if val is None:
+            return False
+        return str(val).lower() in ("true", "1", "yes")
+
+    want_super = _truthy(request.form.get("super_review")) or _truthy(
+        payload_json.get("super_review") or payload_json.get("superReview")
+    )
+    want_review = _truthy(request.form.get("manual_review_override")) or _truthy(
+        payload_json.get("manual_review_override") or payload_json.get("manualReviewOverride")
+    )
+    if want_super:
+        want_review = False
+
     # En tête de file : le clic vient d'un humain qui regarde sa série, il passe
     # devant le reste d'un batch en cours. Sans toucher aux jobs déjà en attente
     # (`replace_pending=False`) : le lot est constitué par l'utilisateur, et une
     # ligne retirée d'une file en pause ne revient jamais.
-    put_front(make_sync_item(series_id_int, series_name, True), replace_pending=False)
+    put_front(
+        make_sync_item(
+            series_id_int,
+            series_name,
+            True,
+            origin="row",
+            super_review=want_super,
+            manual_review_override=want_review,
+        ),
+        replace_pending=False,
+    )
     logging.info(
         t.get(
             "log_force_sync_queued",
@@ -301,6 +336,43 @@ def stop_batch():
     )
 
 
+@sync_bp.route('/api/auto-sync/status', methods=['GET'])
+def auto_sync_status():
+    """État Auto-sync pour la barre Stop et la ligne SignalR (modale Config)."""
+    config = load_config()
+    from services.auto_sync import normalize_trigger
+    hub = {"status": "disconnected", "last_error": ""}
+    try:
+        from services.kavita_hub import hub_public_status
+        hub = hub_public_status()
+    except Exception:
+        pass
+    return jsonify(
+        waiting_auto=is_auto_sync_waiting(),
+        enabled=_auto_sync_enabled(config),
+        trigger=normalize_trigger(config.get("AUTO_SYNC_TRIGGER")),
+        hub=hub,
+        report=get_auto_sync_report_badge(),
+    )
+
+
+@sync_bp.route('/api/auto-sync/report', methods=['GET'])
+def auto_sync_report():
+    """Dernière vague Auto-sync (séries, totaux). Pas le lot du tableau de bord."""
+    payload = get_latest_auto_sync_report()
+    payload["badge"] = payload.get("badge") or get_auto_sync_report_badge()
+    return jsonify(payload)
+
+
+@sync_bp.route('/api/auto-sync/report/read', methods=['POST'])
+def auto_sync_report_read():
+    """Ouvrir la modale d'un rapport terminé le marque lu et cache le bouton."""
+    mark_auto_sync_report_read()
+    badge = get_auto_sync_report_badge()
+    broadcast_auto_sync_report(badge)
+    return jsonify(success=True, report=badge)
+
+
 @sync_bp.route('/export-errors', methods=['GET'])
 def export_errors():
     config = load_config()
@@ -468,6 +540,7 @@ def webhook():
         force_update,
         super_review=want_super,
         force_auto=want_auto,
+        origin="webhook",
     )
     replaced = 0
     if want_super or want_auto:

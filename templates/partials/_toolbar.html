@@ -46,6 +46,7 @@
                                         <option value="COMPLETED">{{ t.filter_completed }}</option>
                                         <option value="NOT_FOUND">{{ t.filter_notfound }}</option>
                                         <option value="IGNORED">{{ t.filter_ignored }}</option>
+                                        <option value="AUTO_SYNC" title="{{ t.filter_auto_sync_hint }}">{{ t.filter_auto_sync }}</option>
                                     </select>
                                     <label class="checkbox-label toolbar-hide-ignored">
                                         <input type="checkbox" id="hideIgnoredCb" onclick="filterSeries()" checked>
@@ -106,22 +107,28 @@
                                     <div class="hygiene-health-bar" id="hygieneHealthBar"
                                          role="img" aria-label="{{ t.audit_health_title }}">
                                         <span class="hh-seg hh-seg--healthy" data-seg="healthy"
+                                              onclick="applyHygieneFilter('HEALTHY')"
+                                              title="{{ t.audit_health_healthy }} — {{ t.audit_health_filter_hint }}"
                                               style="width: {{ (100 * (hy_healthy or 0) / hy_series) if hy_series else 0 }}%;"></span>
                                         <span class="hh-seg hh-seg--incomplete" data-seg="incomplete"
+                                              onclick="applyHygieneFilter('INCOMPLETE')"
+                                              title="{{ t.audit_health_incomplete }} — {{ t.audit_health_filter_hint }}"
                                               style="width: {{ (100 * hy_incomplete / hy_series) if hy_series else 0 }}%;"></span>
                                         <span class="hh-seg hh-seg--unknown" data-seg="unknown"
+                                              onclick="applyHygieneFilter('UNKNOWN_EXPECTED')"
+                                              title="{{ t.audit_health_unknown }} — {{ t.audit_health_filter_hint }}"
                                               style="width: {{ (100 * hy_unknown / hy_series) if hy_series else 0 }}%;"></span>
                                         <span class="hh-seg hh-seg--failed" data-seg="failed"
                                               style="width: {{ (100 * hy_failed / hy_series) if hy_series else 0 }}%;"></span>
                                     </div>
                                     <div class="hygiene-health-legend" id="hygieneHealthLegend">
-                                        <span class="hh-key hh-key--healthy"><b id="hygieneHealthHealthy">{{ hy_healthy or 0 }}</b> {{ t.audit_health_healthy }}</span>
-                                        <span class="hh-key hh-key--incomplete"><b id="hygieneHealthIncomplete">{{ hy_incomplete }}</b> {{ t.audit_health_incomplete }}</span>
-                                        <span class="hh-key hh-key--unknown"><b id="hygieneHealthUnknown">{{ hy_unknown }}</b> {{ t.audit_health_unknown }}</span>
+                                        <span class="hh-key hh-key--healthy" onclick="applyHygieneFilter('HEALTHY')" title="{{ t.audit_health_filter_hint }}"><b id="hygieneHealthHealthy">{{ hy_healthy or 0 }}</b> {{ t.audit_health_healthy }}</span>
+                                        <span class="hh-key hh-key--incomplete" onclick="applyHygieneFilter('INCOMPLETE')" title="{{ t.audit_health_filter_hint }}"><b id="hygieneHealthIncomplete">{{ hy_incomplete }}</b> {{ t.audit_health_incomplete }}</span>
+                                        <span class="hh-key hh-key--unknown" onclick="applyHygieneFilter('UNKNOWN_EXPECTED')" title="{{ t.audit_health_filter_hint }}"><b id="hygieneHealthUnknown">{{ hy_unknown }}</b> {{ t.audit_health_unknown }}</span>
                                         <span class="hh-key hh-key--failed" id="hygieneHealthFailedKey"
                                               title="{{ t.audit_health_failed_hint }}"
                                               {% if not hy_failed %}style="display:none;"{% endif %}><b id="hygieneHealthFailed">{{ hy_failed }}</b> {{ t.audit_health_failed }}</span>
-                                        <span class="hh-key hh-key--total"><b id="hygieneHealthSeries">{{ hy_series }}</b> {{ t.audit_health_series }}</span>
+                                        <span class="hh-key hh-key--total" onclick="applyHygieneFilter(null)" title="{{ t.audit_chip_clear }}"><b id="hygieneHealthSeries">{{ hy_series }}</b> {{ t.audit_health_series }}</span>
                                     </div>
                                 </div>
 
@@ -155,6 +162,13 @@
                                                 onclick="applyHygieneFilter('RELEASING')"
                                                 {% if not hygiene_meta %}disabled{% endif %}>
                                             {{ t.audit_chip_releasing }}
+                                        </button>
+                                        <button type="button" class="hygiene-chip" data-hygiene="EXCLUDED" id="auditChipExcluded"
+                                                onclick="applyHygieneFilter('EXCLUDED')"
+                                                title="{{ t.audit_excluded_badge_hint }}"
+                                                {% if not hygiene_meta %}disabled{% endif %}>
+                                            {{ t.audit_excluded_badge }}
+                                            <span class="hygiene-chip-count" id="hygieneCountExcluded">{{ hygiene_counts.get('excluded', 0) if hygiene_counts else 0 }}</span>
                                         </button>
                                         <button type="button" class="hygiene-chip hygiene-chip--clear"
                                                 onclick="applyHygieneFilter(null)"

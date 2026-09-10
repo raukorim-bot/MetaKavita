@@ -221,7 +221,7 @@ class PlanetebdSession(RecordingSession):
 
     def get(self, url, headers=None, params=None, timeout=None, allow_redirects=None):
         self.calls.append((self.clock.time(), url))
-        if "/recherche/" in url:
+        if "/recherche.html" in url or "/recherche/" in url:
             cards = "".join(
                 _PBD_CARD.format(slug=t.lower(), title=t, i=i)
                 for i, t in enumerate(_PBD_TITLES)
@@ -245,6 +245,13 @@ def planetebd(monkeypatch, clock):
     monkeypatch.setattr(module, "get_max_tags", lambda *a, **k: 15)
     monkeypatch.setattr(module, "get_match_accept_threshold", lambda *a, **k: 0.60)
     return types.SimpleNamespace(scraper=module.PlanetebdScraper(), session=session)
+
+
+def test_planetebd_search_hits_recherche_html(planetebd):
+    """`/recherche/?mot-clef=` redirige vers `/recherche.html` sans le mot-clé."""
+    planetebd.scraper._search(planetebd.session, "Asterix")
+    assert any("/recherche.html" in u for u in planetebd.session.urls)
+    assert all(not u.rstrip("/").endswith("/recherche") for u in planetebd.session.urls)
 
 
 def test_planetebd_espace_toutes_ses_requetes(planetebd):

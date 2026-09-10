@@ -129,7 +129,7 @@ def test_larret_explique_dans_son_infobulle_ce_quil_annule(lang):
 
 @pytest.mark.parametrize(
     "key",
-    ["reset_errors_hint", "launch_ignore_hint", "stop_batch_hint", "audit_scan_with_batch_hint"],
+    ["reset_errors_hint", "launch_ignore_hint", "stop_batch_hint", "stop_batch_confirm", "audit_scan_with_batch_hint"],
 )
 def test_les_deux_langues_ont_les_nouvelles_infobulles(key):
     tr = _translations()
@@ -179,6 +179,21 @@ def test_chaque_bouton_porte_un_pictogramme_qui_existe(bar):
     assert len(refs) >= 6
     for ref in refs:
         assert f'id="{ref}"' in SPRITE, ref
+
+
+def test_larret_demande_confirmation_et_arme_la_barre_si_auto_sync(bar):
+    """Stop vide aussi l'Auto-sync : le bouton devient franc dès qu'un job auto
+    attend, sans basculer « Lancer » en « Ajouter à la file »."""
+    stop = _corps_de_fonction("stopBatch")
+    armed = _corps_de_fonction("isStopArmed")
+
+    assert "confirm" in stop
+    assert "stop_batch_confirm" in stop
+    assert "autoSyncWaiting" in armed
+    assert "function isStopArmed()" in BATCH_JS
+    assert "dataset.state = isStopArmed() ? 'running' : 'idle'" in BATCH_JS
+    assert "dataset.mode = isBatchInProgress() ? 'append' : 'run'" in BATCH_JS
+    assert "getRootPath() + '/api/auto-sync/status'" in BATCH_JS
 
 
 def test_le_bouton_principal_change_de_pictogramme_avec_son_role(bar):

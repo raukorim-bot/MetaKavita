@@ -1,6 +1,8 @@
 """Hauts-faits Manual Review — moteur lifetime + branchement /stats."""
 
-from services.mr_achievements import evaluate, lifetime_bag_from_stats
+import pytest
+
+from services.mr_achievements import evaluate, lifetime_bag_from_stats, scored_average
 from services.stats_service import compute_playful_stats
 from translations import translations
 
@@ -34,6 +36,13 @@ def test_the_average_score_denominator_follows_the_scored_confirmations():
         translations_dict=translations["fr"],
     )
     assert playful["manual_avg_score"] == 0.9
+
+
+def test_a_late_score_n_does_not_inflate_the_average_past_one():
+    assert scored_average(12.126, 1, 14) == pytest.approx(12.126 / 14)
+    assert scored_average(2.7, 3, 5) == pytest.approx(0.9)
+    assert scored_average(88, 1, 1) == pytest.approx(0.88)
+    assert scored_average(0, 0, 0) == 0.0
 
 
 def test_evaluate_unlocks_oracle_sculptor_alchemist():

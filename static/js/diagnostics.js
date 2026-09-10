@@ -42,15 +42,20 @@
             ? el
             : el.querySelector(".diag-pill");
         if (!pill) return;
-        pill.dataset.status = status || "idle";
+        const nextStatus = status || "idle";
+        const nextLabel = labelOverride != null ? labelOverride : statusLabel(nextStatus);
         const label = pill.querySelector(".label");
-        if (label) label.textContent = labelOverride != null ? labelOverride : statusLabel(status);
-        // re-trigger fade
-        pill.style.animation = "none";
-        // eslint-disable-next-line no-unused-expressions
-        pill.offsetHeight;
-        pill.style.animation = "";
-        pill.classList.add("is-visible");
+
+        // Éviter les recalculs de layout et reflows synchrones inutiles
+        if (pill.dataset.status === nextStatus && label && label.textContent === nextLabel && pill.classList.contains("is-visible")) {
+            return;
+        }
+
+        pill.dataset.status = nextStatus;
+        if (label) label.textContent = nextLabel;
+        if (!pill.classList.contains("is-visible")) {
+            pill.classList.add("is-visible");
+        }
     }
 
     function setPreflightCard(kind, data) {
@@ -214,10 +219,13 @@
         });
     }
 
+    let currentStreamController = null;
+
     /**
      * Stream NDJSON probe-all with optional scope (active|all).
-     * Per-row « Tester » stays usable for scrapers outside the current scope
-     * (cascade vs all). Only the row currently being probed is disabled.
+     * All target rows go « Testing… » together; results arrive as each
+     * provider finishes (C95). Per-row « Tester » stays usable for scrapers
+     * outside the current scope (cascade vs all).
      */
     async function probeStream(scope) {
         const scopeNorm = scope === "active" ? "active" : "all";
@@ -228,13 +236,19 @@
         const targetIds = new Set(targetRows.map((row) => row.getAttribute("data-scraper-id")));
         const progress = document.getElementById("probeAllProgress");
 
-        setProbeButtonsDisabled(true);
-        // Reset only the rows that will be probed; never lock out-of-scope « Tester ».
-        targetRows.forEach((row) => {
-            row.classList.remove("is-probing");
-            setPill(row.querySelector(".cell-global"), "idle");
+        if (currentStreamController) {
+            try { currentStreamController.abort(); } catch (_) {}
+        }
+        currentStreamController = new AbortController();
+
+        const rowMap = new Map();
+        allRows.forEach((r) => {
+            const id = r.getAttribute("data-scraper-id");
+            if (id) rowMap.set(id, r);
         });
-        // Ensure every non-target row keeps an enabled per-scraper Test button.
+
+        setProbeButtonsDisabled(true);
+        targetRows.forEach((row) => markRowRunning(row));
         allRows.forEach((row) => {
             const id = row.getAttribute("data-scraper-id");
             const b = row.querySelector(".btn-probe-one");
@@ -256,6 +270,7 @@
                         "X-Requested-With": "XMLHttpRequest",
                     },
                     body: "{}",
+                    signal: currentStreamController.signal,
                 }
             );
             if (!res.ok) {
@@ -265,8 +280,8 @@
             if (!res.body || !res.body.getReader) {
                 const data = await res.json();
                 (data.results || []).forEach((r) => {
-                    const row = document.querySelector(`tr[data-scraper-id="${r.id}"]`);
-                    applyResultToRow(row, r);
+                    const row = rowMap.get(r.id);
+                    if (row) applyResultToRow(row, r);
                 });
                 if (progress) progress.textContent = `${(data.results || []).length} / ${targetRows.length}`;
                 return;
@@ -294,12 +309,11 @@
                     if (msg.type === "start" && progress) {
                         progress.textContent = `0 / ${msg.total || targetRows.length}`;
                     } else if (msg.type === "start_scraper") {
-                        const row = document.querySelector(`tr[data-scraper-id="${msg.id}"]`);
-                        markRowRunning(row);
-                        if (progress) progress.textContent = `${msg.index - 1} / ${msg.total}`;
+                        const row = rowMap.get(msg.id);
+                        if (row) markRowRunning(row);
                     } else if (msg.type === "result" && msg.result) {
-                        const row = document.querySelector(`tr[data-scraper-id="${msg.result.id}"]`);
-                        applyResultToRow(row, msg.result);
+                        const row = rowMap.get(msg.result.id);
+                        if (row) applyResultToRow(row, msg.result);
                         if (progress) progress.textContent = `${msg.index} / ${msg.total}`;
                     } else if (msg.type === "done" && progress) {
                         progress.textContent = `${msg.total} / ${msg.total}`;
@@ -307,6 +321,9 @@
                 }
             }
         } catch (e) {
+            if (e && e.name === "AbortError") {
+                return;
+            }
             targetRows.forEach((row) => {
                 const globalPill = row.querySelector(".cell-global .diag-pill");
                 const st = globalPill && globalPill.dataset.status;
@@ -363,11 +380,17 @@
         document.querySelectorAll(".btn-probe-one").forEach((btn) => {
             btn.addEventListener("click", () => probeOne(btn.getAttribute("data-id")));
         });
-        // Préflight puis auto-probe de la cascade Config uniquement.
+        // Préflight puis tous les scrapers d'un coup (C95).
         (async () => {
             await runPreflight();
-            await probeActive();
+            await probeAll();
         })();
+    });
+
+    window.addEventListener("beforeunload", () => {
+        if (currentStreamController) {
+            try { currentStreamController.abort(); } catch (_) {}
+        }
     });
 
     // Expose for providers modal reuse

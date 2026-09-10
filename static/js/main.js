@@ -4,17 +4,18 @@
 
 const SCRAPING_OPTIONS_OPEN_KEY = 'mk_scraping_options_open';
 const SCRAPING_CAT_OPEN_KEY = 'mk_scraping_cat_open';
+const SIDEBAR_SCROLL_KEY = 'mk_sidebar_scroll';
 
-function restoreScrapingOptionsOpenState() {
+function sidebarEl() {
+    return document.querySelector('aside.sidebar');
+}
+
+function applySidebarUiMemory() {
     const details = document.getElementById('scrapingOptionsDetails');
-    if (!details) return;
-    const saved = localStorage.getItem(SCRAPING_OPTIONS_OPEN_KEY);
-    // Défaut : ouvert (comme avant) si aucune préférence enregistrée
-    details.open = saved === null ? true : saved === 'true';
-    details.addEventListener('toggle', function () {
-        localStorage.setItem(SCRAPING_OPTIONS_OPEN_KEY, details.open ? 'true' : 'false');
-    });
-
+    if (details) {
+        const saved = localStorage.getItem(SCRAPING_OPTIONS_OPEN_KEY);
+        details.open = saved === null ? true : saved === 'true';
+    }
     let catState = {};
     try {
         catState = JSON.parse(localStorage.getItem(SCRAPING_CAT_OPEN_KEY) || '{}') || {};
@@ -23,19 +24,62 @@ function restoreScrapingOptionsOpenState() {
     }
     document.querySelectorAll('.so-cat[data-so-cat]').forEach((cat) => {
         const key = cat.getAttribute('data-so-cat');
-        if (!key) return;
-        if (Object.prototype.hasOwnProperty.call(catState, key)) {
+        if (key && Object.prototype.hasOwnProperty.call(catState, key)) {
             cat.open = !!catState[key];
         }
-        cat.addEventListener('toggle', () => {
-            let next = {};
-            try {
-                next = JSON.parse(localStorage.getItem(SCRAPING_CAT_OPEN_KEY) || '{}') || {};
-            } catch (_) {
-                next = {};
-            }
-            next[key] = cat.open;
-            localStorage.setItem(SCRAPING_CAT_OPEN_KEY, JSON.stringify(next));
+    });
+    const sidebar = sidebarEl();
+    if (sidebar) {
+        const y = parseInt(localStorage.getItem(SIDEBAR_SCROLL_KEY) || '0', 10);
+        if (!isNaN(y) && y > 0) sidebar.scrollTop = y;
+    }
+}
+
+function snapshotSidebarUi() {
+    try {
+        const details = document.getElementById('scrapingOptionsDetails');
+        if (details) {
+            localStorage.setItem(SCRAPING_OPTIONS_OPEN_KEY, details.open ? 'true' : 'false');
+        }
+        const cats = {};
+        document.querySelectorAll('.so-cat[data-so-cat]').forEach((cat) => {
+            const key = cat.getAttribute('data-so-cat');
+            if (key) cats[key] = !!cat.open;
+        });
+        localStorage.setItem(SCRAPING_CAT_OPEN_KEY, JSON.stringify(cats));
+        const sidebar = sidebarEl();
+        if (sidebar) localStorage.setItem(SIDEBAR_SCROLL_KEY, String(sidebar.scrollTop || 0));
+    } catch (_) { /* stockage refusé */ }
+}
+
+function restoreScrapingOptionsOpenState() {
+    const details = document.getElementById('scrapingOptionsDetails');
+    if (!details) return;
+    let restoring = true;
+    applySidebarUiMemory();
+    details.addEventListener('toggle', function () {
+        if (!restoring) snapshotSidebarUi();
+    });
+    document.querySelectorAll('.so-cat[data-so-cat]').forEach((cat) => {
+        cat.addEventListener('toggle', function () {
+            if (!restoring) snapshotSidebarUi();
+        });
+    });
+    const sidebar = sidebarEl();
+    let scrollTimer = null;
+    if (sidebar) {
+        sidebar.addEventListener('scroll', function () {
+            if (restoring) return;
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(snapshotSidebarUi, 120);
+        }, { passive: true });
+    }
+    window.addEventListener('pagehide', snapshotSidebarUi);
+    requestAnimationFrame(function () {
+        applySidebarUiMemory();
+        requestAnimationFrame(function () {
+            applySidebarUiMemory();
+            restoring = false;
         });
     });
 }
@@ -224,6 +268,7 @@ document.addEventListener('keydown', (event) => {
         if (typeof closeCoverModal === 'function') closeCoverModal();
         if (typeof closeProvidersModal === 'function') closeProvidersModal();
         if (typeof closeConfigModal === 'function') closeConfigModal();
+        if (typeof closeAutoSyncReportModal === 'function') closeAutoSyncReportModal();
     }
 });
 

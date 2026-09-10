@@ -42,6 +42,7 @@ def test_apply_cover_preserves_ignored_status(client, isolated_db, mock_kavita_a
     cached = isolated_db.get_all_cached_data()[101]
     assert cached["status"] == "IGNORED", "Un choix de couverture manuelle ne doit jamais désignorer une série"
     assert cached["cover_manual"] is True
+    assert isolated_db.get_lifetime_stats()["covers_applied"] == 1
 
 
 def test_apply_cover_keeps_targeted_fields_intact(client, isolated_db, mock_kavita_api):
@@ -75,6 +76,7 @@ def test_release_cover_hands_it_back_to_automatic(client, isolated_db, mock_kavi
     cached = isolated_db.get_all_cached_data()[105]
     assert cached["cover_manual"] is False
     assert cached["status"] == "COMPLETED"
+    assert isolated_db.get_lifetime_stats()["covers_applied"] == 1
 
 
 def test_apply_cover_preserves_completed_status(client, isolated_db, mock_kavita_api):

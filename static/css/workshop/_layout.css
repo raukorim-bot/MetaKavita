@@ -1,0 +1,12 @@
+/* --------------------------------------------------------------------------
+   3. Grille Principale (Rail / Contenu / Live Log)
+   -------------------------------------------------------------------------- */
+
+.workshop-shell {
+    flex: 1 1 auto;
+    display: grid;
+    grid-template-columns: minmax(210px, 260px) 1fr minmax(210px, 280px);
+    min-height: 0;
+    overflow: hidden;
+}
+

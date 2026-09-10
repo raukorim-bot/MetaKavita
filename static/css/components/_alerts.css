@@ -1,0 +1,33 @@
+/* ================================================================
+   MetaKavita CSS — _alerts.css
+   Alertes, toasts & scrollbar personnalisée
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* Alertes */
+.alert { padding: 10px; border-radius: 6px; font-weight: 600; margin-bottom: 15px; font-size: 13px; }
+.alert.success { background-color: rgba(16, 185, 129, 0.2); color: var(--success); border: 1px solid var(--success); }
+.alert.error { background-color: rgba(239, 68, 68, 0.2); color: var(--danger); border: 1px solid var(--danger); }
+
+/* Footer Sidebar (Crédits) */
+.sidebar-footer {
+    margin-top: auto;
+    padding-top: 15px;
+    border-top: 1px solid var(--border-color);
+    font-size: 12px;
+    text-align: center;
+    color: var(--text-muted);
+}
+.sidebar-footer p { margin: 5px 0; }
+.sidebar-footer a { color: var(--primary); text-decoration: none; font-weight: 600; transition: color 0.2s; }
+.sidebar-footer a:hover { color: var(--primary-hover); text-decoration: underline; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--secondary) 70%, transparent);
+    border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover { background: var(--primary); }
+

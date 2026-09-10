@@ -123,6 +123,40 @@ def test_a_provider_that_crashes_does_not_sink_the_series():
     assert provider == "COMICVINE"
 
 
+def test_a_cancelled_text_index_does_not_close_into_cover_only():
+    """Stop pendant un index textuel assez couvrant ne doit pas enchaîner MangaDex."""
+    cancelled = {"v": False}
+
+    class Text(_Scraper):
+        def fetch_volume_index(self, query, library_type="Comic", series_id=None,
+                               existing_metadata=None, wanted_numbers=None,
+                               should_cancel=None):
+            self.seen_series_id = series_id
+            cancelled["v"] = True
+            return {"1": {"title": "Un"}, "2": {"title": "Deux"}}
+
+    class Covers(_Scraper):
+        VOLUME_INDEX_COVERS_ONLY = True
+
+        def fetch_volume_index(self, *a, **k):
+            self.seen_series_id = "called"
+            return {"1": {"cover_url": "https://x/1.jpg"}}
+
+    text = Text("MANGANEWS")
+    covers = Covers("MANGADEX")
+    units = [{"volume_number": "1"}, {"volume_number": "2"}]
+    provider, index = fetch_index(
+        "Saga",
+        providers=[text, covers],
+        units=units,
+        should_cancel=lambda: cancelled["v"],
+    )
+
+    assert index == {"1": {"title": "Un"}, "2": {"title": "Deux"}}
+    assert covers.seen_series_id == "sentinelle"
+    assert "MANGADEX" not in provider
+
+
 def test_a_cancelled_pass_stops_before_the_next_provider():
     """Un index Bédéthèque dure deux minutes : sans ce contrôle, l'annulation
     ne se verrait qu'une fois la série entière parcourue."""
@@ -358,3 +392,104 @@ def test_none_and_blank_slots_are_not_providers():
                                   "BOOK_PROVIDER_3": "openlibrary"})
 
     assert ranks == {"OPENLIBRARY": 2}
+
+
+def test_an_old_magasin_signature_is_still_called():
+    """Un scraper à quatre arguments ne doit pas recevoir wanted_numbers."""
+    scraper = _Scraper("COMICVINE", {"1": {"title": "Un"}})
+
+    provider, index = fetch_index(
+        "Saga",
+        providers=[scraper],
+        units=[{"volume_number": "1"}, {"volume_number": "2"}],
+    )
+
+    assert provider == "COMICVINE"
+    assert index == {"1": {"title": "Un"}}
+    assert not hasattr(scraper, "seen_wanted")
+
+
+def test_a_new_index_receives_wanted_numbers():
+    class _Aware(_Scraper):
+        def fetch_volume_index(
+            self,
+            query,
+            library_type="Comic",
+            series_id=None,
+            existing_metadata=None,
+            wanted_numbers=None,
+            should_cancel=None,
+        ):
+            self.seen_wanted = wanted_numbers
+            self.seen_cancel = should_cancel
+            return self._index
+
+    scraper = _Aware("COMICVINE", {"1": {"title": "Un"}})
+    units = [{"volume_number": "3"}, {"volume_number": "7"}]
+
+    fetch_index("Saga", providers=[scraper], units=units, should_cancel=lambda: False)
+
+    assert scraper.seen_wanted == {"3", "7"}
+    assert callable(scraper.seen_cancel)
+
+
+def test_wanted_numbers_are_omitted_when_the_caller_has_no_units():
+    class _Aware(_Scraper):
+        def fetch_volume_index(
+            self,
+            query,
+            library_type="Comic",
+            series_id=None,
+            existing_metadata=None,
+            wanted_numbers=None,
+            should_cancel=None,
+        ):
+            self.seen_wanted = wanted_numbers
+            return self._index
+
+    scraper = _Aware("COMICVINE", {"1": {"title": "Un"}})
+
+    fetch_index("Saga", providers=[scraper])
+
+    assert scraper.seen_wanted is None
+
+
+def test_a_capped_index_does_not_close_the_cascade():
+    """40/80 = 50 % de texte, mais le plafond est atteint : on complète."""
+    class _Capped(_Scraper):
+        VOLUME_INDEX_MAX = 40
+
+        def fetch_volume_index(self, *a, **k):
+            self.seen_series_id = k.get("series_id")
+            return self._index
+
+    first = _Capped("MANGANEWS", {str(n): {"title": f"T{n}"} for n in range(1, 41)})
+    second = _Scraper("SANCTUARY", {"41": {"title": "T41"}})
+    units = [{"volume_number": str(n)} for n in range(1, 81)]
+
+    provider, index = fetch_index("Long", providers=[first, second], units=units)
+
+    assert "SANCTUARY" in provider
+    assert "41" in index
+    assert index["1"]["title"] == "T1"
+
+
+def test_a_complete_text_index_still_merges_a_later_cover_index():
+    """Même à 100 % de texte, MangaDex doit encore poser les jaquettes."""
+    text = _Scraper("MANGANEWS", {"1": {"title": "Un", "summary": "…"}, "2": {"title": "Deux"}})
+    covers = _Scraper("MANGADEX", {"1": {"cover_url": "https://x/1.jpg"}, "2": {"cover_url": "https://x/2.jpg"}})
+    units = [{"volume_number": "1"}, {"volume_number": "2"}]
+
+    provider, index = fetch_index("Naruto", providers=[text, covers], units=units)
+
+    assert "MANGADEX" in provider
+    assert index["1"]["title"] == "Un"
+    assert index["1"]["cover_url"] == "https://x/1.jpg"
+    assert index["2"]["cover_url"] == "https://x/2.jpg"
+
+
+def test_openbd_is_in_the_isbn_cascade():
+    from services.volume_enrichment.providers import ISBN_PROVIDERS, UNIT_PROVIDERS
+
+    assert ISBN_PROVIDERS[-1] == "OPENBD"
+    assert "OPENBD" in UNIT_PROVIDERS

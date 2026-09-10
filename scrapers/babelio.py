@@ -3,6 +3,9 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
+import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -15,7 +18,9 @@ from scrapers.utils import (
     PROVIDER_ERROR_AUTH,
     attach_match_score,
     clean_title,
+    extract_distinctive_words,
     get_match_accept_threshold,
+    normalize_str,
     note_provider_error,
     response_is_ok,
     score_candidate,
@@ -23,6 +28,11 @@ from scrapers.utils import (
 
 _BASE = "https://www.babelio.com"
 _ENCODING = "iso-8859-1"
+_IMPERSONATE = "chrome110"
+_SITEMAP_FIRST = 1
+_SITEMAP_LAST = 37
+_SITEMAP_TTL_S = 7 * 24 * 3600  # changefreq=weekly
+_SITEMAP_STALE_REFRESH_PER_FETCH = 1
 _ISBN13 = re.compile(r"(?<!\d)(\d{13})(?!\d)")
 _DATE = re.compile(r"\b(\d{2})/(\d{2})/(\d{4})\b")
 _VOIR_PLUS = re.compile(r"voir_plus_a\(\s*'[^']*'\s*,\s*(\d+)\s*,\s*(\d+)\s*\)")
@@ -33,6 +43,18 @@ _TAG_CATEGORY = re.compile(r"^tc_(\d+)$")
 _TAG_RELEVANCE = re.compile(r"^tag_t(\d+)$")
 _AMAZON_SIZE = re.compile(r"\._S[XY]\d+_.*?(\.[A-Za-z]+)$")
 _NON_ISBN = re.compile(r"[^0-9Xx]")
+_SITEMAP_LOC = re.compile(
+    r"<loc>\s*https?://(?:www\.)?babelio\.com/livres/([^/<]+)/(\d+)\s*</loc>",
+    re.I,
+)
+
+# Index sitemap en mémoire (id numérique, slug). Rempli depuis le cache disque
+# puis, à 3 s l'une, depuis babmap_N.xml — jamais les 37 d'un coup si un match
+# apparaît plus tôt.
+_INDEX_LOCK = threading.Lock()
+_INDEX_ROWS: List[Tuple[int, str]] = []
+_INDEX_MAPS: set = set()
+_CACHE_DIR_OVERRIDE: Optional[Path] = None
 
 
 def _collapse(text: str) -> str:
@@ -48,6 +70,16 @@ def _normalize_isbn(raw: Optional[str]) -> Optional[str]:
     if len(cleaned) == 10:
         return cleaned
     return None
+
+
+def _as_status(res) -> Optional[int]:
+    """int(status_code) ; None si la réponse est absente ou un mock cassé."""
+    if res is None:
+        return None
+    try:
+        return int(getattr(res, "status_code", None))
+    except (TypeError, ValueError):
+        return None
 
 
 def _full_resolution_cover(url: Optional[str]) -> Optional[str]:
@@ -71,19 +103,166 @@ def _soup(html: bytes) -> BeautifulSoup:
     return BeautifulSoup(html, "html.parser", from_encoding=_ENCODING)
 
 
+def reset_sitemap_state_for_tests() -> None:
+    """Vide l'index mémoire. Réservé aux tests."""
+    global _INDEX_ROWS, _INDEX_MAPS
+    with _INDEX_LOCK:
+        _INDEX_ROWS = []
+        _INDEX_MAPS = set()
+
+
+def sitemap_cache_dir() -> Path:
+    if _CACHE_DIR_OVERRIDE is not None:
+        path = Path(_CACHE_DIR_OVERRIDE)
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    try:
+        from config_manager import DATA_DIR
+
+        root = Path(DATA_DIR)
+    except Exception:
+        root = Path(__file__).resolve().parent
+    path = root / "babelio_sitemaps"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def parse_babmap_xml(xml: bytes) -> List[Tuple[int, str]]:
+    """Extrait (id, slug) des <loc>/livres/… d'un babmap_N.xml."""
+    if not xml:
+        return []
+    text = xml.decode(_ENCODING, "replace") if isinstance(xml, (bytes, bytearray)) else str(xml)
+    rows: List[Tuple[int, str]] = []
+    for slug, sid in _SITEMAP_LOC.findall(text):
+        rows.append((int(sid), slug))
+    return rows
+
+
+def sitemap_looks_blocked(xml: bytes) -> bool:
+    """200 + HTML captcha au lieu d'un urlset : le WAF a aussi pris les sitemaps."""
+    if not isinstance(xml, (bytes, bytearray)) or not xml:
+        return True
+    head = xml[:1200].lower()
+    if b"<urlset" in head or b"<loc>" in xml[:8000]:
+        return False
+    return b"captcha" in head or b"just a moment" in head or b"<html" in head
+
+
+def slug_could_match(slug: str, query: str) -> bool:
+    hay = normalize_str((slug or "").replace("-", " "))
+    if not hay:
+        return False
+    needed = extract_distinctive_words(query or "")
+    if needed:
+        have = set(hay.split())
+        return needed <= have
+    qn = normalize_str(query or "")
+    return bool(qn) and qn in hay
+
+
+def split_slug_for_query(slug: str, query: str) -> Tuple[str, str]:
+    """Découpe `Auteur-Titre` en (titre, auteur) à l'aide de la requête."""
+    parts = [p for p in (slug or "").replace("--", "-").split("-") if p]
+    if not parts:
+        return "", ""
+    needed = extract_distinctive_words(query or "")
+    if not needed:
+        return " ".join(parts), ""
+    folded = [normalize_str(p) for p in parts]
+    best: Optional[Tuple[int, int, int]] = None
+    for i in range(len(parts)):
+        have: set = set()
+        for j in range(i, len(parts)):
+            word = folded[j]
+            if word and word not in {"de", "la", "le", "les", "du", "des"} and len(word) > 1:
+                have.add(word)
+            if needed <= have:
+                window = (i, j, j - i)
+                if best is None or window[2] < best[2]:
+                    best = window
+                break
+    if best is None:
+        return " ".join(parts), ""
+    i, j, _ = best
+    while i > 0 and folded[i - 1] in {"le", "la", "les", "l", "un", "une", "the", "a", "an"}:
+        i -= 1
+    title = " ".join(parts[i : j + 1])
+    author = " ".join(parts[:i])
+    return title, author
+
+
+def rank_sitemap_hits(
+    rows: List[Tuple[int, str]],
+    query: str,
+    existing_metadata: Optional[dict] = None,
+    *,
+    limit: int = 8,
+) -> List[Dict[str, Any]]:
+    """Classe les slugs sitemap sans requêter une fiche HTML."""
+    cleaned = query or ""
+    ranked: List[Dict[str, Any]] = []
+    meta = existing_metadata or {}
+    for sid, slug in rows:
+        if not slug_could_match(slug, cleaned):
+            continue
+        title, author = split_slug_for_query(slug, cleaned)
+        cand = {
+            "title": title,
+            "staff": (
+                [{"role": "Story", "node": {"name": {"full": author}}}] if author else []
+            ),
+        }
+        ranked.append(
+            {
+                "babelio_id": f"{slug}/{sid}",
+                "title": title,
+                "author": author,
+                "slug": slug,
+                "_score": score_candidate(cand, cleaned, meta),
+            }
+        )
+    ranked.sort(key=lambda h: float(h.get("_score") or 0), reverse=True)
+    return ranked[:limit]
+
+
+def _write_sitemap_tsv(path: Path, rows: List[Tuple[int, str]]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("".join(f"{sid}\t{slug}\n" for sid, slug in rows), encoding="utf-8")
+
+
+def _read_sitemap_tsv(path: Path) -> List[Tuple[int, str]]:
+    rows: List[Tuple[int, str]] = []
+    for line in path.read_text(encoding="utf-8").splitlines():
+        id_s, sep, slug = line.partition("\t")
+        if sep and id_s.isdigit() and slug:
+            rows.append((int(id_s), slug))
+    return rows
+
+
+def _map_tsv_path(n: int) -> Path:
+    return sitemap_cache_dir() / f"babmap_{n}.tsv"
+
+
+def _map_is_fresh(path: Path) -> bool:
+    try:
+        return path.is_file() and (time.time() - path.stat().st_mtime) < _SITEMAP_TTL_S
+    except OSError:
+        return False
+
+
 class BabelioScraper(BaseScraper):
     id = "BABELIO"
     is_core = True
     display_name = "Babelio (Littérature FR)"
     supported_types = {"Book"}
-    rate_limit = 3.0  # HTML — anti-ban IP
-    # 1.1.0 : les 3 s de cadence portent désormais sur chaque requête — un `fetch()`
-    # en enchaîne jusqu'à douze (warm-up, POST recherche, cinq fiches et leurs
-    # résumés AJAX) et elles partaient toutes en rafale, ce qui vaut le HTTP 403 que
-    # ce scraper sait déjà signaler. Le décodage ISO-8859-1 était, lui, déjà confié à
-    # BeautifulSoup sur les octets. La montée de version est ce qui autorise l'image
-    # à remplacer la copie 1.0.x déjà installée sous data/.
-    version = "1.1.0"
+    rate_limit = 3.0  # HTML + sitemaps — anti-ban IP
+    # 1.2.0 : la recherche HTML (POST /recherche) et le warmup de la homepage
+    # reçoivent un 403 / captcha. Les sitemaps babmap_1.xml … babmap_37.xml et
+    # les fiches /livres/ restent servis. On cherche donc dans les sitemaps
+    # (cache disque, une carte à 3 s jusqu'au match) et on ne télécharge la
+    # fiche que pour les meilleurs hits. impersonate=chrome110 (chrome nu
+    # déclenchait le WAF).
+    version = "1.2.0"
     proxy_domains = [
         "babelio.com",
         "www.babelio.com",
@@ -139,9 +318,9 @@ class BabelioScraper(BaseScraper):
         is_id: bool = False,
         existing_metadata: Optional[Dict[str, Any]] = None,
     ) -> Optional[Dict[str, Any]]:
-        session = requests.Session()
+        session = requests.Session(impersonate=_IMPERSONATE)
         try:
-            self._warmup(session)
+            # Pas de warmup homepage : elle est WAF-bloquée, les sitemaps non.
 
             # 1. Magic Input / ID direct
             if is_id:
@@ -152,69 +331,51 @@ class BabelioScraper(BaseScraper):
                 candidate = self._fetch_book(session, book_id)
                 if candidate:
                     return attach_match_score(candidate, 1.0)
+                fallback = self._candidate_from_sitemap_id(session, book_id, query)
+                if fallback:
+                    return attach_match_score(fallback, 1.0)
                 return None
 
             existing_isbn = _normalize_isbn(
                 (existing_metadata or {}).get("isbn") if existing_metadata else None
             )
 
-            # 2. ISBN prioritaire (Kavita)
-            if existing_isbn:
-                logging.info(self.t("search_isbn").format(existing_isbn))
-                hits = self._search(session, existing_isbn)
-                for hit in hits[:3]:
-                    candidate = self._fetch_book(session, hit["babelio_id"])
-                    if not candidate:
-                        continue
-                    cand_isbn = _normalize_isbn(candidate.get("isbn"))
-                    if cand_isbn and cand_isbn == existing_isbn:
-                        logging.info(
-                            self.t("matched_isbn").format(
-                                existing_isbn, candidate.get("title")
-                            )
-                        )
-                        return attach_match_score(candidate, 1.0)
-                    # ISBN recherché mais page sans EAN : scorer quand même
-                    score = score_candidate(candidate, clean_title(query, library_type=library_type) or query, existing_metadata)
-                    if score >= get_match_accept_threshold():
-                        return attach_match_score(candidate, score)
-
-            # 3. Recherche textuelle
+            # 2. Recherche textuelle. Les sitemaps n'ont pas d'ISBN ; le POST
+            # /recherche est WAF-bloqué. Un ISBN Kavita se confirme sur la fiche
+            # après le match titre, pas en tirant babmap_1..37.
             cleaned = clean_title(query, library_type=library_type)
-            if not cleaned:
+            if not cleaned or _normalize_isbn(cleaned):
                 return None
             logging.info(self.t("search_title").format(cleaned))
-            hits = self._search(session, cleaned)
+            hits = self._search(session, cleaned, existing_metadata)
             if not hits:
                 return None
 
             best_match = None
             best_score = -1.0
-            for hit in hits[:5]:
+            html_ok = False
+            for hit in hits[:2]:
                 candidate = self._fetch_book(session, hit["babelio_id"])
+                if candidate and candidate.get("title"):
+                    html_ok = True
                 if not candidate or not candidate.get("title"):
-                    # Fallback léger depuis le hit de recherche
-                    candidate = {
-                        "title": hit.get("title") or "",
-                        "staff": (
-                            [
-                                {
-                                    "role": "Story",
-                                    "node": {"name": {"full": hit["author"]}},
-                                }
-                            ]
-                            if hit.get("author")
-                            else []
-                        ),
-                        "url": f"{_BASE}/livres/{hit['babelio_id']}",
-                        "format": "book",
-                    }
+                    candidate = self._candidate_from_hit(hit)
                 if not candidate.get("title"):
                     continue
+                cand_isbn = _normalize_isbn(candidate.get("isbn"))
+                if existing_isbn and cand_isbn and cand_isbn == existing_isbn:
+                    logging.info(
+                        self.t("matched_isbn").format(
+                            existing_isbn, candidate.get("title")
+                        )
+                    )
+                    return attach_match_score(candidate, 1.0)
                 score = score_candidate(candidate, cleaned, existing_metadata)
                 if score > best_score:
                     best_score = score
                     best_match = candidate
+                if html_ok and score >= get_match_accept_threshold():
+                    break
 
             if not best_match or best_score < get_match_accept_threshold():
                 logging.warning(
@@ -244,11 +405,10 @@ class BabelioScraper(BaseScraper):
         if not cleaned:
             return covers
 
-        session = requests.Session()
+        session = requests.Session(impersonate=_IMPERSONATE)
         try:
-            self._warmup(session)
             hits = self._search(session, cleaned)
-            for hit in hits[:5]:
+            for hit in hits[:2]:
                 candidate = self._fetch_book(session, hit["babelio_id"])
                 if not candidate:
                     continue
@@ -262,7 +422,7 @@ class BabelioScraper(BaseScraper):
                             "url": cover,
                         }
                     )
-                if len(covers) >= 5:
+                if len(covers) >= 2:
                     break
         except Exception as e:
             logging.error(self.t("covers_err").format(e))
@@ -275,11 +435,17 @@ class BabelioScraper(BaseScraper):
 
     # ------------------------------------------------------------------ HTTP
 
-    def _headers(self, *, form: bool = False, referer: Optional[str] = None) -> Dict[str, str]:
-        headers = {
-            "Accept-Language": "fr-FR,fr;q=0.9",
-            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        }
+    def _headers(self, *, form: bool = False, referer: Optional[str] = None, xml: bool = False) -> Dict[str, str]:
+        if xml:
+            headers = {
+                "Accept-Language": "fr-FR,fr;q=0.9",
+                "Accept": "application/xml,text/xml,*/*;q=0.8",
+            }
+        else:
+            headers = {
+                "Accept-Language": "fr-FR,fr;q=0.9",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            }
         if referer:
             headers["Referer"] = referer
         if form:
@@ -288,27 +454,17 @@ class BabelioScraper(BaseScraper):
             headers["Referer"] = referer or f"{_BASE}/"
         return headers
 
-    def _warmup(self, session) -> None:
-        try:
-            self._http_get(
-                session,
-                f"{_BASE}/",
-                impersonate="chrome",
-                headers=self._headers(),
-                timeout=15,
-            )
-        except Exception:
-            pass
-
     def _get(self, session, url: str, *, referer: Optional[str] = None):
         res = self._http_get(
             session,
             url,
-            impersonate="chrome",
+            impersonate=_IMPERSONATE,
             headers=self._headers(referer=referer),
             timeout=20,
         )
-        if res.status_code == 403:
+        if res is None:
+            return None
+        if _as_status(res) == 403:
             # Message dédié : Babelio bloque par IP, l'utilisateur doit le savoir
             # plutôt que de croire son catalogue absent du site.
             note_provider_error(self.id, PROVIDER_ERROR_AUTH, "HTTP 403")
@@ -320,17 +476,20 @@ class BabelioScraper(BaseScraper):
 
     def _post_search(self, session, terms: str):
         # Babelio attend un corps ISO-8859-1 (accents FR), comme le client Calibre.
+        # Conservé en repli : la recherche HTML est WAF-bloquée, les sitemaps non.
         safe = terms.encode(_ENCODING, "ignore").decode(_ENCODING)
         body = urlencode({"Recherche": safe}, encoding=_ENCODING).encode(_ENCODING)
         res = self._http_post(
             session,
             f"{_BASE}/recherche",
             data=body,
-            impersonate="chrome",
+            impersonate=_IMPERSONATE,
             headers=self._headers(form=True),
             timeout=20,
         )
-        if res.status_code == 403:
+        if res is None:
+            return None
+        if _as_status(res) == 403:
             note_provider_error(self.id, PROVIDER_ERROR_AUTH, "HTTP 403")
             logging.error(self.t("blocked"))
             return None
@@ -338,11 +497,198 @@ class BabelioScraper(BaseScraper):
             return None
         return res
 
-    def _search(self, session, terms: str) -> List[Dict[str, str]]:
+    def _search(
+        self,
+        session,
+        terms: str,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, str]]:
+        if _normalize_isbn(terms):
+            # Les sitemaps n'ont pas d'ISBN ; le POST /recherche est WAF-bloqué.
+            # Ne pas tirer babmap_1..37 pour une chaîne numérique.
+            return []
+        hits = self._search_via_sitemaps(session, terms, existing_metadata)
+        if hits:
+            return hits
+        if getattr(self, "_sitemap_blocked", False):
+            return []
         res = self._post_search(session, terms)
         if not res:
             return []
         return self._parse_search_results(res.content)
+
+    def _candidate_from_hit(self, hit: Dict[str, Any]) -> Dict[str, Any]:
+        author = hit.get("author") or ""
+        babelio_id = hit.get("babelio_id") or ""
+        url = f"{_BASE}/livres/{babelio_id}" if babelio_id else None
+        return {
+            "title": hit.get("title") or "",
+            "staff": (
+                [{"role": "Story", "node": {"name": {"full": author}}}] if author else []
+            ),
+            "url": url,
+            "links": [url] if url else [],
+            "format": "book",
+            "genres": ["Book"],
+            "tags": ["Babelio"],
+        }
+
+    def _candidate_from_sitemap_id(
+        self, session, book_id: str, query: str
+    ) -> Optional[Dict[str, Any]]:
+        """Repli ID magique : le slug est dans le sitemap, la fiche HTML a 403."""
+        numeric = book_id.rsplit("/", 1)[-1]
+        if "/" in book_id:
+            slug = book_id.rsplit("/", 1)[0]
+            title, author = split_slug_for_query(slug, query or slug.replace("-", " "))
+            return self._candidate_from_hit(
+                {"babelio_id": book_id, "title": title, "author": author}
+            )
+        if not numeric.isdigit():
+            return None
+        wanted = int(numeric)
+        self._load_sitemap_cache_from_disk()
+        with _INDEX_LOCK:
+            rows = list(_INDEX_ROWS)
+        for sid, slug in rows:
+            if sid == wanted:
+                title, author = split_slug_for_query(slug, query or slug.replace("-", " "))
+                return self._candidate_from_hit(
+                    {"babelio_id": f"{slug}/{sid}", "title": title, "author": author}
+                )
+        return None
+
+    def _search_via_sitemaps(
+        self,
+        session,
+        terms: str,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, str]]:
+        self._sitemap_blocked = False
+        self._ensure_sitemap_index(
+            session, query=terms, stop_on_match=True, existing_metadata=existing_metadata
+        )
+        if getattr(self, "_sitemap_blocked", False):
+            return []
+        with _INDEX_LOCK:
+            rows = list(_INDEX_ROWS)
+        if not rows:
+            return []
+        ranked = rank_sitemap_hits(rows, terms, existing_metadata)
+        return [
+            {
+                "babelio_id": h["babelio_id"],
+                "title": h["title"],
+                "author": h.get("author") or "",
+            }
+            for h in ranked
+            if float(h.get("_score") or 0) > 0
+        ]
+
+    def _load_sitemap_cache_from_disk(self) -> None:
+        with _INDEX_LOCK:
+            for n in range(_SITEMAP_FIRST, _SITEMAP_LAST + 1):
+                if n in _INDEX_MAPS:
+                    continue
+                path = _map_tsv_path(n)
+                if path.is_file():
+                    _INDEX_ROWS.extend(_read_sitemap_tsv(path))
+                    _INDEX_MAPS.add(n)
+
+    def _ensure_sitemap_index(
+        self,
+        session,
+        *,
+        query: str,
+        stop_on_match: bool,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        """Charge le cache, puis télécharge les babmap manquants à 3 s l'un.
+
+        S'arrête dès qu'un hit dépasse le seuil, pour ne pas tirer les 37
+        fichiers (~5 Mo × 37) sur une recherche connue (Le Petit Prince est
+        dans babmap_1). Un rafraîchissement périmé : une carte par fetch.
+        """
+        threshold = get_match_accept_threshold()
+        stale_refreshed = 0
+        self._load_sitemap_cache_from_disk()
+
+        if stop_on_match and query:
+            with _INDEX_LOCK:
+                ranked = rank_sitemap_hits(
+                    list(_INDEX_ROWS), query, existing_metadata, limit=1
+                )
+            if ranked and float(ranked[0].get("_score") or 0) >= threshold:
+                return
+
+        for n in range(_SITEMAP_FIRST, _SITEMAP_LAST + 1):
+            path = _map_tsv_path(n)
+            fresh = _map_is_fresh(path)
+            with _INDEX_LOCK:
+                already = n in _INDEX_MAPS
+            if already and fresh:
+                continue
+            if already and not fresh:
+                if stale_refreshed >= _SITEMAP_STALE_REFRESH_PER_FETCH:
+                    continue
+            rows = self._download_sitemap(session, n)
+            if rows is None:
+                self._sitemap_blocked = True
+                return
+            if not rows:
+                # 404 / parse vide / erreur : ne pas enchaîner les 36 autres
+                # cartes, ni retomber sur le POST /recherche (WAF).
+                if n == _SITEMAP_FIRST and not already:
+                    self._sitemap_blocked = True
+                return
+            if already and not fresh:
+                stale_refreshed += 1
+            _write_sitemap_tsv(path, rows)
+            with _INDEX_LOCK:
+                have = {sid for sid, _slug in _INDEX_ROWS}
+                _INDEX_ROWS.extend((sid, slug) for sid, slug in rows if sid not in have)
+                _INDEX_MAPS.add(n)
+            if stop_on_match and query:
+                with _INDEX_LOCK:
+                    ranked = rank_sitemap_hits(
+                        list(_INDEX_ROWS), query, existing_metadata, limit=1
+                    )
+                if ranked and float(ranked[0].get("_score") or 0) >= threshold:
+                    return
+
+    def _download_sitemap(self, session, n: int) -> Optional[List[Tuple[int, str]]]:
+        """Télécharge babmap_N.xml. None = WAF, liste vide = 404 / parse vide."""
+        url = f"{_BASE}/babmap_{n}.xml"
+        try:
+            res = self._http_get(
+                session,
+                url,
+                impersonate=_IMPERSONATE,
+                headers=self._headers(xml=True),
+                timeout=30,
+            )
+        except Exception as exc:
+            logging.error(self.t("err").format(exc))
+            return []
+        if res is None:
+            return []
+        status = _as_status(res)
+        if status == 403:
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, "HTTP 403")
+            logging.error(self.t("blocked"))
+            return None
+        if status == 404:
+            return []
+        raw = getattr(res, "content", None)
+        if not isinstance(raw, (bytes, bytearray)):
+            raw = b""
+        if sitemap_looks_blocked(raw):
+            note_provider_error(self.id, PROVIDER_ERROR_AUTH, "sitemap_blocked")
+            logging.error(self.t("blocked"))
+            return None
+        if status != 200 or not response_is_ok(self, res, context=url):
+            return []
+        return parse_babmap_xml(raw)
 
     def _fetch_book(self, session, babelio_id: str) -> Optional[Dict[str, Any]]:
         url = f"{_BASE}/livres/{babelio_id}"
@@ -373,7 +719,7 @@ class BabelioScraper(BaseScraper):
                 session,
                 f"{_BASE}/aj_voir_plus_a.php",
                 data=body,
-                impersonate="chrome",
+                impersonate=_IMPERSONATE,
                 headers={
                     **self._headers(form=True, referer=referer),
                     "X-Requested-With": "XMLHttpRequest",

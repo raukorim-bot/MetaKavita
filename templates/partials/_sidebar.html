@@ -49,7 +49,7 @@
 
                 <!-- BLOC 2: STRATÉGIE DE SCRAPING -->
                 <div class="card scraping-options-card">
-                    <details class="scraping-options-details" id="scrapingOptionsDetails">
+                    <details class="scraping-options-details" id="scrapingOptionsDetails" open>
                     <summary class="section-title scraping-options-summary">
                         <span class="so-chevron" aria-hidden="true"></span>
                         <span class="scraping-options-summary-label">{{ t.options }}</span>
@@ -432,4 +432,36 @@
                     <a href="{{ url_for('auth.logout') }}" class="btn-danger block-link w-100 mt-3" style="font-size: 12px; padding: 6px;">{{ t.logout_btn }}</a>
                     {% endif %}
                 </div>
+            {# Même principe que l'encart Companion : restaurer l'accordéon
+               pendant l'analyse, avant le premier paint. main.js réapplique
+               après les `toggle` en file, pose les écouteurs, et mémorise
+               aussi le scroll. #}
+            <script>
+            (function () {
+                try {
+                    var details = document.getElementById('scrapingOptionsDetails');
+                    if (details) {
+                        var saved = localStorage.getItem('mk_scraping_options_open');
+                        details.open = saved === null ? true : saved === 'true';
+                    }
+                    var catState = {};
+                    try {
+                        catState = JSON.parse(localStorage.getItem('mk_scraping_cat_open') || '{}') || {};
+                    } catch (e) {
+                        catState = {};
+                    }
+                    document.querySelectorAll('.so-cat[data-so-cat]').forEach(function (cat) {
+                        var key = cat.getAttribute('data-so-cat');
+                        if (key && Object.prototype.hasOwnProperty.call(catState, key)) {
+                            cat.open = !!catState[key];
+                        }
+                    });
+                    var sidebar = document.currentScript && document.currentScript.parentElement;
+                    if (sidebar && sidebar.classList && sidebar.classList.contains('sidebar')) {
+                        var y = parseInt(localStorage.getItem('mk_sidebar_scroll') || '0', 10);
+                        if (y > 0) sidebar.scrollTop = y;
+                    }
+                } catch (e) { /* stockage refusé : défaut HTML (ouvert) */ }
+            })();
+            </script>
             </aside>

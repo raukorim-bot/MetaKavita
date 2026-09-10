@@ -4,7 +4,7 @@ from __future__ import annotations
 import base64
 import logging
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from curl_cffi import requests
 
@@ -12,6 +12,7 @@ from config_manager import get_max_genres, get_max_tags, load_config
 from scrapers.base import BaseScraper
 from scrapers.utils import (
     PROVIDER_ERROR_AUTH,
+    album_number_key,
     attach_match_score,
     clean_title,
     extract_year_from_title,
@@ -63,13 +64,15 @@ class MetronScraper(BaseScraper):
     is_core = True
     display_name = "Metron (Comics API)"
     supported_types = {"Comic"}
+    scopes = {"series", "volume"}
     rate_limit = 3.4  # ~17.6/min: 10% under Metron burst 20/min
-    # 1.1.0 : les 3,4 s de cadence portent désormais sur chaque requête. Un
-    # `fetch()` en enchaîne jusqu'à quatre (recherche, série, créateurs,
-    # premier album) et elles partaient toutes en rafale, soit un pic bien
-    # au-dessus des 20 requêtes/minute que Metron tolère. La montée de version
-    # est ce qui autorise l'image à remplacer la copie 1.0.x installée sous data/.
-    version = "1.1.0"
+    # Une page d'issue_list à 100 numéros : 30 pages couvrent une run longue
+    # sans boucler à l'infini si `next` reste peuplé.
+    ISSUE_LIST_MAX_PAGES = 30
+    # 1.2.0 : index des albums (`fetch_volume_index`), pagination de
+    # `issue_list`, scope volume. La montée de version remplace la copie 1.1.x
+    # sous data/.
+    version = "1.2.0"
     proxy_domains = [
         "metron.cloud",
         "static.metron.cloud",
@@ -112,6 +115,8 @@ class MetronScraper(BaseScraper):
         m = re.search(r"metron\.cloud/series/(\d+)/?", url)
         if m:
             return m.group(1)
+        if re.search(r"metron\.cloud/issue/(\d+)/?", url):
+            return url
         # Slug seul : on renvoie l'URL pour résolution search côté fetch(is_id)
         if "metron.cloud/series/" in url:
             return url
@@ -381,13 +386,174 @@ class MetronScraper(BaseScraper):
         return urls[0] if urls else None
 
     def _issue_list(
-        self, session, headers: Dict[str, str], series_id: int
+        self,
+        session,
+        headers: Dict[str, str],
+        series_id: int,
+        *,
+        paginate: bool = False,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> List[dict]:
-        data = self._get_json(
-            session, headers, f"{_API}/series/{series_id}/issue_list/"
-        )
-        results = (data or {}).get("results") or []
-        return results if isinstance(results, list) else []
+        url = f"{_API}/series/{series_id}/issue_list/"
+        results: List[dict] = []
+        pages = self.ISSUE_LIST_MAX_PAGES if paginate else 1
+        for _page in range(pages):
+            if should_cancel and should_cancel():
+                break
+            data = self._get_json(session, headers, url)
+            if not data:
+                break
+            chunk = data.get("results") or []
+            if isinstance(chunk, list):
+                results.extend(item for item in chunk if isinstance(item, dict))
+            nxt = data.get("next")
+            if not paginate or not nxt:
+                break
+            url = str(nxt)
+        return results
+
+    @staticmethod
+    def _issue_payload(issue: dict) -> Optional[Tuple[str, Dict[str, Any]]]:
+        """Une entrée d'index `(clé, payload)` depuis un issue Metron."""
+        if not isinstance(issue, dict):
+            return None
+        number = issue.get("number") or issue.get("issue")
+        key = album_number_key(number)
+        if key is None:
+            key = str(number).strip() if number not in (None, "") else ""
+        if not key:
+            return None
+        issue_id = issue.get("id")
+        title = issue.get("title") or issue.get("name") or ""
+        if not isinstance(title, str):
+            title = str(title)
+        image = issue.get("image") or issue.get("cover") or ""
+        isbn = issue.get("isbn") or issue.get("sku") or ""
+        payload = {
+            "provider_ref": f"{_SITE}/issue/{issue_id}/" if issue_id else "",
+            "title": title.strip(),
+            "summary": str(issue.get("desc") or issue.get("description") or "").strip(),
+            "release_date": issue.get("cover_date") or issue.get("store_date") or "",
+            "cover_url": str(image) if image else "",
+            "isbn": str(isbn).strip(),
+        }
+        return key, {k: v for k, v in payload.items() if v}
+
+    @staticmethod
+    def _issue_id_from_ref(raw: str) -> Optional[int]:
+        text = str(raw or "").strip()
+        if text.isdigit():
+            return int(text)
+        match = re.search(r"metron\.cloud/issue/(\d+)/?", text)
+        if match:
+            return int(match.group(1))
+        match = re.search(r"/api/issue/(\d+)/?", text)
+        if match:
+            return int(match.group(1))
+        return None
+
+    def fetch_volume(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        volume_number: Optional[Any] = None,
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Une fiche issue, par URL `metron.cloud/issue/{id}/`."""
+        issue_id = self._issue_id_from_ref(query)
+        if issue_id is None:
+            ref = (existing_metadata or {}).get("provider_ref") or ""
+            issue_id = self._issue_id_from_ref(str(ref))
+        if issue_id is None:
+            return None
+        config = load_config()
+        api_key = (config.get("METRON_API_KEY") or "").strip()
+        if not api_key:
+            logging.error(self.t("err_missing"))
+            return None
+        session = requests.Session()
+        headers = {
+            **_auth_header(api_key),
+            "Accept": "application/json",
+            "User-Agent": "MetaKavita-Metron/1.0",
+        }
+        try:
+            detail = self._get_json(session, headers, f"{_API}/issue/{issue_id}/")
+            if not detail:
+                return None
+            parsed = self._issue_payload(detail)
+            return parsed[1] if parsed else None
+        except Exception as e:
+            logging.error(self.t("err").format(e))
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def fetch_volume_index(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+        wanted_numbers: Optional[set] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """`{numéro d'album: payload}` en suivant `issue_list.next`."""
+        config = load_config()
+        api_key = (config.get("METRON_API_KEY") or "").strip()
+        if not api_key:
+            logging.error(self.t("err_missing"))
+            return None
+        session = requests.Session()
+        headers = {
+            **_auth_header(api_key),
+            "Accept": "application/json",
+            "User-Agent": "MetaKavita-Metron/1.0",
+        }
+        try:
+            sid = None
+            for candidate in (
+                series_id,
+                (existing_metadata or {}).get("metron_id"),
+            ):
+                if candidate in (None, "", 0, "0"):
+                    continue
+                sid = self._resolve_series_id(session, headers, str(candidate))
+                if sid is not None:
+                    break
+            if sid is None:
+                sid = self._resolve_series_id(session, headers, query)
+            if sid is None:
+                return None
+            index: Dict[str, Any] = {}
+            for issue in self._issue_list(
+                session,
+                headers,
+                sid,
+                paginate=True,
+                should_cancel=should_cancel,
+            ):
+                parsed = self._issue_payload(issue)
+                if not parsed:
+                    continue
+                key, payload = parsed
+                if wanted_numbers is not None and key not in wanted_numbers:
+                    continue
+                if key not in index:
+                    index[key] = payload
+            return index or None
+        except Exception as e:
+            logging.error(self.t("err").format(e))
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
 
     def _issue_covers(
         self,

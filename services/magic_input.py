@@ -18,6 +18,31 @@ def is_http_url(value: Any) -> bool:
     return s.startswith("http://") or s.startswith("https://")
 
 
+def detect_volume_provider_from_url(url: str) -> Optional[str]:
+    """Premier scraper *volume* (puis unité) dont `extract_id_from_url` accepte *url*."""
+    raw = str(url or "").strip()
+    if not is_http_url(raw):
+        return None
+    for scraper in ScraperRegistry.get_all(scope="volume"):
+        try:
+            if scraper.extract_id_from_url(raw):
+                return scraper.id
+        except Exception:
+            continue
+    from services.volume_enrichment.providers import UNIT_PROVIDERS
+
+    for pid in UNIT_PROVIDERS:
+        scraper = ScraperRegistry.get(pid)
+        if not scraper:
+            continue
+        try:
+            if scraper.extract_id_from_url(raw):
+                return scraper.id
+        except Exception:
+            continue
+    return None
+
+
 def detect_provider_from_url(url: str) -> Optional[str]:
     """
     First series scraper whose extract_id_from_url accepts *url* wins.

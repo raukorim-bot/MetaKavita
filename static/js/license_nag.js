@@ -12,6 +12,7 @@
     var HONOR_SNOOZE_DAYS = 30;
     var BMC_COOLDOWN_MS = 10 * 60 * 1000;
     var CONTINUE_DELAY_MS = 2500;
+    var MIN_ACTIVITY_THRESHOLD = 10;
     var MILESTONE_SERIES = 100;
     var MILESTONE_REVIEWS = 50;
 
@@ -148,8 +149,19 @@
         safeStorageSet(KEYS.shownCount, String(n + 1));
     }
 
+    function lifetimeActivity() {
+        var series = parseInt(safeStorageGet(KEYS.lifetimeSeries) || "0", 10) || 0;
+        var reviews = parseInt(safeStorageGet(KEYS.lifetimeReviews) || "0", 10) || 0;
+        return series + reviews;
+    }
+
+    function hasMinimumActivity() {
+        return lifetimeActivity() >= MIN_ACTIVITY_THRESHOLD;
+    }
+
     function canShowOverlay() {
         if (inHoneymoon()) return false;
+        if (!hasMinimumActivity()) return false;
         if (honorSnoozed()) return false;
         if (bmcCooldownActive()) return false;
         if (nagsToday() >= MAX_NAGS_PER_DAY) return false;
@@ -206,6 +218,9 @@
             if (mrLifetimeNoted) return;
             mrLifetimeNoted = true;
             bumpLifetime(KEYS.lifetimeReviews, parseInt(ctx.done, 10) || 0);
+        } else if (ctx.source === "workshop") {
+            bumpLifetime(KEYS.lifetimeSeries, parseInt(ctx.series_count, 10) || 0);
+            bumpLifetime(KEYS.lifetimeReviews, parseInt(ctx.volumes_count, 10) || 0);
         }
     }
 
@@ -243,6 +258,11 @@
             if (done > 0) out.push("time_saved");
             if (superOn) out.push("super_glow");
             if (ach && ach !== "empty_session") out.push("achievement_echo");
+        } else if (source === "workshop") {
+            out.push("workshop_craft");
+            var volumes = parseInt(ctx.volumes_count, 10) || 0;
+            if (volumes > 0 || series > 0) out.push("time_saved");
+            if (superOn) out.push("super_glow");
         }
 
         if (ctx.milestone_hit) {
@@ -261,7 +281,9 @@
         }
         var order = ctx.source === "mr_recap"
             ? ["mr_craft", "achievement_echo", "super_glow", "time_saved", "batch_hero"]
-            : ["batch_hero", "super_glow", "time_saved", "achievement_echo", "mr_craft"];
+            : (ctx.source === "workshop"
+                ? ["workshop_craft", "time_saved", "super_glow", "achievement_echo"]
+                : ["batch_hero", "super_glow", "time_saved", "achievement_echo", "mr_craft"]);
         if (ctx.milestone_hit) {
             order = ["achievement_echo"].concat(order);
         }
@@ -275,8 +297,9 @@
         var series = parseInt(ctx.series_count, 10) || 0;
         var done = parseInt(ctx.done, 10) || 0;
         var edits = parseInt(ctx.edits, 10) || 0;
-        // Estimation ludique : ~2 min / série batch, ~1.5 min / review + edits
-        var mins = Math.round(series * 2 + done * 1.5 + edits * 0.5);
+        var volumes = parseInt(ctx.volumes_count, 10) || 0;
+        // Estimation ludique : ~2 min / série batch, ~1.5 min / review + edits, ~1 min / volume atelier
+        var mins = Math.round(series * 2 + done * 1.5 + edits * 0.5 + volumes * 1);
         return Math.max(1, mins);
     }
 
@@ -313,6 +336,12 @@
             kicker = t("nag_kicker_ach", "Petit haut-fait");
             title = achTitle || t("nag_title_ach", "Belle session");
             body = t("nag_body_ach", "On a marqué le coup ensemble. Un café (~5 €) aide MetaKavita à garder ce rythme — sans pression.");
+        } else if (variant === "workshop_craft") {
+            var volCount = parseInt(ctx.volumes_count, 10) || parseInt(ctx.series_count, 10) || 1;
+            kicker = t("nag_kicker_workshop", "Atelier des tomes");
+            title = t("nag_title_workshop", "Tes tomes sont soignés aux petits oignons");
+            body = (t("nag_body_workshop", "{0} écriture(s) réussie(s) dans Kavita depuis l'atelier. MetaKavita est gratuit — un café (~5 €), c’est juste un merci doux.") || "")
+                .replace("{0}", String(volCount));
         } else {
             // time_saved
             kicker = t("nag_kicker_time", "Un petit clin d’œil");
@@ -407,6 +436,11 @@
         if (ctx.source === "batch") {
             if (ctx.stopped) return false;
             if ((parseInt(ctx.series_count, 10) || 0) <= 0) return false;
+        }
+        if (ctx.source === "workshop") {
+            var volW = (parseInt(ctx.volumes_count, 10) || 0);
+            var serW = (parseInt(ctx.series_count, 10) || 0);
+            if (volW <= 0 && serW <= 0) return false;
         }
         return true;
     }
@@ -539,7 +573,7 @@
             setTimeout(function () {
                 var ctx = {
                     source: "batch",
-                    series_count: total,
+                    series_count: realSends > 0 ? realSends : total,
                     super_enabled: isSuperEnabled(),
                     stopped: false
                 };
@@ -580,6 +614,27 @@
         }
     }
 
+    function onWorkshopComplete(stats) {
+        try {
+            stats = stats || {};
+            var written = parseInt(stats.written_count, 10) || parseInt(stats.volumes_count, 10) || 0;
+            var seriesCount = parseInt(stats.series_count, 10) || 0;
+            if (written <= 0 && seriesCount <= 0) return;
+            var ctx = {
+                source: "workshop",
+                volumes_count: written,
+                series_count: seriesCount,
+                super_enabled: isSuperEnabled()
+            };
+            noteLifetime(ctx);
+            setTimeout(function () {
+                tryShow(ctx);
+            }, 800);
+        } catch (e) {
+            /* noop */
+        }
+    }
+
     function init() {
         try {
             ensureFirstVisit();
@@ -602,6 +657,7 @@
         markBmcClick: markBmcClick,
         onBatchComplete: onBatchComplete,
         onMrRecap: onMrRecap,
+        onWorkshopComplete: onWorkshopComplete,
         resetMrSession: resetMrLifetimeNote,
         canShowOverlay: canShowOverlay,
         _test: {
@@ -610,6 +666,9 @@
             nagsToday: nagsToday,
             isRichMrSession: isRichMrSession,
             pickVariant: pickVariant,
+            lifetimeActivity: lifetimeActivity,
+            hasMinimumActivity: hasMinimumActivity,
+            MIN_ACTIVITY_THRESHOLD: MIN_ACTIVITY_THRESHOLD,
             KEYS: KEYS
         }
     };

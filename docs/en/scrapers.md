@@ -55,7 +55,7 @@ A `.py` in `data/scrapers/` is executed with the application's privileges. Read 
 
 The **Diagnostics** tab (`/diagnostics`, also from Help → **Scraper diagnostics**). **Is everything answering?** runs preflight first: **Internet** and **Kavita** (latency, HTTP status, library count) — **Re-run preflight** to repeat.
 
-**Scraper health** then calls `fetch()` and `fetch_covers()` on a known-good query, without changing scraper code. On load, only the Config cascade is probed; others stay listed until you add them to a Providers slot or press **Test all**. **Test cascade** re-runs the slots. Legend: green OK, amber partial, red down / ban / schema, gray missing API key.
+**Scraper health** then calls `fetch()` and `fetch_covers()` on a known-good query, without changing scraper code. On load or when clicking **Test all**, scrapers are probed in parallel using an optimized concurrent worker pool (4 by default), preserving MetaKavita's responsiveness and streaming results in real time. **Test cascade** narrows testing to active Config slots. Legend: green OK, amber degraded / partial, red down / ban / schema, gray missing API key or skipped.
 
 ![Scraper diagnostics](../../assets/docs-scrapers-diagnostics.png)
 

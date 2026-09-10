@@ -262,6 +262,33 @@ def test_writing_a_field_locks_it():
     assert dto["writerLocked"] is False
 
 
+def test_workshop_extras_land_on_the_dto_without_erasing_the_rest():
+    current = _full_chapter()
+    dto = build_update_chapter_dto(
+        current,
+        {
+            "language": "en",
+            "webLinks": "https://exemple.test/c",
+            "ageRating": 8,
+            "genres": ["Horreur"],
+            "people": {"writers": ["Moi"]},
+        },
+    )
+    written = split_written_fields(dto)
+    assert set(written) >= {"language", "webLinks", "ageRating", "genres", "writers"}
+    assert dto["language"] == "en"
+    assert dto["languageLocked"] is True
+    assert dto["webLinks"] == "https://exemple.test/c"
+    assert dto["ageRating"] == 8
+    assert dto["genres"] == [{"title": "Horreur"}]
+    assert dto["writers"] == [{"name": "Moi"}]
+    assert dto["pencillers"] == [{"name": "Personne pencillers"}]
+    assert dto["summary"] == current["summary"]
+    assert dto["sortOrder"] == current["sortOrder"]
+    for key, value in MATCHED_EXTERNAL_IDS.items():
+        assert dto[key] == value
+
+
 def test_an_invalid_isbn_is_dropped_instead_of_being_announced():
     """Kavita refuse silencieusement un ISBN à clé fausse : annoncer l'écriture
     afficherait un succès pour un champ resté vide."""

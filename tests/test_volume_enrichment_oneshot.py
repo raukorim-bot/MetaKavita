@@ -320,13 +320,15 @@ def test_une_liste_d_unites_vide_ne_ferme_pas_l_index_par_serie(monkeypatch):
 
 
 def test_l_apercu_distingue_ce_vide_des_autres():
+    """L'écriture est dans l'atelier : un one-shot ne doit pas se lire comme
+    « le fournisseur n'a rien trouvé » ni comme des hors-série."""
     from pathlib import Path
 
-    js = (Path(__file__).resolve().parents[1] / "static" / "js" / "library_audit.js").read_text(
+    js = (Path(__file__).resolve().parents[1] / "static" / "js" / "volumes.js").read_text(
         encoding="utf-8"
     )
 
-    assert "plan.skipped_reason" in js
+    assert "skipped_reason" in js
     assert "vol_preview_oneshot" in js
     assert "vol_preview_specials" in js
 

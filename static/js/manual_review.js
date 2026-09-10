@@ -27,9 +27,9 @@
         writers: "staff",
         pencillers: "staff"
     };
-    // Companion embed: scope the whole queue to a single series so the user only
-    // ever reviews the series opened from the Kavita page (never the first in the
-    // global pending queue, and no auto-advance into other series).
+    // Companion embed and workshop series Review: scope the whole queue to a
+    // single series so the user only ever reviews the series they opened (never
+    // the first in the global pending queue, and no auto-advance into others).
     var companionOnlySeriesId = null;
     var companionOnlyReviewId = "";
     var baselinePreview = null;
@@ -877,14 +877,46 @@
             coverPickEnabled = !!embed.coverPick;
             return;
         }
-        editEnabled = editCb ? !!editCb.checked : true;
+        var wsConfig = window.WORKSHOP_CONFIG;
+        if (wsConfig && !editCb && !coverCb) {
+            editEnabled = wsConfig.edit !== false;
+            soundsEnabled = false;
+            coverPickEnabled = !!wsConfig.coverPick;
+            return;
+        }
+        if (editCb) {
+            var mrVal = editCb.getAttribute("data-mr-edit");
+            editEnabled = mrVal != null ? mrVal === "true" : !!editCb.checked;
+        } else {
+            editEnabled = true;
+        }
         soundsEnabled = soundCb ? !!soundCb.checked : false;
-        coverPickEnabled = !!(isManualModeOn() && coverCb && !coverCb.disabled && coverCb.checked);
+        coverPickEnabled = coverCb ? !!coverCb.checked : false;
+    }
+
+    function workshopForceReviewShot() {
+        var shot = window.WORKSHOP_FORCE_REVIEW;
+        return shot && typeof shot === "object" ? shot : null;
+    }
+
+    function isWorkshopPage() {
+        return !!(document.documentElement && document.documentElement.classList.contains("workshop-page"));
+    }
+
+    function applyWorkshopQueueScope() {
+        var shot = workshopForceReviewShot();
+        if (!shot) return;
+        var sid = shot.seriesId != null ? shot.seriesId : window.WORKSHOP_SERIES_ID;
+        if (sid == null || sid === "") return;
+        companionOnlySeriesId = Number(sid);
+        companionOnlyReviewId = "";
     }
 
     function isManualModeOn() {
         var cb = document.getElementById("sidebar_manual_review_mode");
-        return cb ? !!cb.checked : false;
+        if (cb) return !!cb.checked;
+        var shot = workshopForceReviewShot();
+        return !!(shot && (shot.review || shot.super));
     }
 
     function isCoverPickOn() {
@@ -911,6 +943,8 @@
     function isSuperReviewOn() {
         var embed = embedOptions();
         if (embed) return !!embed.superReview;
+        var shot = workshopForceReviewShot();
+        if (shot && shot.super) return true;
         if (!isManualModeOn()) return false;
         var cb = document.getElementById("sidebar_manual_review_super");
         return !!(cb && !cb.disabled && cb.checked);
@@ -957,7 +991,7 @@
 
     function isModalOpen() {
         var modal = document.getElementById("manualReviewModal");
-        if (!modal) return false;
+        if (!modal || modal.dataset.kind === "volume") return false;
         var d = modal.style.display;
         return d && d !== "none";
     }
@@ -1237,6 +1271,7 @@
     }
 
     function mergeStreamedCandidate(payload) {
+        if (researchInFlight) return;
         if (!payload || !payload.review_id || !payload.card) return;
         var rid = String(payload.review_id);
         var review = null;
@@ -1580,7 +1615,13 @@
         renderKbdDock(next);
         var queryInput = document.getElementById("mrSeriesQuery");
         var researchBtn = document.getElementById("mrResearchBtn");
-        var canResearch = (next === "pick" || next === "edit");
+        // Pendant l'attente du premier scrape, on peut déjà forcer un autre
+        // titre. Une re-recherche déjà lancée désactive le champ (garde JS).
+        var canResearch = (
+            next === "pick" ||
+            next === "edit" ||
+            (next === "waiting" && !researchInFlight)
+        );
         if (queryInput) queryInput.disabled = !canResearch;
         if (researchBtn) researchBtn.style.display = canResearch ? "" : "none";
         if (fusionBar && next !== "pick") {
@@ -2164,6 +2205,7 @@
             setPhase("edit");
             return;
         }
+        syncManualCompletionControls();
         setPhase("pick");
         renderCandidates();
     }
@@ -2173,6 +2215,9 @@
         selectedProvider = null;
         includeProviders = [];
         resetFieldPicks();
+        manualCompletion = false;
+        mergeFields = false;
+        syncManualCompletionControls();
         baselinePreview = null;
         coverPicked = false;
         providerCoverUrl = "";
@@ -2279,6 +2324,7 @@
     }
 
     window.mrToggleListView = function () {
+        if (isWorkshopPage()) return;
         if (!queue.length && !listViewOpen) return;
         if (listViewOpen) closeListView();
         else openListView();
@@ -2303,7 +2349,7 @@
     };
 
     window.mrBulkAccept = function () {
-        if (bulkAcceptInFlight) return;
+        if (isWorkshopPage() || bulkAcceptInFlight) return;
         var input = document.getElementById("mrListThreshold");
         var threshold = input ? parseFloat(input.value) : 0.6;
         if (isNaN(threshold)) threshold = 0.6;
@@ -2417,6 +2463,7 @@
         opts = opts || {};
         if (opening) return;
         opening = true;
+        applyWorkshopQueueScope();
         syncOptionsFromSidebar();
         showModalShell();
         if (!opts.waiting) playTone("pick");
@@ -2427,6 +2474,10 @@
                 currentReviewId = null;
                 selectedProvider = null;
                 includeProviders = [];
+                resetFieldPicks();
+                manualCompletion = false;
+                mergeFields = false;
+                syncManualCompletionControls();
                 baselinePreview = null;
                 reanchorIndex();
                 if (opts.resetSession) {
@@ -2458,6 +2509,7 @@
     /** Ouvre la modal en mode attente au lancement d’un batch / sync (MR ou confirm-before-write). */
     window.mrPrepareForBatch = function () {
         if (!isReviewQueueModeOn()) return;
+        applyWorkshopQueueScope();
         if (waitingSettleTimer) {
             clearTimeout(waitingSettleTimer);
             waitingSettleTimer = null;
@@ -2527,14 +2579,27 @@
     };
 
     window.closeManualReviewModal = function () {
+        var workshopShot = workshopForceReviewShot();
+        window.WORKSHOP_FORCE_REVIEW = null;
+        if (workshopShot) {
+            companionOnlySeriesId = null;
+            companionOnlyReviewId = "";
+        }
         var modal = document.getElementById("manualReviewModal");
         if (modal) {
             modal.style.display = "none";
             modal.setAttribute("aria-hidden", "true");
         }
         if (listViewOpen) closeListView();
-        // Si file non vide, le CTA topbar reste bien visible
-        updateBadge(queue.length);
+        resetFieldPicks();
+        manualCompletion = false;
+        mergeFields = false;
+        syncManualCompletionControls();
+        includeProviders = [];
+        selectedProvider = null;
+        actionInFlight = false;
+        coverPicked = false;
+        setActionBusy(false);
         if (previouslyFocused && typeof previouslyFocused.focus === "function") {
             try { previouslyFocused.focus(); } catch (e) { /* ignore */ }
         }
@@ -2633,6 +2698,7 @@
             body.merge_fields = !!extras.merge_fields;
             body.field_picks = extras.field_picks || {};
         }
+        if (isWorkshopPage()) body.workshop = true;
         setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/choice", {
             method: "POST",
@@ -2657,6 +2723,15 @@
                 }
                 renderEdit(baselinePreview);
                 setPhase("edit");
+                return;
+            }
+            if (data.detail && data.detail.workshop) {
+                if (typeof window.workshopApplyReview === "function") {
+                    window.workshopApplyReview(data.detail);
+                }
+                coverPicked = false;
+                removeFromQueue(review.review_id);
+                window.closeManualReviewModal();
                 return;
             }
             recordSessionConfirm(review, data.detail, 0, fusionList.length);
@@ -2713,6 +2788,7 @@
             confirmBody.merge_fields = !!extras.merge_fields;
             confirmBody.field_picks = extras.field_picks || {};
         }
+        if (isWorkshopPage()) confirmBody.workshop = true;
         setActionBusy(true);
         api("/api/manual-reviews/" + review.review_id + "/confirm", {
             method: "POST",
@@ -2720,6 +2796,15 @@
             body: JSON.stringify(confirmBody)
         }).then(function (data) {
             playTone("confirm");
+            if (data.detail && data.detail.workshop) {
+                if (typeof window.workshopApplyReview === "function") {
+                    window.workshopApplyReview(data.detail);
+                }
+                coverPicked = false;
+                removeFromQueue(review.review_id);
+                window.closeManualReviewModal();
+                return;
+            }
             recordSessionConfirm(review, data.detail, packed.field_edits, fusionList.length);
             var nextStatus = (data.detail && data.detail.status) || (data.message === "NEEDS_RELOCK" ? "NEEDS_RELOCK" : "COMPLETED");
             markSeriesStatus(review.series_id, nextStatus);
@@ -2800,6 +2885,8 @@
             playTone("pick");
         }).catch(function (err) {
             researchInFlight = false;
+            var review = currentReview();
+            if (review && review.review_id) markStreamingComplete(review.review_id);
             setPhase("pick");
             renderCandidates();
             alert(err.message || String(err) || t("mr_research_fail", "Aucun candidat pour cette recherche."));
@@ -3106,6 +3193,7 @@
         socket.on("manual_review_scrape_complete", function (payload) {
             if (!payload || !payload.review_id) return;
             markStreamingComplete(payload.review_id);
+            if (researchInFlight) return;
             if (isModalOpen() && String(currentReviewId) === String(payload.review_id)) {
                 renderCandidates();
             }

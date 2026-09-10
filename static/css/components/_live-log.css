@@ -1,0 +1,125 @@
+/* ================================================================
+   MetaKavita CSS — _live-log.css
+   Journal live C90 : console en temps réel, colorisation des entrées
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* Journal live (C90) : plus une console Courier. Heure, série, message
+   sur des lignes distinctes, police de l'app, défilement borné. */
+.logs-container {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 240px;
+    min-height: 240px;
+    min-width: 0;
+    padding-bottom: 10px;
+}
+.logs-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.logs-title {
+    margin: 0;
+    border-bottom: none;
+    padding-bottom: 0;
+    min-width: 0;
+}
+.logs-actions {
+    display: flex;
+    flex-shrink: 0;
+    gap: 4px;
+}
+.logs-action {
+    padding: 3px 8px;
+    border-radius: 7px;
+    border: 1px solid var(--border-color);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1.3;
+    cursor: pointer;
+}
+.logs-action:hover,
+.logs-action:focus-visible {
+    color: var(--text-main);
+    border-color: color-mix(in srgb, var(--sky) 40%, var(--border-color));
+    background: color-mix(in srgb, var(--sky) 10%, transparent);
+}
+.logs-action.is-active {
+    color: var(--sky);
+    border-color: color-mix(in srgb, var(--sky) 45%, var(--border-color));
+}
+.logs-paused {
+    margin: 0 0 6px;
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 11px;
+    font-weight: 650;
+    color: var(--warning);
+    background: color-mix(in srgb, var(--warning) 12%, transparent);
+}
+.log-console {
+    flex: 1 1 auto;
+    min-height: 160px;
+    max-height: min(46vh, 480px);
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 6px 0;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-input);
+    color: var(--text-main);
+    font-family: var(--font-family);
+    font-size: 12.5px;
+    line-height: 1.45;
+}
+.log-line {
+    display: flex;
+    gap: 8px;
+    margin: 0;
+    padding: 4px 10px 4px 8px;
+    border-left: 3px solid transparent;
+    align-items: flex-start;
+}
+.log-line.has-series {
+    margin-top: 6px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border-color);
+}
+.log-line.has-series:first-child {
+    margin-top: 0;
+    border-top: none;
+    padding-top: 4px;
+}
+.log-time {
+    flex: 0 0 4.6em;
+    font-size: 11px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-muted);
+    padding-top: 1px;
+    user-select: none;
+}
+.log-body {
+    min-width: 0;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+}
+.log-series {
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: var(--sky);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.log-msg {
+    overflow-wrap: anywhere;
+    color: var(--text-main);
+}

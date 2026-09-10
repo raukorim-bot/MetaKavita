@@ -5,7 +5,7 @@
                 <h3 class="m-0"><svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-cog"></use></svg>{{ t.config_title }}</h3>
                 <button type="button" class="close-btn" onclick="closeConfigModal()">&times;</button>
             </div>
-            <form id="configForm" class="modal-form" onsubmit="event.preventDefault(); saveConfig({ reload: true });">
+            <form id="configForm" class="modal-form" onsubmit="event.preventDefault(); saveConfig({ notify: true });">
                 <div class="config-grid modal-scroll-body">
                     <!-- COLONNE GAUCHE : Connexions & API Fournisseurs -->
                     <div class="config-col">
@@ -154,6 +154,8 @@
                             <div class="form-group-row">
                                 <div class="form-group">
                                     <label>{{ t.ui_lang }}</label>
+                                    {# Seul cas où saveConfig recharge : chaque libellé de
+                                       l'interface est rendu côté serveur. #}
                                     <select name="UI_LANG" id="uiLangSelect" onchange="saveConfig({ reload: true })" title="Interface language / Langue de l'interface">
                                         <option value="fr" {% if config.get('UI_LANG') == 'fr' %}selected{% endif %}>Français</option>
                                         <option value="en" {% if config.get('UI_LANG') == 'en' %}selected{% endif %}>English</option>
@@ -227,9 +229,69 @@
                                 </label>
                                 <p class="field-hint m-0">{{ t.auto_update_core_scrapers_desc }}</p>
                             </div>
-                            <div class="form-group">
-                                <label>{{ t.auto_sync_interval }}</label>
-                                <input type="number" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0">
+
+                            {% set _auto_en = config.get('AUTO_SYNC_ENABLED') %}
+                            {% set auto_sync_on = _auto_en if _auto_en is not none else ((config.get('AUTO_SYNC_INTERVAL', 0)|int) > 0) %}
+                            {% set auto_sync_trigger = config.get('AUTO_SYNC_TRIGGER', 'interval') %}
+                            {% set auto_sync_mode = config.get('AUTO_SYNC_MODE', 'auto') %}
+                            {% set show_mr = config.get('UI_SHOW_MANUAL_REVIEW', True) %}
+                            <div class="config-option-card" id="autoSyncCard">
+                                <label class="checkbox-label">
+                                    <input type="checkbox" id="config_auto_sync_enabled" value="true" {% if auto_sync_on %}checked{% endif %} onchange="toggleAutoSyncCard()">
+                                    <strong>{{ t.auto_sync_enabled }}</strong>
+                                </label>
+                                <p class="field-hint m-0">{{ t.auto_sync_enabled_hint }}</p>
+                                <div id="autoSyncCardBody" class="auto-sync-card-body{% if not auto_sync_on %} is-disabled{% endif %}">
+                                    <div class="form-group m-0">
+                                        <label for="config_auto_sync_mode">{{ t.auto_sync_mode }}</label>
+                                        <select id="config_auto_sync_mode" name="AUTO_SYNC_MODE" onchange="toggleAutoSyncCard()">
+                                            <option value="auto" {% if auto_sync_mode == 'auto' %}selected{% endif %}>{{ t.auto_sync_mode_auto }}</option>
+                                            {% if show_mr or auto_sync_mode == 'review' %}
+                                            <option value="review" {% if auto_sync_mode == 'review' %}selected{% endif %}>{{ t.auto_sync_mode_review }}</option>
+                                            {% endif %}
+                                            {% if show_mr or auto_sync_mode == 'super' %}
+                                            <option value="super" {% if auto_sync_mode == 'super' %}selected{% endif %}>{{ t.auto_sync_mode_super }}</option>
+                                            {% endif %}
+                                        </select>
+                                        <p class="field-hint m-0">{{ t.auto_sync_mode_hint }}</p>
+                                    </div>
+                                    <fieldset class="auto-sync-radios m-0">
+                                        <legend class="sr-only">{{ t.auto_sync_trigger_legend }}</legend>
+                                        <label class="checkbox-label">
+                                            <input type="radio" name="AUTO_SYNC_TRIGGER" value="interval" {% if auto_sync_trigger != 'scan' %}checked{% endif %} onchange="toggleAutoSyncCard()">
+                                            <span>{{ t.auto_sync_trigger_interval }}</span>
+                                        </label>
+                                        <label class="checkbox-label">
+                                            <input type="radio" name="AUTO_SYNC_TRIGGER" value="scan" {% if auto_sync_trigger == 'scan' %}checked{% endif %} onchange="toggleAutoSyncCard()">
+                                            <span>{{ t.auto_sync_trigger_scan }}</span>
+                                        </label>
+                                        <p class="field-hint m-0">{{ t.auto_sync_trigger_hint }}</p>
+                                    </fieldset>
+                                    <div class="form-group m-0" id="autoSyncIntervalRow"{% if auto_sync_trigger == 'scan' %} hidden{% endif %}>
+                                        <label for="config_auto_sync_interval">{{ t.auto_sync_interval }}</label>
+                                        {# min=0 : un 0 hérité (l'ancien « off ») est une valeur
+                                           stockée légale. min=1 ici bloquait tout le formulaire
+                                           (validation native avant onsubmit) alors que la carte
+                                           est éteinte ou que le déclencheur est un scan.
+                                           toggleAutoSyncCard() resserre à min=1 seulement si
+                                           l'interrupteur est allumé et le déclencheur est
+                                           l'intervalle. #}
+                                        <input type="number" id="config_auto_sync_interval" name="AUTO_SYNC_INTERVAL" value="{{ config.get('AUTO_SYNC_INTERVAL', 0) }}" min="0" step="1" data-default="360">
+                                    </div>
+                                    <div class="form-group m-0" id="autoSyncCatchupRow"{% if auto_sync_trigger != 'scan' %} hidden{% endif %}>
+                                        <label for="config_auto_sync_catchup">{{ t.auto_sync_catchup_hours }}</label>
+                                        <input type="number" id="config_auto_sync_catchup" name="AUTO_SYNC_CATCHUP_HOURS" value="{{ config.get('AUTO_SYNC_CATCHUP_HOURS', 24) }}" min="0" step="1">
+                                        <p class="field-hint m-0">{{ t.auto_sync_catchup_hint }}</p>
+                                        <p class="field-hint m-0" id="autoSyncHubStatus" data-auto-sync-hub-status="1">{{ t.auto_sync_hub_status }} {{ t.auto_sync_hub_idle }}</p>
+                                    </div>
+                                    <div class="config-option-card config-option-card--warning m-0" id="autoSyncForceUpdateRow"{% if auto_sync_mode != 'auto' %} hidden{% endif %}>
+                                        <label class="checkbox-label">
+                                            <input type="checkbox" id="config_auto_sync_force_update" value="true" {% if config.get('AUTO_SYNC_FORCE_UPDATE') %}checked{% endif %}>
+                                            <strong>{{ t.auto_sync_force_update }}</strong>
+                                        </label>
+                                        <p class="field-hint m-0">{{ t.auto_sync_force_update_hint }}</p>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="form-group">

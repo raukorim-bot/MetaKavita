@@ -1,7 +1,7 @@
 import logging
 import re
 from collections import Counter
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 from urllib.parse import unquote
 from bs4 import BeautifulSoup
 from curl_cffi import requests
@@ -10,6 +10,7 @@ from .utils import (
     album_number_key,
     attach_match_score,
     calculate_similarity,
+    select_wanted_album_links,
     clean_title,
     get_match_accept_threshold,
     normalize_str,
@@ -70,11 +71,10 @@ class MangaNewsScraper(BaseScraper):
     rate_limit = 6.0
     # 40 × 6 s = quatre minutes. Au-delà, une série-fleuve mangerait la passe.
     VOLUME_INDEX_MAX = 40
-    # 1.3.0 : le bandeau `#serieVolumes` peut porter un slug EN (Demon-Slayer)
-    # alors que la fiche est en VF (Rodeurs-de-la-nuit-les) ; on garde le slug
-    # majoritaire du bloc au lieu de tout jeter. Sans bandeau, on suit
-    # `/serie/editions/`. Alias EN→VF pour la recherche Kavita.
-    version = "1.3.0"
+    # 1.4.0 : crawl ciblé — ne visiter que les tomes Kavita (`wanted_numbers`)
+    # et honorer `should_cancel` dans la boucle d'albums. Titres VF Kavita
+    # (`localizedName`) essayés avant la table d'alias.
+    version = "1.4.0"
     proxy_domains = ["manga-news.com", "www.manga-news.com"]
     has_direct_id_support = True
     requires_proxy = False
@@ -300,7 +300,9 @@ class MangaNewsScraper(BaseScraper):
 
             logging.info(self.t("search_title").format(cleaned))
             last_score = -1.0
-            for search_q in self._search_queries(cleaned):
+            for search_q in self._search_queries(
+                cleaned, self._hint_search_titles(existing_metadata)
+            ):
                 hit, last_score = self._best_from_search(
                     session, headers, search_q, existing_metadata
                 )
@@ -329,10 +331,35 @@ class MangaNewsScraper(BaseScraper):
         }
 
     @staticmethod
-    def _search_queries(cleaned: str) -> List[str]:
-        """Titre Kavita, puis alias VF si le catalogue ne connaît que le français."""
+    def _hint_search_titles(existing_metadata: Optional[Dict[str, Any]]) -> List[str]:
+        """Titres VF déjà sur la série Kavita, à essayer avant la table d'alias."""
+        md = existing_metadata or {}
+        out: List[str] = []
+        loc = str(md.get("localizedName") or "").strip()
+        if loc:
+            out.append(loc)
+        alts = md.get("alternative_titles") or []
+        if isinstance(alts, str):
+            alts = [alts]
+        for title in alts:
+            text = str(title or "").strip()
+            if text:
+                out.append(text)
+        return out
+
+    @staticmethod
+    def _search_queries(
+        cleaned: str, extra: Optional[List[str]] = None
+    ) -> List[str]:
+        """Titre Kavita, titres déjà connus (localizedName), puis alias VF."""
         seen = {normalize_str(cleaned)}
         out = [cleaned]
+        for title in extra or []:
+            folded = normalize_str(title)
+            if not folded or folded in seen:
+                continue
+            seen.add(folded)
+            out.append(title)
         key = normalize_str(cleaned)
         for stored, aliases in _TITLE_ALIASES.items():
             hit = key == stored or (len(stored) >= 10 and key.startswith(stored + " "))
@@ -476,7 +503,9 @@ class MangaNewsScraper(BaseScraper):
         cleaned = clean_title(query, library_type=library_type)
         if not cleaned:
             return None
-        for search_q in self._search_queries(cleaned):
+        for search_q in self._search_queries(
+            cleaned, self._hint_search_titles(existing_metadata)
+        ):
             url = self._serie_url_from_search(session, headers, search_q)
             if url:
                 return url
@@ -666,12 +695,42 @@ class MangaNewsScraper(BaseScraper):
         }
         return {k: v for k, v in payload.items() if v}
 
+    def fetch_volume(
+        self,
+        query: str,
+        library_type: str = "Manga",
+        volume_number: Optional[Any] = None,
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Une fiche tome, par URL `/manga/.../vol-N` (Champ Magique)."""
+        url = self.extract_id_from_url(query) or str(query or "").strip()
+        if "manga-news.com" not in url or "/vol-" not in url:
+            return None
+        session = requests.Session(impersonate="chrome110")
+        try:
+            res = self._http_get(session, url, headers=self._headers(), timeout=15)
+            if not response_is_ok(self, res, context="fiche tome"):
+                return None
+            payload = self._parse_volume_page(self._raw_html(res), url)
+            return payload or None
+        except Exception as e:
+            logging.error(self.t("volume_index_err").format(e))
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
     def fetch_volume_index(
         self,
         query: str,
         library_type: str = "Manga",
         series_id: Optional[str] = None,
         existing_metadata: Optional[Dict[str, Any]] = None,
+        wanted_numbers: Optional[set] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Optional[Dict[str, Any]]:
         """`{numéro: payload}` en lisant la liste `#serieVolumes`, puis chaque fiche.
 
@@ -705,7 +764,11 @@ class MangaNewsScraper(BaseScraper):
                 return None
 
             index: Dict[str, Any] = {}
-            for link in links[: self.VOLUME_INDEX_MAX]:
+            for link in select_wanted_album_links(
+                links, wanted_numbers, self.VOLUME_INDEX_MAX
+            ):
+                if should_cancel and should_cancel():
+                    break
                 vol_res = self._http_get(session, link["url"], headers=headers, timeout=15)
                 if not response_is_ok(self, vol_res, context=f"tome {link['number']}"):
                     continue

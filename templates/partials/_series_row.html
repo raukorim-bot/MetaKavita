@@ -76,6 +76,7 @@
                                             {% if series.status == 'IGNORED' %}🔄{% else %}🚫{% endif %}
                                         </button>
                                         <button type="button" class="btn-icon btn-audit-report" data-action="audit" onclick="openVolumeReportModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.audit_volume_report }}">📑</button>
+                                        <a class="btn-icon btn-workshop" data-action="workshop" href="{{ url_for('pages.series_volumes', series_id=series.id) }}" title="{{ t.workshop_open_hint }}">📚</a>
                                         <button type="button" class="btn-icon" data-action="covers" onclick="openCoverModal('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}')" title="{{ t.manage_covers }}">🖼️</button>
                                         <button type="button" class="btn-opt" data-action="options" onclick="toggleSeriesPanel('{{ series.id }}')">{{ t.options }}</button>
                                         <button type="button" class="btn-sync" data-action="sync" onclick="syncSingle('{{ series.id }}', '{{ series.name|replace("'", "\\'") }}', this)">{{ t['update'] }}</button>

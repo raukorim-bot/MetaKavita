@@ -166,7 +166,7 @@ def resolve_completion_state(
     ratio = have / exp
     if have > exp:
         return "overshoot", ratio
-    if have >= exp:
+    if have >= exp and missing_count == 0:
         pub = (publication_status or "UNKNOWN").strip().upper()
         return ("uptodate" if pub in _ONGOING_PUB else "complete"), ratio
     missing = missing_count if missing_count > 0 else (exp - have)

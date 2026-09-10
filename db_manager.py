@@ -2,6 +2,8 @@ import sqlite3
 import os
 import logging
 import threading
+import time
+from typing import Optional
 
 from models import SeriesOverride
 from secure_logging import safe_exc_str
@@ -190,12 +192,29 @@ def init_db():
     _ensure_batch_queue_tables(c)
     _ensure_library_audit_tables(c)
     _ensure_volume_unit_tables(c)
+    _ensure_workshop_tables(c)
+    _ensure_auto_sync_tables(c)
     conn.commit()
     conn.close()
 
 
 def _ensure_library_audit_tables(c):
     """Caches for library hygiene reports (volume gaps / duplicate groups)."""
+    if _schema_pending("hygiene_series_identities"):
+        c.execute(
+            '''CREATE TABLE IF NOT EXISTS hygiene_series_identities (
+                 series_id INTEGER PRIMARY KEY,
+                 library_id TEXT NOT NULL,
+                 identity_json TEXT NOT NULL,
+                 updated_at TEXT NOT NULL
+               )'''
+        )
+        c.execute(
+            "CREATE INDEX IF NOT EXISTS idx_hygiene_identities_lib "
+            "ON hygiene_series_identities(library_id)"
+        )
+        _schema_done("hygiene_series_identities")
+
     if not _schema_pending("library_audit_tables"):
         return
     c.execute(
@@ -241,9 +260,14 @@ def _ensure_library_audit_tables(c):
              series_ids_json TEXT NOT NULL,
              reason TEXT NOT NULL,
              updated_at TEXT NOT NULL,
+             payload_json TEXT,
              PRIMARY KEY (library_id, group_key)
            )'''
     )
+    try:
+        c.execute("ALTER TABLE hygiene_dup_dismissals ADD COLUMN payload_json TEXT")
+    except Exception:
+        pass
     c.execute(
         "CREATE INDEX IF NOT EXISTS idx_hygiene_dismiss_lib "
         "ON hygiene_dup_dismissals(library_id)"
@@ -287,6 +311,50 @@ def _ensure_volume_unit_tables(c):
         "ON volume_unit_cache(series_id)"
     )
     _schema_done("volume_unit_tables")
+
+
+def _ensure_workshop_tables(c):
+    """Overrides Champ Magique par tome + journal borné de l'atelier."""
+    if not _schema_pending("workshop_tables"):
+        return
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS volume_unit_overrides (
+             series_id INTEGER NOT NULL,
+             chapter_id INTEGER NOT NULL,
+             provider TEXT,
+             provider_ref TEXT,
+             payload_json TEXT,
+             updated_at TEXT NOT NULL,
+             PRIMARY KEY (series_id, chapter_id)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_volume_overrides_series "
+        "ON volume_unit_overrides(series_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS workshop_history (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             series_id INTEGER NOT NULL,
+             chapter_id INTEGER,
+             event TEXT NOT NULL,
+             detail_json TEXT,
+             created_at TEXT NOT NULL
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_workshop_history_series "
+        "ON workshop_history(series_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS workshop_series_overrides (
+             series_id INTEGER PRIMARY KEY,
+             payload_json TEXT NOT NULL,
+             cover_url TEXT,
+             updated_at TEXT NOT NULL
+           )'''
+    )
+    _schema_done("workshop_tables")
 
 
 def _ensure_lifetime_stats_table(c):
@@ -339,6 +407,564 @@ def _ensure_batch_queue_tables(c):
         "INSERT OR IGNORE INTO batch_queue_meta(key, value) VALUES ('paused', '0')"
     )
     _schema_done("batch_queue_tables")
+
+
+_auto_sync_report_lock = threading.Lock()
+
+_ASR_EMPTY_BADGE = {
+    "visible": False,
+    "unread": False,
+    "running": False,
+    "total": 0,
+    "ok": 0,
+    "errors": 0,
+    "review": 0,
+    "relock": 0,
+    "stopped": 0,
+    "pending": 0,
+}
+
+
+def _ensure_auto_sync_tables(c):
+    """Snapshot d'IDs Kavita pour le trigger scan (C96) + rapport de vague (C97)."""
+    if _schema_pending("auto_sync_known_series"):
+        c.execute(
+            '''CREATE TABLE IF NOT EXISTS auto_sync_known_series (
+                 series_id INTEGER PRIMARY KEY
+               )'''
+        )
+        _schema_done("auto_sync_known_series")
+    if not _schema_pending("auto_sync_report_tables"):
+        return
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS auto_sync_runs (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             started_at REAL NOT NULL,
+             finished_at REAL,
+             trigger TEXT NOT NULL DEFAULT '',
+             unread INTEGER NOT NULL DEFAULT 0,
+             stopped INTEGER NOT NULL DEFAULT 0
+           )'''
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS auto_sync_run_items (
+             id INTEGER PRIMARY KEY AUTOINCREMENT,
+             run_id INTEGER NOT NULL,
+             series_id INTEGER NOT NULL,
+             series_name TEXT,
+             outcome TEXT NOT NULL DEFAULT 'pending',
+             message TEXT,
+             finished_at REAL,
+             UNIQUE(run_id, series_id)
+           )'''
+    )
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_auto_sync_run_items_run "
+        "ON auto_sync_run_items(run_id)"
+    )
+    c.execute(
+        '''CREATE TABLE IF NOT EXISTS auto_sync_state (
+             key TEXT PRIMARY KEY,
+             value REAL
+           )'''
+    )
+    _schema_done("auto_sync_report_tables")
+
+
+def get_auto_sync_catchup_at():
+    """Dernier passage du filet horaire, ou `None` s'il n'a jamais tourné.
+
+    Persisté : gardé en mémoire de processus, il repartait à « jamais » à chaque
+    démarrage, et le filet relançait donc une passe complète de l'inventaire à
+    chaque redémarrage du conteneur — une boucle de crash suffisait à en
+    enchaîner autant.
+    """
+    if not os.path.exists(DB_FILE):
+        return None
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        row = c.execute(
+            "SELECT value FROM auto_sync_state WHERE key = 'catchup_at'"
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row or row[0] is None:
+        return None
+    try:
+        return float(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def set_auto_sync_catchup_at(ts) -> None:
+    """Note le passage du filet horaire."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        c.execute(
+            "INSERT INTO auto_sync_state (key, value) VALUES ('catchup_at', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            (float(ts),),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_auto_sync_known_ids() -> set:
+    """IDs Kavita déjà vus par le trigger scan (snapshot)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        rows = c.execute("SELECT series_id FROM auto_sync_known_series").fetchall()
+        return {int(row[0]) for row in rows}
+    finally:
+        conn.close()
+
+
+def replace_auto_sync_known_ids(ids) -> None:
+    """Remplace le snapshot en une transaction (DELETE + INSERT, pas un merge)."""
+    if not os.path.exists(DB_FILE):
+        init_db()
+    seen = set()
+    rows = []
+    for raw in ids or []:
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if sid in seen:
+            continue
+        seen.add(sid)
+        rows.append((sid,))
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_auto_sync_tables(c)
+        c.execute("DELETE FROM auto_sync_known_series")
+        if rows:
+            c.executemany(
+                "INSERT INTO auto_sync_known_series (series_id) VALUES (?)",
+                rows,
+            )
+        conn.commit()
+    except Exception:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+
+def classify_auto_sync_outcome(ok, msg, status=None) -> str:
+    """Classe le résultat d'un job Auto-sync pour le rapport de vague (C97)."""
+    token = str(status or "").strip().upper()
+    message = str(msg or "").strip()
+    if token == "PENDING_REVIEW" or message == "PENDING_REVIEW":
+        return "review"
+    if token == "NEEDS_RELOCK" or message == "NEEDS_RELOCK":
+        return "relock"
+    if token == "NOT_FOUND":
+        return "error"
+    if message in ("Introuvable.", "Not found.", "Not found"):
+        return "error"
+    if not ok:
+        return "error"
+    return "completed"
+
+
+def _open_auto_sync_run_id(c):
+    row = c.execute(
+        "SELECT id FROM auto_sync_runs WHERE finished_at IS NULL ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    return int(row[0]) if row else None
+
+
+def _counts_from_outcomes(outcomes) -> dict:
+    counts = {
+        "total": 0,
+        "ok": 0,
+        "errors": 0,
+        "review": 0,
+        "relock": 0,
+        "stopped": 0,
+        "pending": 0,
+    }
+    for raw in outcomes or []:
+        counts["total"] += 1
+        key = str(raw or "pending").strip().lower()
+        if key in ("completed", "relock"):
+            counts["ok"] += 1
+        if key == "error":
+            counts["errors"] += 1
+        elif key == "review":
+            counts["review"] += 1
+        elif key == "relock":
+            counts["relock"] += 1
+        elif key == "stopped":
+            counts["stopped"] += 1
+        elif key == "pending":
+            counts["pending"] += 1
+    return counts
+
+
+def _badge_from_run(run, counts, series_ids=None) -> dict:
+    ids = []
+    for raw in series_ids or []:
+        try:
+            ids.append(int(raw))
+        except (TypeError, ValueError):
+            continue
+    if not run:
+        badge = dict(_ASR_EMPTY_BADGE)
+        badge["series_ids"] = ids
+        return badge
+    running = run.get("finished_at") is None
+    unread = bool(run.get("unread")) and not running
+    badge = dict(_ASR_EMPTY_BADGE)
+    badge.update(counts or {})
+    badge["visible"] = running or unread
+    badge["unread"] = unread
+    badge["running"] = running
+    badge["series_ids"] = ids
+    return badge
+
+
+def _run_row_to_dict(row) -> dict:
+    return {
+        "id": int(row[0]),
+        "started_at": row[1],
+        "finished_at": row[2],
+        "trigger": row[3] or "",
+        "unread": bool(row[4]),
+        "stopped": bool(row[5]),
+    }
+
+
+def begin_auto_sync_run(trigger, items) -> int:
+    """Ouvre (ou réutilise) la vague courante et y pose les séries en `pending`.
+
+    Une vague encore ouverte (Stop n'a pas tout fini, un scrape tourne) reçoit
+    les nouvelles séries. Sinon on remplace le rapport précédent : l'UI ne
+    montre que la dernière vague.
+    """
+    prepared = []
+    seen = set()
+    for raw in items or []:
+        if isinstance(raw, dict):
+            sid, name = raw.get("series_id"), raw.get("series_name")
+        else:
+            try:
+                sid, name = raw[0], raw[1]
+            except (TypeError, IndexError, ValueError):
+                continue
+        try:
+            sid = int(sid)
+        except (TypeError, ValueError):
+            continue
+        if sid in seen:
+            continue
+        seen.add(sid)
+        prepared.append((sid, str(name or sid)))
+    if not prepared:
+        return 0
+    trig = str(trigger or "").strip().lower()
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            init_db()
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                c.execute("DELETE FROM auto_sync_run_items")
+                c.execute("DELETE FROM auto_sync_runs")
+                c.execute(
+                    "INSERT INTO auto_sync_runs (started_at, trigger, unread, stopped) "
+                    "VALUES (?, ?, 0, 0)",
+                    (now, trig),
+                )
+                run_id = int(c.lastrowid)
+            for sid, name in prepared:
+                c.execute(
+                    "INSERT OR IGNORE INTO auto_sync_run_items "
+                    "(run_id, series_id, series_name, outcome) VALUES (?, ?, ?, 'pending')",
+                    (run_id, sid, name),
+                )
+                c.execute(
+                    "UPDATE auto_sync_run_items SET series_name = ? "
+                    "WHERE run_id = ? AND series_id = ? AND outcome = 'pending'",
+                    (name, run_id, sid),
+                )
+            conn.commit()
+            return run_id
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def record_auto_sync_item(series_id, series_name, ok, msg) -> None:
+    """Enregistre le résultat d'un job `origin=auto` sur la vague ouverte."""
+    try:
+        sid = int(series_id)
+    except (TypeError, ValueError):
+        return
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                return
+            status_row = c.execute(
+                "SELECT status FROM series_cache WHERE series_id = ?",
+                (sid,),
+            ).fetchone()
+            status = status_row[0] if status_row else None
+            outcome = classify_auto_sync_outcome(ok, msg, status)
+            message = str(msg or "")
+            name = str(series_name or sid)
+            c.execute(
+                "UPDATE auto_sync_run_items "
+                "SET outcome = ?, message = ?, finished_at = ?, series_name = ? "
+                "WHERE run_id = ? AND series_id = ?",
+                (outcome, message, now, name, run_id, sid),
+            )
+            if c.rowcount == 0:
+                c.execute(
+                    "INSERT INTO auto_sync_run_items "
+                    "(run_id, series_id, series_name, outcome, message, finished_at) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (run_id, sid, name, outcome, message, now),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def mark_auto_sync_items_stopped(series_ids) -> int:
+    """Stop : les jobs Auto-sync encore `pending` de la vague ouverte passent en stopped."""
+    ids = []
+    seen = set()
+    for raw in series_ids or []:
+        try:
+            sid = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if sid in seen:
+            continue
+        seen.add(sid)
+        ids.append(sid)
+    if not ids:
+        return 0
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return 0
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                return 0
+            placeholders = ",".join("?" for _ in ids)
+            c.execute(
+                f"UPDATE auto_sync_run_items SET outcome = 'stopped', finished_at = ?, "
+                f"message = 'stopped' WHERE run_id = ? AND outcome = 'pending' "
+                f"AND series_id IN ({placeholders})",
+                [now, run_id, *ids],
+            )
+            n = c.rowcount
+            if n:
+                c.execute(
+                    "UPDATE auto_sync_runs SET stopped = 1 WHERE id = ?",
+                    (run_id,),
+                )
+            conn.commit()
+            return n
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def finish_open_auto_sync_run(*, stopped=False) -> bool:
+    """Clôt la vague ouverte et la marque non lue. False s'il n'y en avait pas."""
+    now = time.time()
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return False
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run_id = _open_auto_sync_run_id(c)
+            if run_id is None:
+                return False
+            if stopped:
+                c.execute(
+                    "UPDATE auto_sync_runs SET finished_at = ?, unread = 1, stopped = 1 "
+                    "WHERE id = ? AND finished_at IS NULL",
+                    (now, run_id),
+                )
+            else:
+                c.execute(
+                    "UPDATE auto_sync_runs SET finished_at = ?, unread = 1 "
+                    "WHERE id = ? AND finished_at IS NULL",
+                    (now, run_id),
+                )
+            changed = c.rowcount > 0
+            if changed:
+                meta = c.execute(
+                    "SELECT trigger, stopped FROM auto_sync_runs WHERE id = ?",
+                    (run_id,),
+                ).fetchone()
+                outcomes = [
+                    row[0]
+                    for row in c.execute(
+                        "SELECT outcome FROM auto_sync_run_items WHERE run_id = ?",
+                        (run_id,),
+                    ).fetchall()
+                ]
+                was_stopped = bool(stopped) or bool(meta and meta[1])
+                trigger = (meta[0] if meta else "") or ""
+                _apply_auto_sync_wave_telemetry(
+                    c, trigger=trigger, stopped=was_stopped, outcomes=outcomes
+                )
+            conn.commit()
+            return changed
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def _apply_auto_sync_wave_telemetry(c, *, trigger, stopped, outcomes) -> None:
+    """Incrémente les compteurs lifetime d'une vague Auto-sync tout juste close."""
+    counts = _counts_from_outcomes(outcomes)
+    _ensure_lifetime_stats_table(c)
+    _bump_lifetime_stat(c, "auto_sync_waves", 1)
+    if stopped:
+        _bump_lifetime_stat(c, "auto_sync_waves_stopped", 1)
+    if str(trigger or "").strip().lower() == "scan":
+        _bump_lifetime_stat(c, "auto_sync_waves_scan", 1)
+    else:
+        _bump_lifetime_stat(c, "auto_sync_waves_interval", 1)
+    _bump_lifetime_stat(c, "auto_sync_series", counts.get("total") or 0)
+    _bump_lifetime_stat(c, "auto_sync_ok", counts.get("ok") or 0)
+    _bump_lifetime_stat(c, "auto_sync_errors", counts.get("errors") or 0)
+    _bump_lifetime_stat(c, "auto_sync_review", counts.get("review") or 0)
+    _bump_lifetime_stat(c, "auto_sync_relock", counts.get("relock") or 0)
+    _bump_lifetime_stat(c, "auto_sync_stopped", counts.get("stopped") or 0)
+
+
+def mark_auto_sync_report_read() -> bool:
+    """Marque le dernier rapport terminé comme lu (cache le bouton KPI)."""
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return False
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            row = c.execute(
+                "SELECT id, finished_at FROM auto_sync_runs ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if not row or row[1] is None:
+                return False
+            c.execute(
+                "UPDATE auto_sync_runs SET unread = 0 WHERE id = ?",
+                (int(row[0]),),
+            )
+            conn.commit()
+            return True
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+
+def _load_latest_auto_sync_run(c):
+    row = c.execute(
+        "SELECT id, started_at, finished_at, trigger, unread, stopped "
+        "FROM auto_sync_runs ORDER BY id DESC LIMIT 1"
+    ).fetchone()
+    if not row:
+        return None, []
+    run = _run_row_to_dict(row)
+    items = []
+    for item in c.execute(
+        "SELECT series_id, series_name, outcome, message, finished_at "
+        "FROM auto_sync_run_items WHERE run_id = ? ORDER BY series_name COLLATE NOCASE",
+        (run["id"],),
+    ).fetchall():
+        items.append({
+            "series_id": int(item[0]),
+            "series_name": item[1] or str(item[0]),
+            "outcome": item[2] or "pending",
+            "message": item[3] or "",
+            "finished_at": item[4],
+        })
+    return run, items
+
+
+def get_auto_sync_report_badge() -> dict:
+    """Pastille KPI : visible si la vague tourne ou si le dernier rapport est non lu."""
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return dict(_ASR_EMPTY_BADGE)
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run, items = _load_latest_auto_sync_run(c)
+        finally:
+            conn.close()
+    return _badge_from_run(
+        run,
+        _counts_from_outcomes(i["outcome"] for i in items),
+        [i["series_id"] for i in items],
+    )
+
+
+def get_latest_auto_sync_report() -> dict:
+    """Dernière vague + séries, ou un rapport vide si aucune n'a encore tourné."""
+    with _auto_sync_report_lock:
+        if not os.path.exists(DB_FILE):
+            return {"run": None, "items": [], "counts": dict(_ASR_EMPTY_BADGE), "badge": dict(_ASR_EMPTY_BADGE)}
+        conn = _connect()
+        try:
+            c = conn.cursor()
+            _ensure_auto_sync_tables(c)
+            run, items = _load_latest_auto_sync_run(c)
+        finally:
+            conn.close()
+    counts = _counts_from_outcomes(i["outcome"] for i in items)
+    ids = [i["series_id"] for i in items]
+    badge = _badge_from_run(run, counts, ids)
+    return {"run": run, "items": items, "counts": counts, "badge": badge}
 
 
 def _ensure_pending_reviews_table(c):
@@ -499,6 +1125,28 @@ def get_lifetime_stats():
         "series_enriched": _as_int("series_enriched"),
         "matches_won": _as_int("matches_won"),
         "series_missed": _as_int("series_missed"),
+        "covers_applied": _as_int("covers_applied"),
+        "locks_sealed": _as_int("locks_sealed"),
+        "runs_batch": _as_int("runs_batch"),
+        "runs_webhook": _as_int("runs_webhook"),
+        "runs_auto": _as_int("runs_auto"),
+        "runs_row": _as_int("runs_row"),
+        "runs_workshop": _as_int("runs_workshop"),
+        "workshop_units": _as_int("workshop_units"),
+        "workshop_reviews": _as_int("workshop_reviews"),
+        "workshop_magic": _as_int("workshop_magic"),
+        "workshop_edits": _as_int("workshop_edits"),
+        "workshop_resets": _as_int("workshop_resets"),
+        "auto_sync_waves": _as_int("auto_sync_waves"),
+        "auto_sync_waves_stopped": _as_int("auto_sync_waves_stopped"),
+        "auto_sync_waves_scan": _as_int("auto_sync_waves_scan"),
+        "auto_sync_waves_interval": _as_int("auto_sync_waves_interval"),
+        "auto_sync_series": _as_int("auto_sync_series"),
+        "auto_sync_ok": _as_int("auto_sync_ok"),
+        "auto_sync_errors": _as_int("auto_sync_errors"),
+        "auto_sync_review": _as_int("auto_sync_review"),
+        "auto_sync_relock": _as_int("auto_sync_relock"),
+        "auto_sync_stopped": _as_int("auto_sync_stopped"),
         "manual_reviews": _as_int("manual_reviews"),
         "manual_skips": _as_int("manual_skips"),
         "manual_top1_accepts": _as_int("manual_top1_accepts"),
@@ -524,6 +1172,60 @@ def _bump_lifetime_stat(c, key, delta):
            ON CONFLICT(stat_key) DO UPDATE SET value = value + excluded.value''',
         (key, delta),
     )
+
+
+# Gestes hors enrichissement / hors review : allowlist pour ne pas inventer de clés.
+_LIFETIME_EVENT_KEYS = frozenset({
+    "covers_applied",
+    "locks_sealed",
+    "runs_batch",
+    "runs_webhook",
+    "runs_auto",
+    "runs_row",
+    "runs_workshop",
+    "workshop_units",
+    "workshop_reviews",
+    "workshop_magic",
+    "workshop_edits",
+    "workshop_resets",
+})
+
+_RUN_ORIGIN_KEYS = {
+    "batch": "runs_batch",
+    "webhook": "runs_webhook",
+    "auto": "runs_auto",
+    "row": "runs_row",
+    "workshop": "runs_workshop",
+}
+
+
+def record_lifetime_event(key, delta=1):
+    """Incrémente un compteur lifetime listé. Inconnu ou delta 0 : no-op."""
+    if key not in _LIFETIME_EVENT_KEYS:
+        return 0
+    try:
+        n = int(delta or 0)
+    except (TypeError, ValueError):
+        return 0
+    if n <= 0:
+        return 0
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_lifetime_stats_table(c)
+    _bump_lifetime_stat(c, key, n)
+    conn.commit()
+    conn.close()
+    return n
+
+
+def record_run_origin(origin):
+    """+1 sur l'origine d'une écriture Kavita (lot / webhook / auto / clic ligne)."""
+    key = _RUN_ORIGIN_KEYS.get(str(origin or "").strip().lower())
+    if not key:
+        return 0
+    return record_lifetime_event(key, 1)
 
 
 def record_manual_review_telemetry(
@@ -976,18 +1678,32 @@ def is_cover_manual(series_id) -> bool:
     return bool(row[0]) if row and row[0] is not None else False
 
 
-def set_inventory_excluded(series_id, excluded: bool = True):
-    """Exclut (ou réintègre) une série de l'inventaire, sans toucher au reste."""
+def set_inventory_excluded(series_id, excluded: bool = True) -> bool:
+    """Exclut (ou réintègre) une série de l'inventaire, sans toucher au reste.
+
+    Rend `True` seulement si l'état a **changé**. L'écriture est idempotente,
+    mais l'appelant ajustait un compteur « exclues » à l'aveugle : deux surfaces
+    proposent l'exclusion (la modale des manquants et celle du rapport), et
+    l'une pouvant afficher un instantané périmé, la même série pouvait être
+    exclue deux fois et gonfler le compteur d'autant.
+    """
     if not os.path.exists(DB_FILE):
         init_db()
+    sid = int(series_id)
+    target = 1 if excluded else 0
     conn = _connect()
     c = conn.cursor()
     _ensure_schema(c)
+    row = c.execute(
+        "SELECT inventory_excluded FROM series_cache WHERE series_id = ?", (sid,)
+    ).fetchone()
+    was = int(row[0] or 0) if row else 0
     c.execute('''INSERT INTO series_cache (series_id, status, inventory_excluded) VALUES (?, 'PENDING', ?)
                  ON CONFLICT(series_id) DO UPDATE SET inventory_excluded=excluded.inventory_excluded''',
-              (int(series_id), 1 if excluded else 0))
+              (sid, target))
     conn.commit()
     conn.close()
+    return was != target
 
 
 def get_inventory_excluded_ids() -> set:
@@ -1097,8 +1813,13 @@ _SERIES_SCOPED_TABLES = (
     "pending_reviews",
     "volume_report_cache",
     "series_audit_flags",
+    "hygiene_series_identities",
     "hygiene_catalog_overrides",
     "volume_unit_cache",
+    "auto_sync_known_series",
+    "volume_unit_overrides",
+    "workshop_history",
+    "workshop_series_overrides",
 )
 
 #: SQLite plafonne le nombre de paramètres liés (999 sur les builds anciens) :
@@ -1127,8 +1848,37 @@ def clean_orphaned_cache(active_ids):
     _ensure_pending_reviews_table(c)
     _ensure_library_audit_tables(c)
     _ensure_volume_unit_tables(c)
+    _ensure_workshop_tables(c)
+    _ensure_auto_sync_tables(c)
     c.execute("SELECT series_id FROM series_cache")
     cached_ids = {row[0] for row in c.fetchall()}
+    try:
+        c.execute("SELECT series_id FROM volume_report_cache")
+        cached_ids.update(row[0] for row in c.fetchall())
+    except Exception:
+        pass
+    try:
+        c.execute("SELECT series_id FROM series_audit_flags")
+        cached_ids.update(row[0] for row in c.fetchall())
+    except Exception:
+        pass
+    try:
+        c.execute("SELECT series_id FROM hygiene_series_identities")
+        cached_ids.update(row[0] for row in c.fetchall())
+    except Exception:
+        pass
+    try:
+        import json
+        c.execute("SELECT payload_json FROM duplicate_group_cache WHERE group_id != '__meta__'")
+        for (pj,) in c.fetchall():
+            try:
+                p = json.loads(pj or "{}")
+                for s in p.get("series_ids") or []:
+                    cached_ids.add(int(s))
+            except Exception:
+                pass
+    except Exception:
+        pass
     orphans = cached_ids - active_ids
     if orphans:
         orphan_list = list(orphans)
@@ -1140,9 +1890,180 @@ def clean_orphaned_cache(active_ids):
                     f"DELETE FROM {table} WHERE series_id IN ({placeholders})",
                     chunk,
                 )
+        try:
+            import json
+            from services.library_audit.duplicates import dup_group_key, recommend_keep_id
+
+            orphans_int = {int(x) for x in orphans}
+            c.execute("SELECT library_id, group_id, payload_json FROM duplicate_group_cache")
+            rows = c.fetchall()
+            touched_libs = set()
+            for lib_id, grp_id, p_json in rows:
+                if not p_json:
+                    continue
+                try:
+                    p = json.loads(p_json)
+                    sids = p.get("series_ids") or []
+                    remaining_idx = [i for i, s in enumerate(sids) if int(s) not in orphans_int]
+                    if len(remaining_idx) < 2:
+                        c.execute("DELETE FROM duplicate_group_cache WHERE library_id = ? AND group_id = ?", (lib_id, grp_id))
+                        touched_libs.add(lib_id)
+                    elif len(remaining_idx) < len(sids):
+                        for key in ("names", "folder_paths", "volume_counts", "chapter_counts", "library_ids"):
+                            lst = p.get(key)
+                            if isinstance(lst, list):
+                                p[key] = [lst[i] for i in remaining_idx if i < len(lst)]
+                        p["series_ids"] = [int(sids[i]) for i in remaining_idx]
+                        p["group_key"] = dup_group_key(p["series_ids"])
+
+                        p["recommended_keep_id"] = recommend_keep_id(
+                            p["series_ids"],
+                            p.get("volume_counts") or [],
+                            p.get("chapter_counts") or [],
+                            p.get("library_type"),
+                        )
+
+                        c.execute(
+                            "UPDATE duplicate_group_cache SET payload_json = ? WHERE library_id = ? AND group_id = ?",
+                            (json.dumps(p, ensure_ascii=False), lib_id, grp_id),
+                        )
+                        touched_libs.add(lib_id)
+                except Exception:
+                    pass
+
+            for t_lib in touched_libs:
+                c.execute("SELECT COUNT(*) FROM duplicate_group_cache WHERE library_id = ? AND group_id != '__meta__'", (t_lib,))
+                cnt = c.fetchone()[0]
+                c.execute("SELECT scanned_at, counts_json FROM hygiene_library_meta WHERE library_id = ?", (t_lib,))
+                meta_row = c.fetchone()
+                if meta_row:
+                    try:
+                        m_counts = json.loads(meta_row[1] or "{}")
+                    except Exception:
+                        m_counts = {}
+                    m_counts["duplicates"] = cnt
+                    c.execute(
+                        "UPDATE hygiene_library_meta SET counts_json = ? WHERE library_id = ?",
+                        (json.dumps(m_counts, ensure_ascii=False), t_lib),
+                    )
+        except Exception:
+            pass
         conn.commit()
+        try:
+            from services import kavita_cover_cache
+
+            for sid in orphan_list:
+                kavita_cover_cache.purge_series(sid)
+        except Exception:
+            pass
     conn.close()
     return len(orphans)
+
+
+def purge_single_series_from_all_caches(series_id: int) -> int:
+    """Supprime une unique série de toutes les tables de cache sans affecter les autres.
+
+    Contrairement à `clean_orphaned_cache` (qui attend l'ensemble *complet* des IDs
+    Kavita actifs), cette fonction est chirurgicale : elle ne touche que `series_id`
+    et laisse toutes les autres séries intactes. À utiliser quand une seule série est
+    supprimée (purge-empty, SignalR SeriesRemoved).
+    """
+    import json
+
+    sid = int(series_id)
+    if not os.path.exists(DB_FILE):
+        return 0
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_pending_reviews_table(c)
+    _ensure_library_audit_tables(c)
+    _ensure_volume_unit_tables(c)
+    _ensure_workshop_tables(c)
+    _ensure_auto_sync_tables(c)
+
+    deleted = 0
+    for table in _SERIES_SCOPED_TABLES:
+        c.execute(f"DELETE FROM {table} WHERE series_id = ?", (sid,))
+        deleted += c.rowcount
+
+    # Nettoyage chirurgical de duplicate_group_cache (séries stockées en JSON).
+    try:
+        from services.library_audit.duplicates import dup_group_key, recommend_keep_id
+
+        c.execute(
+            "SELECT library_id, group_id, payload_json FROM duplicate_group_cache"
+        )
+        touched_libs = set()
+        for lib_id, grp_id, p_json in c.fetchall():
+            if not p_json:
+                continue
+            try:
+                p = json.loads(p_json)
+                sids = p.get("series_ids") or []
+                int_sids = [int(s) for s in sids]
+                if sid not in int_sids:
+                    continue
+                remaining_idx = [i for i, s in enumerate(int_sids) if s != sid]
+                if len(remaining_idx) < 2:
+                    c.execute(
+                        "DELETE FROM duplicate_group_cache "
+                        "WHERE library_id = ? AND group_id = ?",
+                        (lib_id, grp_id),
+                    )
+                    touched_libs.add(lib_id)
+                else:
+                    for key in ("names", "folder_paths", "volume_counts",
+                                "chapter_counts", "library_ids"):
+                        lst = p.get(key)
+                        if isinstance(lst, list):
+                            p[key] = [lst[i] for i in remaining_idx if i < len(lst)]
+                    p["series_ids"] = [int_sids[i] for i in remaining_idx]
+                    p["group_key"] = dup_group_key(p["series_ids"])
+
+                    p["recommended_keep_id"] = recommend_keep_id(
+                        p["series_ids"],
+                        p.get("volume_counts") or [],
+                        p.get("chapter_counts") or [],
+                        p.get("library_type"),
+                    )
+
+                    c.execute(
+                        "UPDATE duplicate_group_cache SET payload_json = ? "
+                        "WHERE library_id = ? AND group_id = ?",
+                        (json.dumps(p, ensure_ascii=False), lib_id, grp_id),
+                    )
+                    touched_libs.add(lib_id)
+            except Exception:
+                pass
+
+        for t_lib in touched_libs:
+            c.execute("SELECT COUNT(*) FROM duplicate_group_cache WHERE library_id = ? AND group_id != '__meta__'", (t_lib,))
+            cnt = c.fetchone()[0]
+            c.execute("SELECT scanned_at, counts_json FROM hygiene_library_meta WHERE library_id = ?", (t_lib,))
+            meta_row = c.fetchone()
+            if meta_row:
+                try:
+                    m_counts = json.loads(meta_row[1] or "{}")
+                except Exception:
+                    m_counts = {}
+                m_counts["duplicates"] = cnt
+                c.execute(
+                    "UPDATE hygiene_library_meta SET counts_json = ? WHERE library_id = ?",
+                    (json.dumps(m_counts, ensure_ascii=False), t_lib),
+                )
+    except Exception:
+        pass
+
+    conn.commit()
+    conn.close()
+
+    try:
+        from services import kavita_cover_cache
+        kavita_cover_cache.purge_series(sid)
+    except Exception:
+        pass
+
+    return deleted
 
 
 def save_volume_report_cache(series_id: int, report: dict):
@@ -1481,6 +2402,70 @@ def get_duplicate_groups_cache(library_id) -> list:
     return out
 
 
+def save_hygiene_series_identities(identities: list):
+    """Persist series identities for instant in-memory duplicate re-clustering."""
+    if not identities:
+        return
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    now = datetime.now(timezone.utc).isoformat()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    rows = []
+    for item in identities:
+        if not isinstance(item, dict):
+            continue
+        sid = item.get("id")
+        if sid is None:
+            continue
+        lid = str(item.get("libraryId") or "").strip()
+        rows.append((int(sid), lid, json.dumps(item, ensure_ascii=False), now))
+    if rows:
+        c.executemany(
+            '''INSERT INTO hygiene_series_identities(series_id, library_id, identity_json, updated_at)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(series_id) DO UPDATE SET
+                 library_id=excluded.library_id,
+                 identity_json=excluded.identity_json,
+                 updated_at=excluded.updated_at''',
+            rows,
+        )
+    conn.commit()
+    conn.close()
+
+
+def get_hygiene_series_identities(library_id=None) -> list:
+    """Retrieve cached series identities (all or by library)."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    lib = str(library_id).strip() if library_id is not None else ""
+    if lib and lib not in ("all", "*"):
+        c.execute(
+            "SELECT identity_json FROM hygiene_series_identities WHERE library_id = ? ORDER BY series_id",
+            (lib,),
+        )
+    else:
+        c.execute("SELECT identity_json FROM hygiene_series_identities ORDER BY series_id")
+    rows = c.fetchall()
+    conn.close()
+    out = []
+    for (raw,) in rows:
+        try:
+            out.append(json.loads(raw))
+        except (TypeError, ValueError):
+            continue
+    return out
+
+
 def set_series_external_id_flags(flags: dict):
     """flags: {series_id: bool has_external_id}"""
     from datetime import datetime, timezone
@@ -1579,13 +2564,38 @@ def get_hygiene_library_meta(library_id):
     return {"library_id": str(library_id), "scanned_at": row[0], "counts": counts}
 
 
-def save_dup_dismissal(library_id, series_ids, reason: str):
+def list_hygiene_library_meta() -> list:
+    """Toutes les analyses Inventaire encore en base (clé `all` comprise)."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute("SELECT library_id, scanned_at, counts_json FROM hygiene_library_meta")
+    rows = []
+    for library_id, scanned_at, raw in c.fetchall():
+        try:
+            counts = json.loads(raw or "{}")
+        except (TypeError, ValueError):
+            counts = {}
+        rows.append({
+            "library_id": str(library_id),
+            "scanned_at": scanned_at,
+            "counts": counts,
+        })
+    conn.close()
+    return rows
+
+
+def save_dup_dismissal(library_id, series_ids, reason: str, payload: Optional[dict] = None):
     import json
     from datetime import datetime, timezone
 
     from services.library_audit.duplicates import dup_group_key
 
-    if reason not in ("not_duplicate", "ignored"):
+    if reason not in ("not_duplicate", "ignored", "resolved"):
         raise ValueError("invalid dismissal reason")
     ids = [int(x) for x in series_ids]
     if len(ids) < 2:
@@ -1597,14 +2607,31 @@ def save_dup_dismissal(library_id, series_ids, reason: str):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
+
+    payload_json = None
+    if payload and isinstance(payload, dict):
+        payload_json = json.dumps(payload, ensure_ascii=False)
+    else:
+        # Tenter de récupérer le groupe depuis duplicate_group_cache avant éviction
+        for lid in (str(library_id), "all"):
+            c.execute(
+                "SELECT payload_json FROM duplicate_group_cache WHERE library_id = ? AND payload_json LIKE ?",
+                (lid, f'%{gkey}%'),
+            )
+            row = c.fetchone()
+            if row and row[0]:
+                payload_json = row[0]
+                break
+
     c.execute(
-        """INSERT INTO hygiene_dup_dismissals(library_id, group_key, series_ids_json, reason, updated_at)
-           VALUES (?, ?, ?, ?, ?)
+        """INSERT INTO hygiene_dup_dismissals(library_id, group_key, series_ids_json, reason, updated_at, payload_json)
+           VALUES (?, ?, ?, ?, ?, ?)
            ON CONFLICT(library_id, group_key) DO UPDATE SET
              series_ids_json=excluded.series_ids_json,
              reason=excluded.reason,
-             updated_at=excluded.updated_at""",
-        (str(library_id), gkey, json.dumps(sorted(ids)), reason, now),
+             updated_at=excluded.updated_at,
+             payload_json=coalesce(excluded.payload_json, hygiene_dup_dismissals.payload_json)""",
+        (str(library_id), gkey, json.dumps(sorted(ids)), reason, now, payload_json),
     )
     conn.commit()
     conn.close()
@@ -1624,17 +2651,58 @@ def delete_dup_dismissal(library_id, series_ids=None, group_key=None):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
+
     c.execute(
-        "DELETE FROM hygiene_dup_dismissals WHERE library_id = ? AND group_key = ?",
-        (str(library_id), gkey),
+        "SELECT payload_json, library_id FROM hygiene_dup_dismissals WHERE group_key = ?",
+        (gkey,),
     )
+    rows_before = c.fetchall()
+
+    lib = str(library_id).strip().lower() if library_id is not None else ""
+    if lib == "all":
+        c.execute(
+            "DELETE FROM hygiene_dup_dismissals WHERE group_key = ?",
+            (gkey,),
+        )
+    else:
+        c.execute(
+            "DELETE FROM hygiene_dup_dismissals WHERE (library_id = ? OR library_id = 'all') AND group_key = ?",
+            (str(library_id), gkey),
+        )
     deleted = c.rowcount
     conn.commit()
     conn.close()
+
+    if deleted and rows_before:
+        import json
+        for p_json, orig_lib in rows_before:
+            if not p_json:
+                continue
+            try:
+                grp = json.loads(p_json)
+                target_libs = {orig_lib, "all"}
+                for mlid in (grp.get("library_ids") or []):
+                    if mlid is not None and str(mlid).strip():
+                        target_libs.add(str(mlid).strip())
+                for t_lib in target_libs:
+                    if not t_lib:
+                        continue
+                    cur_grps = get_duplicate_groups_cache(t_lib)
+                    if not any(g.get("group_key") == gkey for g in cur_grps):
+                        cur_grps.append(grp)
+                        save_duplicate_groups_cache(t_lib, cur_grps)
+                        m = get_hygiene_library_meta(t_lib)
+                        if m and isinstance(m.get("counts"), dict):
+                            c_dict = dict(m["counts"])
+                            c_dict["duplicates"] = len(cur_grps)
+                            set_hygiene_library_meta(t_lib, c_dict, scanned_at=m.get("scanned_at"))
+            except Exception:
+                pass
+
     return deleted > 0
 
 
-def list_dup_dismissals(library_id):
+def list_dup_dismissals(library_id=None):
     import json
 
     if not os.path.exists(DB_FILE):
@@ -1642,30 +2710,48 @@ def list_dup_dismissals(library_id):
     conn = _connect()
     c = conn.cursor()
     _ensure_library_audit_tables(c)
-    c.execute(
-        "SELECT group_key, series_ids_json, reason, updated_at "
-        "FROM hygiene_dup_dismissals WHERE library_id = ?",
-        (str(library_id),),
-    )
+    lib = str(library_id).strip().lower() if library_id is not None else ""
+    if not lib or lib == "all":
+        c.execute(
+            "SELECT group_key, series_ids_json, reason, updated_at, payload_json "
+            "FROM hygiene_dup_dismissals"
+        )
+    else:
+        c.execute(
+            "SELECT group_key, series_ids_json, reason, updated_at, payload_json "
+            "FROM hygiene_dup_dismissals WHERE library_id = ? OR library_id = 'all'",
+            (str(library_id),),
+        )
     out = []
-    for gkey, sids, reason, updated in c.fetchall():
+    seen = set()
+    for gkey, sids, reason, updated, p_json in c.fetchall():
+        if gkey in seen:
+            continue
+        seen.add(gkey)
         try:
             ids = json.loads(sids or "[]")
         except (TypeError, ValueError):
             ids = []
+        payload = None
+        if p_json:
+            try:
+                payload = json.loads(p_json)
+            except Exception:
+                pass
         out.append(
             {
                 "group_key": gkey,
                 "series_ids": ids,
                 "reason": reason,
                 "updated_at": updated,
+                "payload": payload,
             }
         )
     conn.close()
     return out
 
 
-def list_dismissed_group_keys(library_id) -> set:
+def list_dismissed_group_keys(library_id=None) -> set:
     return {d["group_key"] for d in list_dup_dismissals(library_id)}
 
 
@@ -1684,6 +2770,7 @@ def purge_series_hygiene_cache(series_id: int, *, keep_overrides: bool = False):
     _ensure_library_audit_tables(c)
     c.execute("DELETE FROM volume_report_cache WHERE series_id = ?", (sid,))
     c.execute("DELETE FROM series_audit_flags WHERE series_id = ?", (sid,))
+    c.execute("DELETE FROM hygiene_series_identities WHERE series_id = ?", (sid,))
     if not keep_overrides:
         c.execute("DELETE FROM hygiene_catalog_overrides WHERE series_id = ?", (sid,))
         # Série réellement partie : son état par tome n'a plus d'objet. Une
@@ -1814,6 +2901,60 @@ def count_volume_units_by_status(series_ids=None) -> dict:
     return out
 
 
+def count_dup_dismissals() -> int:
+    """Pardons de doublons (toutes biblios), hors ligne méta du cache."""
+    if not os.path.exists(DB_FILE):
+        return 0
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_library_audit_tables(c)
+    c.execute(
+        "SELECT COUNT(*) FROM hygiene_dup_dismissals WHERE group_key != ?",
+        (_DUP_META_GROUP_ID,),
+    )
+    n = int((c.fetchone() or [0])[0] or 0)
+    conn.close()
+    return n
+
+
+def summarize_volume_writes() -> dict:
+    """Unités DONE : victoires par fournisseur + champs réellement écrits.
+
+    La sentinelle de fin de série (`chapter_id` 0) est exclue. Pas de nouvel
+    enregistrement : on relit `volume_unit_cache`.
+    """
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return {"providers": {}, "fields": {}}
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_volume_unit_tables(c)
+    c.execute(
+        "SELECT provider, written_fields FROM volume_unit_cache "
+        "WHERE status = 'DONE' AND chapter_id != ?",
+        (SERIES_PASS_CHAPTER_ID,),
+    )
+    providers = {}
+    fields = {}
+    for provider, raw in c.fetchall():
+        pid = (provider or "").strip()
+        if pid:
+            providers[pid] = providers.get(pid, 0) + 1
+        try:
+            written = json.loads(raw or "[]")
+        except (TypeError, ValueError):
+            written = []
+        if not isinstance(written, list):
+            continue
+        for field in written:
+            key = str(field or "").strip()
+            if key:
+                fields[key] = fields.get(key, 0) + 1
+    conn.close()
+    return {"providers": providers, "fields": fields}
+
+
 def list_enriched_series_ids() -> set:
     """Séries parcourues **en entier** : la reprise repart après elles.
 
@@ -1848,8 +2989,12 @@ def list_enriched_series_ids() -> set:
     return out
 
 
-def clear_volume_unit_states(series_id=None):
-    """Efface l'état d'une série, ou de tout le monde quand on repart de zéro."""
+def clear_volume_unit_states(series_id=None, chapter_id=None):
+    """Efface l'état d'une série, d'un tome, ou de tout le monde.
+
+    `chapter_id` n'a de sens qu'avec une série : le Reset atelier d'un tome
+    doit rouvrir ce chapitre à la passe auto, sans jeter le reste de la série.
+    """
     if not os.path.exists(DB_FILE):
         return
     conn = _connect()
@@ -1857,8 +3002,272 @@ def clear_volume_unit_states(series_id=None):
     _ensure_volume_unit_tables(c)
     if series_id is None:
         c.execute("DELETE FROM volume_unit_cache")
-    else:
+    elif chapter_id is None:
         c.execute("DELETE FROM volume_unit_cache WHERE series_id = ?", (int(series_id),))
+    else:
+        c.execute(
+            "DELETE FROM volume_unit_cache WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), int(chapter_id)),
+        )
+        # Supprime aussi la sentinelle de fin de passe pour que la reprise traverse à nouveau la série
+        c.execute(
+            "DELETE FROM volume_unit_cache WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), SERIES_PASS_CHAPTER_ID),
+        )
+    conn.commit()
+    conn.close()
+
+
+WORKSHOP_HISTORY_CAP = 50
+
+
+def save_volume_unit_override(
+    series_id: int,
+    chapter_id: int,
+    *,
+    provider: str = "",
+    provider_ref: str = "",
+    payload: dict = None,
+):
+    """Lien magique d'un tome : survit au reset de la passe auto."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        """INSERT OR REPLACE INTO volume_unit_overrides
+           (series_id, chapter_id, provider, provider_ref, payload_json, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)""",
+        (
+            int(series_id),
+            int(chapter_id),
+            str(provider or ""),
+            str(provider_ref or ""),
+            json.dumps(payload or {}, ensure_ascii=False),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_volume_unit_overrides(series_id: int, chapter_id=None) -> dict:
+    """chapter_id -> {provider, provider_ref, payload}."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return {}
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    if chapter_id is not None:
+        c.execute(
+            """SELECT chapter_id, provider, provider_ref, payload_json
+               FROM volume_unit_overrides WHERE series_id = ? AND chapter_id = ?""",
+            (int(series_id), int(chapter_id)),
+        )
+    else:
+        c.execute(
+            """SELECT chapter_id, provider, provider_ref, payload_json
+               FROM volume_unit_overrides WHERE series_id = ?""",
+            (int(series_id),),
+        )
+    out = {}
+    for cid, provider, ref, payload in c.fetchall():
+        try:
+            body = json.loads(payload or "{}")
+        except (TypeError, ValueError):
+            body = {}
+        if not isinstance(body, dict):
+            body = {}
+        out[int(cid)] = {
+            "provider": provider or "",
+            "provider_ref": ref or "",
+            "payload": body,
+        }
+    conn.close()
+    return out
+
+
+def clear_volume_unit_overrides(series_id: int, chapter_id=None):
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    if chapter_id is None:
+        c.execute(
+            "DELETE FROM volume_unit_overrides WHERE series_id = ?",
+            (int(series_id),),
+        )
+    else:
+        c.execute(
+            "DELETE FROM volume_unit_overrides WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), int(chapter_id)),
+        )
+    conn.commit()
+    conn.close()
+
+
+def save_workshop_series_override(series_id: int, payload: dict, cover_url: str = ""):
+    """Brouillon persistant de la fiche série dans l'atelier (survit au F5)."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        """INSERT OR REPLACE INTO workshop_series_overrides
+           (series_id, payload_json, cover_url, updated_at)
+           VALUES (?, ?, ?, ?)""",
+        (
+            int(series_id),
+            json.dumps(payload or {}, ensure_ascii=False),
+            str(cover_url or ""),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_workshop_series_override(series_id: int) -> Optional[dict]:
+    """Retourne {'payload': dict, 'cover_url': str} ou None."""
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return None
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    row = c.execute(
+        """SELECT payload_json, cover_url
+           FROM workshop_series_overrides WHERE series_id = ?""",
+        (int(series_id),),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    try:
+        body = json.loads(row[0] or "{}")
+    except (TypeError, ValueError):
+        body = {}
+    return {
+        "payload": body if isinstance(body, dict) else {},
+        "cover_url": row[1] or "",
+    }
+
+
+def clear_workshop_series_override(series_id: int):
+    """Purge le brouillon de fiche série une fois envoyé à Kavita ou réinitialisé."""
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        "DELETE FROM workshop_series_overrides WHERE series_id = ?",
+        (int(series_id),),
+    )
+    conn.commit()
+    conn.close()
+
+
+def record_workshop_history(
+    series_id: int,
+    event: str,
+    *,
+    chapter_id=None,
+    detail: dict = None,
+):
+    """Ajoute une ligne et taille le journal à 50 par série."""
+    import json
+    from datetime import datetime, timezone
+
+    if not os.path.exists(DB_FILE):
+        init_db()
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    body = dict(detail or {})
+    for banned in ("summary", "cover_url", "coverImage"):
+        body.pop(banned, None)
+    c.execute(
+        """INSERT INTO workshop_history
+           (series_id, chapter_id, event, detail_json, created_at)
+           VALUES (?, ?, ?, ?, ?)""",
+        (
+            int(series_id),
+            int(chapter_id) if chapter_id not in (None, "") else None,
+            str(event or "").strip() or "event",
+            json.dumps(body, ensure_ascii=False),
+            datetime.now(timezone.utc).isoformat(),
+        ),
+    )
+    c.execute(
+        """DELETE FROM workshop_history WHERE series_id = ? AND id NOT IN (
+             SELECT id FROM workshop_history WHERE series_id = ?
+             ORDER BY id DESC LIMIT ?
+           )""",
+        (int(series_id), int(series_id), WORKSHOP_HISTORY_CAP),
+    )
+    conn.commit()
+    conn.close()
+
+
+def list_workshop_history(series_id: int, limit: int = WORKSHOP_HISTORY_CAP) -> list:
+    import json
+
+    if not os.path.exists(DB_FILE):
+        return []
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    c.execute(
+        """SELECT id, chapter_id, event, detail_json, created_at
+           FROM workshop_history WHERE series_id = ?
+           ORDER BY id DESC LIMIT ?""",
+        (int(series_id), int(limit)),
+    )
+    out = []
+    for hid, chapter_id, event, detail, created in c.fetchall():
+        try:
+            body = json.loads(detail or "{}")
+        except (TypeError, ValueError):
+            body = {}
+        out.append(
+            {
+                "id": hid,
+                "chapter_id": chapter_id,
+                "event": event,
+                "detail": body if isinstance(body, dict) else {},
+                "created_at": created,
+            }
+        )
+    conn.close()
+    return out
+
+
+def clear_workshop_history(series_id: int, chapter_id=None):
+    if not os.path.exists(DB_FILE):
+        return
+    conn = _connect()
+    c = conn.cursor()
+    _ensure_workshop_tables(c)
+    if chapter_id is None:
+        c.execute("DELETE FROM workshop_history WHERE series_id = ?", (int(series_id),))
+    else:
+        c.execute(
+            "DELETE FROM workshop_history WHERE series_id = ? AND chapter_id = ?",
+            (int(series_id), int(chapter_id)),
+        )
     conn.commit()
     conn.close()
 

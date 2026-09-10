@@ -1,0 +1,222 @@
+/* ================================================================
+   MetaKavita CSS — _series-card.css
+   Composant Série : cartes, grille/liste, badge statut, animation de pulsation
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* Liste des Séries */
+.series-container {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 0;
+    min-height: 0;
+    container-type: inline-size;
+    container-name: series-list;
+    --tint: var(--teal);
+    background-image: radial-gradient(
+        ellipse 55% 40% at 100% 0%,
+        color-mix(in srgb, var(--tint) 8%, transparent),
+        transparent 55%
+    );
+    border-color: color-mix(in srgb, var(--tint) 12%, var(--border-color));
+}
+.series-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 8px;
+    min-height: 0;
+}
+.series-item {
+    display: flex;
+    flex-direction: column;
+    padding: 4px 10px;
+    margin-bottom: 2px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-sm);
+    transition: background-color 0.18s ease, border-color 0.18s ease;
+    /* #30 / BF96: skip layout/paint for off-screen rows (panels are lazy). */
+    content-visibility: auto;
+    contain-intrinsic-size: auto 54px;
+}
+.series-item.is-filtered-out {
+    display: none !important;
+    content-visibility: hidden;
+}
+.series-list--virtual {
+    position: relative;
+    overflow-y: auto;
+    max-height: min(70vh, 900px);
+}
+.series-list--virtual .series-virtual-spacer {
+    width: 1px;
+    pointer-events: none;
+}
+.series-list--virtual .series-virtual-window {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: 0;
+}
+.series-list--virtual .series-item.is-filtered-out {
+    display: flex !important; /* virtual list only mounts matched rows */
+}
+.series-list--virtual .series-item.is-pinned-panel {
+    z-index: 5;
+    overflow: visible !important;
+    height: auto !important;
+    min-height: 54px;
+    background: var(--bg-card);
+}
+.series-list--virtual .series-item.is-pinned-panel .override-panel {
+    position: relative;
+    z-index: 6;
+}
+.series-item:hover {
+    background-color: color-mix(in srgb, var(--primary) 6%, var(--bg-input));
+    border-color: color-mix(in srgb, var(--primary) 18%, transparent);
+}
+.series-item:last-child { margin-bottom: 0; }
+.series-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    width: 100%;
+    gap: 6px 10px;
+    min-height: 38px;
+}
+.series-title-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    min-width: 0;
+}
+.series-status {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+.series-cb { transform: scale(1.1); cursor: pointer; margin: 0; flex-shrink: 0; }
+.series-link {
+    text-decoration: none;
+    color: var(--text-main);
+    font-weight: 600;
+    font-size: 15.5px;
+    line-height: 1.25;
+    min-width: 0;
+}
+.series-name {
+    display: block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.series-link:hover { color: var(--primary); text-decoration: none; }
+.series-actions {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+}
+.series-actions .btn-icon {
+    padding: 3px 7px;
+}
+
+/* Largeur moyenne : titre plein, statut + actions sur la 2ᵉ ligne */
+@container series-list (max-width: 900px) {
+    .series-row {
+        grid-template-columns: auto 1fr;
+        grid-template-areas:
+            "title title"
+            "status actions";
+        gap: 4px 8px;
+        min-height: 0;
+    }
+    .series-title-line { grid-area: title; width: 100%; }
+    .series-status {
+        grid-area: status;
+        padding-left: calc(1.1em + 10px);
+    }
+    .series-actions {
+        grid-area: actions;
+        justify-content: flex-end;
+        padding-left: 0;
+        width: auto;
+    }
+}
+
+/* Étroit : stack complet */
+@container series-list (max-width: 560px) {
+    .series-row {
+        grid-template-columns: 1fr;
+        grid-template-areas:
+            "title"
+            "status"
+            "actions";
+        align-items: stretch;
+        gap: 6px;
+    }
+    .series-name {
+        white-space: normal;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+    .series-status {
+        padding-left: calc(1.1em + 10px);
+    }
+    .series-actions {
+        justify-content: flex-start;
+        padding-left: calc(1.1em + 10px);
+        width: 100%;
+    }
+    .series-actions .btn-opt,
+    .series-actions .btn-sync {
+        flex: 1 1 auto;
+        min-width: 0;
+        text-align: center;
+    }
+}
+
+/* Pulsation de traitement en direct (violet) */
+.series-item.is-processing {
+    border-left: 3px solid var(--violet);
+    background-color: rgba(139, 92, 246, 0.08);
+    box-shadow: inset 0 0 14px rgba(139, 92, 246, 0.12);
+    animation: processing-pulse 2s infinite ease-in-out;
+}
+@keyframes processing-pulse {
+    0% { background-color: rgba(139, 92, 246, 0.04); }
+    50% { background-color: rgba(139, 92, 246, 0.14); }
+    100% { background-color: rgba(139, 92, 246, 0.04); }
+}
+
+/* Boutons Actions Séries */
+.btn-sync { background-color: var(--success); color: #fff; padding: 4px 9px; font-size: 12px; border-radius: 7px; }
+.btn-opt { background-color: var(--secondary); color: #fff; padding: 4px 9px; font-size: 12px; border-radius: 7px; }
+
+/* Badges */
+.badge {
+    font-size: 10px;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--badge-text);
+    white-space: nowrap;
+}
+.badge-pending { background-color: color-mix(in srgb, var(--badge-pending) 85%, #000); }
+.badge-completed { background-color: color-mix(in srgb, var(--success) 85%, #000); }
+.badge-needs-relock { background-color: color-mix(in srgb, var(--warning) 88%, #000); color: #1a1208; }
+.badge-notfound { background-color: color-mix(in srgb, var(--danger) 85%, #000); }
+.btn-seal-locks {
+    margin-left: 4px;
+    vertical-align: middle;
+}
+.badge-ignored { background-color: color-mix(in srgb, var(--secondary) 85%, #000); }
+.badge-review { background-color: color-mix(in srgb, #f472b6 85%, #000); }

@@ -18,6 +18,9 @@ from config_manager import (
     CONFIG_LOCK,
     CONFIG_FILE,
     format_disabled_libraries,
+    normalize_auto_sync_trigger,
+    normalize_auto_sync_mode,
+    clamp_auto_sync_catchup_hours,
 )
 from scrapers import ScraperRegistry
 from kavita_api import KavitaAPI
@@ -68,6 +71,28 @@ def save_config_ajax():
                 )
             except (TypeError, ValueError):
                 config['DUP_ACCEPT_THRESHOLD'] = 0.92
+            save_config(config)
+            return jsonify(success=True)
+
+        # Partial: hygiene duplicate folder paths (duplicates modal)
+        if request.form.get('INVENTORY_FOLDER_SAVE') == '1':
+            from services.library_audit.dup_script import (
+                inventory_folder_path_prefix_from_config,
+                normalize_inventory_folder_trash,
+            )
+            if (
+                'INVENTORY_FOLDER_PATH_PREFIX' in request.form
+                or 'INVENTORY_FOLDER_URL_PREFIX' in request.form
+            ):
+                config['INVENTORY_FOLDER_PATH_PREFIX'] = inventory_folder_path_prefix_from_config({
+                    'INVENTORY_FOLDER_PATH_PREFIX': request.form.get('INVENTORY_FOLDER_PATH_PREFIX'),
+                    'INVENTORY_FOLDER_URL_PREFIX': request.form.get('INVENTORY_FOLDER_URL_PREFIX'),
+                })
+                config.pop('INVENTORY_FOLDER_URL_PREFIX', None)
+            if 'INVENTORY_FOLDER_TRASH' in request.form:
+                config['INVENTORY_FOLDER_TRASH'] = normalize_inventory_folder_trash(
+                    request.form.get('INVENTORY_FOLDER_TRASH')
+                )
             save_config(config)
             return jsonify(success=True)
 
@@ -152,10 +177,35 @@ def save_config_ajax():
         config['ENABLE_PLAYFUL_STATS'] = request.form.get('ENABLE_PLAYFUL_STATS') == 'true'
         config['AUTO_UPDATE_CORE_SCRAPERS'] = request.form.get('AUTO_UPDATE_CORE_SCRAPERS') == 'true'
 
-        try:
-            config['AUTO_SYNC_INTERVAL'] = int(request.form.get('AUTO_SYNC_INTERVAL', 0))
-        except ValueError:
-            config['AUTO_SYNC_INTERVAL'] = 0
+        # C96 — présents seulement si le formulaire les envoie (saveConfig JS ou
+        # POST complet). Un POST partiel (barre latérale) ne doit pas les écraser.
+        if 'AUTO_SYNC_ENABLED' in request.form:
+            config['AUTO_SYNC_ENABLED'] = request.form.get('AUTO_SYNC_ENABLED') == 'true'
+        if 'AUTO_SYNC_TRIGGER' in request.form:
+            config['AUTO_SYNC_TRIGGER'] = normalize_auto_sync_trigger(
+                request.form.get('AUTO_SYNC_TRIGGER')
+            )
+        if 'AUTO_SYNC_MODE' in request.form:
+            config['AUTO_SYNC_MODE'] = normalize_auto_sync_mode(
+                request.form.get('AUTO_SYNC_MODE')
+            )
+        if 'AUTO_SYNC_FORCE_UPDATE' in request.form:
+            config['AUTO_SYNC_FORCE_UPDATE'] = request.form.get('AUTO_SYNC_FORCE_UPDATE') == 'true'
+        if 'AUTO_SYNC_CATCHUP_HOURS' in request.form:
+            config['AUTO_SYNC_CATCHUP_HOURS'] = clamp_auto_sync_catchup_hours(
+                request.form.get('AUTO_SYNC_CATCHUP_HOURS'), 24
+            )
+        if 'AUTO_SYNC_INTERVAL' in request.form:
+            try:
+                interval = int(request.form.get('AUTO_SYNC_INTERVAL', 0))
+            except (TypeError, ValueError):
+                interval = 0
+            interval = max(0, interval)
+            trigger = config.get('AUTO_SYNC_TRIGGER') or 'interval'
+            enabled = bool(config.get('AUTO_SYNC_ENABLED'))
+            if enabled and trigger == 'interval' and interval < 1:
+                interval = 1
+            config['AUTO_SYNC_INTERVAL'] = interval
 
         # Bibliothèques à synchroniser : checkboxes ENABLED_LIBRARY + re-fetch Kavita.
         # Ne traiter que si le formulaire a réellement rendu la liste (KNOWN_LIBRARY) —

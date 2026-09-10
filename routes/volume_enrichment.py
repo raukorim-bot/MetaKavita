@@ -210,7 +210,40 @@ def volume_enrich_reset(series_id):
     minutes serait une remise à zéro en trompe-l'œil.
     """
     t = _t()
+    payload = request.get_json(silent=True) or {}
     try:
+        if payload.get("workshop"):
+            from services.workshop import reset_workshop
+
+            chapter_id = payload.get("chapter_id")
+            result = reset_workshop(
+                _api(),
+                series_id,
+                int(chapter_id) if chapter_id not in (None, "") else None,
+            )
+            if result.get("busy"):
+                # Une passe écrit cette série : lui retirer `volume_unit_cache`
+                # en plein vol lui ferait refaire des unités déjà écrites.
+                return jsonify(
+                    {
+                        **result,
+                        "success": False,
+                        "error": t.get(
+                            "workshop_busy",
+                            "Une écriture est déjà en cours sur cette série.",
+                        ),
+                    }
+                ), 409
+            return jsonify(
+                {
+                    "success": True,
+                    "series_id": series_id,
+                    "reset": True,
+                    "workshop": True,
+                    "index_forgotten": result.get("index_forgotten", 0),
+                    "payload": result.get("payload"),
+                }
+            )
         clear_volume_unit_states(series_id)
         forgotten = forget_series(series_id)
         return jsonify(

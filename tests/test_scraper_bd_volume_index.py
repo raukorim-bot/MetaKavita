@@ -173,6 +173,80 @@ def test_bedetheque_stops_at_the_ceiling():
     assert len(index) == scraper.VOLUME_INDEX_MAX
 
 
+def test_bedetheque_only_fetches_the_wanted_albums():
+    """Douze albums possédés parmi quatre-vingts listés : douze GET, pas cinquante."""
+    rows = "".join(
+        f'<li><a href="/BD-Thorgal-album-{n}.html">{n}. Album {n}</a></li>'
+        for n in range(1, 81)
+    )
+    _, scraper, session = _bedetheque(
+        {
+            "/serie-33.html": f'<html><body><ul class="liste-albums">{rows}</ul></body></html>',
+            "album-": _BD_ALBUM,
+        }
+    )
+    wanted = {str(n) for n in (3, 7, 12, 19, 22, 28, 33, 41, 50, 55, 61, 77)}
+
+    index = scraper.fetch_volume_index(
+        "Thorgal",
+        series_id="https://www.bedetheque.com/serie-33.html",
+        wanted_numbers=wanted,
+    )
+
+    album_calls = [u for u in session.urls if "album-" in u]
+    assert len(album_calls) == 12
+    assert sorted(index) == sorted(wanted)
+
+
+def test_bedetheque_cancel_returns_the_partial_index():
+    rows = "".join(
+        f'<li><a href="/BD-Thorgal-album-{n}.html">{n}. Album {n}</a></li>'
+        for n in range(1, 8)
+    )
+    _, scraper, session = _bedetheque(
+        {
+            "/serie-33.html": f'<html><body><ul class="liste-albums">{rows}</ul></body></html>',
+            "album-": _BD_ALBUM,
+        }
+    )
+    n = {"i": 0}
+
+    def should_cancel():
+        n["i"] += 1
+        return n["i"] > 2
+
+    index = scraper.fetch_volume_index(
+        "Thorgal",
+        series_id="https://www.bedetheque.com/serie-33.html",
+        should_cancel=should_cancel,
+    )
+
+    album_calls = [u for u in session.urls if "album-" in u]
+    assert len(album_calls) == 2
+    assert index is not None
+    assert len(index) == 2
+
+
+def test_bedetheque_reads_the_album_isbn():
+    """og:isbn (ou un EAN annoncé) débloque la cascade ISBN des one-shots BD."""
+    album = """
+    <html><head><meta property="og:isbn" content="978-2-205-07018-7"></head>
+    <body><h1>Thorgal - 1. La Magicienne trahie</h1>
+    <img class="couv" src="/cache/thb_couv/Thorgal1.jpg">
+    <div class="synopsis">Thorgal Aegirsson est jugé par le roi des Vikings. 1980 fut l'année.</div>
+    </body></html>
+    """
+    _, scraper, _ = _bedetheque(
+        {"/serie-33-BD-Thorgal.html": _BD_SERIE, "album-": album}
+    )
+
+    index = scraper.fetch_volume_index(
+        "Thorgal", series_id="https://www.bedetheque.com/serie-33-BD-Thorgal.html"
+    )
+
+    assert index["1"]["isbn"] == "9782205070187"
+
+
 @pytest.mark.parametrize(
     "label,expected",
     [
@@ -516,6 +590,53 @@ def test_planetebd_gives_up_quietly_without_a_series_page():
     assert scraper.fetch_volume_index("Inconnue") is None
 
 
+def test_planetebd_only_fetches_the_wanted_albums():
+    rows = "".join(
+        f'<a href="/bd/soleil/lanfeust-de-troy/album-{n}/{n}.html">'
+        f'Lanfeust de Troy T{n}</a>'
+        for n in range(1, 81)
+    )
+    page = f"<html><body>{rows}</body></html>"
+    _, scraper, session = _planetebd({"/bd/series/": page, "/lanfeust-de-troy/": _PBD_ALBUM})
+    wanted = {str(n) for n in (3, 7, 12, 19, 22, 28, 33, 41, 50, 55, 61, 77)}
+
+    index = scraper.fetch_volume_index(
+        "Lanfeust de Troy",
+        series_id="https://www.planetebd.com/bd/series/lanfeust-de-troy/9.html",
+        wanted_numbers=wanted,
+    )
+
+    album_calls = [u for u in session.urls if "/album-" in u]
+    assert len(album_calls) == 12
+    assert sorted(index) == sorted(wanted)
+
+
+def test_planetebd_cancel_returns_the_partial_index():
+    rows = "".join(
+        f'<a href="/bd/soleil/lanfeust-de-troy/album-{n}/{n}.html">'
+        f'Lanfeust de Troy T{n}</a>'
+        for n in range(1, 8)
+    )
+    page = f"<html><body>{rows}</body></html>"
+    _, scraper, session = _planetebd({"/bd/series/": page, "/lanfeust-de-troy/": _PBD_ALBUM})
+    n = {"i": 0}
+
+    def should_cancel():
+        n["i"] += 1
+        return n["i"] > 2
+
+    index = scraper.fetch_volume_index(
+        "Lanfeust de Troy",
+        series_id="https://www.planetebd.com/bd/series/lanfeust-de-troy/9.html",
+        should_cancel=should_cancel,
+    )
+
+    album_calls = [u for u in session.urls if "/album-" in u]
+    assert len(album_calls) == 2
+    assert index is not None
+    assert len(index) == 2
+
+
 # ===== Chemin ISBN =====
 
 
@@ -528,4 +649,10 @@ def test_the_isbn_cascade_targets_providers_that_accept_one():
         source = (ROOT / "scrapers" / f"{name}.py").read_text(encoding="utf-8")
         assert "existing_metadata" in source and "isbn" in source.lower()
 
-    assert set(ISBN_PROVIDERS) == {"GOOGLEBOOKS", "OPENLIBRARY", "HARDCOVER"}
+    assert set(ISBN_PROVIDERS) == {
+        "GOOGLEBOOKS", "OPENLIBRARY", "HARDCOVER", "OPENBD"
+    }
+    fixture = (ROOT / "tests" / "fixtures" / "scrapers" / "openbd.py").read_text(
+        encoding="utf-8"
+    )
+    assert "existing_metadata" in fixture and "isbn" in fixture.lower()

@@ -7,8 +7,11 @@ avec URLs de reachability et queries known-good centralisées ici.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import time
+from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlparse
 
@@ -20,6 +23,7 @@ from metadata_fetcher import throttle_provider
 from scrapers import ScraperRegistry
 from scrapers.base import BaseScraper
 from secure_logging import safe_exc_str
+from services.cooperative import yield_to_worker
 from translations import get_ui_translations
 
 # Queries known-good (alignées sur debug/debug_all.py)
@@ -64,11 +68,15 @@ SCRAPER_PROBE_CASES: Dict[str, Dict[str, Any]] = {
         "is_id": True,
         "context": {},
     },
-    # Book FR — éviter « Dune » (scoring / couverture variable sur sites FR)
+    # Book FR — sitemap pour la reachability (PROBE_URLS), fiche directe
+    # pour le fetch : C95 ne doit pas retélécharger babmap_1 (5 Mo) à chaque
+    # ouverture. skip_covers : fetch_covers refait une recherche.
     "BABELIO": {
         "library_type": "Book",
-        "query": "Le Petit Prince",
-        "context": {"authors": ["Antoine de Saint-Exupéry"], "isbn": None, "year": 1943},
+        "query": "https://www.babelio.com/livres/de-Saint-Exupery-Le-Petit-Prince/36712",
+        "is_id": True,
+        "skip_covers": True,
+        "context": {},
     },
     "DECITRE": {
         "library_type": "Book",
@@ -103,6 +111,15 @@ SCRAPER_PROBE_CASES: Dict[str, Dict[str, Any]] = {
         "query": "Astérix",
         "context": {"authors": ["Goscinny"], "isbn": None, "year": 1959},
     },
+    # Wiki API, pas www.fandom.com (Cloudflare). fetch_covers est vide exprès :
+    # les jaquettes voyagent avec l'index des tomes.
+    "FANDOM": {
+        "library_type": "Manga",
+        "query": "https://onepiece.fandom.com",
+        "is_id": True,
+        "context": {},
+        "skip_covers": True,
+    },
 }
 
 # Reachability endpoints (hors scrapers/)
@@ -122,13 +139,14 @@ PROBE_URLS: Dict[str, str] = {
     "OPENLIBRARY": "https://openlibrary.org/search.json",
     "HARDCOVER": "https://api.hardcover.app/v1/graphql",
     "WIKIDATA": "https://www.wikidata.org/w/api.php",
-    "BABELIO": "https://www.babelio.com/",
+    "BABELIO": "https://www.babelio.com/babmap_1.xml",
     "DECITRE": "https://www.decitre.fr/",
     "SENSCRITIQUE": "https://www.senscritique.com/",
     "ANN": "https://cdn.animenewsnetwork.com/encyclopedia/api.xml",
     "LOCG": "https://leagueofcomicgeeks.com/",
     "PLANETEBD": "https://www.planetebd.com/",
     "METRON": "https://metron.cloud/api/",
+    "FANDOM": "https://onepiece.fandom.com/api.php",
 }
 
 # Slots Config qui alimentent la cascade d'enrichissement (Manga / Comic / Book).
@@ -139,6 +157,9 @@ _ACTIVE_PROVIDER_SLOTS: Tuple[str, ...] = (
 )
 
 _EXPECTED_FIELDS = ("summary", "cover_url", "genres", "tags", "year", "staff")
+# Concurrency bornée pour le diagnostic : évite de saturer le worker Eventlet
+# unique et le GIL avec 41 threads concurrents tout en offrant un parallélisme fluide.
+DEFAULT_PROBE_WORKERS: int = 4
 _CAUSE_SEVERITY = {
     "network": 100,
     "ban": 90,
@@ -197,9 +218,15 @@ def probe_internet(timeout: float = 5.0) -> Dict[str, Any]:
 
     def _try(url: str, expect_204: bool = False) -> Dict[str, Any]:
         try:
-            res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
+            res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
             latency = _ms_since(start)
             ok = (expect_204 and res.status_code == 204) or (200 <= res.status_code < 400)
+            close_fn = getattr(res, "close", None)
+            if callable(close_fn):
+                try:
+                    close_fn()
+                except Exception:
+                    pass
             if ok:
                 return {
                     "status": "ok",
@@ -332,12 +359,14 @@ def _resolve_test_case(scraper: BaseScraper, lib_type: str) -> Dict[str, Any]:
             "query": override["query"],
             "context": dict(override.get("context") or {}),
             "is_id": bool(override.get("is_id")),
+            "skip_covers": bool(override.get("skip_covers")),
         }
     base = TEST_CASES.get(lib_type, TEST_CASES["Manga"])
     return {
         "query": base["query"],
         "context": dict(base.get("context") or {}),
         "is_id": False,
+        "skip_covers": False,
     }
 
 
@@ -625,11 +654,13 @@ def _probe_reachability(url: str, timeout: float = 10.0, *, needs_api_key: bool 
     start = time.time()
     headers = {"User-Agent": _UA, "Accept": "*/*"}
     try:
-        res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True)
-        try:
-            res.close()
-        except Exception:
-            pass
+        res = requests.get(url, headers=headers, timeout=timeout, allow_redirects=True, stream=True)
+        close_fn = getattr(res, "close", None)
+        if callable(close_fn):
+            try:
+                close_fn()
+            except Exception:
+                pass
         latency = _ms_since(start)
         ban_or_net = _status_from_http_code(
             res.status_code,
@@ -838,6 +869,7 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
     meta_info: Dict[str, Any]
     meta_raw: Any = None
     try:
+        yield_to_worker()
         throttle_provider(scraper)
         fetch_ctx = dict(test_case.get("context") or {})
         meta_raw = scraper.fetch(
@@ -862,12 +894,14 @@ def probe_scraper(scraper_or_id: Any, config: Optional[Dict[str, Any]] = None) -
         }
 
     # --- fetch covers ---
+    yield_to_worker()
     supports = _supports_covers(scraper)
     covers_info: Dict[str, Any]
-    if not supports:
+    if test_case.get("skip_covers") or not supports:
         covers_info = _analyze_covers([], False)
     else:
         try:
+            yield_to_worker()
             # Probe is_id : cover depuis le même record (cover_url).
             # fetch_covers(title) repasse par search — hors sujet pour un health-check.
             if test_case.get("is_id"):
@@ -970,36 +1004,94 @@ def resolve_probe_targets(
     return list(ScraperRegistry.get_all(include_disabled=True))
 
 
+def _probe_failure_result(scraper: BaseScraper, exc: BaseException) -> Dict[str, Any]:
+    logging.error(
+        get_ui_translations()
+        .get("log_diag_probe_fail", "[Diagnostics] Échec probe {0} : {1}")
+        .format(scraper.id, safe_exc_str(exc))
+    )
+    return {
+        "id": scraper.id,
+        "display_name": getattr(scraper, "localized_display_name", None)
+        or getattr(scraper, "display_name", None)
+        or scraper.id,
+        "status": "down",
+        "cause": "schema",
+        "latency_ms": 0,
+        "http_status": None,
+        "detail": safe_exc_str(exc)[:160],
+        "library_type": _pick_library_type(scraper) if hasattr(scraper, "supported_types") else None,
+        "supported_types": sorted(getattr(scraper, "supported_types", None) or []),
+        "metadata": {
+            "status": "down",
+            "sample_title": None,
+            "fields_ok": [],
+            "fields_missing": [],
+        },
+        "covers": {"status": "n_a", "count": 0, "sample_url": None},
+    }
+
+
+def _probe_one_guarded(scraper: BaseScraper, config: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    try:
+        return probe_scraper(scraper, config)
+    except Exception as exc:
+        return _probe_failure_result(scraper, exc)
+
+
+def iter_probe_results(
+    config: Optional[Dict[str, Any]] = None,
+    *,
+    scope: str = "all",
+    scrapers: Optional[List[BaseScraper]] = None,
+    max_workers: Optional[int] = None,
+) -> Iterator[Tuple[int, int, Dict[str, Any]]]:
+    """
+    Sonde les cibles du scope via un pool de workers concurrents optimisé.
+
+    `max_workers` borne le parallélisme (défaut DEFAULT_PROBE_WORKERS = 4) afin
+    d'éviter de saturer le processeur et la boucle Eventlet coopérative
+    (41 scrapers démarrant d'un coup monopolisaient le GIL et créaient du lag).
+    `throttle_provider` continue de sérialiser deux appels au *même* scraper.
+    Yield `(done_index, total, result)` à mesure que les probes finissent.
+    """
+    config = config if config is not None else load_config()
+    targets = list(scrapers) if scrapers is not None else resolve_probe_targets(config, scope=scope)
+    total = len(targets)
+    if total == 0:
+        return
+
+    workers = max(1, min(total, max_workers or DEFAULT_PROBE_WORKERS))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        future_map = {
+            executor.submit(contextvars.copy_context().run, _probe_one_guarded, scraper, config): scraper
+            for scraper in targets
+        }
+        done_index = 0
+        for fut in as_completed(future_map):
+            yield_to_worker()
+            scraper = future_map[fut]
+            try:
+                result = fut.result()
+            except Exception as exc:
+                result = _probe_failure_result(scraper, exc)
+            done_index += 1
+            yield done_index, total, result
+            yield_to_worker()
+
+
 def probe_all(
     config: Optional[Dict[str, Any]] = None,
     *,
     scope: str = "all",
+    max_workers: Optional[int] = None,
 ) -> List[Dict[str, Any]]:
-    """Probe séquentiel des scrapers du scope (défaut : registry entier)."""
-    config = config if config is not None else load_config()
-    results = []
-    for scraper in resolve_probe_targets(config, scope=scope):
-        try:
-            results.append(probe_scraper(scraper, config))
-        except Exception as e:
-            logging.error(get_ui_translations().get("log_diag_probe_fail", "[Diagnostics] Échec probe {0} : {1}").format(scraper.id, safe_exc_str(e)))
-            results.append({
-                "id": scraper.id,
-                "display_name": scraper.localized_display_name,
-                "status": "down",
-                "cause": "schema",
-                "latency_ms": 0,
-                "http_status": None,
-                "detail": safe_exc_str(e)[:160],
-                "library_type": _pick_library_type(scraper),
-                "supported_types": sorted(scraper.supported_types or []),
-                "metadata": {
-                    "status": "down",
-                    "sample_title": None,
-                    "fields_ok": [],
-                    "fields_missing": [],
-                },
-                "covers": {"status": "n_a", "count": 0, "sample_url": None},
-            })
+    """Probe parallèle des scrapers du scope (défaut : registry entier)."""
+    results = [
+        result
+        for _done, _total, result in iter_probe_results(
+            config, scope=scope, max_workers=max_workers
+        )
+    ]
     results.sort(key=lambda r: (r.get("display_name") or r.get("id") or "").lower())
     return results

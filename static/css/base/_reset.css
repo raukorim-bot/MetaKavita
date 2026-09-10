@@ -1,0 +1,35 @@
+/* ================================================================
+   MetaKavita CSS — _reset.css
+   Reset & styles de base : box-sizing universel, body, fonds dégradés
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* RÈGLE D'OR RESPONSIVE */
+*, *::before, *::after {
+    box-sizing: border-box;
+}
+
+/* Base */
+body {
+    font-family: var(--font-family);
+    font-optical-sizing: auto;
+    line-height: 1.45;
+    background-color: var(--bg-app);
+    background-image:
+        radial-gradient(ellipse 70% 45% at 12% -10%, rgba(45, 212, 191, 0.12), transparent 55%),
+        radial-gradient(ellipse 55% 40% at 92% 0%, rgba(56, 189, 248, 0.1), transparent 50%);
+    background-attachment: fixed;
+    color: var(--text-main);
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+    overflow: hidden;
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+[data-theme="light"] body {
+    background-image:
+        radial-gradient(ellipse 70% 45% at 12% -10%, rgba(14, 165, 233, 0.1), transparent 55%),
+        radial-gradient(ellipse 55% 40% at 92% 0%, rgba(20, 184, 166, 0.08), transparent 50%);
+}
+

@@ -1,0 +1,252 @@
+/* --------------------------------------------------------------------------
+   8. Contrôles de Formulaire & Champs Ambre Raffinés
+   -------------------------------------------------------------------------- */
+
+.workshop-field {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    font-size: 11px;
+    color: var(--text-muted, #94a3b8);
+    min-width: 0;
+}
+
+.workshop-field-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px;
+    min-height: 16px;
+    margin-bottom: 2px;
+}
+
+.workshop-field-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 600;
+    font-size: 11px;
+    text-transform: none;
+    letter-spacing: 0.01em;
+    color: #94a3b8;
+}
+
+.workshop-lock {
+    width: 11px;
+    height: 11px;
+    color: #64748b;
+    flex: 0 0 auto;
+}
+
+/* Micro-bouton de duplication série -> tomes */
+.workshop-cascade-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    padding: 1px 6px;
+    margin: 0;
+    border: 1px solid rgba(45, 212, 191, 0.3);
+    border-radius: 4px;
+    background: rgba(45, 212, 191, 0.08);
+    color: #2dd4bf;
+    font: inherit;
+    font-size: 9.5px;
+    font-weight: 600;
+    cursor: pointer;
+    line-height: 1.3;
+    transition: all 0.14s ease;
+    opacity: 0.85;
+}
+
+.workshop-cascade-btn:hover {
+    opacity: 1;
+    background: rgba(45, 212, 191, 0.22);
+    border-color: #2dd4bf;
+    color: #5eead4;
+    transform: translateY(-0.5px);
+}
+
+.workshop-cascade-ico {
+    width: 10px;
+    height: 10px;
+    flex-shrink: 0;
+}
+
+.workshop-field input,
+.workshop-field textarea,
+.workshop-field select {
+    width: 100%;
+    height: 30px;
+    min-height: 30px;
+    padding: 4px 10px;
+    border-radius: 7px;
+    border: 1px solid rgba(148, 163, 184, 0.2);
+    background: #141926;
+    color: var(--text-main, #f8fafc);
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.4;
+    min-width: 0;
+    box-sizing: border-box;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.workshop-field textarea {
+    height: 48px;
+    min-height: 42px;
+    max-height: 130px;
+    line-height: 1.35;
+    padding: 6px 10px;
+    resize: vertical;
+}
+
+[data-theme="light"] .workshop-field input,
+[data-theme="light"] .workshop-field textarea,
+[data-theme="light"] .workshop-field select {
+    background: #ffffff;
+    border-color: rgba(15, 23, 42, 0.16);
+    color: #0f172a;
+}
+
+.workshop-field select {
+    color-scheme: dark;
+    cursor: pointer;
+}
+
+.workshop-field select option,
+.workshop-field select optgroup {
+    background-color: #0f172a;
+    color: #f1f5f9;
+}
+
+[data-theme="light"] .workshop-field select {
+    color-scheme: light;
+}
+
+[data-theme="light"] .workshop-field select option,
+[data-theme="light"] .workshop-field select optgroup {
+    background-color: #ffffff;
+    color: #0f172a;
+}
+
+.workshop-field input:focus,
+.workshop-field textarea:focus,
+.workshop-field select:focus {
+    border-color: #2dd4bf;
+    background: #171f30;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.22);
+}
+
+[data-theme="light"] .workshop-field input:focus,
+[data-theme="light"] .workshop-field textarea:focus,
+[data-theme="light"] .workshop-field select:focus {
+    border-color: #0d9488;
+    background: #ffffff;
+    box-shadow: 0 0 0 3px rgba(13, 148, 136, 0.2);
+}
+
+.workshop-field input:disabled,
+.workshop-field textarea:disabled,
+.workshop-field select:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    background: rgba(15, 23, 42, 0.5);
+}
+
+[data-theme="light"] .workshop-field input:disabled,
+[data-theme="light"] .workshop-field textarea:disabled,
+[data-theme="light"] .workshop-field select:disabled {
+    background: #f1f5f9;
+}
+
+/* Champs vides : Amber Glow subtil et raffiné (Non agressif) */
+.workshop-field--empty input,
+.workshop-field--empty textarea,
+.workshop-field--empty select,
+.workshop-field--empty .workshop-magic {
+    border-color: rgba(251, 191, 36, 0.26);
+    background: rgba(251, 191, 36, 0.02);
+    box-shadow: none;
+}
+
+.workshop-field--empty input:hover,
+.workshop-field--empty textarea:hover,
+.workshop-field--empty select:hover,
+.workshop-field--empty .workshop-magic:hover {
+    border-color: rgba(251, 191, 36, 0.45);
+    background: rgba(251, 191, 36, 0.04);
+}
+
+.workshop-field--empty input:focus,
+.workshop-field--empty textarea:focus,
+.workshop-field--empty select:focus,
+.workshop-field--empty .workshop-magic:focus {
+    border-color: #2dd4bf;
+    background: #171f30;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(45, 212, 191, 0.22);
+}
+
+.workshop-field--empty .workshop-field-label {
+    color: #f59e0b;
+}
+
+[data-theme="light"] .workshop-field--empty input,
+[data-theme="light"] .workshop-field--empty textarea,
+[data-theme="light"] .workshop-field--empty select,
+[data-theme="light"] .workshop-field--empty .workshop-magic {
+    background: rgba(251, 191, 36, 0.04);
+    border-color: rgba(217, 119, 6, 0.35);
+}
+
+[data-theme="light"] .workshop-field--empty .workshop-field-label {
+    color: #b45309;
+}
+
+/* Accordéon Plus de champs */
+.workshop-more {
+    border: 1px solid rgba(255, 255, 255, 0.05);
+    border-radius: 7px;
+    padding: 3px 8px 6px;
+    background: rgba(15, 23, 42, 0.3);
+    transition: background 0.14s ease, border-color 0.14s ease;
+}
+
+.workshop-more summary {
+    cursor: pointer;
+    user-select: none;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted, #94a3b8);
+    padding: 3px 0;
+    list-style: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.workshop-more summary::-webkit-details-marker { display: none; }
+
+.workshop-more summary::before {
+    content: "▸ ";
+    color: #2dd4bf;
+    font-size: 11px;
+}
+
+.workshop-more[open] summary::before {
+    content: "▾ ";
+}
+
+.workshop-more-body {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding-bottom: 2px;
+}
+
+.workshop-more .workshop-series-grid,
+.workshop-more .workshop-volume-fields {
+    margin-top: 3px;
+}
+

@@ -82,6 +82,14 @@ def _cascade_signature(library_type: str, config: Optional[dict]) -> Tuple[str, 
     )
 
 
+def _wanted_signature(units: Optional[List[Dict[str, Any]]]) -> Tuple[str, ...]:
+    """Les numéros de tome demandés, triés : un remplacement à effectif constant
+    ne doit pas resservir l'index du set précédent."""
+    from services.volume_enrichment.matching import matchable_numbers
+
+    return tuple(sorted(matchable_numbers(units or [])))
+
+
 def _cache_key(
     series_id: Any,
     series_name: str,
@@ -91,7 +99,7 @@ def _cache_key(
     forced_id: str,
     forced_provider: str,
     experimental: bool,
-    unit_count: int,
+    wanted: Tuple[str, ...],
     config: Optional[dict],
 ) -> tuple:
     """Tout ce qui peut changer l'index, et rien d'autre.
@@ -106,11 +114,9 @@ def _cache_key(
     l'aperçu qui a produit l'entrée, et qu'une entrée servie à un run dont les
     réglages diffèrent serait un silence, pas une erreur.
 
-    `unit_count` est le garde-fou le moins cher contre un index vieilli : la
-    couverture de l'index et la cascade ISBN se jugent sur les unités de la
-    série, donc un tome scanné depuis l'aperçu doit faire retourner chez le
-    fournisseur. Il ne voit pas un tome *remplacé* à nombre constant — voir la
-    limite assumée dans le rapport de la fonctionnalité.
+    `wanted` est l'ensemble des numéros Kavita : un tome *remplacé* à nombre
+    constant (le 5 part, le 41 arrive) doit faire retourner chez le fournisseur,
+    pas resservir un index amputé.
     """
     return (
         int(series_id),
@@ -120,7 +126,7 @@ def _cache_key(
         str(forced_id or ""),
         str(forced_provider or ""),
         bool(experimental),
-        int(unit_count),
+        wanted,
         _cascade_signature(library_type, config),
     )
 
@@ -217,7 +223,7 @@ def resolve_index_cached(
         forced_id=forced_id,
         forced_provider=forced_provider,
         experimental=experimental,
-        unit_count=len(units or []),
+        wanted=_wanted_signature(units),
         config=config,
     )
     hit = _lookup(key)

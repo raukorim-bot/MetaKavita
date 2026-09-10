@@ -276,8 +276,10 @@ def build_update_chapter_dto(current: Dict[str, Any], changes: Dict[str, Any]) -
     """Payload complet pour `POST /api/Chapter/update`.
 
     `current` est le `ChapterDto` rendu par `GET /api/Chapter?chapterId=`.
-    `changes` accepte `title`, `summary`, `release_date` et `isbn` ; chaque
-    valeur fournie pose aussi son verrou. Tout le reste est recopié tel quel.
+    `changes` accepte `title`, `summary`, `release_date`, `isbn`, et, pour
+    l'atelier, `language`, `webLinks`, `ageRating`, `genres`, `tags` et
+    `people` ; chaque valeur fournie pose aussi son verrou. Tout le reste
+    est recopié tel quel.
     """
     if not isinstance(current, dict) or not current.get("id"):
         raise ValueError("build_update_chapter_dto : ChapterDto sans id")
@@ -335,8 +337,39 @@ def build_update_chapter_dto(current: Dict[str, Any], changes: Dict[str, Any]) -
             dto["isbn"] = clean
             written.append("isbn")
         else:
-            # Kavita l'ignorerait sans le dire ; on préfère le tracer.
             logging.info("[Tomes] ISBN ignoré (clé de contrôle invalide) : %s", isbn)
+
+    language = changes.get("language")
+    if language:
+        dto["language"] = str(language).strip()
+        dto["languageLocked"] = True
+        written.append("language")
+
+    web_links = changes.get("webLinks")
+    if web_links:
+        dto["webLinks"] = str(web_links).strip()
+        written.append("webLinks")
+
+    age = changes.get("ageRating")
+    if age not in (None, "", "0", 0):
+        try:
+            dto["ageRating"] = int(age)
+            dto["ageRatingLocked"] = True
+            written.append("ageRating")
+        except (TypeError, ValueError):
+            pass
+
+    genres = changes.get("genres")
+    if genres:
+        dto["genres"] = _titled(genres)
+        dto["genresLocked"] = True
+        written.append("genres")
+
+    tags = changes.get("tags")
+    if tags:
+        dto["tags"] = _titled(tags)
+        dto["tagsLocked"] = True
+        written.append("tags")
 
     # Crédits : réservés à l'option `VOLUME_ENRICH_CREDITS`, parce qu'ils
     # coûtent un appel réseau par album là où tout le reste tient en un appel

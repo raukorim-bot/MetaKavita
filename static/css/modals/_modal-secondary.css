@@ -1,0 +1,316 @@
+/* ================================================================
+   MetaKavita CSS — _modal-secondary.css
+   Modales secondaires : options, confirmations, sélecteurs de champs
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* =========================
+   CONFIG MODAL — layout
+   ========================= */
+.config-grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 16px;
+    align-items: start;
+}
+
+.config-col {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    min-width: 0;
+}
+
+.config-section {
+    background: var(--bg-input);
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    padding: 14px 14px 14px 12px;
+    border-left-width: 4px;
+    border-left-style: solid;
+    border-left-color: var(--border-color);
+    min-width: 0;
+}
+
+.config-section--kavita {
+    border-left-color: var(--primary);
+    background: linear-gradient(180deg, rgba(59, 130, 246, 0.08), var(--bg-input) 48%);
+}
+.config-section--apis {
+    border-left-color: var(--accent);
+    background: linear-gradient(180deg, rgba(139, 92, 246, 0.08), var(--bg-input) 48%);
+}
+.config-section--lang {
+    border-left-color: var(--success);
+    background: linear-gradient(180deg, rgba(16, 185, 129, 0.08), var(--bg-input) 40%);
+}
+.config-section--planning {
+    border-left-color: var(--warning);
+    background: linear-gradient(180deg, rgba(245, 158, 11, 0.10), var(--bg-input) 45%);
+}
+.config-section--cascade {
+    border-left-color: var(--primary);
+    background: linear-gradient(180deg, rgba(59, 130, 246, 0.06), var(--bg-input) 30%);
+}
+/* Mode léger : la section ne règle rien du scraping, elle décide de ce que
+   l'interface montre. Le bleu ciel de l'Inventaire, la plus visible des trois
+   familles qu'elle commande. */
+.config-section--light {
+    border-left-color: var(--sky);
+    background: linear-gradient(180deg, rgba(56, 189, 248, 0.08), var(--bg-input) 45%);
+}
+.config-section--light .config-section-title { color: var(--sky); }
+
+.config-section-title {
+    margin: 0 0 12px;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: var(--text-main);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+}
+
+.config-section--kavita .config-section-title { color: var(--primary); }
+.config-section--apis .config-section-title { color: var(--accent); }
+.config-section--lang .config-section-title { color: var(--success); }
+.config-section--planning .config-section-title { color: #d97706; }
+[data-theme="dark"] .config-section--planning .config-section-title { color: var(--warning); }
+.config-section--cascade .config-section-title { color: var(--primary); }
+
+.field-hint {
+    display: block;
+    margin-top: 4px;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    line-height: 1.4;
+}
+
+.field-hint--ok { color: var(--success); }
+.field-hint--error { color: var(--danger); }
+
+.nested-fields {
+    padding: 10px;
+    background: rgba(59, 130, 246, 0.08);
+    border: 1px solid rgba(59, 130, 246, 0.22);
+    border-radius: 8px;
+    margin-bottom: 15px;
+}
+
+.form-group-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: 12px;
+}
+
+.form-group-row .form-group {
+    min-width: 0;
+}
+
+.config-option-card {
+    margin-top: 12px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px dashed var(--border-color);
+    background: rgba(0, 0, 0, 0.03);
+}
+[data-theme="dark"] .config-option-card {
+    background: rgba(255, 255, 255, 0.03);
+}
+.config-option-card--warning {
+    border-color: rgba(245, 158, 11, 0.55);
+    background: rgba(245, 158, 11, 0.08);
+}
+.config-option-card--warning .checkbox-label {
+    color: #d97706;
+}
+[data-theme="dark"] .config-option-card--warning .checkbox-label {
+    color: var(--warning);
+}
+.config-option-card--primary {
+    border-color: rgba(59, 130, 246, 0.5);
+    background: rgba(59, 130, 246, 0.08);
+}
+.config-option-card .checkbox-label {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    margin-bottom: 6px;
+    cursor: pointer;
+}
+.config-option-card .checkbox-label input {
+    margin-top: 2px;
+    flex-shrink: 0;
+}
+
+.sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+}
+
+.auto-sync-card-body {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 10px;
+}
+.auto-sync-card-body.is-disabled {
+    opacity: 0.55;
+    pointer-events: none;
+}
+.auto-sync-radios {
+    border: 0;
+    padding: 0;
+    min-width: 0;
+}
+.auto-sync-radios .checkbox-label {
+    margin-bottom: 4px;
+}
+
+.sync-libraries-list {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    max-height: 160px;
+    overflow-y: auto;
+    padding: 8px 10px;
+    background: var(--bg-card);
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+}
+.sync-library-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    margin: 0;
+    color: var(--text-main);
+    font-size: 13px;
+}
+
+.inline-field-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.webhook-url-input {
+    cursor: pointer;
+    font-size: 11px;
+    background: var(--bg-card);
+    width: 100%;
+}
+.inline-field-row > input,
+.inline-field-row > .webhook-url-input {
+    flex: 1;
+    min-width: 0;
+    cursor: pointer;
+    font-size: 11px;
+    background: var(--bg-card);
+    width: auto;
+}
+.inline-field-row > .btn-secondary {
+    flex-shrink: 0;
+    font-size: 12px;
+    padding: 6px 10px;
+    white-space: nowrap;
+}
+
+.cascade-block {
+    margin-bottom: 16px;
+    padding: 12px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background: var(--bg-card);
+}
+.cascade-block:last-child {
+    margin-bottom: 0;
+}
+.cascade-block-label {
+    font-weight: 700;
+    margin-bottom: 10px;
+    font-size: 13px;
+}
+.cascade-block--manga {
+    border-color: rgba(59, 130, 246, 0.35);
+    box-shadow: inset 3px 0 0 var(--primary);
+}
+.cascade-block--manga .cascade-block-label { color: var(--primary); }
+.cascade-block--comic {
+    border-color: rgba(139, 92, 246, 0.35);
+    box-shadow: inset 3px 0 0 var(--accent);
+}
+.cascade-block--comic .cascade-block-label { color: var(--accent); }
+.cascade-block--book {
+    border-color: rgba(16, 185, 129, 0.35);
+    box-shadow: inset 3px 0 0 var(--success);
+}
+.cascade-block--book .cascade-block-label { color: var(--success); }
+
+.providers-row {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 10px;
+}
+.providers-row .form-group {
+    margin-bottom: 0;
+    min-width: 0;
+}
+.providers-select-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+.providers-select-row select {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.providers-select-row .btn-diag-probe {
+    flex: 0 0 auto;
+    padding: 6px 10px;
+    font-size: 12px;
+    white-space: nowrap;
+}
+.diag-inline-pill {
+    flex: 0 0 auto;
+    display: inline-flex;
+    align-items: center;
+    padding: 3px 8px;
+    border-radius: 999px;
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    background: rgba(100,116,139,0.2);
+    color: #94a3b8;
+}
+.diag-inline-pill[data-status="ok"] {
+    background: rgba(52,211,153,0.18);
+    color: #34d399;
+}
+.diag-inline-pill[data-status="degraded"] {
+    background: rgba(251,191,36,0.18);
+    color: #fbbf24;
+}
+.diag-inline-pill[data-status="down"] {
+    background: rgba(251,113,133,0.18);
+    color: #fb7185;
+}
+.diag-inline-pill[data-status="skipped"] {
+    background: rgba(100,116,139,0.22);
+    color: #94a3b8;
+}
+.diag-inline-pill[data-status="running"] {
+    background: rgba(56,189,248,0.18);
+    color: #38bdf8;
+}
+

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from urllib.parse import urljoin, urlparse
 
 from bs4 import BeautifulSoup
@@ -19,6 +19,7 @@ from scrapers.utils import (
     get_match_accept_threshold,
     response_is_ok,
     score_candidate,
+    select_wanted_album_links,
 )
 
 _BASE = "https://www.planetebd.com"
@@ -115,11 +116,12 @@ class PlanetebdScraper(BaseScraper):
     display_name = "Planète BD"
     supported_types = {"Comic"}
     scopes = {"series", "volume"}
-    # 1.2.0 : cadence appliquée à chaque requête (un `fetch()` en émettait 25 en
-    # rafale, dont 8 en double), et décodage HTML confié à BeautifulSoup. La
-    # montée de version est ce qui autorise l'image à remplacer la copie 1.1.x
-    # déjà installée sous data/.
-    version = "1.2.0"
+    # 1.2.1 : le formulaire du site poste vers `/recherche.html`. L'ancienne
+    # URL `/recherche/?mot-clef=` redirige vers `/recherche.html` *sans* le
+    # mot-clé, donc `fetch()` voyait une page d'accueil et renvoyait None.
+    # 1.3.0 : crawl ciblé (`wanted_numbers` / `should_cancel`) dans la boucle
+    # d'albums. La jaquette et l'ISBN restent lus sur la fiche déjà visitée.
+    version = "1.3.0"
     rate_limit = 2.5  # HTML — anti-ban IP
     # Une page par album à 2,5 s : au-delà, l'index coûterait plus de deux
     # minutes pour une série que personne ne possède en entier.
@@ -286,12 +288,57 @@ class PlanetebdScraper(BaseScraper):
             except Exception:
                 pass
 
+    def fetch_volume(
+        self,
+        query: str,
+        library_type: str = "Comic",
+        volume_number: Optional[Any] = None,
+        series_id: Optional[str] = None,
+        existing_metadata: Optional[Dict[str, Any]] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """Une fiche album, par URL `/bd|comics|mangas/.../*.html`."""
+        url = str(query or "").strip()
+        path = urlparse(url).path if "://" in url else url
+        if not _ALBUM_RE.match(path):
+            return None
+        session = requests.Session(impersonate="chrome110")
+        session.headers.update(
+            {
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.7",
+                "Referer": f"{_BASE}/",
+            }
+        )
+        try:
+            album = self._parse_album(session, url if url.startswith("http") else urljoin(_BASE, url))
+            if not album:
+                return None
+            payload = {
+                "provider_ref": url,
+                "title": album.get("album_title") or "",
+                "summary": album.get("summary") or "",
+                "release_date": str(album.get("year") or ""),
+                "isbn": album.get("isbn") or "",
+                "cover_url": album.get("cover_url") or "",
+            }
+            return {k: v for k, v in payload.items() if v} or None
+        except Exception as e:
+            logging.error(self.t("err").format(e))
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
     def fetch_volume_index(
         self,
         query: str,
         library_type: str = "Comic",
         series_id: Optional[str] = None,
         existing_metadata: Optional[Dict[str, Any]] = None,
+        wanted_numbers: Optional[set] = None,
+        should_cancel: Optional[Callable[[], bool]] = None,
     ) -> Optional[Dict[str, Any]]:
         """Index des albums d'une série BD.
 
@@ -313,19 +360,18 @@ class PlanetebdScraper(BaseScraper):
                 return None
 
             index: Dict[str, Any] = {}
-            for link in self._album_links_from_series(session, series_url)[
-                : self.VOLUME_INDEX_MAX
-            ]:
+            for link in select_wanted_album_links(
+                self._album_links_from_series(session, series_url),
+                wanted_numbers,
+                self.VOLUME_INDEX_MAX,
+            ):
+                if should_cancel and should_cancel():
+                    break
                 if link["number"] is None:
                     continue
-                # `_album_number` rend déjà la clé canonique : la reformater
-                # ferait réapparaître un « 1.0 » là où l'on attend « 1 ».
                 key = link["number"]
                 if key in index:
                     continue
-                # Une page par album, cinquante albums possibles : la cadence est
-                # celle de `_http_get`, qui la garantit requête par requête au
-                # lieu d'une pause en dur qui ne couvrait que cette boucle.
                 album = self._parse_album(session, link["url"])
                 if not album:
                     continue
@@ -429,7 +475,7 @@ class PlanetebdScraper(BaseScraper):
     def _search(self, session, terms: str) -> List[dict]:
         res = self._http_get(
             session,
-            f"{_BASE}/recherche/",
+            f"{_BASE}/recherche.html",
             params={"mot-clef": terms},
             timeout=25,
         )

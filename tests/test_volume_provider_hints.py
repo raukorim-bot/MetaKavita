@@ -77,6 +77,18 @@ class TestCeQueLaSerieSaitDElleMeme:
         assert provider_hints(None) == {"year": None}
         assert provider_hints({}) == {"year": None}
 
+    def test_le_titre_vf_kavita_est_transmis(self):
+        hints = provider_hints(
+            {
+                "localizedName": "Gloutons et Dragons",
+                "originalName": "Dungeon Meshi",
+                "alternativeNames": ["Dungeon Meshi"],
+            }
+        )
+
+        assert hints["localizedName"] == "Gloutons et Dragons"
+        assert hints["alternative_titles"] == ["Dungeon Meshi"]
+
 
 class TestLePlanLesTransmet:
     """Le garde-fou qui compte : la fonction peut exister et n'être pas branchée."""

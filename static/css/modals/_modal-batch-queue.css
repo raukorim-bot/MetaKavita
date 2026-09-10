@@ -1,0 +1,94 @@
+/* ================================================================
+   MetaKavita CSS — _modal-batch-queue.css
+   Modale File d'attente Batch (C63)
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* C63 — Batch queue modal */
+/* `display` posé par une classe l'emporte sur le `[hidden]` de l'agent
+   utilisateur : sans cette règle, la pastille de file restait à l'écran, vide,
+   alors que le JS venait de la masquer — une file à zéro s'affichait donc comme
+   une file en attente. */
+.batch-queue-badge[hidden] { display: none; }
+.batch-queue-badge {
+    display: inline-block;
+    margin-left: 6px;
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: color-mix(in srgb, var(--primary) 22%, transparent);
+    color: var(--text-main);
+    vertical-align: middle;
+}
+.bq-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 1200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.bq-modal[hidden] { display: none !important; }
+.bq-modal-backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.45);
+}
+.bq-modal-panel {
+    position: relative;
+    z-index: 1;
+    width: min(560px, 92vw);
+    max-height: min(70vh, 640px);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    padding: 16px 18px;
+}
+.bq-modal-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+.bq-modal-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+.bq-list {
+    overflow: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.bq-row {
+    display: grid;
+    grid-template-columns: 1fr auto auto;
+    gap: 10px;
+    align-items: center;
+    padding: 8px 10px;
+    border: 1px solid color-mix(in srgb, var(--text-main) 12%, transparent);
+    border-radius: var(--radius-sm);
+}
+.bq-name {
+    font-size: 13px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.bq-state { font-size: 11px; opacity: 0.8; }
+.bq-empty { opacity: 0.7; font-size: 13px; margin: 8px 0; }
+.bq-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 1400;
+    padding: 10px 16px;
+    border-radius: var(--radius-sm);
+    background: var(--bg-card, #1e1e24);
+    border: 1px solid color-mix(in srgb, var(--primary) 35%, transparent);
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+.bq-toast[hidden] { display: none !important; }

@@ -114,6 +114,8 @@ class BaseScraper(ABC):
         library_type: str = "Comic",
         series_id: Optional[str] = None,
         existing_metadata: Optional[Dict[str, Any]] = None,
+        wanted_numbers: Optional[Set[str]] = None,
+        should_cancel: Optional[Any] = None,
     ) -> Optional[Dict[str, Any]]:
         """Index des tomes/albums d'une série : `{numéro: payload}`. Défaut : None.
 
@@ -126,6 +128,13 @@ class BaseScraper(ABC):
 
         Chaque payload peut porter `title`, `summary`, `release_date`, `isbn`
         et `cover_url`. Les clés absentes ne sont pas écrites.
+
+        `wanted_numbers` : numéros Kavita déjà normalisés (`number_key`), hors
+        specials. `None` = lister comme avant (outils, aperçu sans série).
+        `should_cancel` : callable sans argument ; s'il rend vrai **dans** la
+        boucle d'albums, rendre l'index partiel déjà construit, pas `None`.
+        Un Magasin à l'ancienne signature (quatre arguments) reste appelé via
+        `inspect.signature` côté pipeline : ces deux kwargs sont optionnels.
         """
         return None
 

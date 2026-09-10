@@ -17,12 +17,14 @@ import threading
 
 from config_manager import load_config
 from db_manager import (
+    close_pending_review,
     get_all_cached_data,
     update_status,
     record_enrichment_miss,
     get_lifetime_stats,
     get_pending_review,
     record_manual_review_telemetry,
+    record_workshop_history,
 )
 from translations import translations
 from kavita_api import KavitaAPI
@@ -53,6 +55,27 @@ from services.magic_input import detect_provider_from_url
 # s'exécuter en double.
 _processing_lock = threading.Lock()
 _processing_series_ids = set()
+
+# Rechercher un autre titre ne doit pas attendre la fin du premier scrape MR
+# (force-sync atelier / Super). Ce compteur rend no-op les cartes streamées
+# et le finalize de ce scrape, pour qu'il n'écrase pas les nouveaux candidats.
+_review_scrape_epoch = {}
+
+
+def current_review_scrape_epoch(series_id) -> int:
+    return int(_review_scrape_epoch.get(int(series_id), 0))
+
+
+def bump_review_scrape_epoch(series_id) -> int:
+    sid = int(series_id)
+    with _processing_lock:
+        n = int(_review_scrape_epoch.get(sid, 0)) + 1
+        _review_scrape_epoch[sid] = n
+        return n
+
+
+def review_scrape_is_stale(series_id, epoch) -> bool:
+    return current_review_scrape_epoch(series_id) != int(epoch or 0)
 
 # Le champ « format » (sens de lecture) a été retiré de cette liste : il ne
 # correspondait à aucune écriture. `build_kavita_payload` n'a jamais eu de
@@ -97,6 +120,66 @@ def resolve_active_fields(targeted_fields_raw, override=None):
     if raw == "NONE":
         return []
     return [f.strip() for f in str(raw).split(",") if f.strip()]
+
+
+def _meta_text_has_content(value) -> bool:
+    return bool(str(value or "").strip())
+
+
+def _meta_list_has_content(value) -> bool:
+    if not value:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        for item in value:
+            if isinstance(item, dict) and (item.get("title") or item.get("name")):
+                return True
+            if isinstance(item, str) and item.strip():
+                return True
+        return False
+    return True
+
+
+def series_has_fillable_holes(metadata, active_fields) -> bool:
+    """True si un champ ciblé est vide côté Kavita (critère contenu du payload).
+
+    BF102 : `age` actif + ageRating manquant / 0 / 1 (Pending) est un trou.
+    `cover` et `alt_titles` ne vivent pas sur SeriesMetadataDto — on ne les
+    compte pas ici (un GET metadata ne peut pas les observer).
+    """
+    meta = metadata or {}
+    active = set(active_fields or [])
+
+    if "age" in active and meta.get("ageRating") in (None, "", 0, 1):
+        return True
+    if "summary" in active and not _meta_text_has_content(meta.get("summary")):
+        return True
+    if "genres" in active and not _meta_list_has_content(meta.get("genres")):
+        return True
+    if "tags" in active and not _meta_list_has_content(meta.get("tags")):
+        return True
+    if "year" in active and meta.get("releaseYear") in (None, "", 0):
+        return True
+    if "status" in active and meta.get("publicationStatus") in (None, ""):
+        return True
+    if "publisher" in active and not _meta_list_has_content(meta.get("publishers")):
+        return True
+    if "staff" in active:
+        staff_ok = any(
+            _meta_list_has_content(meta.get(key))
+            for key in (
+                "writers", "pencillers", "artists", "coverArtists",
+                "colorists", "inkers", "letterers", "editors", "translators",
+            )
+        )
+        if not staff_ok:
+            return True
+    if "weblinks" in active and not _meta_text_has_content(meta.get("webLinks")):
+        return True
+    if "language" in active and not _meta_text_has_content(meta.get("language")):
+        return True
+    return False
 
 
 def targeted_fields_is_granular(raw) -> bool:
@@ -703,10 +786,15 @@ def research_manual_review(review_id, query: str):
     series_name = review.get("series_name") or str(series_id)
     label = series_label(review.get("series_name"), series_id)
 
+    # Invalide le scrape MR / Super encore en vol (cartes streamées + finalize).
+    # Ce chemin ne fait qu'une re-collecte de candidats : s'il tient déjà le
+    # verrou d'écriture, on le rejoint au lieu de refuser (BF189).
+    bump_review_scrape_epoch(series_id)
+    acquired = False
     with _processing_lock:
-        if series_id in _processing_series_ids:
-            return False, t.get("msg_already_processing", "Déjà en cours de traitement."), None
-        _processing_series_ids.add(series_id)
+        if series_id not in _processing_series_ids:
+            _processing_series_ids.add(series_id)
+            acquired = True
 
     try:
         kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
@@ -799,8 +887,9 @@ def research_manual_review(review_id, query: str):
         logging.error(t.get("log_mr_research_crash", "[{0}] Crash re-recherche manuelle : {1}").format(label, exc))
         return False, t.get("err_internal", "Erreur interne."), None
     finally:
-        with _processing_lock:
-            _processing_series_ids.discard(series_id)
+        if acquired:
+            with _processing_lock:
+                _processing_series_ids.discard(series_id)
 
 
 def _top1_provider(candidates_payload):
@@ -820,6 +909,7 @@ def enrich_series(
     *,
     super_review_override=None,
     force_auto=False,
+    manual_review_override=False,
 ):
     """
     Récupère les métadonnées existantes dans Kavita, scrape les fournisseurs
@@ -829,10 +919,12 @@ def enrich_series(
     `targeted_fields_override` : masque éphémère (ex. batch) qui prime sur le
     `targeted_fields` persisté en cache pour CE run uniquement.
 
-    C33 Companion (webhook one-shot) :
+    C33 Companion (webhook one-shot) / C96 Auto-sync :
     - `super_review_override=True` : MR + expand scrapers même si Super sidebar off.
+    - `manual_review_override=True` : file Review (pas Super), ignore la sidebar.
     - `force_auto=True` : chemin Auto (écriture) même si MANUAL_REVIEW_MODE on ;
-      ignore aussi CONFIRM_BEFORE_WRITE. Si les deux sont demandés, Super gagne.
+      ignore aussi CONFIRM_BEFORE_WRITE.
+    Ordre : Super > Review > force_auto.
 
     Retourne un tuple (success: bool, message: str, used_providers: list).
     """
@@ -906,7 +998,19 @@ def enrich_series(
                 "age" in active_fields
                 and age_rating_kavita in (None, "", 0, 1)
             )
-            if not age_needs_fill:
+            # C96 : Auto-sync Auto comble les trous ; lot / webhook / Review
+            # gardent le skip résumé historique (âge BF102 seulement).
+            fill_blanks = (
+                bool(force_auto)
+                and super_review_override is not True
+                and not manual_review_override
+            )
+            has_holes = (
+                series_has_fillable_holes(metadata, active_fields)
+                if fill_blanks
+                else age_needs_fill
+            )
+            if not has_holes:
                 logging.info(t.get('log_skip').format(label))
                 update_status(series_id, 'COMPLETED')
                 _emit_series_status(series_id, 'COMPLETED', series_name)
@@ -946,10 +1050,13 @@ def enrich_series(
         manual_mode, super_review = resolve_manual_review_flags(
             config, is_forced_id=is_forced_id
         )
-        # C33 : overrides webhook Companion (Super > force_auto).
+        # C33 / C96 : Super > Review > force_auto.
         if super_review_override is True:
             manual_mode = True
             super_review = True
+        elif manual_review_override:
+            manual_mode = True
+            super_review = False
         elif force_auto:
             manual_mode = False
             super_review = False
@@ -1076,6 +1183,7 @@ def enrich_series(
             )
             from db_manager import delete_pending_by_series
 
+            scrape_epoch = current_review_scrape_epoch(sid)
             library_id = kavita.get_cached_library_id(series_id)
             # Park empty review immediately so Companion / MR UI can open and
             # stream cards as each scraper finishes (covers-like UX).
@@ -1088,6 +1196,8 @@ def enrich_series(
             _emit_series_status(series_id, "PENDING_REVIEW", series_name)
 
             def _on_candidate(card, band):
+                if review_scrape_is_stale(sid, scrape_epoch):
+                    return
                 append_streaming_candidate(review_id, series_id, card, band)
 
             candidates_payload, used_providers = fetch_metadata(
@@ -1118,6 +1228,15 @@ def enrich_series(
                 on_candidate=_on_candidate,
                 series_id=series_id,
             )
+
+            if review_scrape_is_stale(sid, scrape_epoch):
+                logging.info(
+                    t.get(
+                        "log_mr_scrape_superseded",
+                        "[{0}] 🔎 Re-recherche d'un autre titre — scrape en cours ignoré.",
+                    ).format(label)
+                )
+                return True, "PENDING_REVIEW", used_providers or []
 
             if _candidates_empty(candidates_payload):
                 logging.warning(t.get("log_not_found").format(label, "API(s)"))
@@ -1310,9 +1429,13 @@ def apply_manual_review(
     merge_fields=False,
     manual_completion=None,
     send_fields=None,
+    workshop=False,
 ):
     """
-    Applique un choix de review manuelle : merge → (overlay edits) → build → write Kavita.
+    Applique un choix de review manuelle : merge → (overlay edits) → build.
+
+    Tableau de bord : write Kavita. Atelier (``workshop``) : remplit la fiche,
+    Kavita n'est écrit qu'à l'envoi.
 
     Retourne (success: bool, message: str, detail: dict|None).
     ``send_fields`` ``None`` = masque série seul (bulk / apply direct / vieux clients).
@@ -1330,10 +1453,13 @@ def apply_manual_review(
         return False, t.get("msg_review_missing", "Review introuvable."), None
 
     series_id = int(review["series_id"])
-    with _processing_lock:
-        if series_id in _processing_series_ids:
-            return False, t.get("msg_already_processing", "Déjà en cours de traitement."), None
-        _processing_series_ids.add(series_id)
+    acquired = False
+    if not workshop:
+        with _processing_lock:
+            if series_id in _processing_series_ids:
+                return False, t.get("msg_already_processing", "Déjà en cours de traitement."), None
+            _processing_series_ids.add(series_id)
+            acquired = True
 
     try:
         return _apply_manual_review_locked(
@@ -1355,10 +1481,124 @@ def apply_manual_review(
             choice_and_merge=choice_and_merge,
             confirm_pending_review=confirm_pending_review,
             revert_pick_after_failed_write=revert_pick_after_failed_write,
+            workshop=bool(workshop),
         )
     finally:
-        with _processing_lock:
-            _processing_series_ids.discard(series_id)
+        if acquired:
+            with _processing_lock:
+                _processing_series_ids.discard(series_id)
+
+
+def _stage_manual_review_to_workshop(
+    *,
+    review_id,
+    series_id,
+    series_name,
+    label,
+    provider_data,
+    edited_preview,
+    active_fields,
+    cache_data,
+    force_update,
+    force_cover_upload,
+    field_edits,
+    fused,
+    weak_pick,
+    super_review,
+    is_top1,
+    chosen_score,
+    is_auto_confirm,
+    used_providers,
+    config,
+    t,
+):
+    """Fusion + preview → champs atelier. Pas d'écriture Kavita."""
+    from services.manual_review import emit_pending_count
+    from services.workshop_form import series_edits_from_built
+
+    metadata = {}
+    try:
+        kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
+        if kavita.authenticate():
+            metadata = kavita.get_series_metadata(series_id) or {}
+    except Exception as exc:
+        logging.debug("workshop review metadata skipped: %s", safe_exc_str(exc))
+        metadata = {}
+
+    built = build_kavita_payload(
+        provider_data, metadata, active_fields, config, cache_data, force_update, series_id
+    )
+    if (
+        "alt_titles" in active_fields
+        and edited_preview
+        and isinstance(edited_preview, dict)
+        and "localized_name" in edited_preview
+    ):
+        built["localized_name"] = edited_preview.get("localized_name") or None
+        if built.get("preview_fields") is not None:
+            built["preview_fields"]["localized_name"] = edited_preview.get("localized_name") or ""
+    if "cover" not in active_fields:
+        built["cover_url"] = None
+    elif not built.get("cover_url") and (
+        force_cover_upload
+        or (isinstance(edited_preview, dict) and edited_preview.get("cover_url"))
+    ):
+        built["cover_url"] = (
+            (edited_preview or {}).get("cover_url") if isinstance(edited_preview, dict) else ""
+        )
+
+    edits, cover_url = series_edits_from_built(built, active_fields)
+    from db_manager import save_workshop_series_override
+
+    staged_payload = dict(edits)
+    if built.get("external_ids"):
+        staged_payload["_external_ids"] = built["external_ids"]
+    save_workshop_series_override(series_id, staged_payload, cover_url=cover_url)
+
+    close_pending_review(review_id, "PENDING", skip_telemetry=False)
+    emit_pending_count()
+    _emit_series_status(series_id, "PENDING", series_name)
+    record_workshop_history(
+        series_id,
+        "review",
+        detail={"fields": list(edits.keys())},
+    )
+    if not is_auto_confirm:
+        try:
+            deltas = record_manual_review_telemetry(
+                chosen_score,
+                is_top1,
+                field_edits=field_edits,
+                fused=fused,
+                weak_pick=bool(weak_pick),
+                super_review=bool(super_review),
+            )
+            _broadcast_enrichment_stats({
+                **(deltas or {}),
+                "series_enriched_delta": 0,
+                "matches_won_delta": 0,
+                "series_missed_delta": 0,
+                "lifetime": get_lifetime_stats(),
+            })
+        except Exception as exc:
+            logging.warning(
+                t.get(
+                    "log_mr_telemetry_failed",
+                    "[manual_review] télémétrie non enregistrée pour {0} : {1}",
+                ).format(label, safe_exc_str(exc))
+            )
+    return True, t.get("workshop_review_staged", "Fiche remplie."), {
+        "workshop": True,
+        "status": "PENDING",
+        "series_id": series_id,
+        "series_edits": edits,
+        "cover_url": cover_url,
+        "preview": built.get("preview_fields"),
+        "is_top1": is_top1,
+        "score": chosen_score,
+        "used_providers": used_providers,
+        "flow": "auto_confirm" if is_auto_confirm else "manual",
+    }
 
 
 def _apply_manual_review_locked(
@@ -1381,6 +1621,7 @@ def _apply_manual_review_locked(
     choice_and_merge,
     confirm_pending_review,
     revert_pick_after_failed_write,
+    workshop=False,
 ):
     config = load_config()
     t = translations.get(config.get("UI_LANG", "fr"), translations["fr"])
@@ -1478,6 +1719,30 @@ def _apply_manual_review_locked(
         cache_data.get("targeted_fields", "ALL"),
         send_fields,
     )
+
+    if workshop:
+        return _stage_manual_review_to_workshop(
+            review_id=review_id,
+            series_id=series_id,
+            series_name=series_name,
+            label=label,
+            provider_data=provider_data,
+            edited_preview=edited_preview,
+            active_fields=active_fields,
+            cache_data=cache_data,
+            force_update=force_update,
+            force_cover_upload=force_cover_upload,
+            field_edits=field_edits,
+            fused=fused,
+            weak_pick=weak_pick,
+            super_review=super_review,
+            is_top1=is_top1,
+            chosen_score=chosen_score,
+            is_auto_confirm=is_auto_confirm,
+            used_providers=used_providers,
+            config=config,
+            t=t,
+        )
 
     kavita = KavitaAPI(config.get("KAVITA_URL"), config.get("KAVITA_API_KEY"))
     if not kavita.authenticate():

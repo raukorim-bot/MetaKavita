@@ -36,7 +36,10 @@ def _collect_id_fields(obj: Optional[dict]) -> Dict[str, str]:
     )
     for key, dest in mapping:
         if _truthy_id(obj.get(key)):
-            out[dest] = str(obj.get(key)).strip()
+            val = str(obj.get(key)).strip()
+            if dest == "comicvine" and val.startswith("4050-"):
+                val = val[5:]
+            out[dest] = val
     return out
 
 
@@ -89,7 +92,8 @@ def extract_provider_ids(
         elif fp in ("MAL", "MYANIMELIST") and fid.isdigit():
             out.setdefault("mal", fid)
         elif fp in ("COMICVINE", "CV"):
-            digits = re.sub(r"\D", "", fid)
+            cv_clean = re.sub(r"^4050-?", "", fid.strip())
+            digits = re.sub(r"\D", "", cv_clean)
             if digits:
                 out.setdefault("comicvine", digits)
         elif fp in ("MANGABAKA", "MB"):

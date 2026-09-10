@@ -46,3 +46,7 @@ Thumbs.db
 # Batteries live (artefacts)
 tests/_manganews_*
 tests/_fandom_*
+
+# Notes d'agents IA (locales / snapshot de chantier)
+CLAUDE.md
+GEMINI.md

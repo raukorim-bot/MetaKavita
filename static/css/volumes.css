@@ -1,0 +1,32 @@
+/* ================================================================
+   MetaKavita CSS — volumes.css (Atelier des tomes)
+   Point d'entrée principal (manifest @import)
+   
+   L'ordre des imports respecte la cascade CSS :
+     1. Structure & Canvas (canvas, navbar, layout, rail, main)
+     2. Fiche Série, Jaquettes & Formulaires
+     3. Barre d'action & Cartes de tomes
+     4. Candidats, Logs, Modales & Responsive
+   ================================================================ */
+
+/* ── 1. Structure & Canvas ───────────────────────────────────── */
+@import url('workshop/_base.css');
+@import url('workshop/_navbar.css');
+@import url('workshop/_layout.css');
+@import url('workshop/_rail.css');
+@import url('workshop/_main.css');
+
+/* ── 2. Fiche Série, Jaquettes & Formulaires ──────────────────── */
+@import url('workshop/_series-card.css');
+@import url('workshop/_covers.css');
+@import url('workshop/_forms.css');
+
+/* ── 3. Barre d'action & Cartes de tomes ─────────────────────── */
+@import url('workshop/_action-bar.css');
+@import url('workshop/_volume-cards.css');
+
+/* ── 4. Candidats, Logs, Modales & Responsive ────────────────── */
+@import url('workshop/_candidates.css');
+@import url('workshop/_logs.css');
+@import url('workshop/_modals.css');
+@import url('workshop/_responsive.css');

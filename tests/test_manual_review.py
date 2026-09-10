@@ -616,6 +616,26 @@ def test_une_base_anterieure_au_compteur_retombe_sur_le_nombre_de_reviews(isolat
     assert compute_playful_stats({}, {}, ancienne)["manual_avg_score"] == pytest.approx(0.80)
 
 
+def test_une_somme_lifetime_et_un_n_tardif_ne_font_pas_1212_pourcent():
+    """BF177 : `manual_score_n` a commencé après `manual_score_sum`.
+
+    14 confirms à ~0,866 donnent une somme 12,126. Un n=1 (le compteur vient
+    d'être branché) affichait 1212,6 % après × 100. On divise par les reviews.
+    """
+    from services.mr_achievements import scored_average
+    from services.stats_service import compute_playful_stats
+
+    assert scored_average(12.126, 1, 14) == pytest.approx(12.126 / 14)
+    playful = compute_playful_stats(
+        {},
+        {},
+        {"manual_reviews": 14, "manual_score_sum": 12.126, "manual_score_n": 1},
+    )
+    assert playful["manual_avg_score"] == pytest.approx(12.126 / 14, abs=1e-4)
+    assert 0 <= playful["manual_avg_score"] <= 1
+    assert round(playful["manual_avg_score"] * 100, 1) == 86.6
+
+
 def test_pending_crud_and_create_review(isolated_db):
     payload = {
         "above": [{"provider": "ANILIST", "score": 0.9, "title": "T", "data": {"summary": "x"}}],
@@ -739,6 +759,71 @@ def test_apply_manual_review_records_top1_and_edits(isolated_db, mocker):
     assert life["manual_field_edits"] == 2
     assert isolated_db.get_pending_review(rid) is None
     assert isolated_db.get_all_cached_data()[100]["status"] == "COMPLETED"
+
+
+def test_apply_manual_review_workshop_does_not_write_kavita(isolated_db, mocker):
+    """BF190 : confirm atelier remplit la fiche, sans POST Kavita."""
+    payload = {
+        "above": [
+            {
+                "provider": "TOP",
+                "score": 0.91,
+                "title": "Top",
+                "data": {
+                    "summary": "orig",
+                    "year": 2020,
+                    "title": "Top",
+                    "cover_url": "https://cdn.example/c.jpg",
+                },
+            },
+        ],
+        "below": [],
+        "query": "q",
+    }
+    rid = mr.create_review_from_candidates(100, "ApplyMe", payload)
+
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "SMART_COMPLETION": False,
+        "TARGET_LANG": "FR",
+        "AUTO_COVER": False,
+        "AUTO_READING_DIR": False,
+    })
+    mocker.patch("services.kavita_payload.translate_text", side_effect=lambda text, *a, **k: text)
+    mocker.patch("services.kavita_payload._broadcast_enrichment_stats", lambda *a, **k: None)
+    mocker.patch.object(enrichment_engine, "_broadcast_enrichment_stats", lambda *a, **k: None)
+    mocker.patch.object(
+        enrichment_engine,
+        "apply_kavita_payload",
+        side_effect=AssertionError("workshop must not write Kavita"),
+    )
+
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_series_metadata", return_value={"seriesId": 100, "summary": ""})
+    meta_write = mocker.patch.object(KavitaAPI, "update_series_metadata", return_value=(True, "ok", True))
+    cover_write = mocker.patch.object(KavitaAPI, "upload_series_cover", return_value=(True, "ok"))
+
+    ok, msg, detail = enrichment_engine.apply_manual_review(
+        rid,
+        base_provider="TOP",
+        include_providers=None,
+        edited_preview={"summary": "edited summary", "year": 2021},
+        field_edits=2,
+        workshop=True,
+    )
+    assert ok is True, msg
+    assert detail["workshop"] is True
+    assert detail["status"] == "PENDING"
+    assert detail["series_edits"]["summary"] == "edited summary"
+    assert detail["series_edits"]["releaseYear"] == "2021"
+    assert detail["cover_url"] == "https://cdn.example/c.jpg"
+    assert isolated_db.get_pending_review(rid) is None
+    assert isolated_db.get_all_cached_data()[100]["status"] == "PENDING"
+    meta_write.assert_not_called()
+    cover_write.assert_not_called()
 
 
 def test_apply_manual_review_non_top1(isolated_db, mocker):
@@ -1034,6 +1119,128 @@ def test_research_manual_review_replaces_candidates(isolated_db, mocker):
     assert cached["alternative_title"] == "Ghost in the Shell"
     assert cached["status"] == "PENDING_REVIEW"
     assert isolated_db.count_pending_reviews() == 1
+
+
+def test_research_manual_review_runs_while_series_is_processing(isolated_db, mocker):
+    """BF189 : Rechercher un autre titre ne doit pas se faire refuser par le
+    verrou d'écriture que le scrape MR / Super tient encore."""
+    payload = {
+        "above": [
+            {
+                "provider": "OLD",
+                "score": 0.7,
+                "title": "Old Hit",
+                "summary": "old",
+                "data": {"summary": "old", "title": "Old Hit"},
+            }
+        ],
+        "below": [],
+        "query": "Old Title",
+    }
+    rid = mr.create_review_from_candidates(77, "Old Title", payload)
+    new_payload = {
+        "above": [
+            {
+                "provider": "MAL",
+                "score": 0.95,
+                "title": "Nausicaa",
+                "summary": "ok",
+                "data": {"summary": "ok", "title": "Nausicaa"},
+            }
+        ],
+        "below": [],
+        "query": "Nausicaa",
+    }
+    mocker.patch.object(
+        enrichment_engine,
+        "_scrape_manual_candidates",
+        return_value=(new_payload, ["MAL"]),
+    )
+    mocker.patch.object(enrichment_engine, "load_config", return_value={
+        "KAVITA_URL": "http://kavita.local",
+        "KAVITA_API_KEY": "k",
+        "UI_LANG": "fr",
+        "TARGET_LANG": "FR",
+        "MANUAL_REVIEW_SUPER": False,
+    })
+    from kavita_api import KavitaAPI
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+
+    before = enrichment_engine.current_review_scrape_epoch(77)
+    enrichment_engine._processing_series_ids.add(77)
+    try:
+        ok, msg, detail = enrichment_engine.research_manual_review(rid, "Nausicaa")
+        assert ok is True, msg
+        assert detail["above"][0]["title"] == "Nausicaa"
+        assert 77 in enrichment_engine._processing_series_ids
+        assert enrichment_engine.current_review_scrape_epoch(77) == before + 1
+        assert enrichment_engine.review_scrape_is_stale(77, before)
+    finally:
+        enrichment_engine._processing_series_ids.discard(77)
+        enrichment_engine._review_scrape_epoch.pop(77, None)
+
+
+def test_enrich_series_skips_finalize_when_research_supersedes(isolated_db, mocker):
+    """BF189 : un Rechercher en vol invalide le scrape MR ; finalize et delete
+    ne doivent pas écraser / vider les nouveaux candidats."""
+    from test_comic_flexible import _base_config, _patch_kavita_basics, _ComicFake, _MangaFake
+    from kavita_api import KavitaAPI
+
+    appended = []
+    finalized = []
+    deleted = []
+
+    def _fake_fetch(query, providers_list, *args, **kwargs):
+        on_candidate = kwargs.get("on_candidate")
+        enrichment_engine.bump_review_scrape_epoch(51)
+        card = {
+            "provider": "MANGA_FAKE",
+            "title": "Old scrape",
+            "summary": "old",
+            "genres": [],
+            "tags": [],
+            "staff": [],
+            "_match_score": 0.9,
+        }
+        if on_candidate:
+            on_candidate(card, "above")
+        return {"above": [card], "below": [], "query": query}, ["MANGA_FAKE"]
+
+    mocker.patch.object(
+        enrichment_engine, "load_config",
+        return_value=_base_config(MANUAL_REVIEW_MODE=True),
+    )
+    _patch_kavita_basics(mocker, isolated_db)
+    comic = _ComicFake()
+    manga = _MangaFake()
+
+    def _get(pid):
+        return {"COMIC_FAKE": comic, "MANGA_FAKE": manga}.get(pid)
+
+    mocker.patch.object(enrichment_engine.ScraperRegistry, "get", side_effect=_get)
+    mocker.patch.object(enrichment_engine.ScraperRegistry, "get_by_type", return_value=[comic])
+    mocker.patch("metadata_fetcher.fetch_metadata", side_effect=_fake_fetch)
+    mocker.patch.object(KavitaAPI, "get_cached_library_id", return_value=1)
+    mocker.patch("services.manual_review.begin_streaming_review", return_value="review-1")
+    mocker.patch(
+        "services.manual_review.append_streaming_candidate",
+        side_effect=lambda *a, **k: appended.append(True),
+    )
+    mocker.patch(
+        "services.manual_review.finalize_streaming_review",
+        side_effect=lambda *a, **k: finalized.append(True),
+    )
+    mocker.patch("db_manager.delete_pending_by_series", side_effect=lambda sid: deleted.append(sid))
+
+    try:
+        ok, msg, used = enrichment_engine.enrich_series(51, "One Piece", force_update=True)
+        assert ok is True
+        assert msg == "PENDING_REVIEW"
+        assert appended == []
+        assert finalized == []
+        assert deleted == []
+    finally:
+        enrichment_engine._review_scrape_epoch.pop(51, None)
 
 
 def test_save_series_override_can_keep_pending(isolated_db):

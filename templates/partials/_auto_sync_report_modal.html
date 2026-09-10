@@ -1,0 +1,27 @@
+{# Rapport de la dernière vague Auto-sync (C97) — pas le lot du tableau de bord. #}
+<div id="autoSyncReportModal" class="modal-overlay asr-overlay" style="display:none;"
+     role="dialog" aria-modal="true" aria-labelledby="asrModalTitle" aria-hidden="true"
+     onclick="if(event.target===this) closeAutoSyncReportModal()">
+    <div class="modal-content modal-shell modal-large asr-modal" role="document">
+        <div class="modal-header asr-header">
+            <div class="asr-header-copy">
+                <p class="asr-kicker" id="asrKicker">{{ t.asr_kicker }}</p>
+                <h3 class="m-0" id="asrModalTitle">
+                    <svg class="mk-ico" aria-hidden="true"><use href="#mk-ico-pulse"></use></svg>
+                    <span class="asr-title-text">{{ t.asr_title }}</span>
+                </h3>
+            </div>
+            <button type="button" class="close-btn" onclick="closeAutoSyncReportModal()" aria-label="{{ t.asr_close }}">&times;</button>
+        </div>
+        <div class="modal-scroll-body asr-body" id="asrModalBody">
+            <p class="asr-flavor" id="asrFlavor">{{ t.asr_empty }}</p>
+            <p class="asr-trigger" id="asrTrigger" hidden></p>
+            <div class="asr-tiles" id="asrTiles" hidden></div>
+            <div class="asr-list" id="asrList"></div>
+        </div>
+        <div class="modal-footer asr-footer">
+            <button type="button" class="btn-secondary asr-secondary-btn" onclick="closeAutoSyncReportModal()">{{ t.asr_close }}</button>
+            <button type="button" class="btn-sync asr-close-btn" id="asrShowInListBtn" onclick="applyAutoSyncListFilter()" hidden>{{ t.asr_show_in_list }}</button>
+        </div>
+    </div>
+</div>

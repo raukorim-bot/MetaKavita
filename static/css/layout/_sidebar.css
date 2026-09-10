@@ -1,0 +1,1023 @@
+/* ================================================================
+   MetaKavita CSS — _sidebar.css
+   Sidebar : options de scraping, interrupteurs, accordéons, widget statistiques
+   Extrait automatiquement depuis style.css
+   ================================================================ */
+
+/* ===== Options de Scraping (refonte Linear / Vercel) ===== */
+.scraping-options-card {
+    --so-border: color-mix(in srgb, var(--border-color) 85%, transparent);
+    --so-hover: color-mix(in srgb, #fff 5%, transparent);
+    --so-track: color-mix(in srgb, var(--border-color) 70%, #0f172a);
+    --so-on: #14b8a6;
+    border: 1px solid var(--so-border);
+    background: color-mix(in srgb, var(--bg-card) 92%, #0b1220);
+    overflow: visible;
+}
+[data-theme="light"] .scraping-options-card {
+    --so-hover: color-mix(in srgb, #0f172a 4%, transparent);
+    --so-track: #e2e8f0;
+    --so-on: #0d9488;
+}
+
+.scraping-options-details {
+    --accent: var(--teal);
+    --accent-hover: #2dd4bf;
+}
+
+.scraping-options-summary.section-title {
+    font-size: 0.9rem;
+    font-weight: 650;
+    letter-spacing: -0.02em;
+    text-transform: none;
+    color: var(--text-main);
+    margin: 0;
+    padding: 2px 0 10px;
+    border-bottom: 1px solid var(--so-border);
+    cursor: pointer;
+    list-style: none;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.scraping-options-details[open] > .scraping-options-summary.section-title {
+    margin-bottom: 10px;
+}
+.scraping-options-summary-label {
+    flex: 1;
+    min-width: 0;
+}
+.scraping-options-summary::-webkit-details-marker,
+.so-cat-summary::-webkit-details-marker {
+    display: none;
+}
+
+.so-chevron {
+    flex: 0 0 auto;
+    width: 14px;
+    height: 14px;
+    position: relative;
+    color: var(--text-muted);
+}
+.so-chevron::before {
+    content: "";
+    position: absolute;
+    inset: 3px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    transition: transform 0.22s ease;
+}
+.scraping-options-details[open] > .scraping-options-summary > .so-chevron::before,
+.so-cat[open] > .so-cat-summary > .so-chevron::before {
+    transform: rotate(45deg);
+}
+
+.scraping-opt-help-btn {
+    flex: 0 0 auto;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 999px;
+    border: 1px solid var(--so-border);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 11px;
+    font-weight: 650;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.scraping-opt-help-btn:hover {
+    background: var(--so-hover);
+    color: var(--text-main);
+    border-color: color-mix(in srgb, var(--teal) 40%, var(--border-color));
+}
+
+/* Ouverture : comportement natif <details> (fiable). Chevron animé ci-dessus.
+   Transition douce via ::details-content quand le moteur le supporte.
+   html.mk-boot coupe cette transition au premier paint : l'accordéon Options
+   n'a pas l'attribut open dans un vieux HTML, et même ouvert dès le gabarit
+   Chrome interpolait block-size 0 → auto. */
+@supports (selector(::details-content)) {
+    .scraping-options-details,
+    .so-cat {
+        interpolate-size: allow-keywords;
+    }
+    .scraping-options-details::details-content,
+    .so-cat::details-content {
+        overflow: hidden;
+        transition:
+            block-size 0.28s ease,
+            content-visibility 0.28s allow-discrete;
+    }
+    .scraping-options-details:not([open])::details-content,
+    .so-cat:not([open])::details-content {
+        block-size: 0;
+    }
+}
+html.mk-boot .scraping-options-details::details-content,
+html.mk-boot .so-cat::details-content {
+    transition: none;
+}
+html.mk-boot .so-chevron::before {
+    transition: none;
+}
+
+.scraping-options-body > .so-anim-inner {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 2px;
+}
+
+.so-cat {
+    border: 1px solid var(--so-border);
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--bg-input) 55%, transparent);
+}
+.so-cat-summary {
+    list-style: none;
+    cursor: pointer;
+    user-select: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    transition: background 0.15s ease;
+}
+.so-cat-summary:hover {
+    background: var(--so-hover);
+}
+.so-cat-title {
+    font-size: 0.72rem;
+    font-weight: 650;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.so-cat-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 8px 10px;
+}
+
+.so-switch {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 0;
+    padding: 8px 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    font-weight: 500;
+    color: var(--text-main);
+    transition: background 0.15s ease;
+}
+.so-switch:hover {
+    background: var(--so-hover);
+}
+.so-switch input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+    height: 1px;
+    pointer-events: none;
+}
+.so-switch-track {
+    position: relative;
+    flex: 0 0 auto;
+    width: 36px;
+    height: 20px;
+    border-radius: 999px;
+    background: var(--so-track);
+    border: 1px solid color-mix(in srgb, var(--border-color) 80%, transparent);
+    transition: background 0.2s ease, border-color 0.2s ease;
+}
+.so-switch-thumb {
+    position: absolute;
+    top: 1px;
+    left: 1px;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+    transition: transform 0.2s ease;
+}
+.so-switch input:checked + .so-switch-track {
+    background: var(--so-on);
+    border-color: color-mix(in srgb, var(--so-on) 70%, transparent);
+}
+.so-switch input:checked + .so-switch-track .so-switch-thumb {
+    transform: translateX(16px);
+}
+.so-switch input:focus-visible + .so-switch-track {
+    outline: 2px solid color-mix(in srgb, var(--so-on) 55%, transparent);
+    outline-offset: 2px;
+}
+.so-switch-text {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    line-height: 1.35;
+    transition: color 0.15s ease, opacity 0.15s ease;
+}
+.so-switch-text strong {
+    font-weight: 650;
+}
+.so-switch-icon {
+    flex: 0 0 auto;
+    font-size: 14px;
+    line-height: 1;
+    width: 1.15em;
+    text-align: center;
+    transition: filter 0.15s ease, opacity 0.15s ease;
+}
+.so-icon--clover {
+    filter: sepia(0.85) saturate(4.5) hue-rotate(5deg) brightness(1.15);
+    text-shadow: 0 0 8px color-mix(in srgb, #fbbf24 45%, transparent);
+}
+
+/* Option désactivée → grisée */
+.so-switch:not(:has(input:checked)) {
+    opacity: 0.55;
+}
+.so-switch:not(:has(input:checked)) .so-switch-text,
+.so-switch:not(:has(input:checked)) .so-switch-text strong {
+    color: var(--text-muted) !important;
+    font-weight: 500;
+}
+.so-switch:not(:has(input:checked)) .so-switch-icon {
+    filter: grayscale(0.85) brightness(0.85);
+    opacity: 0.7;
+    text-shadow: none;
+}
+.so-nagware:not(:has(input:checked)) {
+    opacity: 0.65;
+    border-color: var(--so-border);
+    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+    box-shadow: none;
+}
+.so-alert:not(:has(input:checked)) .so-alert-text {
+    opacity: 0.65;
+}
+
+/* Smart Scoring / Smart Completion — violet du pulse */
+.so-switch--smart:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, var(--violet) 72%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--smart:has(input:checked):hover {
+    background: color-mix(in srgb, var(--violet) 10%, transparent);
+}
+.so-switch--smart input:checked + .so-switch-track {
+    background: var(--violet);
+    border-color: color-mix(in srgb, var(--violet) 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--violet) 25%, transparent),
+                0 0 12px color-mix(in srgb, var(--violet) 28%, transparent);
+}
+.so-switch--smart input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, var(--violet) 55%, transparent);
+}
+
+/* Éditer avant confirmation — bleu quand actif */
+.so-switch--edit:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, var(--sky) 75%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--edit:has(input:checked):hover {
+    background: color-mix(in srgb, var(--sky) 10%, transparent);
+}
+.so-switch--edit input:checked + .so-switch-track {
+    background: var(--primary);
+    border-color: color-mix(in srgb, var(--primary) 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sky) 30%, transparent),
+                0 0 12px color-mix(in srgb, var(--sky) 28%, transparent);
+}
+.so-switch--edit input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, var(--sky) 55%, transparent);
+}
+
+/* Manual Review — même rose que le KPI topbar (#f472b6) */
+.so-switch--review:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, #f472b6 78%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--review:has(input:checked):hover {
+    background: color-mix(in srgb, #f472b6 10%, transparent);
+}
+.so-switch--review input:checked + .so-switch-track {
+    background: #f472b6;
+    border-color: color-mix(in srgb, #f472b6 70%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, #f472b6 25%, transparent),
+                0 0 12px color-mix(in srgb, #f472b6 28%, transparent);
+}
+.so-switch--review input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, #f472b6 55%, transparent);
+}
+
+/* Choix de couverture MR — teal */
+.so-switch--cover:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, var(--teal) 75%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--cover:has(input:checked):hover {
+    background: color-mix(in srgb, var(--teal) 10%, transparent);
+}
+.so-switch--cover input:checked + .so-switch-track {
+    background: var(--teal);
+    border-color: color-mix(in srgb, var(--teal) 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--teal) 25%, transparent),
+                0 0 12px color-mix(in srgb, var(--teal) 28%, transparent);
+}
+.so-switch--cover input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, var(--teal) 55%, transparent);
+}
+.so-switch--cover.is-disabled-by-mr,
+.so-switch--cover:has(input:disabled),
+.so-switch.is-disabled-by-mr {
+    opacity: 0.45;
+    pointer-events: none;
+}
+
+/* Super Manual Review — golden */
+.so-switch--golden:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, #fbbf24 78%, var(--text-main));
+    font-weight: 650;
+}
+.so-switch--golden input:checked + .so-switch-track {
+    background: linear-gradient(135deg, #d97706 0%, #fbbf24 55%, #f59e0b 100%);
+    border-color: color-mix(in srgb, #fbbf24 70%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, #fbbf24 20%, transparent),
+                0 0 14px color-mix(in srgb, #f59e0b 30%, transparent);
+}
+.so-switch--golden input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, #fbbf24 55%, transparent);
+}
+
+/* Forcer la mise à jour — rouge (paramètre sensible) */
+.so-switch--danger:has(input:checked) .so-switch-text,
+.so-switch--danger:has(input:checked) .so-switch-text strong {
+    color: color-mix(in srgb, #ef4444 88%, var(--text-main));
+}
+.so-switch--danger input:checked + .so-switch-track {
+    background: #ef4444;
+    border-color: color-mix(in srgb, #ef4444 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, #ef4444 28%, transparent),
+                0 0 14px color-mix(in srgb, #ef4444 32%, transparent);
+}
+.so-switch--danger input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, #ef4444 55%, transparent);
+}
+
+/* Inventaire — bleu ciel : la fonctionnalité ne fait que lire */
+.so-switch--inventory:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, var(--sky) 75%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--inventory:has(input:checked):hover {
+    background: color-mix(in srgb, var(--sky) 10%, transparent);
+}
+.so-switch--inventory input:checked + .so-switch-track {
+    background: var(--sky);
+    border-color: color-mix(in srgb, var(--sky) 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--sky) 25%, transparent),
+                0 0 12px color-mix(in srgb, var(--sky) 28%, transparent);
+}
+.so-switch--inventory input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, var(--sky) 55%, transparent);
+}
+
+/* Tomes — vert : une famille, une couleur. Le maître et ses dépendants la
+   partagent pour qu'on lise un ensemble et non quatre réglages sans lien. */
+.so-switch--volumes:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, var(--success) 78%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--volumes:has(input:checked):hover {
+    background: color-mix(in srgb, var(--success) 10%, transparent);
+}
+.so-switch--volumes input:checked + .so-switch-track {
+    background: var(--success);
+    border-color: color-mix(in srgb, var(--success) 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 25%, transparent),
+                0 0 12px color-mix(in srgb, var(--success) 28%, transparent);
+}
+.so-switch--volumes input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, var(--success) 55%, transparent);
+}
+
+/* Expérimental — ambre : ni sûr comme le vert, ni destructeur comme le rouge.
+   La recherche par titre et numéro n'a aucun identifiant pour se vérifier. */
+.so-switch--lab:has(input:checked) .so-switch-text {
+    color: color-mix(in srgb, var(--warning) 82%, var(--text-main));
+    font-weight: 600;
+}
+.so-switch--lab:has(input:checked):hover {
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+}
+.so-switch--lab input:checked + .so-switch-track {
+    background: var(--warning);
+    border-color: color-mix(in srgb, var(--warning) 75%, transparent);
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--warning) 25%, transparent),
+                0 0 12px color-mix(in srgb, var(--warning) 28%, transparent);
+}
+.so-switch--lab input:focus-visible + .so-switch-track {
+    outline-color: color-mix(in srgb, var(--warning) 55%, transparent);
+}
+
+/* Étiquette « expérimental », même ambre que l'interrupteur ci-dessus. Portée
+   par l'Inventaire et l'enrichissement par tome dans les trois endroits où ils
+   sont nommés — barre latérale, barre d'outils, aide — parce qu'un avertissement
+   qui ne figure qu'à un seul de ces endroits ne prévient que ceux qui y passent. */
+.lab-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    margin-left: 6px;
+    padding: 1px 7px;
+    border: 1px solid color-mix(in srgb, var(--warning) 45%, transparent);
+    border-radius: 999px;
+    background: color-mix(in srgb, var(--warning) 14%, transparent);
+    color: color-mix(in srgb, var(--warning) 80%, var(--text-main));
+    font-size: 0.62rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    vertical-align: middle;
+    cursor: help;
+}
+/* Dans la barre latérale, le titre et l'étiquette sont deux enfants d'une flex :
+   l'écart vient déjà du `gap` du conteneur. */
+.so-cat-summary .lab-tag,
+.hygiene-head .lab-tag {
+    margin-left: 0;
+}
+
+.so-btn {
+    transition: transform 0.15s ease, filter 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+}
+.so-btn:hover {
+    filter: brightness(1.08);
+    transform: translateY(-1px);
+}
+.so-btn:active {
+    transform: translateY(0);
+}
+.so-btn-providers {
+    padding: 9px 12px;
+    font-size: 12.5px;
+    margin: 2px 0 6px;
+    border-radius: 8px;
+}
+/* Une liste déroulante dans un panneau de la barre latérale : le `.form-group`
+   global vise les formulaires larges et pose 15 px sous chaque champ, ce qui
+   décroche le libellé de son indice dans une colonne à 2 px d'interligne. */
+.so-cat-select {
+    margin: 6px 0 2px;
+    padding-left: 6px;
+}
+.so-cat-select label {
+    margin-bottom: 4px;
+    font-size: 11px;
+    font-weight: 650;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.so-cat-select select {
+    padding: 7px 8px;
+    font-size: 12.5px;
+    transition: border-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
+}
+/* Un choix qui n'est pas le choix par défaut se voit. Sans cela, « la cascade
+   décide » et « seul ComicVine répond » — deux comportements très différents —
+   se ressemblaient trait pour trait dans une liste refermée. */
+.so-cat-select select:not(:has(option[value="AUTO"]:checked)) {
+    border-color: color-mix(in srgb, var(--success) 60%, var(--border-color));
+    box-shadow: 0 0 0 1px color-mix(in srgb, var(--success) 18%, transparent);
+    color: color-mix(in srgb, var(--success) 72%, var(--text-main));
+    font-weight: 600;
+}
+.so-btn-purge {
+    align-self: flex-start;
+    font-size: 11.5px;
+    padding: 6px 10px;
+    margin: 6px 0 2px 8px;
+    border-radius: 8px;
+}
+.so-btn-export {
+    font-size: 13px;
+    padding: 10px;
+    border-radius: 8px;
+}
+.scraping-export-errors {
+    margin: 8px 0 10px;
+}
+
+.so-nagware {
+    margin: 4px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--so-border);
+    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+}
+.so-nagware--golden {
+    border-color: color-mix(in srgb, #fbbf24 42%, var(--border-color));
+    background:
+        linear-gradient(
+            135deg,
+            color-mix(in srgb, #f59e0b 12%, transparent),
+            color-mix(in srgb, #fbbf24 6%, transparent) 55%,
+            transparent
+        );
+    box-shadow: inset 0 0 0 1px color-mix(in srgb, #fbbf24 8%, transparent);
+}
+/* Doit venir APRÈS --golden : sinon le dégradé or écrase le grisage.
+   pointer-events: none UNIQUEMENT si MR est off (disabled) — pas quand
+   Super est simplement décoché (sinon on ne peut plus la recocher). */
+.so-nagware--golden:not(:has(input:checked)) {
+    border-color: var(--so-border);
+    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+    box-shadow: none;
+}
+.so-nagware--golden.is-disabled-by-mr,
+.so-nagware--golden:has(input:disabled) {
+    opacity: 0.45;
+    pointer-events: none;
+    border-color: var(--so-border);
+    background: color-mix(in srgb, var(--bg-card) 70%, transparent);
+    box-shadow: none;
+}
+.so-nagware .so-switch {
+    padding: 4px 0;
+}
+.so-nagware .so-switch:hover {
+    background: transparent;
+}
+.so-nagware--golden .so-switch:hover {
+    background: color-mix(in srgb, #fbbf24 8%, transparent);
+    border-radius: 8px;
+}
+.so-nagware-note {
+    display: none;
+    margin: 6px 0 2px;
+    padding: 0 2px 0 46px;
+}
+.so-nagware--golden:has(input:checked) .so-nagware-note {
+    display: block;
+}
+.so-nagware-desc {
+    margin: 0 0 8px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+.so-license-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    margin: 0;
+    padding: 7px 11px;
+    border-radius: 8px;
+    text-decoration: none;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    color: #111;
+    background: linear-gradient(135deg, #fbbf24 0%, #f59e0b 55%, #d97706 100%);
+    border: 1px solid color-mix(in srgb, #fbbf24 55%, transparent);
+    box-shadow:
+        0 1px 0 color-mix(in srgb, #fff 25%, transparent) inset,
+        0 4px 14px color-mix(in srgb, #f59e0b 28%, transparent);
+    transition: filter 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.so-license-cta:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+    box-shadow:
+        0 1px 0 color-mix(in srgb, #fff 25%, transparent) inset,
+        0 6px 18px color-mix(in srgb, #f59e0b 38%, transparent);
+}
+.so-license-cta:active {
+    transform: translateY(0);
+    filter: brightness(0.98);
+}
+.so-license-cta-icon {
+    font-size: 14px;
+    line-height: 1;
+}
+.so-license-cta-label {
+    line-height: 1.2;
+}
+
+.so-alert {
+    margin: 4px 0;
+    padding: 8px 10px;
+    border-radius: 8px;
+}
+.so-alert-warn {
+    border: 1px solid color-mix(in srgb, #ef4444 42%, var(--border-color));
+    background: color-mix(in srgb, #ef4444 12%, transparent);
+}
+.so-alert .so-switch {
+    padding: 4px 0;
+}
+.so-alert .so-switch:hover {
+    background: transparent;
+}
+.so-alert-text {
+    margin: 4px 0 2px;
+    padding: 0 2px 0 46px;
+    font-size: 10.5px;
+    line-height: 1.4;
+    color: color-mix(in srgb, #f87171 75%, var(--text-muted));
+}
+
+/* Indice sous un interrupteur. La classe existait dans les gabarits sans aucune
+   règle : ces paragraphes s'affichaient à la taille du texte courant, dans une
+   colonne réglée à 2 px d'interligne, et pesaient donc plus lourd que les
+   interrupteurs qu'ils expliquent. Même traitement que `.so-alert-text` et
+   `.so-nagware-desc` : petit, discret, aligné sous le libellé. */
+.so-hint {
+    margin: 2px 0 8px;
+    padding: 0 2px 0 46px;
+    font-size: 10.5px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+.so-hint:last-child {
+    margin-bottom: 2px;
+}
+
+/* Bloc dépendant d'un interrupteur maître. Grisé et rendu inerte tant que le
+   maître est éteint, puisque ce qu'il contient ne commande alors rien — la
+   même idée que `is-disabled-by-mr`, mais tenue par le CSS seul : un `{% if %}`
+   côté serveur n'apparaît qu'au rechargement suivant, et la barre latérale
+   enregistre sans recharger. Le sélecteur nomme l'interrupteur : c'est le prix
+   d'un état qui traverse le DOM sans JavaScript. */
+.so-sub {
+    margin: 2px 0 4px;
+    padding: 4px 8px 6px;
+    border-left: 2px solid color-mix(in srgb, var(--success) 45%, var(--border-color));
+    border-radius: 0 8px 8px 0;
+    background: color-mix(in srgb, var(--success) 6%, transparent);
+    transition: opacity 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.so-sub > .so-hint {
+    padding-left: 40px;
+}
+.so-cat-panel:not(:has(#sidebar_volume_enrichment:checked)) .so-sub--volumes {
+    opacity: 0.5;
+    pointer-events: none;
+    border-left-color: var(--so-border);
+    background: transparent;
+}
+/* Un interrupteur décoché est déjà grisé à 0.55. Dans un bloc lui-même grisé,
+   les deux opacités se multiplient et le libellé tombe sous 0.3 : illisible. Le
+   bloc porte alors seul l'état — même correctif pour le bloc doré, qui souffrait
+   du même cumul quand la relecture manuelle est éteinte. */
+.so-cat-panel:not(:has(#sidebar_volume_enrichment:checked)) .so-sub--volumes .so-switch:not(:has(input:checked)),
+.so-nagware--golden.is-disabled-by-mr .so-switch:not(:has(input:checked)),
+.so-nagware--golden:has(input:disabled) .so-switch:not(:has(input:checked)) {
+    opacity: 1;
+}
+/* La note ne s'affiche que dans cet état : elle dit pourquoi le bloc est inerte,
+   et n'a plus rien à dire dès que le maître est allumé. */
+.so-sub-note {
+    display: none;
+    margin: 2px 0 6px;
+    padding: 0 2px 0 6px;
+    font-size: 10.5px;
+    font-style: italic;
+    line-height: 1.4;
+    color: var(--text-muted);
+}
+.so-cat-panel:not(:has(#sidebar_volume_enrichment:checked)) .so-sub--volumes .so-sub-note {
+    display: block;
+}
+
+/* Réglage sensible qui vit dans une autre catégorie que son maître : masqué tant
+   que l'enrichissement par tome est éteint, révélé dès qu'il est coché — sans
+   rechargement. La condition est portée par `.scraping-options-body`, le seul
+   ancêtre commun aux deux catégories : `.so-anim-inner` ne conviendrait pas,
+   puisque la classe habille aussi chaque panneau de catégorie — celui de
+   l'écriture ne contient pas le maître et masquerait donc le réglage pour
+   toujours. */
+.scraping-options-body:not(:has(#sidebar_volume_enrichment:checked)) .so-needs-volumes {
+    display: none;
+}
+
+.so-threshold {
+    margin-top: 2px;
+}
+.so-batch-fields {
+    margin: 6px 4px 2px;
+}
+.so-batch-fields > summary {
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text-muted);
+    font-weight: 550;
+    padding: 6px 8px;
+    border-radius: 6px;
+    list-style: none;
+    transition: background 0.15s ease, color 0.15s ease;
+}
+.so-batch-fields > summary:hover {
+    background: var(--so-hover);
+    color: var(--text-main);
+}
+.so-batch-fields > summary::-webkit-details-marker { display: none; }
+.so-batch-fields > summary::before {
+    content: "";
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin-right: 8px;
+    border-right: 1.5px solid currentColor;
+    border-bottom: 1.5px solid currentColor;
+    transform: rotate(-45deg);
+    vertical-align: 1px;
+    transition: transform 0.2s ease;
+}
+.so-batch-fields[open] > summary::before {
+    transform: rotate(45deg);
+}
+
+.batch-fields-actions {
+    display: flex;
+    gap: 6px;
+    margin: 8px 0;
+}
+.batch-fields-actions .btn-secondary {
+    font-size: 11px;
+    padding: 4px 8px;
+    border-radius: 6px;
+}
+.batch-fields-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+    gap: 8px;
+    padding: 10px;
+    background: color-mix(in srgb, var(--bg-card) 80%, transparent);
+    border-radius: 8px;
+    border: 1px solid var(--so-border);
+}
+.batch-fields-grid .checkbox-label {
+    font-size: 11px;
+}
+
+.reliability-barometer {
+    margin-top: 2px;
+}
+.match-threshold-slider-wrap {
+    margin: 4px 8px 6px 46px;
+}
+.match-threshold-slider-wrap.is-hidden {
+    display: none;
+}
+.match-threshold-scale,
+.match-threshold-labels {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    font-size: 10px;
+    color: var(--text-muted);
+}
+.match-threshold-scale {
+    margin-bottom: 6px;
+}
+.match-threshold-scale strong {
+    font-size: 12px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-main);
+}
+.match-threshold-labels {
+    font-size: 9px;
+    margin-top: 4px;
+}
+.match-threshold-loose { color: #f87171; }
+.match-threshold-mid { color: #4ade80; }
+.match-threshold-strict { color: #60a5fa; }
+
+.reliability-slider {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 4px;
+    border-radius: 999px;
+    outline: none;
+    cursor: pointer;
+    background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
+}
+.reliability-slider:disabled { cursor: not-allowed; }
+.reliability-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid color-mix(in srgb, var(--teal) 70%, #64748b);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+    cursor: pointer;
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.reliability-slider::-webkit-slider-thumb:hover {
+    transform: scale(1.08);
+}
+.reliability-slider:disabled::-webkit-slider-thumb { cursor: not-allowed; opacity: 0.7; }
+.reliability-slider::-moz-range-thumb {
+    width: 16px;
+    height: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: 2px solid color-mix(in srgb, var(--teal) 70%, #64748b);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.28);
+    cursor: pointer;
+}
+.reliability-slider:disabled::-moz-range-thumb { cursor: not-allowed; opacity: 0.7; }
+.reliability-slider::-moz-range-track {
+    height: 4px;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #ef4444 0%, #22c55e 42.9%, #3b82f6 100%);
+}
+
+.scraping-help-modal .scraping-help-body {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+}
+.scraping-help-section-title {
+    margin: 0 0 8px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+}
+.scraping-help-item {
+    margin: 0 0 10px;
+}
+.scraping-help-item:last-child {
+    margin-bottom: 0;
+}
+.scraping-help-item h5 {
+    margin: 0 0 4px;
+    font-size: 13px;
+    font-weight: 650;
+    color: var(--text-main);
+}
+.scraping-help-item p {
+    margin: 0;
+    font-size: 12px;
+    line-height: 1.45;
+    color: var(--text-muted);
+}
+
+.section-title {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-color);
+    padding-bottom: 8px;
+}
+
+/* ===== Encart statistiques (sidebar) =====
+   Chaque état porte sa couleur dans `--seg`, partagé par la pastille de la
+   légende, son segment de barre et sa teinte au survol. */
+.sidebar-stats-card {
+    --stat-review: #f472b6;
+}
+
+.stats-head {
+    display: flex;
+    align-items: baseline;
+    gap: 7px;
+    margin-bottom: 10px;
+}
+
+.stats-total {
+    font-family: var(--font-display);
+    font-size: 1.6rem;
+    font-weight: 800;
+    line-height: 1;
+    letter-spacing: -0.03em;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-main);
+}
+
+.stats-total-label {
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.stats-bar {
+    display: flex;
+    gap: 2px;
+    height: 8px;
+    border-radius: 999px;
+    background: var(--bg-input);
+    box-shadow: inset 0 0 0 1px var(--border-color);
+    overflow: hidden;
+}
+
+/* Un état minoritaire reste visible : 1 série sur 1300 vaut 0.08% de large. */
+.stats-bar-seg {
+    min-width: 3px;
+    border-radius: 999px;
+    background: var(--seg);
+}
+
+.stats-legend {
+    display: grid;
+    gap: 2px;
+    margin: 10px 0 12px;
+}
+
+.stats-legend-row {
+    display: grid;
+    grid-template-columns: 8px 1fr auto 34px;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 5px 7px;
+    border: 0;
+    border-radius: var(--radius-sm);
+    background: transparent;
+    font-family: inherit;
+    font-size: 0.78rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background-color 0.15s ease;
+}
+
+.stats-legend-row:hover,
+.stats-legend-row:focus-visible {
+    background: color-mix(in srgb, var(--seg) 14%, transparent);
+}
+
+.stats-legend-row:focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--seg) 55%, transparent);
+    outline-offset: 1px;
+}
+
+.stats-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--seg);
+}
+
+.stats-legend-label {
+    color: var(--text-muted);
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.stats-legend-val {
+    color: var(--text-main);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+}
+
+.stats-legend-pct {
+    color: var(--text-muted);
+    font-size: 0.68rem;
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+}
+
+.stats-legend-row.is-zero {
+    opacity: 0.45;
+}
+
+.stats-legend-row.is-zero .stats-legend-val {
+    font-weight: 600;
+}
+
+.btn-open-stats {
+    font-size: 12px !important;
+    padding: 7px !important;
+    border-radius: var(--radius-sm) !important;
+    background: color-mix(in srgb, var(--accent) 18%, var(--bg-input)) !important;
+    color: var(--accent) !important;
+    border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+}
+
+.btn-open-stats:hover {
+    background: color-mix(in srgb, var(--accent) 28%, var(--bg-input)) !important;
+}
+
