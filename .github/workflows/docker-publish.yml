@@ -56,12 +56,20 @@ jobs:
       # Tags :
       #   push sur main → :latest (+ :main)
       #   push sur dev  → :dev seulement (ne touche PAS à :latest)
-      #   tag git 1.7.2 ou v1.7.2 → :1.7.2 (+ :1.7 + :1)
+      #   tag git 1.7.2 ou v1.7.2 → :1.7.2 (+ :1.7 + :1), jamais :latest
       - name: Docker meta (tags)
         id: meta
         uses: docker/metadata-action@v5
         with:
           images: ghcr.io/raukorim-bot/metakavita
+          # `latest=auto` est le défaut de metadata-action : sur un tag semver
+          # il ajoute `latest` de lui-même, en plus des entrées ci-dessous — le
+          # `enable=` de la ligne `type=raw,value=latest` ne l'en empêche pas.
+          # Rejouer les tags 1.6.1 → 1.7.1 a ainsi fait pointer `latest` sur
+          # 1.7.1 alors que la production était en 1.7.2. `latest` ne suit que
+          # `main`, et c'est la ligne explicite qui le décide, elle seule.
+          flavor: |
+            latest=false
           tags: |
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=main,enable=${{ github.ref == 'refs/heads/main' }}
