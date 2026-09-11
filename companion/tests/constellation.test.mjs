@@ -66,52 +66,75 @@ function positions(shadow) {
 const hypot = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const angle = (p) => (Math.atan2(-p.y, p.x) * 180) / Math.PI;
 
-test("aucun bouton n'en chevauche un autre", async () => {
-  const { shadow } = await mount();
-  shadow.getElementById("btnLogo").dispatchEvent({ type: "click" });
-  await new Promise((r) => setTimeout(r, 5));
+// ⚠️ Les deux modes, systématiquement. Ces contrôles ne tournaient qu'en
+// expert, où la contrainte d'écart entre couronnes domine et masque tout. Le
+// mode simplifié, lui, posait trois disques de 38 px avec 34,8 px entre leurs
+// centres — 3,2 px de chevauchement, visibles à l'œil et invisibles ici.
+for (const uiMode of ["simple", "expert"]) {
+  test(`aucun bouton n'en chevauche un autre (${uiMode})`, async () => {
+    const { shadow } = await mount({ uiMode });
+    shadow.getElementById("btnLogo").dispatchEvent({ type: "click" });
+    await new Promise((r) => setTimeout(r, 5));
 
-  const all = positions(shadow);
-  assert.equal(all.length, 7, "quatre actions plus trois raccourcis");
+    const all = positions(shadow);
+    assert.equal(all.length, uiMode === "expert" ? 7 : 5);
 
-  for (let i = 0; i < all.length; i += 1) {
-    for (let j = i + 1; j < all.length; j += 1) {
-      const need = all[i].diameter / 2 + all[j].diameter / 2;
-      const got = hypot(all[i], all[j]);
-      assert.ok(got >= need, `${all[i].id} et ${all[j].id} se chevauchent (${got.toFixed(1)} < ${need})`);
+    for (let i = 0; i < all.length; i += 1) {
+      for (let j = i + 1; j < all.length; j += 1) {
+        const need = all[i].diameter / 2 + all[j].diameter / 2;
+        const got = hypot(all[i], all[j]);
+        assert.ok(
+          got >= need,
+          `${all[i].id} et ${all[j].id} se chevauchent de ${(need - got).toFixed(1)} px`
+        );
+      }
     }
-  }
-});
+  });
 
-test("la couronne extérieure est plus loin, et intercalée", async () => {
-  const { shadow } = await mount();
-  shadow.getElementById("btnLogo").dispatchEvent({ type: "click" });
-  await new Promise((r) => setTimeout(r, 5));
+  test(`le logo reste dégagé (${uiMode})`, async () => {
+    // Le logo fait 56 px : un disque posé trop près le recouvrirait.
+    const { shadow } = await mount({ uiMode });
+    shadow.getElementById("btnLogo").dispatchEvent({ type: "click" });
+    await new Promise((r) => setTimeout(r, 5));
 
-  const all = positions(shadow);
-  const inner = all.filter((p) => p.diameter === INNER_D);
-  const outer = all.filter((p) => p.diameter === OUTER_D);
-  const radius = (p) => Math.hypot(p.x, p.y);
+    for (const p of positions(shadow)) {
+      const need = 28 + p.diameter / 2;
+      const got = Math.hypot(p.x, p.y);
+      assert.ok(got >= need, `${p.id} empiète sur le logo (${got.toFixed(0)} < ${need})`);
+    }
+  });
 
-  const innerMax = Math.max(...inner.map(radius));
-  const outerMin = Math.min(...outer.map(radius));
-  assert.ok(outerMin > innerMax, `couronne extérieure trop proche (${outerMin} ≤ ${innerMax})`);
+  test(`aucun raccourci n'est aligné sur une action (${uiMode})`, async () => {
+    // C'est ce qui rend la figure lisible : deux disques sur le même rayon se
+    // lisent comme un seul objet mal placé.
+    const { shadow } = await mount({ uiMode });
+    shadow.getElementById("btnLogo").dispatchEvent({ type: "click" });
+    await new Promise((r) => setTimeout(r, 5));
 
-  // Chaque item extérieur tombe STRICTEMENT entre deux items intérieurs :
-  // c'est la définition du quinconce, et ce qui rend la figure lisible.
-  const innerAngles = inner.map(angle).sort((a, b) => a - b);
-  for (const p of outer) {
-    const a = angle(p);
-    assert.ok(
-      a > innerAngles[0] && a < innerAngles[innerAngles.length - 1],
-      `un raccourci sort de la fenêtre angulaire (${a.toFixed(1)}°)`
-    );
-    assert.ok(
-      innerAngles.every((ia) => Math.abs(ia - a) > 4),
-      `un raccourci est aligné sur une action (${a.toFixed(1)}°)`
-    );
-  }
-});
+    const all = positions(shadow);
+    const inner = all.filter((p) => p.diameter === INNER_D).map(angle);
+    const outer = all.filter((p) => p.diameter === OUTER_D).map(angle);
+    for (const a of outer) {
+      assert.ok(
+        inner.every((ia) => Math.abs(ia - a) > 4),
+        `un raccourci est aligné sur une action (${a.toFixed(1)}°)`
+      );
+    }
+  });
+
+  test(`la couronne extérieure est bien plus loin (${uiMode})`, async () => {
+    const { shadow } = await mount({ uiMode });
+    shadow.getElementById("btnLogo").dispatchEvent({ type: "click" });
+    await new Promise((r) => setTimeout(r, 5));
+
+    const all = positions(shadow);
+    const radius = (q) => Math.hypot(q.x, q.y);
+    const innerMax = Math.max(...all.filter((q) => q.diameter === INNER_D).map(radius));
+    const outerMin = Math.min(...all.filter((q) => q.diameter === OUTER_D).map(radius));
+
+    assert.ok(outerMin > innerMax, `couronne extérieure trop proche (${outerMin} ≤ ${innerMax})`);
+  });
+}
 
 test("toute la figure s'ouvre vers le haut et vers la gauche", async () => {
   // Le logo est ancré en bas à droite : un bouton à x > 0 ou y > 0 sortirait

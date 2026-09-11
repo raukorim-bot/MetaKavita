@@ -349,19 +349,31 @@
   // centre du logo, lui-même à 48 px du coin. On bascule alors en colonne.
   const CONSTELLATION_MIN_VIEWPORT = 300;
 
-  function ringRadius(count, start, end, diameter) {
+  /** Rayon minimal pour que `count` disques tiennent sur `span` degrés sans se toucher. */
+  function ringRadius(count, span, diameter) {
     if (count <= 1) return 92;
-    const stepRad = (((end - start) / (count - 1)) * Math.PI) / 180;
+    const stepRad = ((span / (count - 1)) * Math.PI) / 180;
     return Math.round((diameter + FAB_GAP) / (2 * Math.sin(stepRad / 2)));
   }
 
   /**
    * Dispose les boutons en constellation : une couronne intérieure d'actions
-   * (46 px) et une couronne extérieure de raccourcis (38 px), en quinconce.
+   * (46 px) et une couronne extérieure de raccourcis (38 px).
    *
-   * Les couronnes VIDES sont écartées avant l'attribution des rayons — c'est
-   * ce qui fait que décocher « Afficher les boutons » laisse simplement la
-   * couronne extérieure prendre la place de l'intérieure, sans cas particulier.
+   * **Chaque couronne reçoit sa propre fenêtre angulaire, dimensionnée à son
+   * propre nombre d'items.** La version précédente imposait à l'extérieure la
+   * fenêtre de l'intérieure et y resserrait ses disques d'un demi-pas pour
+   * obtenir le quinconce — mais le rayon, lui, restait calculé pour le pas
+   * large. En mode simplifié (2 items dedans, 3 dehors) les trois disques
+   * extérieurs se posaient donc à 13,3° d'écart sur un rayon prévu pour 20° :
+   * 3,2 px de chevauchement, visibles à l'œil.
+   *
+   * Le décalage se produit maintenant tout seul, parce que deux couronnes de
+   * tailles différentes ne tombent jamais sur les mêmes angles.
+   *
+   * Les couronnes VIDES sont écartées avant l'attribution des rayons — c'est ce
+   * qui fait que décocher « Afficher les boutons » laisse simplement la couronne
+   * extérieure prendre la place de l'intérieure, sans cas particulier.
    *
    * Sur un petit viewport, bascule en colonne : même DOM, mêmes boutons.
    */
@@ -391,27 +403,27 @@
       return;
     }
 
-    // La fenêtre angulaire est celle de la couronne intérieure : les deux
-    // couronnes la partagent, c'est ce qui rend le quinconce lisible.
-    const [start, end] = ARC_RANGES[Math.min(rings[0].items.length, 5)] || ARC_RANGES[5];
     let radius = 0;
     let previousDiameter = 0;
+    let previousCount = 0;
 
     rings.forEach((ring, ringIndex) => {
       const count = ring.items.length;
-      const own = ringRadius(count, start, end, ring.diameter);
+      const [start, end] = ARC_RANGES[Math.min(count, 5)] || ARC_RANGES[5];
+      const span = end - start;
+      const own = ringRadius(count, span, ring.diameter);
       radius = ringIndex === 0
         ? own
         : Math.max(own, radius + previousDiameter / 2 + ring.diameter / 2 + RING_GAP);
+      // Deux couronnes de même effectif tomberaient sur les mêmes angles : on
+      // décale alors d'un demi-pas pour retrouver le quinconce.
+      const offset = count === previousCount && count > 1 ? 0.5 / (count - 1) : 0;
       previousDiameter = ring.diameter;
+      previousCount = count;
 
       ring.items.forEach((el, i) => {
-        // Intérieure : i/(n-1), des deux extrémités de la fenêtre.
-        // Extérieure : (i+0.5)/n, donc décalée d'un demi-pas — le quinconce.
-        const ratio = ringIndex === 0
-          ? (count === 1 ? 0.5 : i / (count - 1))
-          : (i + 0.5) / count;
-        const rad = ((start + (end - start) * ratio) * Math.PI) / 180;
+        const ratio = count === 1 ? 0.5 : i / (count - 1) + offset;
+        const rad = ((start + span * ratio) * Math.PI) / 180;
         el.style.setProperty("--x", `${Math.round(Math.cos(rad) * radius)}px`);
         el.style.setProperty("--y", `${Math.round(-Math.sin(rad) * radius)}px`);
         // La couronne intérieure éclot la première, l'extérieure suit.
