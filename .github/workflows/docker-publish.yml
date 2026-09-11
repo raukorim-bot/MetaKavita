@@ -86,3 +86,9 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          # Le commit voyage jusque dans l'image, pas seulement dans ses labels :
+          # un label est une métadonnée de registre, illisible depuis l'intérieur
+          # du conteneur. `/healthz` a besoin de la valeur au runtime pour dire ce
+          # qu'il sert réellement, et non la version que le changelog annonce.
+          build-args: |
+            GIT_SHA=${{ github.sha }}

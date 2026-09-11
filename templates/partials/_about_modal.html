@@ -6,7 +6,11 @@
 				<button type="button" class="close-btn" onclick="closeAboutModal()">&times;</button>
 			</div>
 			<div class="modal-scroll-body about-modal-body">
-				<p class="about-version text-muted" style="margin: 0 0 12px;">MetaKavita <strong>v{{ app_version }}</strong></p>
+				{# Le commit ne s'affiche que s'il existe : hors conteneur il est vide,
+				   et un « build local » inventé vaudrait moins que rien. C'est lui qui
+				   dit ce qui tourne vraiment — la version, elle, vient du titre du
+				   changelog, écrit en début de cycle. #}
+				<p class="about-version text-muted" style="margin: 0 0 12px;">MetaKavita <strong>v{{ app_version }}</strong>{% if build_commit_short %} <code class="about-commit" title="{{ t.about_commit_hint }}">{{ build_commit_short }}</code>{% endif %}</p>
 				<p style="margin: 0 0 14px;">{{ t.about_body }}</p>
 				<p class="about-kavita-support" style="margin: 0 0 16px;">{{ t.about_kavita_support }}</p>
 				<div class="about-links" style="display: flex; flex-direction: column; gap: 8px;">

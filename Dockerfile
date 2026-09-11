@@ -20,6 +20,24 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
+# Le commit d'où sort ce code, gravé dans l'image.
+#
+# `/healthz` annonçait jusqu'ici la seule version lue dans CHANGELOG.md. Ce
+# titre est écrit au début d'un cycle, pas à sa fin : une image construite entre
+# les deux annonce une version qui n'est pas encore sortie. Une production a
+# ainsi répondu « 1.7.2 » pendant une semaine en servant du code antérieur, sans
+# que rien dans la réponse ne permette de s'en apercevoir.
+#
+# L'ARG est vide par défaut pour qu'un `docker build` local reste possible sans
+# rien passer : l'absence se lit alors `""` côté application, ce qui est la
+# vérité — ce build ne vient d'aucun commit connu. La CI, elle, alimente
+# `--build-arg GIT_SHA=${{ github.sha }}`.
+#
+# Placé après `COPY . .` à dessein : la valeur change à chaque build, et plus
+# haut elle invaliderait le cache de `pip install` à chaque fois.
+ARG GIT_SHA=""
+ENV METAKAVITA_COMMIT=$GIT_SHA
+
 COPY entrypoint.sh /usr/local/bin/entrypoint.sh
 # Set the bit here rather than relying on the checked-out file mode: a clone made
 # on Windows does not preserve the executable bit, and the build would otherwise

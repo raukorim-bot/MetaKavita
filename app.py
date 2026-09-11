@@ -299,6 +299,7 @@ import sockets.handlers  # noqa: F401
 
 # --- VERSION & CONTEXTE GLOBAL DES TEMPLATES ---
 APP_VERSION = get_current_version()
+from services.build_info import build_commit_short  # noqa: E402
 
 @app.context_processor
 def inject_globals():
@@ -306,6 +307,7 @@ def inject_globals():
     from scrapers import ScraperRegistry
     return {
         'app_version': APP_VERSION,
+        'build_commit_short': build_commit_short(),
         'csrf_token': ensure_csrf_token(),
         'is_authenticated': is_authenticated(),
         'proxy_cover_hosts': ScraperRegistry.get_proxy_cover_hosts(),

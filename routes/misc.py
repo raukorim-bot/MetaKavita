@@ -13,6 +13,7 @@ from flask import Blueprint, request, jsonify, send_file
 
 from scrapers import ScraperRegistry
 from services.changelog_service import get_current_version, get_full_changelog_html
+from services.build_info import build_commit
 from url_allowlist import validate_proxied_image_url, fetch_with_safe_redirects
 from secure_logging import safe_exc_str
 from translations import get_ui_translations
@@ -157,6 +158,7 @@ def get_changelog_api():
     return jsonify({
         "success": True,
         "version": get_current_version(),
+        "commit": build_commit(),
         "changelog": get_full_changelog_html()
     })
 
@@ -190,8 +192,19 @@ def healthz():
     UI title and in `/api/changelog`, so this exposes nothing new; the endpoint
     is nonetheless unauthenticated by design, so nothing that is not already
     public should ever be added to this payload.
+
+    `commit` obeys that rule — the SHA of a public repository is public — and it
+    is what makes the payload trustworthy. The version alone is not: it is read
+    from the first heading of `CHANGELOG.md`, which is written at the *start* of
+    a cycle, so an image built mid-cycle announces the version that is still
+    being prepared. A production server once answered "1.7.2" here while serving
+    code from a week earlier, and nothing in this payload could contradict it.
+    The commit is stamped at build time and cannot drift from the code beside
+    it. It is absent — the key holds `""` — outside a container, which is the
+    honest answer rather than a fabricated one.
     """
     return jsonify({
         "status": "ok",
         "version": get_current_version(),
+        "commit": build_commit(),
     })

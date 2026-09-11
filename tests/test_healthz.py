@@ -56,14 +56,42 @@ def test_healthz_is_json(healthz_client):
     assert healthz_client.get("/healthz").mimetype == "application/json"
 
 
-def test_healthz_does_not_leak_more_than_status_and_version(healthz_client):
+def test_healthz_does_not_leak_more_than_status_version_and_commit(healthz_client):
     """L'endpoint est non authentifié : son payload doit rester minimal.
 
     Garde-fou délibéré contre l'ajout futur d'un détail « utile » (chemin de la
     base, URL Kavita, présence d'une clé d'API…) à une réponse que n'importe qui
     peut interroger sans session.
+
+    `commit` a été admis en 1.7.3, et seulement parce qu'il satisfait le même
+    critère que `version` : le SHA d'un dépôt public ne révèle rien qui ne soit
+    déjà lisible sur GitHub. Il est admis parce que `version` seule mentait —
+    elle vient du titre de `CHANGELOG.md`, écrit en début de cycle, si bien
+    qu'une image construite entre deux sorties annonce une version qui n'est pas
+    encore la sienne. Tout ajout ultérieur doit franchir la même barre : public
+    par nature, et nécessaire pour que la réponse soit vraie.
     """
-    assert set(healthz_client.get("/healthz").get_json()) == {"status", "version"}
+    assert set(healthz_client.get("/healthz").get_json()) == {"status", "version", "commit"}
+
+
+def test_healthz_carries_the_build_commit(healthz_client, monkeypatch):
+    """C'est le champ qui dit ce qui tourne réellement, là où `version` dit ce
+    que le changelog annonce."""
+    monkeypatch.setenv("METAKAVITA_COMMIT", "0123456789abcdef")
+
+    assert healthz_client.get("/healthz").get_json()["commit"] == "0123456789abcdef"
+
+
+def test_healthz_keeps_the_commit_key_even_without_one(healthz_client, monkeypatch):
+    """Hors conteneur la valeur est vide, mais la clé reste : un superviseur qui
+    la lit ne doit pas avoir à distinguer « pas de commit » de « version de
+    MetaKavita trop ancienne pour l'exposer »."""
+    monkeypatch.delenv("METAKAVITA_COMMIT", raising=False)
+
+    payload = healthz_client.get("/healthz").get_json()
+
+    assert "commit" in payload
+    assert payload["commit"] == ""
 
 
 # ---------------------------------------------------------------------------
