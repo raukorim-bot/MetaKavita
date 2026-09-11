@@ -160,3 +160,29 @@ export function applyI18n(root) {
     if (key) node.setAttribute("aria-label", t(key));
   });
 }
+
+/**
+ * Résout `auto` en `fr` | `en` d'après la langue de l'interface du navigateur.
+ * Exporté parce que le content script ne peut pas importer ce module : c'est
+ * le service worker qui résout pour lui.
+ */
+export function resolveUiLang(uiLang) {
+  if (uiLang === "fr" || uiLang === "en") return uiLang;
+  try {
+    const ui = (chrome.i18n && chrome.i18n.getUILanguage && chrome.i18n.getUILanguage()) || "en";
+    return String(ui).toLowerCase().startsWith("fr") ? "fr" : "en";
+  } catch {
+    return "en";
+  }
+}
+
+/**
+ * Table complète d'une langue, servie au content script au montage.
+ *
+ * C'est ce qui remplace la copie que `content/page-ui.js` embarquait : deux
+ * tables à tenir identiques à la main, dont la dérive avait déjà fait afficher
+ * trois clés brutes aux utilisateurs.
+ */
+export function stringsFor(lang) {
+  return { ...(lang === "fr" ? FR : EN) };
+}

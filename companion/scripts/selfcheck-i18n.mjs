@@ -1,14 +1,19 @@
 /**
- * Node self-check for the Companion translation tables.
- * Usage: node companion/scripts/selfcheck-i18n.mjs
+ * Contrôle des tables de traduction du Companion.
+ * Usage : node companion/scripts/selfcheck-i18n.mjs
  *
- * content/page-ui.js is a classic content script: it cannot import
- * lib/i18n.js, so it carries its own copy of FR/EN. That copy silently drifted
- * — three keys it actually calls were never declared, so users read
- * "toastMixedContentWindow" and "coverPreviewFail" as-is. This check keeps the
- * two copies byte-identical and refuses any key used without a translation.
+ * `content/page-ui.js` est un content script classique : il ne peut pas
+ * importer `lib/i18n.js`. Il en portait donc une COPIE des 58 clés, que ce
+ * script maintenait alignée — après qu'elle eut dérivé au point de faire
+ * afficher « toastMixedContentWindow » et « coverPreviewFail » tels quels.
+ *
+ * La copie a disparu : le content script demande la table au service worker
+ * (message `uiBootstrap`). Le contrôle se retourne donc en son inverse — il
+ * n'existe qu'UNE table — ce qui rend la dérive impossible au lieu de la
+ * surveiller. Restent la parité FR/EN et le refus d'une clé sans traduction,
+ * ce dernier étendu à tous les content scripts.
  */
-import { readFileSync } from "fs";
+import { readFileSync, readdirSync } from "fs";
 import { fileURLToPath } from "url";
 import { dirname, join } from "path";
 
@@ -20,7 +25,7 @@ function check(cond, msg) {
   if (!cond) failures.push(msg);
 }
 
-/** Read a `const NAME = { … }` object literal of plain string values. */
+/** Lit un littéral `const NAME = { … }` de valeurs chaînes. */
 function extractTable(src, name, where) {
   const start = src.indexOf(`const ${name} = {`);
   if (start === -1) throw new Error(`${where}: table ${name} introuvable`);
@@ -45,70 +50,54 @@ function extractTable(src, name, where) {
   return table;
 }
 
-const pageUiSrc = read("content/page-ui.js");
 const i18nSrc = read("lib/i18n.js");
+const FR = extractTable(i18nSrc, "FR", "lib/i18n.js");
+const EN = extractTable(i18nSrc, "EN", "lib/i18n.js");
 
-const tables = {
-  "page-ui.js FR": extractTable(pageUiSrc, "FR", "content/page-ui.js"),
-  "page-ui.js EN": extractTable(pageUiSrc, "EN", "content/page-ui.js"),
-  "lib/i18n.js FR": extractTable(i18nSrc, "FR", "lib/i18n.js"),
-  "lib/i18n.js EN": extractTable(i18nSrc, "EN", "lib/i18n.js"),
-};
-
-// 1. FR and EN cover the same keys, in each file.
-for (const [a, b] of [
-  ["page-ui.js FR", "page-ui.js EN"],
-  ["lib/i18n.js FR", "lib/i18n.js EN"],
-]) {
-  for (const key of Object.keys(tables[a])) {
-    check(key in tables[b], `${key} : présent dans ${a}, absent de ${b}`);
-  }
-  for (const key of Object.keys(tables[b])) {
-    check(key in tables[a], `${key} : présent dans ${b}, absent de ${a}`);
-  }
+// 1. FR et EN couvrent les mêmes clés.
+for (const key of Object.keys(FR)) {
+  check(key in EN, `${key} : présent en FR, absent en EN`);
+}
+for (const key of Object.keys(EN)) {
+  check(key in FR, `${key} : présent en EN, absent en FR`);
 }
 
-// 2. The duplicated copy matches the module, key for key and text for text.
-for (const lang of ["FR", "EN"]) {
-  const copy = tables[`page-ui.js ${lang}`];
-  const source = tables[`lib/i18n.js ${lang}`];
-  for (const key of Object.keys(source)) {
+// 2. Il n'existe qu'une table. Une seconde, où qu'elle soit, redeviendrait une
+//    copie à tenir à jour à la main — c'est ce qui avait dérivé.
+const contentFiles = readdirSync(join(ROOT, "content")).filter((f) => f.endsWith(".js"));
+for (const rel of [...contentFiles.map((f) => `content/${f}`), "options.js", "background.js"]) {
+  const src = read(rel);
+  for (const name of ["FR", "EN"]) {
     check(
-      key in copy,
-      `${key} (${lang}) : dans lib/i18n.js, absent de content/page-ui.js`,
-    );
-    if (key in copy) {
-      check(
-        copy[key] === source[key],
-        `${key} (${lang}) : textes divergents\n     page-ui : ${copy[key]}\n     lib     : ${source[key]}`,
-      );
-    }
-  }
-  for (const key of Object.keys(copy)) {
-    check(
-      key in source,
-      `${key} (${lang}) : dans content/page-ui.js, absent de lib/i18n.js`,
+      src.indexOf(`const ${name} = {`) === -1,
+      `${rel} déclare une table ${name} — la table vit dans lib/i18n.js, ` +
+        "servie au content script par le message uiBootstrap",
     );
   }
 }
 
-// 3. Every key actually called has a translation to return.
-const localeKeys = new Set(
-  Object.keys(JSON.parse(read("_locales/en/messages.json"))),
-);
+// 3. Toute clé réellement appelée a une traduction à rendre.
+const localeKeys = new Set(Object.keys(JSON.parse(read("_locales/en/messages.json"))));
 const CALLERS = [
-  { file: "content/page-ui.js", table: tables["page-ui.js FR"], locales: false },
-  { file: "options.js", table: tables["lib/i18n.js FR"], locales: true },
+  // Les content scripts lisent la table servie par le worker (donc lib/i18n.js),
+  // avec repli sur `_locales` quand l'aller-retour vient d'échouer.
+  ...contentFiles.map((f) => ({ file: `content/${f}`, locales: true })),
+  { file: "options.js", locales: true },
 ];
 for (const caller of CALLERS) {
   const src = read(caller.file);
-  const used = new Set(
-    [...src.matchAll(/\bt\("([A-Za-z0-9_]+)"/g)].map((m) => m[1]),
-  );
+  const used = new Set([...src.matchAll(/\bt\("([A-Za-z0-9_]+)"/g)].map((m) => m[1]));
   for (const key of used) {
-    const known = key in caller.table || (caller.locales && localeKeys.has(key));
+    const known = key in FR || (caller.locales && localeKeys.has(key));
     check(known, `${caller.file} appelle t("${key}") sans traduction déclarée`);
   }
+}
+
+// 4. Les clés de secours — celles qu'un content script affiche justement quand
+//    l'aller-retour a échoué — doivent exister dans `_locales`, seul recours
+//    synchrone qui reste à ce moment-là.
+for (const key of ["toastExtensionReloaded", "toastNeedConfig"]) {
+  check(localeKeys.has(key), `${key} manque dans _locales : c'est la clé de secours`);
 }
 
 if (failures.length) {
@@ -116,6 +105,4 @@ if (failures.length) {
   for (const f of failures) console.error(`  - ${f}`);
   process.exit(1);
 }
-console.log(
-  `selfcheck-i18n: ok (${Object.keys(tables["lib/i18n.js FR"]).length} clés, deux copies alignées)`,
-);
+console.log(`selfcheck-i18n: ok (${Object.keys(FR).length} clés, table unique)`);

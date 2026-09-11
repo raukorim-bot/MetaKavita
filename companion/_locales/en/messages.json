@@ -28,5 +28,6 @@
   "toastNeedSeriesPage": { "message": "Open a Kavita series page (/library/…/series/…)" },
   "toastMetaIsNotKavita": { "message": "This is MetaKavita — open your Kavita site, then enable" },
   "toastPermissionDenied": { "message": "Permission denied" },
+  "toastExtensionReloaded": { "message": "Extension reloaded — refresh the Kavita page" },
   "close": { "message": "Close" }
 }

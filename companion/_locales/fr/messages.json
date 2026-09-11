@@ -28,5 +28,6 @@
   "toastNeedSeriesPage": { "message": "Ouvrez une fiche série Kavita (/library/…/series/…)" },
   "toastMetaIsNotKavita": { "message": "Ceci est MetaKavita — ouvrez votre site Kavita puis activez" },
   "toastPermissionDenied": { "message": "Permission refusée" },
+  "toastExtensionReloaded": { "message": "Extension rechargée — rechargez la page Kavita" },
   "close": { "message": "Fermer" }
 }

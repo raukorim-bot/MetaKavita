@@ -29,132 +29,6 @@
     '<path d="M8 7h8a3 3 0 0 1 0 6h-1"/><path d="M7 7v8a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-1"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h.5"/><path d="M7 21h8"/>'
   );
 
-  // Kept byte-for-byte identical to lib/i18n.js: a content script registered
-  // through chrome.scripting is a classic script and cannot import that module,
-  // so the table is duplicated. scripts/selfcheck-i18n.mjs fails the build when
-  // the two copies drift — which is how three keys ended up rendering raw.
-  const FR = {
-    fabSuper: "Super Review",
-    fabAuto: "Auto",
-    fabCover: "Cover",
-    fabConfig: "Config",
-    fabBmc: "M'offrir un café",
-    fabLogo: "Ouvrir le menu MetaKavita",
-    configTitle: "Réglages Companion",
-    configMetaUrl: "URL MetaKavita",
-    configToken: "Jeton webhook",
-    configShowFabs: "Afficher les boutons Super / Auto / Cover",
-    coverTitle: "Choisir une couverture",
-    coverSearch: "Rechercher",
-    coverSearching: "Recherche des couvertures…",
-    coverEmpty: "Aucune couverture trouvée",
-    coverApplied: "Couverture appliquée",
-    coverApplyFail: "Échec de l’application de la couverture",
-    coverPreviewFail: "Aperçu indisponible",
-    coverPreviewLogin: "Aperçus refusés par MetaKavita (connexion requise) — instance à jour ?",
-    configCacheBust: "Rafraîchir la couverture après confirm (anti-cache)",
-    configLang: "Langue",
-    configLangAuto: "Auto (navigateur)",
-    configLangFr: "Français",
-    configLangEn: "English",
-    configSave: "Enregistrer",
-    configTest: "Tester la connexion",
-    configEnableSite: "Activer sur ce site Kavita",
-    toastSaved: "Réglages enregistrés",
-    toastSavedNeedPermission: "Enregistré — autorisez l’accès au site MetaKavita",
-    toastSiteEnabled: "Site Kavita mémorisé — valable pour toutes les fenêtres",
-    toastSiteEnabledHintSeries: "Site mémorisé — ouvrez une fiche /library/…/series/…",
-    toastNeedConfig: "Configurez d’abord le Companion",
-    toastQueued: "Ajouté à la file d’enrichissement",
-    toastError: "Erreur : $1$",
-    toastTestOk: "Connexion OK",
-    toastTestFail: "Échec de connexion",
-    toastTestFailToken: "Jeton webhook invalide",
-    toastTestFailNoUrl: "Collez l’URL de MetaKavita",
-    toastTestFailNoToken: "Collez le jeton webhook (MetaKavita → Configuration)",
-    toastTestFailHealth: "MetaKavita injoignable (/healthz)",
-    toastTestFailNetwork: "Erreur réseau vers MetaKavita",
-    toastTestFailUnexpected: "Réponse inattendue (HTTP $1$)",
-    toastNeedHosts: "Ouvrez d’abord un onglet Kavita, puis réessayez",
-    toastNeedSeriesPage: "Ouvrez une fiche série Kavita (/library/…/series/…)",
-    toastMetaIsNotKavita: "Ceci est MetaKavita — ouvrez votre site Kavita puis activez",
-    toastPermissionDenied: "Permission refusée",
-    toastSiteAlreadyEnabled: "Ce site Kavita est déjà activé",
-    toastUsePopupForPermission: "Ouvrez le popup Companion (icône) pour autoriser MetaKavita",
-    toastEnableFail: "Activation impossible — réessayez depuis le popup Companion",
-    toastNeedMetaLogin: "Connectez-vous à MetaKavita dans un onglet, puis réessayez Super Review",
-    toastKavitaUnreachable: "Kavita injoignable depuis MetaKavita",
-    toastSeriesNotFound: "Série introuvable dans Kavita",
-    toastMrTimeout: "Super Review : délai dépassé",
-    toastExtensionReloaded: "Extension rechargée — rechargez la page Kavita",
-    mrEmbedBlocked: "Super Review n’a pas pu s’afficher ici (navigateur/sécurité). Ouvrez-le dans un onglet.",
-    mrOpenInTab: "Ouvrir dans un onglet",
-    toastMixedContentTab: "Kavita est en HTTPS et MetaKavita en HTTP — Super Review s’ouvre dans un onglet",
-    toastMixedContentWindow: "Kavita est en HTTPS et MetaKavita en HTTP — Super Review s’ouvre dans une fenêtre dédiée",
-    close: "Fermer",
-  };
-
-  const EN = {
-    fabSuper: "Super Review",
-    fabAuto: "Auto",
-    fabCover: "Cover",
-    fabConfig: "Config",
-    fabBmc: "Buy me a coffee",
-    fabLogo: "Open MetaKavita menu",
-    configTitle: "Companion settings",
-    configMetaUrl: "MetaKavita URL",
-    configToken: "Webhook token",
-    configShowFabs: "Show Super / Auto / Cover buttons",
-    coverTitle: "Pick a cover",
-    coverSearch: "Search",
-    coverSearching: "Searching covers…",
-    coverEmpty: "No covers found",
-    coverApplied: "Cover applied",
-    coverApplyFail: "Failed to apply cover",
-    coverPreviewFail: "Preview unavailable",
-    coverPreviewLogin: "MetaKavita refused the previews (login required) — instance up to date?",
-    configCacheBust: "Refresh cover after confirm (cache bust)",
-    configLang: "Language",
-    configLangAuto: "Auto (browser)",
-    configLangFr: "Français",
-    configLangEn: "English",
-    configSave: "Save",
-    configTest: "Test connection",
-    configEnableSite: "Enable on this Kavita site",
-    toastSaved: "Settings saved",
-    toastSavedNeedPermission: "Saved — allow access to the MetaKavita site",
-    toastSiteEnabled: "Kavita site saved — applies to all windows",
-    toastSiteEnabledHintSeries: "Site saved — open a /library/…/series/… page",
-    toastNeedConfig: "Configure Companion first",
-    toastQueued: "Queued for enrichment",
-    toastError: "Error: $1$",
-    toastTestOk: "Connection OK",
-    toastTestFail: "Connection failed",
-    toastTestFailToken: "Invalid webhook token",
-    toastTestFailNoUrl: "Paste the MetaKavita URL",
-    toastTestFailNoToken: "Paste the webhook token (MetaKavita → Configuration)",
-    toastTestFailHealth: "MetaKavita unreachable (/healthz)",
-    toastTestFailNetwork: "Network error reaching MetaKavita",
-    toastTestFailUnexpected: "Unexpected response (HTTP $1$)",
-    toastNeedHosts: "Open a Kavita tab first, then try again",
-    toastNeedSeriesPage: "Open a Kavita series page (/library/…/series/…)",
-    toastMetaIsNotKavita: "This is MetaKavita — open your Kavita site, then enable",
-    toastPermissionDenied: "Permission denied",
-    toastSiteAlreadyEnabled: "This Kavita site is already enabled",
-    toastUsePopupForPermission: "Open the Companion popup (toolbar icon) to allow MetaKavita",
-    toastEnableFail: "Could not enable — retry from the Companion popup",
-    toastNeedMetaLogin: "Log into MetaKavita in a tab, then retry Super Review",
-    toastKavitaUnreachable: "Kavita unreachable from MetaKavita",
-    toastSeriesNotFound: "Series not found in Kavita",
-    toastMrTimeout: "Super Review timed out",
-    toastExtensionReloaded: "Extension reloaded — refresh the Kavita page",
-    mrEmbedBlocked: "Super Review couldn’t load here (browser/security). Open it in a tab.",
-    mrOpenInTab: "Open in a new tab",
-    toastMixedContentTab: "Kavita is HTTPS and MetaKavita is HTTP — opening Super Review in a tab",
-    toastMixedContentWindow: "Kavita is HTTPS and MetaKavita is HTTP — opening Super Review in a dedicated window",
-    close: "Close",
-  };
-
   const CSS = `
     :host { all: initial; }
     * { box-sizing: border-box; font-family: "Segoe UI", system-ui, sans-serif; }
@@ -254,15 +128,34 @@
   let seriesId = null;
   let settings = null;
   let menuOpen = false;
-  let lang = "en";
   let root = null;
   let shadow = null;
   let els = {};
   let mountGen = 0;
 
+  // Servie par le service worker au montage (message `uiBootstrap`). Ce fichier
+  // est injecté comme script CLASSIQUE : il ne peut pas importer lib/i18n.js.
+  // Il en portait donc une copie des 58 clés, que seul un self-check empêchait
+  // de dériver — et qui avait déjà dérivé, faisant afficher trois clés brutes.
+  let STRINGS = {};
+
+  /**
+   * Reste SYNCHRONE : appelée depuis des gestionnaires d'événements. La table
+   * est mise en cache une fois pour toutes au montage.
+   *
+   * Repli sur `_locales` quand elle n'est pas encore là — c'est exactement le
+   * cas où l'aller-retour vient d'échouer (extension rechargée), donc le cas où
+   * elle n'arrivera jamais. `chrome.i18n` est synchrone et embarqué.
+   */
   function t(key) {
-    const table = lang === "fr" ? FR : EN;
-    return table[key] || key;
+    if (STRINGS[key]) return STRINGS[key];
+    try {
+      const msg = chrome.i18n.getMessage(key);
+      if (msg) return msg;
+    } catch {
+      /* extension rechargée : il ne reste que la clé */
+    }
+    return key;
   }
 
   function uiAlive() {
@@ -432,20 +325,11 @@
     if (menuOpen) layoutArc();
   }
 
-  function resolveLang(uiLang) {
-    if (uiLang === "fr" || uiLang === "en") return uiLang;
-    try {
-      const ui = (chrome.i18n && chrome.i18n.getUILanguage && chrome.i18n.getUILanguage()) || "en";
-      return String(ui).toLowerCase().startsWith("fr") ? "fr" : "en";
-    } catch {
-      return "en";
-    }
-  }
-
   async function reloadSettings() {
-    const res = await chrome.runtime.sendMessage({ type: "getSettings" });
+    // Un seul aller-retour : réglages, langue résolue et table de traductions.
+    const res = await chrome.runtime.sendMessage({ type: "uiBootstrap" });
     settings = (res && res.settings) || {};
-    lang = resolveLang(settings.uiLang);
+    if (res && res.strings) STRINGS = res.strings;
     applyLabels();
     fillForm({
       includeToken: !!(els.configPanel && els.configPanel.classList.contains("is-open")),
@@ -453,63 +337,35 @@
     refreshFabVisibility();
   }
 
-  // Mirror of lib/storage.js normalizeBaseUrl (classic script, no imports).
-  function normalizeBaseUrl(url) {
-    let u = String(url || "").trim();
-    if (!u) return "";
-    if (!/^https?:\/\//i.test(u)) {
-      const host = u.replace(/^\/+/, "").split("/")[0];
-      const hostname = host.replace(/:\d+$/, "");
-      const isLocal =
-        /^(localhost|127\.|10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.)/i.test(hostname) ||
-        /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname) ||
-        !hostname.includes(".");
-      u = (isLocal ? "http://" : "https://") + u.replace(/^\/+/, "");
-    }
-    u = u.split("#")[0];
-    const q = u.indexOf("?");
-    if (q !== -1) u = u.slice(0, q);
-    u = u.replace(/\/+$/, "");
-    u = u.replace(/\/webhook$/i, "");
-    return u;
-  }
-
-  function tokenFromPastedUrl(url) {
+  /**
+   * Origine d'une URL DÉJÀ normalisée (celle des réglages). Ce n'est pas un
+   * doublon de `lib/storage.js::originFromUrl`, qui normalise d'abord — ici il
+   * n'y a rien à normaliser, et rien à attendre.
+   */
+  function originOf(url) {
     try {
-      const m = String(url || "").trim().match(/[?&]token=([^&]+)/i);
-      return m ? decodeURIComponent(m[1].replace(/\+/g, " ")) : "";
+      return new URL(url).origin;
     } catch {
       return "";
     }
   }
 
-  function originFromUrl(url) {
+  /**
+   * Normalisation d'une URL SAISIE, faite par le service worker.
+   *
+   * Ce fichier portait une copie de `normalizeBaseUrl`, `tokenFromPastedUrl`,
+   * `originFromUrl` et `isMetaKavitaUrl` — quatre fonctions qu'aucun test ne
+   * comparait à leur original, contrairement à la table de traductions. Tous
+   * les appelants sont des gestionnaires `async` : l'aller-retour est gratuit.
+   */
+  async function urlInfo(url, extra) {
     try {
-      return new URL(normalizeBaseUrl(url) || url).origin;
+      const res = await chrome.runtime.sendMessage({ type: "urlInfo", url, ...(extra || {}) });
+      if (res && res.ok) return res;
     } catch {
-      return "";
+      /* extension rechargée */
     }
-  }
-
-  /** Path-aware Meta detection (same-host reverse proxy, issue #34). */
-  function isMetaKavitaUrl(pageUrl, metaBaseUrl) {
-    const meta = normalizeBaseUrl(metaBaseUrl);
-    if (!meta || !pageUrl) return false;
-    let page;
-    let base;
-    try {
-      page = new URL(String(pageUrl));
-      base = new URL(meta);
-    } catch {
-      return false;
-    }
-    if (page.origin !== base.origin) return false;
-    const metaPath = base.pathname.replace(/\/+$/, "") || "";
-    if (!metaPath) {
-      return !/\/library\/\d+\/series\/\d+\/?$/i.test(page.pathname || "");
-    }
-    const pagePath = page.pathname || "/";
-    return pagePath === metaPath || pagePath.startsWith(metaPath + "/");
+    return { base: "", origin: "", token: "", isMeta: false };
   }
 
   // chrome.permissions is NOT available in content scripts — always go via SW.
@@ -625,9 +481,12 @@
     }
     closeConfig();
     setMenuOpen(false);
-    const base = normalizeBaseUrl(settings.metaBaseUrl);
-    // Mixed content is decided before any await: the popup has to be opened while
-    // the click is still a user gesture, otherwise the popup blocker kills it.
+    // `settings.metaBaseUrl` est DÉJÀ normalisée : lib/storage.js::saveSettings
+    // la normalise à l'écriture. Rien à recalculer, et surtout rien à attendre —
+    // la décision « contenu mixte » doit précéder le window.open tant que le
+    // clic compte encore comme une activation utilisateur, sinon le bloqueur de
+    // popups tue la fenêtre.
+    const base = String((settings && settings.metaBaseUrl) || "");
     const needsWindow = location.protocol === "https:" && /^http:/i.test(base);
     let reviewWin = null;
     if (needsWindow) {
@@ -671,7 +530,7 @@
     if (typeof window.__mkCompanionOpenMr === "function") {
       window.__mkCompanionOpenMr({
         url: finalUrl,
-        metaOrigin: originFromUrl(base),
+        metaOrigin: originOf(base),
         seriesId: Number(seriesId),
         cacheBust: !(settings && settings.cacheBustOnConfirm === false),
         labels: {
@@ -849,22 +708,24 @@
     });
 
     els.btnSave.addEventListener("click", async () => {
+      const typed = await urlInfo(els.metaUrl.value);
       const partial = {
         metaBaseUrl: els.metaUrl.value,
-        webhookToken: (els.token.value || tokenFromPastedUrl(els.metaUrl.value)).trim(),
+        webhookToken: (els.token.value || typed.token).trim(),
         showActionFabs: els.showFabs.checked,
         cacheBustOnConfirm: els.cacheBust.checked,
         uiLang: els.uiLang.value,
       };
       if (partial.webhookToken && !els.token.value) els.token.value = partial.webhookToken;
-      const metaOrigin = originFromUrl(partial.metaBaseUrl);
+      const metaOrigin = typed.origin;
       const res = await chrome.runtime.sendMessage({ type: "saveSettings", settings: partial });
       if (!res || !res.ok) {
         showToast(t("toastTestFail"), true);
         return;
       }
       settings = res.settings;
-      lang = resolveLang(settings.uiLang);
+      // La langue a pu changer : redemander la table plutôt que la déduire.
+      await reloadSettings();
       applyLabels();
       refreshFabVisibility();
       showToast(t("toastSaved"));
@@ -879,13 +740,12 @@
 
     els.btnTest.addEventListener("click", async () => {
       const typedToken = (els.token.value || "").trim();
+      const typed = await urlInfo(els.metaUrl.value);
       const webhookToken =
-        typedToken ||
-        tokenFromPastedUrl(els.metaUrl.value) ||
-        ((settings && settings.webhookToken) || "").trim();
+        typedToken || typed.token || ((settings && settings.webhookToken) || "").trim();
       if (!els.token.value && webhookToken) els.token.value = webhookToken;
       const trial = { metaBaseUrl: els.metaUrl.value, webhookToken };
-      if (!normalizeBaseUrl(trial.metaBaseUrl)) {
+      if (!typed.base) {
         showToast(t("toastTestFailNoUrl"), true);
         return;
       }
@@ -894,7 +754,7 @@
         return;
       }
       await chrome.runtime.sendMessage({ type: "saveSettings", settings: trial });
-      const metaOrigin = originFromUrl(trial.metaBaseUrl);
+      const metaOrigin = typed.origin;
       if (metaOrigin && !(await hasHostPermission(metaOrigin))) {
         const granted = await requestHostPermission(metaOrigin);
         if (!granted) {
@@ -919,8 +779,8 @@
 
     els.btnEnableSite.addEventListener("click", async () => {
       const origin = location.origin;
-      const metaBase = (settings && settings.metaBaseUrl) || "";
-      if (isMetaKavitaUrl(location.href, metaBase)) {
+      const here = await urlInfo(location.href, { pageUrl: location.href });
+      if (here.isMeta) {
         showToast(t("toastMetaIsNotKavita"), true);
         return;
       }
