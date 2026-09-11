@@ -4,7 +4,7 @@
 
 ← [Documentation](README.md)
 
-Chrome + Firefox MV3 (extension **1.0.29**, MetaKavita **1.6.5**+; the status dot needs **1.7.3**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
+Chrome + Firefox MV3 (extension **1.1.0**, MetaKavita **1.6.5**+; the status dot needs **1.7.3**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
 
 Floating icon menu on Kavita **series** pages (not the reader). The feather opens a two-ring constellation, and carries a **status dot**.
 

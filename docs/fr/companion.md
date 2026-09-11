@@ -4,7 +4,7 @@
 
 ← [Documentation](README.md)
 
-Chrome + Firefox MV3 (extension **1.0.29**, MetaKavita **1.6.5**+ ; la pastille d'état demande **1.7.3**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
+Chrome + Firefox MV3 (extension **1.1.0**, MetaKavita **1.6.5**+ ; la pastille d'état demande **1.7.3**+). **Bêta / early access** — sideload uniquement ; **pas** sur le Chrome Web Store ni Firefox AMO.
 
 Menu flottant sur les **fiches série** Kavita (pas le reader). La plume ouvre une constellation à deux couronnes, et porte une **pastille d'état**.
 

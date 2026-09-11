@@ -21,7 +21,7 @@ It comes in two flavours. **Simplified** offers what you do day to day, in plain
 
 Server prerequisites (MetaKavita **1.6.5+**): Companion webhook (`seriesId`, `auto`, `super_review`), routes `/companion/embed` and `/companion/embed-token`.
 
-Current extension version: **1.0.29** (see `manifest.json`).
+Current extension version: **1.1.0** (see `manifest.json`).
 
 Ready-made zips (no rebuild):
 - Chrome / Edge: [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)
@@ -144,7 +144,7 @@ Elle existe en deux versions. **Simplifiée** : ce qu'on fait tous les jours, en
 
 Prérequis côté serveur MetaKavita (**1.6.5**+) : webhook Companion (`seriesId`, `auto`, `super_review`), routes `/companion/embed` et `/companion/embed-token`.
 
-Version extension courante : **1.0.29** (voir `manifest.json`).
+Version extension courante : **1.1.0** (voir `manifest.json`).
 
 Zips prêts (sans rebuild) :
 - Chrome / Edge : [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)

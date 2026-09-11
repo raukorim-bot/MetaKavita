@@ -343,8 +343,19 @@ def test_a_pasted_webhook_url_is_reduced_to_the_instance_root():
     firefox = json.loads(_read("manifest.firefox.json"))["version"]
     assert chrome == firefox
     readme = _read("README.md")
-    assert f"**{chrome}**" in readme, \
-        "le README annonce la version téléchargée : il doit suivre le manifeste"
+    # Le README annonce la version en DEUX endroits, un par langue. Un `in`
+    # simple était satisfait par la première : la ligne française pouvait rester
+    # périmée sans que rien ne le signale.
+    quoted = readme.count(f"**{chrome}**")
+    assert quoted >= 2, (
+        f"le README annonce la version dans ses deux langues : {quoted} occurrence(s) "
+        f"de **{chrome}** trouvée(s)"
+    )
+    stale = re.findall(r"extension version: \*\*([\d.]+)\*\*|courante : \*\*([\d.]+)\*\*", readme)
+    for fr, en in stale:
+        for found in (fr, en):
+            if found:
+                assert found == chrome, f"le README annonce {found}, le manifeste {chrome}"
 
 
 def test_a_lan_host_with_a_port_yields_a_usable_origin():
