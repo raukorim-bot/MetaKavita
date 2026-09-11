@@ -19,11 +19,11 @@ MV3 extension (**Chrome / Edge / Firefox**) that adds a floating MetaKavita menu
 
 Server prerequisites (MetaKavita **1.6.5+**): Companion webhook (`seriesId`, `auto`, `super_review`), routes `/companion/embed` and `/companion/embed-token`.
 
-Current extension version: **1.0.28** (see `manifest.json`).
+Current extension version: **1.0.29** (see `manifest.json`).
 
 Ready-made zips (no rebuild):
-- Chrome / Edge: [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)
-- Firefox: [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip)
+- Chrome / Edge: [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)
+- Firefox: [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-firefox.zip)
 
 ### Project status
 
@@ -49,7 +49,7 @@ Technical docs: [DEVELOPER.md](./DEVELOPER.md) (extension) and [MetaKavita DEVEL
 
 #### Chrome / Edge (recommended: zip)
 
-1. Download [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)  
+1. Download [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)  
    (or rebuild locally: `node companion/scripts/pack.mjs`).
 2. Extract the zip to a local folder.
 3. Open `chrome://extensions` (or `edge://extensions`).
@@ -58,7 +58,7 @@ Technical docs: [DEVELOPER.md](./DEVELOPER.md) (extension) and [MetaKavita DEVEL
 
 #### Firefox
 
-1. Download [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip)  
+1. Download [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-firefox.zip)  
    (or rebuild: `node companion/scripts/pack.mjs`).
 2. Extract the zip.
 3. `about:debugging` → **This Firefox** → **Load Temporary Add-on** → pick `manifest.json` from the extracted folder.
@@ -122,11 +122,11 @@ Extension navigateur (**Chrome / Edge / Firefox**, Manifest V3) qui ajoute un me
 
 Prérequis côté serveur MetaKavita (**1.6.5**+) : webhook Companion (`seriesId`, `auto`, `super_review`), routes `/companion/embed` et `/companion/embed-token`.
 
-Version extension courante : **1.0.28** (voir `manifest.json`).
+Version extension courante : **1.0.29** (voir `manifest.json`).
 
 Zips prêts (sans rebuild) :
-- Chrome / Edge : [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)
-- Firefox : [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip)
+- Chrome / Edge : [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)
+- Firefox : [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-firefox.zip)
 
 ### État du projet
 
@@ -152,7 +152,7 @@ Docs techniques : [DEVELOPER.md](./DEVELOPER.md) (extension) et [DEVELOPER.md Me
 
 #### Chrome / Edge (recommandé : zip)
 
-1. Télécharger [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)  
+1. Télécharger [metakavita-companion-chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)  
    (ou rebuild local : `node companion/scripts/pack.mjs`).
 2. Extraire le zip dans un dossier local.
 3. Ouvrir `chrome://extensions` (ou `edge://extensions`).
@@ -161,7 +161,7 @@ Docs techniques : [DEVELOPER.md](./DEVELOPER.md) (extension) et [DEVELOPER.md Me
 
 #### Firefox
 
-1. Télécharger [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip)  
+1. Télécharger [metakavita-companion-firefox.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-firefox.zip)  
    (ou rebuild : `node companion/scripts/pack.mjs`).
 2. Extraire le zip.
 3. `about:debugging` → **Ce Firefox** → **Charger un module temporaire** → `manifest.json` du dossier extrait.
