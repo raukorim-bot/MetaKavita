@@ -1,3 +1,43 @@
+## [1.7.3] - 2026-09-11 (Knowing what actually runs)
+
+EN
+### ⚠️ Good to know
+Counted from **1.7.2**. A short release: one thing to check, one thing to reinstall.
+* **Check what your server is really running.** The version number alone could not tell you. It is read from the first heading of this file, which is written when a cycle opens — so an image built mid-cycle announces a release that is not out yet. `/healthz` and the About window now carry the commit the image was built from, beside the version. If your container has been up for a while, that is how you find out whether it holds what you think.
+* **The Companion moves to 1.0.29.** Download it again from the guide. Its links now point at the published branch; until this release they served the development one, so what you installed was never part of a release.
+
+### ✨ What's new
+* **Know exactly what is running** — `/healthz` and the About window now show the commit your image was built from, next to the version. The commit is stamped at build time and cannot drift from the code beside it, where the version is only what the changelog announced. Outside a container the field stays empty rather than inventing a value. Tests : `tests/test_build_info.py`, `tests/test_healthz.py`.
+* **The Companion says when it has reloaded** — Reloading the extension used to leave the open Kavita page talking to a channel that no longer existed, with no sign of it. A short message now invites you to refresh the page. Tests : `tests/test_companion_hardening.py`.
+
+### 🐛 Bug Fixes
+* **BF205. Companion downloads no longer serve the development branch** — The user guide, the dashboard card and the install notes all linked to `raw/dev/`. Anyone following the documentation installed the extension straight from the development branch — code that had never been through a release. All twenty links now point at `main`, as the release notes already did. Tests : `tests/test_changelog_html_escape.py`.
+
+### 🏗️ Internal maintenance
+This section is for whoever reads the code; nothing here changes what you see.
+* **Companion: `background.js` split into verifiable modules (no C/BF code)** — 589 lines of logic sat inside the service worker plumbing, where nothing could be tested without a browser. The logic moved into `lib/handlers/` behind a `HANDLERS` table and a dispatcher, plus five focused modules. A handler now *returns* its answer instead of receiving `sendResponse`, which is what makes it observable outside a browser: hence 37 `node --test` cases, and five more Python guards on what actually ships.
+* **Publication pipeline (no C/BF code)** — A git tag without a `v` prefix now builds its numbered image: the filter only accepted `v*` while the repository has tagged without it since 1.5.7, so no release from 1.6.0 to 1.7.2 ever had an image at its own number. And a tag can no longer take over `:latest`, which follows `main` alone — `docker/metadata-action` adds it by itself on any semver tag unless told otherwise.
+
+FR
+### ⚠️ À savoir
+Comptée depuis la **1.7.2**. Une version courte : une chose à vérifier, une chose à réinstaller.
+* **Vérifiez ce que votre serveur exécute réellement.** Le numéro de version seul ne pouvait pas vous le dire : il est lu au premier titre de ce fichier, écrit à l'ouverture d'un cycle — une image construite entre-temps annonce donc une version qui n'est pas encore sortie. `/healthz` et la fenêtre « À propos » portent désormais le commit d'où sort l'image, à côté de la version. Si votre conteneur tourne depuis un moment, c'est ainsi que vous saurez s'il contient ce que vous croyez.
+* **Le Companion passe en 1.0.29.** Retéléchargez-le depuis le guide. Ses liens pointent maintenant vers la branche publiée ; jusqu'à cette version ils servaient celle de développement, si bien que ce que vous installiez n'était jamais passé par une release.
+
+### ✨ Nouveautés
+* **Savoir exactement ce qui tourne** — `/healthz` et la fenêtre « À propos » affichent désormais le commit d'où sort votre image, à côté de la version. Le commit est gravé au moment du build et ne peut pas dériver du code posé à côté, là où la version n'est que ce que le changelog annonçait. Hors conteneur, le champ reste vide plutôt que d'inventer une valeur. Tests : `tests/test_build_info.py`, `tests/test_healthz.py`.
+* **Le Companion signale qu'il s'est rechargé** — Recharger l'extension laissait la page Kavita ouverte dialoguer avec un canal qui n'existait plus, sans le moindre signe. Un message court invite maintenant à rafraîchir la page. Tests : `tests/test_companion_hardening.py`.
+
+### 🐛 Correctifs
+* **BF205. Le téléchargement du Companion ne sert plus la branche de développement** — Le guide utilisateur, la carte du tableau de bord et les notes d'installation renvoyaient tous vers `raw/dev/`. Qui suivait la documentation installait l'extension directement depuis la branche de développement — du code jamais passé par une release. Les vingt liens pointent désormais vers `main`, comme le faisaient déjà les notes de version. Tests : `tests/test_changelog_html_escape.py`.
+
+### 🏗️ Maintenance interne
+Cette section s'adresse à qui lit le code ; rien ici ne change ce que vous voyez.
+* **Companion : `background.js` découpé en modules vérifiables (sans code C/BF)** — 589 lignes de logique vivaient dans la plomberie du service worker, où rien n'était testable sans navigateur. La logique part dans `lib/handlers/` derrière une table `HANDLERS` et un répartiteur, plus cinq modules dédiés. Un handler *rend* désormais sa réponse au lieu de recevoir `sendResponse`, ce qui le rend observable hors du navigateur : d'où 37 cas `node --test`, et cinq garde-fous Python de plus sur ce qui part réellement.
+* **Chaîne de publication (sans code C/BF)** — Un tag git sans préfixe `v` construit maintenant son image numérotée : le filtre n'acceptait que `v*` alors que le dépôt tague sans lui depuis la 1.5.7, si bien qu'aucune version de 1.6.0 à 1.7.2 n'a jamais eu d'image à son propre numéro. Et un tag ne peut plus détourner `:latest`, qui ne suit que `main` — `docker/metadata-action` l'ajoutait de lui-même sur tout tag semver.
+
+---
+
 ## [1.7.2] - 2026-09-10 (The volume Workshop, a protective Inventory, and auto-sync that follows Kavita)
 
 EN

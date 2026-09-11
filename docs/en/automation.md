@@ -67,6 +67,8 @@ See [Companion](companion.md).
 
 ## Health endpoint
 
-`GET /healthz` → `{"status": "ok", "version": "<current>"}`
+`GET /healthz` → `{"status": "ok", "version": "<current>", "commit": "<build sha>"}`
 
 Unauthenticated liveness probe (Docker `HEALTHCHECK`, Kubernetes, Portainer, Uptime Kuma). It does not read config, open the database, or contact Kavita — a Kavita outage must not restart a healthy MetaKavita container.
+
+`commit` tells you **what your container is actually running**, where `version` only tells you what the changelog announced: that heading is written when a cycle opens, so an image built between two releases already carries the next number. If your server has been up for a while, compare this commit with the release's. The same identifier appears, shortened, in the About window. Outside a container the field stays empty.

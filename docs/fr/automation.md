@@ -67,6 +67,8 @@ Voir [Companion](companion.md).
 
 ## Endpoint de santé
 
-`GET /healthz` → `{"status": "ok", "version": "<courante>"}`
+`GET /healthz` → `{"status": "ok", "version": "<courante>", "commit": "<sha du build>"}`
 
 Sonde de liveness non authentifiée (`HEALTHCHECK` Docker, Kubernetes, Portainer, Uptime Kuma). Elle ne lit pas la config, n'ouvre pas la base et ne contacte pas Kavita — une panne Kavita ne doit pas redémarrer un MetaKavita sain.
+
+`commit` dit **ce que votre conteneur exécute réellement**, là où `version` dit seulement ce que le changelog annonce : ce titre est écrit à l'ouverture d'un cycle, donc une image construite entre deux sorties porte déjà le numéro de la suivante. Si votre serveur tourne depuis un moment, comparez ce commit à celui de la release. Le même identifiant s'affiche, abrégé, dans la fenêtre « À propos ». Hors conteneur, le champ reste vide.

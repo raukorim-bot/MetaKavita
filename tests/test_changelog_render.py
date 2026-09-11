@@ -306,35 +306,46 @@ def test_une_version_jamais_publiee_na_pas_de_titre_a_elle():
     comparer des notes de version pour savoir ce qu'il reçoit."""
     versions = re.findall(r"^## \[([0-9.]+)\]", CHANGELOG, flags=re.M)
 
-    assert versions[:2] == ["1.7.2", "1.7.1"]
+    assert versions[:2] == ["1.7.3", "1.7.2"]
     assert "1.6.6" not in versions
-    assert "1.7.3" not in versions
     assert "1.7.4" not in versions
+    assert "1.7.5" not in versions
 
 
 def test_la_derniere_version_dit_depuis_quand_elle_compte():
-    """Un correctif nomme la version sur laquelle il s'appuie, pour que l'on
-    sache ce que l'on a déjà. Les nouveautés, elles, ne portent plus de code
-    C : depuis la 1.7.2 elles sont racontées par thème (Atelier, Inventaire,
-    auto-sync) et les codes restent dans ROADMAP.md, qui est leur registre."""
+    """Une version nomme celle sur laquelle elle s'appuie, pour que l'on sache
+    ce que l'on a déjà — une fois par langue.
+
+    La version précédente est déduite des titres plutôt qu'écrite ici : le test
+    survit alors à chaque sortie, là où une valeur en dur demanderait une
+    retouche à chacune et finirait par être relâchée sans réfléchir.
+    """
+    versions = re.findall(r"^## \[([0-9.]+)\]", CHANGELOG, flags=re.M)
+    precedente = versions[1]
     bloc = "\n".join(_bloc_derniere_version())
 
-    assert bloc.count("1.7.1") >= 2  # une mention par langue
-    codes_attendus = (
-        # Correctifs réels préexistants
-        "BF174", "BF175", "BF176", "BF177", "BF178", "BF179",
-        "BF180", "BF181", "BF182",
-        "BF183", "BF184", "BF185", "BF186", "BF187",
-        "BF195", "BF203",
-    )
-    for code in codes_attendus:
-        assert code in bloc
+    assert bloc.count(precedente) >= 2, f"la dernière version doit dire qu'elle compte depuis la {precedente}"
+
+
+def test_les_nouveautes_ne_portent_pas_de_code_dans_leur_titre():
+    """Depuis la 1.7.2 elles sont racontées par thème — Atelier, Inventaire,
+    auto-sync — et les codes C restent dans ROADMAP.md, qui est leur registre.
+    Les correctifs, eux, gardent leur BF : il rend survolable une liste de
+    quinze réparations."""
+    bloc = "\n".join(_bloc_derniere_version())
+
     assert not re.search(r"\*\*C\d+\.", bloc), "les codes C ne sont plus des titres d'entrée"
 
 
-def test_les_nouveautes_sont_racontees_par_theme_dans_les_deux_langues():
+def test_les_nouveautes_sont_racontees_pareil_dans_les_deux_langues():
     """Sans code C pour apparier les entrées, ce sont les sous-parties et le
-    nombre de puces qui garantissent que FR et EN racontent la même chose."""
+    nombre de puces qui garantissent que FR et EN racontent la même chose.
+
+    Les sous-parties (`####`) ne sont pas exigées : une version de la taille de
+    la 1.7.2 gagne à grouper ses nouveautés par chantier, un correctif de deux
+    entrées n'aurait que des titres creux à y mettre. Ce qui est exigé, c'est
+    que les deux langues fassent le même choix.
+    """
     par_langue = {"en": {"sous_parties": 0, "puces": 0}, "fr": {"sous_parties": 0, "puces": 0}}
     langue = "en"
     dans_nouveautes = False
@@ -353,5 +364,5 @@ def test_les_nouveautes_sont_racontees_par_theme_dans_les_deux_langues():
         elif ligne.startswith("* **"):
             par_langue[langue]["puces"] += 1
 
-    assert par_langue["en"]["sous_parties"] >= 3, par_langue
+    assert par_langue["en"]["puces"] >= 1, par_langue
     assert par_langue["en"] == par_langue["fr"], par_langue
