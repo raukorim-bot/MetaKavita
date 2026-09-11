@@ -12,10 +12,12 @@ import { testConnection, webhook } from "./connection.js";
 import { embedToken } from "./embed.js";
 import { fetchCovers, applyCover, fetchImageData } from "./covers.js";
 import { uiBootstrap, urlInfo } from "./ui.js";
+import { seriesStatus } from "./status.js";
 
 export const HANDLERS = {
   uiBootstrap,
   urlInfo,
+  seriesStatus,
   getSettings,
   saveSettings: saveSettingsHandler,
   pendingEnable,

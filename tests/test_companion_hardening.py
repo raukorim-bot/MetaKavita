@@ -382,11 +382,22 @@ def test_the_embed_token_never_travels_in_an_image_url():
 def test_a_proxied_preview_goes_through_the_service_worker():
     """Sans jeton dans l'URL, une `<img>` sur /api/proxy-image reçoit la page de
     login : la prévisualisation doit passer par le worker, qui a l'en-tête."""
-    watch = _read("content/watch.js")
-
-    assert 'url.indexOf("/api/proxy-image") !== -1' in watch
+    _assert_somewhere(
+        '"/api/proxy-image"',
+        "tout aperçu proxifié doit passer par le worker, qui porte l'en-tête",
+        only=("content/",),
+    )
     # Et le cas historique — contenu mixte — reste couvert.
-    assert 'location.protocol === "https:"' in watch
+    _assert_somewhere(
+        'location.protocol === "https:"',
+        "un aperçu http:// sur une page https:// est bloqué : le worker y échappe",
+        only=("content/",),
+    )
+    _assert_somewhere(
+        '"fetchImageData"',
+        "c'est le message qui fait faire le trajet au worker",
+        only=("content/",),
+    )
 
 
 def test_only_one_module_can_mint_an_embed_token():

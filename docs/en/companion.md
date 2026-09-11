@@ -4,9 +4,29 @@
 
 ← [Documentation](README.md)
 
-Chrome + Firefox MV3 (extension **1.0.28**, MetaKavita **1.7.0**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
+Chrome + Firefox MV3 (extension **1.0.29**, MetaKavita **1.6.5**+; the status dot needs **1.7.3**+). **Beta / early access** — sideload only; **not** on the Chrome Web Store or Firefox AMO.
 
-Floating icon menu on Kavita **series** pages (not the reader). The feather opens the arc: **Super Review**, **Auto**, **Cover**, **Config**, **Buy me a coffee**.
+Floating icon menu on Kavita **series** pages (not the reader). The feather opens a two-ring constellation, and carries a **status dot**.
+
+### Two modes
+
+**Simplified** (the default on a fresh install): five buttons, in plain words — *Complete this series*, *Change the cover*, *Complete without asking me*, Config, coffee. **Expert** (kept on an install that is already paired): all seven, under their MetaKavita names — Super Review, Auto, Cover, Volume Workshop, Open in MetaKavita, Config, coffee.
+
+The difference is not just the number of buttons. In simplified mode, **Auto asks before writing**: it replaces your metadata with whatever MetaKavita finds, without showing it to you. The confirmation offers a third way out, *See it before writing*, which switches to Super Review. In expert mode it fires on click — that is the whole point.
+
+The mode lives in **Config → Interface**.
+
+### The dot
+
+| Colour | Meaning |
+|---|---|
+| 🟢 | handled — enriched, or searched and not found |
+| 🟡 | being processed, queued, or waiting in Manual Review |
+| 🔵 | known to MetaKavita, not enriched yet |
+| 🔴 | ignored |
+| ⚫ | never seen by MetaKavita |
+
+On an instance older than 1.7.3 there is simply no dot.
 
 ![Companion menu on a Kavita series page](../../assets/docs-companion-fab.png)
 
@@ -20,7 +40,9 @@ Companion one-shots **override** Manual Review / Super toggles, jump ahead of a 
 
 **Firefox:** download [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-firefox.zip) → extract → `about:debugging` → Load Temporary Add-on → `manifest.json`.
 
-**Config** (or the extension popup) is **Companion settings**: MetaKavita URL, webhook token (from MetaKavita → [Configuration](configuration.md) / Auto-Sync), **Show Super / Auto / Cover buttons**, **Refresh cover after confirm (cache bust)**, language (**Auto (browser)** / FR / EN). Then **Save**, **Test connection**, **Enable on this Kavita site**.
+**Config** (or the extension popup) is **Companion settings**: MetaKavita URL, webhook token (from MetaKavita → [Configuration](configuration.md) / Auto-Sync), **Show the action buttons**, **Refresh cover after confirm (cache bust)**, **Interface** (Simplified / Expert), language (**Auto (browser)** / FR / EN). Then **Save**, **Test connection** — which also reports your instance's version — and **Enable on this Kavita site**.
+
+"Enable on this Kavita site" only appears in the toolbar **popup**: opened as an options page, it would read its own tab.
 
 ![Companion settings](../../assets/docs-companion-config.png)
 

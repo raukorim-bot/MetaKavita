@@ -18,6 +18,9 @@ export const WATCH_SCRIPT_ID = "mk-companion-watch";
  * la surveillance de navigation — et doit donc rester en dernier.
  */
 export const WATCH_FILES = [
+  "content/base.js",
   "content/page-ui.js",
+  "content/overlay-mr.js",
+  "content/overlay-cover.js",
   "content/watch.js",
 ];

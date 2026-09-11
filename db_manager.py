@@ -1663,6 +1663,46 @@ def set_cover_manual(series_id, manual: bool = True):
     conn.close()
 
 
+def get_cached_series(series_id) -> Optional[dict]:
+    """État MetaKavita d'UNE série, lu à la source.
+
+    Il n'existait aucun accès ciblé : `get_all_cached_data()` fait un SELECT sans
+    WHERE sur toute la table, ce qui se paie à chaque appel. Acceptable pour
+    bâtir le tableau de bord, absurde pour répondre « où en est cette série ? ».
+
+    Rend `None` quand MetaKavita n'a jamais vu la série — à distinguer d'une
+    série connue mais sans override, qui rend un dict aux champs vides.
+    """
+    if not os.path.exists(DB_FILE):
+        return None
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_schema(c)
+        row = c.execute(
+            """SELECT status, forced_id, alternative_title, forced_provider,
+                      targeted_fields, publisher_pref, alt_title_langs,
+                      cover_manual, inventory_excluded
+               FROM series_cache WHERE series_id = ?""",
+            (int(series_id),),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {
+        "status": row[0],
+        "forced_id": row[1],
+        "alternative_title": row[2],
+        "forced_provider": row[3],
+        "targeted_fields": row[4],
+        "publisher_pref": row[5],
+        "alt_title_langs": row[6],
+        "cover_manual": bool(row[7]),
+        "inventory_excluded": bool(row[8]),
+    }
+
+
 def is_cover_manual(series_id) -> bool:
     """Provenance manuelle de la couverture, lue à la source (sans passer par
     l'inventaire complet de `get_all_cached_data`)."""
@@ -2843,6 +2883,32 @@ def mark_series_pass_done(series_id: int, provider: str = "") -> None:
         SERIES_PASS_STATUS,
         provider=provider,
     )
+
+
+def get_series_pass_state(series_id: int) -> Optional[dict]:
+    """La ligne sentinelle de passe tomes : {provider, updated_at}, ou None.
+
+    `get_volume_unit_states` l'EXCLUT volontairement (elle n'est pas un tome) et
+    `list_enriched_series_ids` ne rend qu'un ensemble d'identifiants. La colonne
+    `updated_at` de cette ligne n'avait donc aucun lecteur, alors que c'est la
+    seule date qui dise quand la série a été parcourue en entier.
+    """
+    if not os.path.exists(DB_FILE):
+        return None
+    conn = _connect()
+    try:
+        c = conn.cursor()
+        _ensure_volume_unit_tables(c)
+        row = c.execute(
+            """SELECT provider, updated_at FROM volume_unit_cache
+               WHERE series_id = ? AND chapter_id = ? AND status = ?""",
+            (int(series_id), SERIES_PASS_CHAPTER_ID, SERIES_PASS_STATUS),
+        ).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return None
+    return {"provider": row[0] or "", "updated_at": row[1] or ""}
 
 
 def get_volume_unit_states(series_id: int) -> dict:

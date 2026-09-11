@@ -755,6 +755,9 @@ _SETUP_ALLOWED_ENDPOINTS = frozenset({
     "misc.healthz",
     "sync.webhook",
     "companion.companion_embed_token",
+    # Lecture seule, authentifiée par jeton webhook DANS la vue — même schéma
+    # que la route ci-dessus. Elle sert la pastille d'état du Companion.
+    "companion.companion_series_status",
 })
 
 _LOGIN_ALLOWED_ENDPOINTS = frozenset({
@@ -765,6 +768,9 @@ _LOGIN_ALLOWED_ENDPOINTS = frozenset({
     "misc.healthz",
     "sync.webhook",
     "companion.companion_embed_token",
+    # Lecture seule, authentifiée par jeton webhook DANS la vue — même schéma
+    # que la route ci-dessus. Elle sert la pastille d'état du Companion.
+    "companion.companion_series_status",
 })
 
 # Endpoints the Companion Super Review shell may call with only an embed token

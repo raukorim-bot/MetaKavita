@@ -1,4 +1,4 @@
-/** @typedef {{ metaBaseUrl: string, webhookToken: string, showActionFabs: boolean, cacheBustOnConfirm: boolean, uiLang: 'auto'|'fr'|'en', kavitaOrigins: string[], pendingEnableOrigin: string }} CompanionSettings */
+/** @typedef {{ metaBaseUrl: string, webhookToken: string, showActionFabs: boolean, cacheBustOnConfirm: boolean, uiLang: 'auto'|'fr'|'en', uiMode: ''|'simple'|'expert', kavitaOrigins: string[], pendingEnableOrigin: string }} CompanionSettings */
 
 const DEFAULTS = {
   metaBaseUrl: "",
@@ -6,9 +6,35 @@ const DEFAULTS = {
   showActionFabs: true,
   cacheBustOnConfirm: true,
   uiLang: "auto",
+  // Vide = jamais choisi. Voir `defaultUiMode` : la valeur est DÉDUITE tant que
+  // l'utilisateur n'a rien dit, plutôt qu'écrite à l'installation.
+  uiMode: "",
   kavitaOrigins: [],
   pendingEnableOrigin: "",
 };
+
+/**
+ * Mode d'interface par défaut, déduit et non persisté.
+ *
+ * Une installation déjà appairée appartient à quelqu'un qui connaît l'outil :
+ * la faire passer en simplifié lors d'une mise à jour lui retirerait des
+ * boutons sans prévenir. Une installation neuve, elle, commence en simplifié.
+ *
+ * Déduire plutôt qu'écrire évite une migration : rien à jouer une seule fois,
+ * rien à rejouer si le stockage est réinitialisé.
+ */
+export function defaultUiMode(settings) {
+  const paired =
+    !!(settings && settings.metaBaseUrl) ||
+    ((settings && settings.kavitaOrigins) || []).length > 0;
+  return paired ? "expert" : "simple";
+}
+
+/** Mode effectif : le choix explicite s'il existe, sinon la déduction. */
+export function effectiveUiMode(settings) {
+  const chosen = settings && settings.uiMode;
+  return chosen === "simple" || chosen === "expert" ? chosen : defaultUiMode(settings);
+}
 
 export function normalizeBaseUrl(url) {
   let u = String(url || "").trim();

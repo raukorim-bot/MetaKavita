@@ -340,3 +340,107 @@ def test_an_unknown_review_answers_404_not_a_login_redirect(review_app, isolated
     )
 
     assert res.status_code == 404
+
+
+# --- C115 : l'état d'une série, pour la pastille du Companion ---------------
+#
+# Cette route entre dans `_LOGIN_ALLOWED_ENDPOINTS` : elle est donc joignable
+# AVANT la barrière de session, et c'est sa propre vue qui authentifie. Rien ne
+# verrouille ces frozensets par ailleurs — `tests/test_healthz.py` en porte une
+# copie de commodité, déjà désynchronisée — donc la frontière se vérifie ici,
+# explicitement, ou elle ne se vérifie nulle part.
+
+
+def test_series_status_refuses_a_request_without_a_token(companion_app):
+    """Route pré-login : sans jeton, elle ne doit RIEN dire de l'instance."""
+    res = companion_app.test_client().get("/companion/series/7/status")
+
+    assert res.status_code == 401
+    body = res.get_json()
+    assert body["code"] == "unauthorized"
+    # Pas de fuite : ni version, ni état, ni existence de la série.
+    assert "server_version" not in body
+    assert "known" not in body
+
+
+def test_series_status_refuses_a_wrong_token(companion_app):
+    res = companion_app.test_client().get(
+        "/companion/series/7/status", headers={"X-Webhook-Token": "pas-le-bon"}
+    )
+    assert res.status_code == 401
+
+
+def test_series_status_answers_a_valid_token(companion_app, monkeypatch):
+    from routes import companion as companion_routes
+
+    monkeypatch.setattr(
+        companion_routes,
+        "load_config",
+        lambda: {"WEBHOOK_TOKEN": "w-secret", "UI_LANG": "fr", "VOLUME_ENRICHMENT_ENABLED": True},
+    )
+    res = companion_app.test_client().get(
+        "/companion/series/7/status", headers={"X-Webhook-Token": "w-secret"}
+    )
+
+    assert res.status_code == 200
+    body = res.get_json()
+    assert body["success"] is True
+    assert body["series_id"] == 7
+    # Le contrat que lit l'extension : chaque clé décide d'une couleur de
+    # pastille ou du retrait d'un bouton.
+    for key in (
+        "known", "status", "queued", "running", "pending_review",
+        "last_pass_at", "has_workshop_draft", "volumes_enabled", "server_version",
+    ):
+        assert key in body, f"{key} manque : l'extension s'en sert"
+    assert body["volumes_enabled"] is True
+
+
+def test_series_status_says_when_volumes_are_off(companion_app, monkeypatch):
+    """C'est ce drapeau qui retire le bouton Atelier : sans lui, le Companion
+    proposerait un bouton qui mène à un 403."""
+    from routes import companion as companion_routes
+
+    monkeypatch.setattr(
+        companion_routes,
+        "load_config",
+        lambda: {"WEBHOOK_TOKEN": "w-secret", "UI_LANG": "fr", "VOLUME_ENRICHMENT_ENABLED": False},
+    )
+    res = companion_app.test_client().get(
+        "/companion/series/7/status", headers={"X-Webhook-Token": "w-secret"}
+    )
+
+    assert res.get_json()["volumes_enabled"] is False
+
+
+def test_series_status_never_calls_kavita(companion_app, monkeypatch):
+    """La pastille s'affiche à chaque fiche ouverte : elle ne doit pas coûter un
+    aller-retour réseau, ni tomber quand Kavita est éteint."""
+    from kavita_api import KavitaAPI
+
+    def _boom(*a, **k):  # pragma: no cover - doit rester non appelé
+        raise AssertionError("la pastille ne doit joindre ni Kavita ni le réseau")
+
+    monkeypatch.setattr(KavitaAPI, "get_series", _boom)
+    monkeypatch.setattr(KavitaAPI, "fetch_series", _boom)
+
+    res = companion_app.test_client().get(
+        "/companion/series/7/status", headers={"X-Webhook-Token": "w-secret"}
+    )
+    assert res.status_code == 200
+
+
+def test_series_status_is_not_reachable_with_an_embed_token(companion_app):
+    """Un jeton d'embed n'ouvre PAS cette route.
+
+    Elle n'est pas dans `companion_embed_may_call`, et c'est voulu : si un jeton
+    de série suffisait, il faudrait en émettre un par fiche visitée — une
+    capacité de quinze minutes sur les routes de review, pour une pastille.
+    """
+    from services.companion_embed_auth import issue_embed_token
+
+    tok = issue_embed_token(7)
+    res = companion_app.test_client().get(
+        "/companion/series/7/status", headers={"X-Companion-Embed-Token": tok}
+    )
+    assert res.status_code == 401

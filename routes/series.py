@@ -91,13 +91,46 @@ def toggle_ignore():
     return jsonify(success=True, new_status=new_status)
 
 
+def _resolve_series_name(kavita, series_id) -> str:
+    """Nom de la série selon Kavita, ou chaîne vide s'il est hors d'atteinte."""
+    try:
+        series, _err = kavita.fetch_series(int(series_id), timeout=8)
+    except Exception:  # noqa: BLE001 - une panne Kavita n'est pas une erreur ici
+        return ""
+    if not series:
+        return ""
+    return (
+        series.get("name")
+        or series.get("Name")
+        or series.get("originalName")
+        or ""
+    ).strip()
+
+
 @series_bp.route('/api/series/<int:series_id>/covers', methods=['GET'])
 def get_series_covers(series_id):
-    series_name = request.args.get('series_name') or ""
+    # `series_name` ABSENT et `series_name` VIDE ne disent pas la même chose :
+    # absent = « trouve le nom toi-même » (ouverture du sélecteur), vide ou
+    # renseigné = « cherche exactement ceci » (l'utilisateur a tapé).
+    #
+    # Sans cette distinction, le Companion devait deviner le nom dans le DOM de
+    # Kavita ; un changement de gabarit faisait alors chercher les couvertures
+    # d'une autre série, sans la moindre erreur visible.
+    requested_name = request.args.get('series_name')
     cache_data = get_all_cached_data().get(series_id, {})
 
     config = load_config()
     kavita = KavitaAPI(config.get('KAVITA_URL'), config.get('KAVITA_API_KEY'))
+
+    if requested_name is None:
+        series_name = _resolve_series_name(kavita, series_id)
+        if not series_name:
+            # Kavita injoignable : l'indice fourni par l'appelant vaut mieux que
+            # rien, mais il ne passe jamais devant la réponse de Kavita.
+            series_name = (request.args.get('name_hint') or "").strip()
+    else:
+        series_name = requested_name
+
     library_type = kavita.get_library_type_for_series(series_id)
     script_root = request.script_root or ""
 
@@ -109,7 +142,9 @@ def get_series_covers(series_id):
         max_covers=20,
         max_workers=8,
     )
-    return jsonify({"success": True, "covers": covers})
+    # Le nom réellement cherché revient à l'appelant : c'est lui qui remplit le
+    # champ de recherche du sélecteur, et qui montre ce qui a été interrogé.
+    return jsonify({"success": True, "covers": covers, "series_name": series_name})
 
 
 @series_bp.route('/api/series/<int:series_id>/update-cover', methods=['POST'])

@@ -69,6 +69,7 @@ test("la table couvre exactement les messages que la page envoie", () => {
     "pendingEnable",
     "requestHostPermission",
     "saveSettings",
+    "seriesStatus",
     "testConnection",
     "uiBootstrap",
     "urlInfo",

@@ -8,6 +8,7 @@
  */
 import {
   loadSettings,
+  effectiveUiMode,
   normalizeBaseUrl,
   originFromUrl,
   tokenFromPastedUrl,
@@ -24,7 +25,9 @@ import { resolveUiLang, stringsFor } from "../i18n.js";
 export async function uiBootstrap() {
   const settings = await loadSettings();
   const lang = resolveUiLang(settings.uiLang);
-  return { ok: true, settings, lang, strings: stringsFor(lang) };
+  // Le mode est DÉDUIT quand l'utilisateur n'a rien choisi : c'est au worker de
+  // le trancher, pas à chaque page de refaire la déduction dans son coin.
+  return { ok: true, settings, lang, uiMode: effectiveUiMode(settings), strings: stringsFor(lang) };
 }
 
 /**

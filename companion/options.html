@@ -20,6 +20,13 @@
     <label class="check"><input type="checkbox" id="showFabs" checked> <span data-i18n="configShowFabs">Show Super / Auto</span></label>
     <label class="check"><input type="checkbox" id="cacheBust" checked> <span data-i18n="configCacheBust">Cache bust</span></label>
     <div class="field">
+      <label for="uiMode" data-i18n="configMode">Interface</label>
+      <select id="uiMode">
+        <option value="simple" data-i18n="configModeSimple">Simplified</option>
+        <option value="expert" data-i18n="configModeExpert">Expert</option>
+      </select>
+    </div>
+    <div class="field">
       <label for="uiLang" data-i18n="configLang">Language</label>
       <select id="uiLang">
         <option value="auto" data-i18n="configLangAuto">Auto</option>
@@ -36,6 +43,7 @@
       <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M8 7h8a3 3 0 0 1 0 6h-1"/><path d="M7 7v8a3 3 0 0 0 3 3h2a3 3 0 0 0 3-3v-1"/><path d="M8 7V5.5A1.5 1.5 0 0 1 9.5 4h.5"/><path d="M7 21h8"/></svg>
       <span data-i18n="fabBmc">Buy me a coffee</span>
     </a>
+    <p id="enableSiteHint" data-i18n="optionsUsePopupForSite" hidden></p>
     <p id="status"></p>
   </div>
   <script type="module" src="options.js"></script>

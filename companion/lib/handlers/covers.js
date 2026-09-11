@@ -32,10 +32,17 @@ export async function fetchCovers(msg) {
   const { base, seriesId, embedToken } = ctx;
 
   try {
-    const q = encodeURIComponent(String(msg.seriesName || ""));
-    const res = await fetch(`${base}/api/series/${seriesId}/covers?series_name=${q}`, {
-      headers: { "X-Companion-Embed-Token": embedToken },
-    });
+    // `seriesName` absent ⇒ on ne passe PAS le paramètre : le serveur résout le
+    // nom auprès de Kavita. En envoyer un vide voudrait dire « cherche la chaîne
+    // vide ». `nameHint` ne sert que si Kavita est injoignable.
+    const params = new URLSearchParams();
+    if (msg.seriesName != null) params.set("series_name", String(msg.seriesName));
+    if (msg.nameHint) params.set("name_hint", String(msg.nameHint));
+    const query = params.toString();
+    const res = await fetch(
+      `${base}/api/series/${seriesId}/covers${query ? `?${query}` : ""}`,
+      { headers: { "X-Companion-Embed-Token": embedToken } }
+    );
     const body = await res.json().catch(() => ({}));
     if (!res.ok) {
       return { ok: false, error: (body && (body.msg || body.message)) || `HTTP ${res.status}` };
@@ -45,7 +52,7 @@ export async function fetchCovers(msg) {
       const display = resolveCoverDisplayUrl(c.display_url, c.url, base);
       return { ...c, display_url: display || c.display_url || c.url || "" };
     });
-    return { ok: true, covers };
+    return { ok: true, covers, seriesName: body.series_name || "" };
   } catch (e) {
     return { ok: false, error: String(e && e.message ? e.message : e) };
   }

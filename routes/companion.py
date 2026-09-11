@@ -110,6 +110,92 @@ def companion_embed_token():
     )
 
 
+def _series_queue_state(series_id: int) -> dict:
+    """En file, ou en cours ? Deux files coexistent, il faut les deux.
+
+    `should_skip_batch_item` a la sémantique INVERSE de son nom : il rend True
+    quand AUCUNE ligne active n'existe pour la série. Et `queued_series_ids` ne
+    voit pas la série en cours de traitement — elle a déjà quitté la file.
+    """
+    queued = False
+    running = False
+    try:
+        from services.batch_queue import should_skip_batch_item
+
+        queued = not should_skip_batch_item(series_id)
+    except Exception:  # noqa: BLE001 - un état indisponible n'est pas une erreur
+        pass
+    try:
+        from services.background_tasks import queued_series_ids, is_batch_active
+
+        if series_id in queued_series_ids():
+            queued = True
+        elif queued and is_batch_active():
+            running = True
+    except Exception:  # noqa: BLE001
+        pass
+    return {"queued": queued and not running, "running": running}
+
+
+def _pending_review(series_id: int) -> bool:
+    try:
+        from db_manager import list_pending_reviews
+
+        return any(
+            str(r.get("series_id")) == str(series_id) for r in list_pending_reviews()
+        )
+    except Exception:  # noqa: BLE001
+        return False
+
+
+@companion_bp.route("/companion/series/<int:series_id>/status", methods=["GET"])
+def companion_series_status(series_id):
+    """Où en est cette série, vue de MetaKavita.
+
+    Sert la pastille du Companion. Authentification par jeton webhook, vérifiée
+    ICI — même schéma que `/companion/embed-token`, et pour la même raison : la
+    requête part du service worker, jamais de la page Kavita.
+
+    Un jeton d'embed aurait aussi pu convenir, mais il aurait fallu en ÉMETTRE
+    un sur chaque série visitée — soit une capacité de quinze minutes sur les
+    routes de review, juste pour afficher une pastille passive.
+
+    Lecture seule et sans appel à Kavita : la pastille ne doit pas coûter un
+    aller-retour réseau à chaque fiche ouverte.
+    """
+    from db_manager import get_cached_series, get_series_pass_state, get_workshop_series_override
+    from services.build_info import build_commit
+    from services.changelog_service import get_current_version
+
+    config = load_config()
+    if not _webhook_token_ok(config):
+        return jsonify(success=False, code="unauthorized", message="Unauthorized"), 401
+
+    cached = get_cached_series(series_id)
+    pass_state = get_series_pass_state(series_id)
+    try:
+        draft = get_workshop_series_override(series_id)
+    except Exception:  # noqa: BLE001
+        draft = None
+
+    payload = {
+        "success": True,
+        "series_id": series_id,
+        "known": cached is not None,
+        "status": (cached or {}).get("status") or None,
+        "cover_manual": bool((cached or {}).get("cover_manual")),
+        "inventory_excluded": bool((cached or {}).get("inventory_excluded")),
+        "pending_review": _pending_review(series_id),
+        "last_pass_at": (pass_state or {}).get("updated_at") or "",
+        "has_workshop_draft": bool(draft),
+        "volumes_enabled": bool(config.get("VOLUME_ENRICHMENT_ENABLED")),
+        "server_version": get_current_version(),
+        "server_commit": build_commit(),
+    }
+    payload.update(_series_queue_state(series_id))
+    return jsonify(payload)
+
+
 @companion_bp.route("/companion/embed", methods=["GET"])
 def companion_embed():
     """

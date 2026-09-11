@@ -1,6 +1,35 @@
 import { applyI18n, setUiLang, t } from "./lib/i18n.js";
-import { originFromUrl, normalizeBaseUrl, isMetaKavitaUrl, tokenFromPastedUrl } from "./lib/storage.js";
+import {
+  originFromUrl,
+  normalizeBaseUrl,
+  isMetaKavitaUrl,
+  tokenFromPastedUrl,
+  effectiveUiMode,
+} from "./lib/storage.js";
 import { requestOriginPermission } from "./lib/permissions.js";
+
+/**
+ * `options.html` sert à la fois de popup de barre d'outils et de page
+ * d'options. Or « Activer sur ce site » lit l'onglet actif : ouverte en page
+ * d'options, elle se lit ELLE-MÊME et répondait « Ouvrez d'abord un onglet
+ * Kavita » à quelqu'un qui en avait un sous les yeux.
+ *
+ * `chrome.tabs.getCurrent()` rend l'onglet qui héberge la page, et `undefined`
+ * dans une popup : c'est exactement la distinction cherchée.
+ */
+async function hideSiteButtonOutsidePopup() {
+  let inTab = false;
+  try {
+    inTab = !!(await chrome.tabs.getCurrent());
+  } catch {
+    inTab = false;
+  }
+  if (!inTab) return;
+  const btn = document.getElementById("btnEnableSite");
+  if (btn) btn.hidden = true;
+  const hint = document.getElementById("enableSiteHint");
+  if (hint) hint.hidden = false;
+}
 
 async function load() {
   const res = await chrome.runtime.sendMessage({ type: "getSettings" });
@@ -13,6 +42,9 @@ async function load() {
   document.getElementById("showFabs").checked = s.showActionFabs !== false;
   document.getElementById("cacheBust").checked = s.cacheBustOnConfirm !== false;
   document.getElementById("uiLang").value = s.uiLang || "auto";
+  // Le mode EFFECTIF, y compris quand il est déduit : un sélecteur vide sur une
+  // valeur jamais choisie ne dirait rien à personne.
+  document.getElementById("uiMode").value = effectiveUiMode(s);
 }
 
 function metaOriginFromForm() {
@@ -52,6 +84,7 @@ document.getElementById("btnSave").addEventListener("click", async () => {
       showActionFabs: document.getElementById("showFabs").checked,
       cacheBustOnConfirm: document.getElementById("cacheBust").checked,
       uiLang: document.getElementById("uiLang").value,
+      uiMode: document.getElementById("uiMode").value,
     },
   });
   if (!res || !res.ok) {
@@ -101,8 +134,11 @@ document.getElementById("btnTest").addEventListener("click", async () => {
     type: "testConnection",
     settings: trial,
   });
-  status.textContent =
-    res && res.result && res.result.ok ? t("toastTestOk") : testFailMessage(res && res.result);
+  const result = res && res.result;
+  const version = (result && result.server && result.server.version) || "";
+  status.textContent = result && result.ok
+    ? (version ? t("toastTestOkVersion").replace("$1$", version) : t("toastTestOk"))
+    : testFailMessage(result);
 });
 
 document.getElementById("btnEnableSite").addEventListener("click", async () => {
@@ -161,3 +197,4 @@ document.getElementById("btnEnableSite").addEventListener("click", async () => {
 });
 
 load();
+hideSiteButtonOutsidePopup();

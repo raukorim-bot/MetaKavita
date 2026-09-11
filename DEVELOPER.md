@@ -533,7 +533,9 @@ End-user install, pairing, and feature overview: [`companion/README.md`](compani
 
 #### What it is
 
-MV3 browser extension under `companion/` that injects a floating action menu on Kavita **series detail** pages (`/library/{lib}/series/{id}` only — not the reader). Actions: Super Review, Auto, Cover pick, Config, Buy me a coffee.
+MV3 browser extension under `companion/` that injects a floating action menu on Kavita **series detail** pages (`/library/{lib}/series/{id}` only — not the reader), plus a status dot on the logo.
+
+Two interface modes (`uiMode`). **Simplified** — five buttons, plain wording, and `Auto` asks before it overwrites. **Expert** — all seven under their product names, nothing asks. Derived, never migrated: an already-paired install lands in expert, a fresh one in simplified.
 
 #### Server surface (MetaKavita)
 
@@ -544,6 +546,7 @@ MV3 browser extension under `companion/` that injects a floating action menu on 
 | `put_front` (`services/background_tasks.py`) | Priority enqueue: after the in-flight job, ahead of the rest of `sync_queue`; drops pending same `series_id` (RAM + C63 `queued` rows). |
 | `GET/POST /companion/embed-token` | Short-lived embed token bound to a `series_id` (`services/companion_embed_auth.py`). |
 | `GET /companion/embed` | Manual Review shell for iframe / new-tab Super Review (`routes/companion.py`, `templates/companion_embed.html`). CSP `frame-ancestors`: `chrome-extension:` / `moz-extension:` + optional `COMPANION_FRAME_ANCESTORS`. |
+| `GET /companion/series/<id>/status` (**1.7.3+**) | Feeds the badge and `volumes_enabled`. Auth by **webhook token, checked in the view** — same pattern as `/companion/embed-token`, and in `_LOGIN_ALLOWED_ENDPOINTS` for the same reason. An embed token deliberately does **not** open it: that would mean minting a fifteen-minute capability on the review routes for every series visited, just to show a dot. Reads `get_cached_series` / `get_series_pass_state` (both added for this) and never calls Kavita. |
 | Cover APIs | Used by the extension background for Cover pick (same allowlisted download / proxy paths as the dashboard). |
 
 #### Manual Review streaming
@@ -556,7 +559,8 @@ HTTPS Kavita + HTTP MetaKavita: browsers block the HTTP iframe. Companion opens 
 
 #### Auth / CSRF notes
 
-- Webhook is CSRF-exempt (token auth).
+- Webhook is CSRF-exempt (token auth). So is `companion.companion_series_status` by construction: it is `GET`, and `csrf_protect_before_request` returns early on safe methods.
+- ⚠️ `_SETUP_ALLOWED_ENDPOINTS` / `_LOGIN_ALLOWED_ENDPOINTS` are locked by **nothing** — `tests/test_healthz.py` carries a convenience copy that is already out of sync. Any endpoint added there needs its own explicit test (401 without a token, 401 with a wrong one); see `tests/test_companion_embed_auth.py`.
 - Embed token can authorize Companion embed + related MR/cover paths without a session cookie (needed inside cross-origin Kavita iframes / tabs). Prefer series-scoped checks where the route has a series id.
 - Socket.IO Companion auth follows the same embed-token pattern for cover streams.
 
@@ -567,6 +571,9 @@ HTTPS Kavita + HTTP MetaKavita: browsers block the HTTP iframe. Companion opens 
 - `tests/test_companion_i18n.py` — UI strings
 - `tests/test_sync_queue_priority.py` — `put_front` / replace pending
 - `tests/test_manual_review_streaming.py` — streaming park / finalize
+- `tests/test_companion_hardening.py` — scans **every shipped script** (set derived from `pack.mjs`'s `INCLUDE`), not one file at a time
+- `tests/test_routes_series_cover.py` — who decides the searched series name
+- `node --test companion/tests/*.test.mjs` — 105 behaviour tests for the extension, run by the `companion` CI job
 
 #### Packing the extension
 
@@ -576,7 +583,7 @@ node companion/scripts/pack.mjs
 
 Writes `companion/dist/metakavita-companion-chrome.zip` and `…-firefox.zip`. Bump **both** `manifest.json` and `manifest.firefox.json` `version` when shipping a user-visible change. Do not commit unpacked `dist/_chrome/` / `dist/_firefox/` staging folders (gitignored).
 
-Those zips are what users sideload, so repack in the same commit as the source change: the `companion` job in `tests.yml` runs `node --check` on every script plus three self-checks (`selfcheck-url-match.mjs`, `selfcheck-i18n.mjs`, `verify-dist.mjs`), and `verify-dist.mjs` fails when a zip lags behind its sources. See [companion/DEVELOPER.md](./companion/DEVELOPER.md).
+Those zips are what users sideload, so repack in the same commit as the source change: the `companion` job in `tests.yml` runs the extension's unit tests, **two separate syntax passes** — classic for `content/**`, `--input-type=module` for `background.js` + `lib/**`, because the latter is ESM in `.js` files that `node --check` would otherwise parse as CommonJS — plus three self-checks (`selfcheck-url-match.mjs`, `selfcheck-i18n.mjs`, `verify-dist.mjs`). `verify-dist.mjs` fails when a zip lags behind its sources. See [companion/DEVELOPER.md](./companion/DEVELOPER.md).
 
 <br><br>
 
@@ -1488,7 +1495,9 @@ Install utilisateur, branchement et fonctions : [`companion/README.md`](companio
 
 #### Rôle
 
-Extension MV3 sous `companion/` qui injecte un menu flottant sur les **fiches série** Kavita (`/library/{lib}/series/{id}` uniquement — pas le reader). Actions : Super Review, Auto, Cover, Config, Buy me a coffee.
+Extension MV3 sous `companion/` qui injecte un menu flottant sur les **fiches série** Kavita (`/library/{lib}/series/{id}` uniquement — pas le reader), plus une pastille d'état sur le logo.
+
+Deux modes d'interface (`uiMode`). **Simplifié** — cinq boutons, libellés en clair, et `Auto` demande avant d'écraser. **Expert** — les sept sous leurs noms produit, rien ne demande. Déduit, jamais migré : une installation déjà appairée part en expert, une neuve en simplifié.
 
 #### Surface serveur (MetaKavita)
 
@@ -1499,6 +1508,7 @@ Extension MV3 sous `companion/` qui injecte un menu flottant sur les **fiches s�
 | `put_front` (`services/background_tasks.py`) | Enfile en priorité : après le job en cours, devant le reste de `sync_queue` ; retire les pending même `series_id` (RAM + lignes C63 `queued`). |
 | `GET/POST /companion/embed-token` | Jeton embed court, lié à un `series_id` (`services/companion_embed_auth.py`). |
 | `GET /companion/embed` | Shell Manual Review pour iframe / nouvel onglet (`routes/companion.py`, `templates/companion_embed.html`). CSP `frame-ancestors` : `chrome-extension:` / `moz-extension:` + `COMPANION_FRAME_ANCESTORS` optionnel. |
+| `GET /companion/series/<id>/status` (**1.7.3+**) | Alimente la pastille et `volumes_enabled`. Auth par **jeton webhook, vérifié dans la vue** — même schéma que `/companion/embed-token`, et dans `_LOGIN_ALLOWED_ENDPOINTS` pour la même raison. Un jeton d'embed ne l'ouvre délibérément **pas** : il faudrait en émettre un par série visitée, soit une capacité de quinze minutes sur les routes de review, pour une pastille. Lit `get_cached_series` / `get_series_pass_state` (tous deux ajoutés pour l'occasion) et ne joint jamais Kavita. |
 | APIs covers | Utilisées par le background de l’extension pour Cover pick (mêmes chemins allowlist / proxy que le dashboard). |
 
 #### Streaming Manual Review
@@ -1511,7 +1521,8 @@ HTTPS Kavita + HTTP MetaKavita : le navigateur bloque l’iframe HTTP. Companion
 
 #### Auth / CSRF
 
-- Webhook exempt CSRF (auth par jeton).
+- Webhook exempt CSRF (auth par jeton). `companion.companion_series_status` l'est par construction : c'est un `GET`, et `csrf_protect_before_request` rend la main d'emblée sur les méthodes sûres.
+- ⚠️ `_SETUP_ALLOWED_ENDPOINTS` / `_LOGIN_ALLOWED_ENDPOINTS` ne sont verrouillés par **rien** — `tests/test_healthz.py` en porte une copie de commodité, déjà désynchronisée. Tout endpoint qu'on y ajoute exige son test explicite (401 sans jeton, 401 avec un mauvais) ; voir `tests/test_companion_embed_auth.py`.
 - Le jeton embed peut autoriser l’embed Companion + chemins MR/cover associés sans cookie de session (nécessaire dans les iframes / onglets Kavita cross-origin). Préférer les checks scopés série quand la route a un `series_id`.
 - L’auth Socket.IO Companion suit le même modèle de jeton embed pour les streams de covers.
 
@@ -1521,6 +1532,9 @@ HTTPS Kavita + HTTP MetaKavita : le navigateur bloque l’iframe HTTP. Companion
 - `tests/test_companion_embed.py` / `test_companion_embed_auth.py` — shell embed + jeton
 - `tests/test_companion_i18n.py` — chaînes UI
 - `tests/test_sync_queue_priority.py` — `put_front` / remplacement pending
+- `tests/test_companion_hardening.py` — scanne **tous les scripts livrés** (périmètre dérivé de l'`INCLUDE` de `pack.mjs`), et non un fichier à la fois
+- `tests/test_routes_series_cover.py` — qui décide du nom de série cherché
+- `node --test companion/tests/*.test.mjs` — 105 tests de comportement de l'extension, joués par le job CI `companion`
 - `tests/test_manual_review_streaming.py` — park streaming / finalize
 
 #### Pack de l’extension

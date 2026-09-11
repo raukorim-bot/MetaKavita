@@ -169,3 +169,81 @@ def test_apply_cover_log_falls_back_to_kavita_name(client, isolated_db, mock_kav
     assert response.status_code == 200
     # mock_kavita_api.get_series rend toujours « Test Series »
     assert series_label("Test Series", 999) in caplog.text
+
+
+def test_the_cover_search_resolves_the_series_name_itself(client, isolated_db, mocker):
+    """Le nom cherché est l'affaire du serveur, pas celle de l'appelant.
+
+    Le Companion devait le deviner dans le DOM de Kavita (`h1`, `app-series-detail
+    h4`, à défaut `document.title`). Un changement de gabarit faisait alors
+    chercher les couvertures d'une AUTRE série — sans erreur, sans message, avec
+    une grille de résultats parfaitement crédible.
+
+    `series_name` absent veut donc dire « trouve-le toi-même », et se distingue
+    d'un `series_name` vide, qui veut dire « cherche exactement ceci ».
+    """
+    from kavita_api import KavitaAPI
+    from routes import series as series_routes
+
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_library_type_for_series", return_value="Manga")
+    mocker.patch.object(
+        KavitaAPI, "fetch_series", return_value=({"name": "Vinland Saga"}, None)
+    )
+    searched = []
+    mocker.patch.object(
+        series_routes,
+        "collect_covers_http",
+        side_effect=lambda cache, name, lib, **kw: searched.append(name) or [],
+    )
+
+    body = client.get("/api/series/77/covers").get_json()
+
+    assert searched == ["Vinland Saga"], "le nom doit venir de Kavita"
+    assert body["series_name"] == "Vinland Saga", \
+        "et revenir à l'appelant : c'est lui qui remplit le champ de recherche"
+
+
+def test_a_typed_search_is_never_overridden_by_kavita(client, isolated_db, mocker):
+    """Une fois que l'utilisateur a tapé, c'est lui qui décide — y compris pour
+    chercher une édition sous un autre titre que celui de Kavita."""
+    from kavita_api import KavitaAPI
+    from routes import series as series_routes
+
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_library_type_for_series", return_value="Manga")
+    resolve = mocker.patch.object(
+        KavitaAPI, "fetch_series", return_value=({"name": "Vinland Saga"}, None)
+    )
+    searched = []
+    mocker.patch.object(
+        series_routes,
+        "collect_covers_http",
+        side_effect=lambda cache, name, lib, **kw: searched.append(name) or [],
+    )
+
+    client.get("/api/series/77/covers?series_name=Berserk+Deluxe")
+
+    assert searched == ["Berserk Deluxe"]
+    assert not resolve.called, "inutile de déranger Kavita quand le nom est fourni"
+
+
+def test_an_unreachable_kavita_falls_back_to_the_caller_hint(client, isolated_db, mocker):
+    """Kavita muet : l'indice de l'appelant vaut mieux que rien — mais il ne
+    passe jamais devant la réponse de Kavita quand elle arrive."""
+    from kavita_api import KavitaAPI
+    from routes import series as series_routes
+
+    mocker.patch.object(KavitaAPI, "authenticate", return_value=True)
+    mocker.patch.object(KavitaAPI, "get_library_type_for_series", return_value="Manga")
+    mocker.patch.object(KavitaAPI, "fetch_series", return_value=(None, "kavita_unreachable"))
+    searched = []
+    mocker.patch.object(
+        series_routes,
+        "collect_covers_http",
+        side_effect=lambda cache, name, lib, **kw: searched.append(name) or [],
+    )
+
+    client.get("/api/series/77/covers?name_hint=Vinland+Saga")
+
+    assert searched == ["Vinland Saga"]

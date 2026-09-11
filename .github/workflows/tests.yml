@@ -45,10 +45,30 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Syntax check every extension script
+      - name: Syntax-check the classic scripts
+        # `content/**` est injecté par chrome.scripting : ce sont des scripts
+        # CLASSIQUES, pas des modules. Un `import` y passe le packaging et la
+        # vérification des zips, puis casse l'extension à l'exécution, chez
+        # l'utilisateur, sans un mot. Cette passe le refuse.
         run: |
-          find companion -name '*.js' -not -path 'companion/dist/*' -print0 \
-            | xargs -0 -n1 node --check
+          find companion/content -name '*.js' -print0 | xargs -0 -n1 node --check
+          node --check companion/options.js
+
+      - name: Syntax-check the background modules
+        # `background.js` et `lib/**` sont de l'ESM dans des fichiers `.js`, sans
+        # package.json : `node --check` les parse en CommonJS et échoue sur
+        # `export`. Si la CI est verte aujourd'hui, c'est uniquement grâce à la
+        # détection de syntaxe de Node, activée par défaut à partir de 20.19.
+        # On nomme la contrainte au lieu d'en dépendre.
+        run: |
+          for f in companion/background.js $(find companion/lib -name '*.js'); do
+            node --input-type=module --check < "$f" || { echo "module invalide : $f"; exit 1; }
+          done
+
+      - name: Run the extension unit tests
+        # Placés avant les self-checks : un test rouge dit ce qui est cassé, un
+        # zip désaccordé dit seulement qu'il faut repacker.
+        run: node --test companion/tests/*.test.mjs
 
       - name: Self-check URL handling
         run: node companion/scripts/selfcheck-url-match.mjs

@@ -77,3 +77,34 @@ def test_ruff_is_pinned_in_dev_requirements():
         content = fh.read()
 
     assert "ruff==" in content
+
+
+def test_the_extension_unit_tests_run_in_ci():
+    """L'extension a 105 tests unitaires. Sans cette étape, personne ne les joue.
+
+    Le job `companion` existait pour attraper une clé de traduction manquante ou
+    un zip oublié ; il ne vérifiait aucun COMPORTEMENT. Ces assertions
+    empêchent de retirer l'étape sans s'en apercevoir.
+    """
+    tests_wf = _read("tests.yml")
+
+    assert "node --test" in tests_wf, \
+        "les tests unitaires de l'extension doivent tourner en CI"
+    assert "companion/tests" in tests_wf
+
+
+def test_the_two_syntax_passes_stay_separate():
+    """`content/**` et `lib/**` n'obéissent pas aux mêmes règles.
+
+    Les content scripts sont injectés comme scripts CLASSIQUES : un `import` y
+    casse l'extension à l'exécution. `background.js` et `lib/**` sont au
+    contraire de l'ESM dans des `.js` sans package.json, que `node --check`
+    parse en CommonJS — la CI n'était verte que grâce à la détection de syntaxe
+    de Node, activée par défaut depuis 20.19 seulement.
+    """
+    tests_wf = _read("tests.yml")
+
+    assert "--input-type=module" in tests_wf, \
+        "sans passe module explicite, lib/*.js dépend d'une heuristique de Node"
+    assert "companion/content" in tests_wf, \
+        "la passe script classique doit couvrir content/"

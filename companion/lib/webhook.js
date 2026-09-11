@@ -12,6 +12,15 @@ export async function testConnection(settings) {
   try {
     const health = await fetch(`${base}/healthz`, { method: "GET" });
     if (!health.ok) return { ok: false, reason: "healthz", status: health.status };
+    // `/healthz` annonce sa version (et son commit de build) : la lire coûte
+    // zéro requête de plus. Sans elle, une instance trop ancienne se signalait
+    // en pannes successives — un bouton après l'autre, chacun avec son propre
+    // message obscur.
+    const info = await health.json().catch(() => ({}));
+    const server = {
+      version: String((info && info.version) || ""),
+      commit: String((info && info.commit) || ""),
+    };
     const probe = await fetch(`${base}/webhook`, {
       method: "POST",
       headers: {
@@ -21,11 +30,11 @@ export async function testConnection(settings) {
       // Server accepts probe without seriesId (no warning log).
       body: JSON.stringify({ probe: true }),
     });
-    if (probe.status === 401) return { ok: false, reason: "token", status: 401 };
-    if (probe.ok) return { ok: true, reason: "probe" };
+    if (probe.status === 401) return { ok: false, reason: "token", status: 401, server };
+    if (probe.ok) return { ok: true, reason: "probe", server };
     // Legacy servers: empty-body 400 still means token OK
-    if (probe.status === 400) return { ok: true, reason: "probe_legacy" };
-    return { ok: false, reason: "unexpected", status: probe.status };
+    if (probe.status === 400) return { ok: true, reason: "probe_legacy", server };
+    return { ok: false, reason: "unexpected", status: probe.status, server };
   } catch (e) {
     return { ok: false, reason: "network", error: String(e && e.message ? e.message : e) };
   }

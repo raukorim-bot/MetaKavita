@@ -15,7 +15,9 @@ Browser extension for MetaKavita · Extension navigateur pour MetaKavita
 
 > **Beta / early access** — sideload only. **Not published** on the Chrome Web Store or Firefox Add-ons (AMO). Aimed at early adopters; Companion APIs require MetaKavita **1.6.5+**.
 
-MV3 extension (**Chrome / Edge / Firefox**) that adds a floating MetaKavita menu on Kavita **series** pages: Super Review, Auto, Cover, Config, and a discreet *Buy me a coffee* link.
+MV3 extension (**Chrome / Edge / Firefox**) that adds a floating MetaKavita menu on Kavita **series** pages, with a status dot telling you where MetaKavita stands on the series you are looking at.
+
+It comes in two flavours. **Simplified** offers what you do day to day, in plain words, and asks before anything overwrites your metadata. **Expert** puts all seven actions one click away, under their MetaKavita names, and never asks. A fresh install starts simplified; an install that is already paired stays expert.
 
 Server prerequisites (MetaKavita **1.6.5+**): Companion webhook (`seriesId`, `auto`, `super_review`), routes `/companion/embed` and `/companion/embed-token`.
 
@@ -78,11 +80,29 @@ The webhook token is in MetaKavita → Configuration (webhook / Auto-Sync sectio
 
 | Action | Behaviour |
 |--------|-----------|
-| **Super Review** | Starts a `super_review` sync then opens Manual Review (embed iframe, or new tab if mixed content). |
-| **Auto** | Webhook `auto` + `force` — one-shot write even if global Manual Review is on. |
-| **Cover** | Cover-picker overlay (MetaKavita APIs via background). |
-| **Config** | URL + token + local options. |
-| **Buy me a coffee** | Discreet external link. |
+| Action | Behaviour | Simplified | Expert |
+|--------|-----------|:---:|:---:|
+| **Super Review** — *Complete this series* | Starts a `super_review` sync then opens Manual Review. Shows the candidates before anything is written. | ● | ● |
+| **Cover** — *Change the cover* | Cover-picker overlay. The searched name comes from Kavita, not from the page. | ● | ● |
+| **Auto** — *Complete without asking me* | Webhook `auto` + `force` — writes straight away, even if global Manual Review is on. | ○ asks first | ● |
+| **Workshop** | Opens the volume Workshop for this series. Hidden when volume enrichment is off. | — | ● |
+| **Open in MetaKavita** | The series sheet on the dashboard. | — | ● |
+| **Config** | URL + token + local options. | ● | ● |
+| **Buy me a coffee** | Discreet external link. | ● | ● |
+
+### The status dot
+
+The floating logo carries a dot, so you know without opening anything:
+
+| Colour | Meaning |
+|---|---|
+| 🟢 | handled — enriched, or searched and not found |
+| 🟡 | being processed, queued, or waiting in Manual Review |
+| 🔵 | known to MetaKavita, not enriched yet |
+| 🔴 | ignored |
+| ⚫ | never seen by MetaKavita |
+
+It needs MetaKavita **1.7.3+**. On an older instance there is simply no dot — nothing else changes.
 
 #### Mixed content (HTTPS Kavita + HTTP MetaKavita)
 
@@ -118,7 +138,9 @@ node companion/scripts/pack.mjs
 
 > **Bêta / early access** — sideload uniquement. **Pas publié** sur le Chrome Web Store ni sur Firefox Add-ons (AMO). Destiné aux early adopters ; l’API Companion nécessite MetaKavita **1.6.5+**.
 
-Extension navigateur (**Chrome / Edge / Firefox**, Manifest V3) qui ajoute un menu flottant MetaKavita sur les **fiches série** Kavita : Super Review, Auto, Cover, Config, et un lien discret *Buy me a coffee*.
+Extension navigateur (**Chrome / Edge / Firefox**, Manifest V3) qui ajoute un menu flottant MetaKavita sur les **fiches série** Kavita, avec une pastille d'état qui dit où MetaKavita en est sur la série que vous regardez.
+
+Elle existe en deux versions. **Simplifiée** : ce qu'on fait tous les jours, en français courant, et on vous demande avant d'écraser vos métadonnées. **Experte** : les sept actions à un clic, sous leurs noms MetaKavita, et on ne vous demande rien. Une installation neuve démarre en simplifiée ; une installation déjà appairée reste experte.
 
 Prérequis côté serveur MetaKavita (**1.6.5**+) : webhook Companion (`seriesId`, `auto`, `super_review`), routes `/companion/embed` et `/companion/embed-token`.
 
@@ -181,11 +203,29 @@ Le jeton webhook se trouve dans MetaKavita → Configuration (section webhook / 
 
 | Action | Comportement |
 |--------|----------------|
-| **Super Review** | Lance un sync `super_review` puis ouvre Manual Review (iframe embed ou nouvel onglet si mixed content). |
-| **Auto** | Webhook `auto` + `force` — écriture one-shot même si Manual Review global est on. |
-| **Cover** | Overlay de sélection de couverture (APIs MetaKavita via background). |
-| **Config** | URL + jeton + options locales. |
-| **Buy me a coffee** | Lien externe discret. |
+| Action | Comportement | Simplifiée | Experte |
+|--------|----------------|:---:|:---:|
+| **Super Review** — *Compléter cette série* | Lance un sync `super_review` puis ouvre Manual Review. Montre les candidats avant d'écrire quoi que ce soit. | ● | ● |
+| **Cover** — *Changer la couverture* | Overlay de sélection. Le nom cherché vient de Kavita, pas de la page. | ● | ● |
+| **Auto** — *Compléter sans me demander* | Webhook `auto` + `force` — écrit directement, même si Manual Review global est on. | ○ demande d'abord | ● |
+| **Atelier** | Ouvre l'atelier des tomes de cette série. Masqué si l'enrichissement des tomes est coupé. | — | ● |
+| **Ouvrir dans MetaKavita** | La fiche série du tableau de bord. | — | ● |
+| **Config** | URL + jeton + options locales. | ● | ● |
+| **Buy me a coffee** | Lien externe discret. | ● | ● |
+
+### La pastille d'état
+
+Le logo flottant porte une pastille, pour savoir sans rien ouvrir :
+
+| Couleur | Ce que ça veut dire |
+|---|---|
+| 🟢 | traitée — enrichie, ou cherchée et non trouvée |
+| 🟡 | en cours, en file, ou en attente de Manual Review |
+| 🔵 | connue de MetaKavita, pas encore enrichie |
+| 🔴 | ignorée |
+| ⚫ | jamais vue par MetaKavita |
+
+Elle demande MetaKavita **1.7.3+**. Sur une instance plus ancienne, il n'y a simplement pas de pastille — rien d'autre ne change.
 
 #### Contenu mixte (HTTPS Kavita + HTTP MetaKavita)
 
