@@ -21,9 +21,9 @@ def test_format_escapes_raw_angle_brackets():
 
 def test_format_renders_https_markdown_links():
     out = _format_inline_markdown(
-        "Download [chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip)."
+        "Download [chrome.zip](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip)."
     )
-    assert 'href="https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip"' in out
+    assert 'href="https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip"' in out
     assert "chrome.zip</a>" in out
     assert 'target="_blank"' in out
 

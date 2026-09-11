@@ -16,9 +16,9 @@ Companion one-shots **override** Manual Review / Super toggles, jump ahead of a 
 
 ## Install (sideload)
 
-**Chrome / Edge:** download [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-chrome.zip) → extract → `chrome://extensions` → Developer mode → Load unpacked.
+**Chrome / Edge:** download [`metakavita-companion-chrome.zip`](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-chrome.zip) → extract → `chrome://extensions` → Developer mode → Load unpacked.
 
-**Firefox:** download [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/dev/companion/dist/metakavita-companion-firefox.zip) → extract → `about:debugging` → Load Temporary Add-on → `manifest.json`.
+**Firefox:** download [`metakavita-companion-firefox.zip`](https://github.com/raukorim-bot/MetaKavita/raw/main/companion/dist/metakavita-companion-firefox.zip) → extract → `about:debugging` → Load Temporary Add-on → `manifest.json`.
 
 **Config** (or the extension popup) is **Companion settings**: MetaKavita URL, webhook token (from MetaKavita → [Configuration](configuration.md) / Auto-Sync), **Show Super / Auto / Cover buttons**, **Refresh cover after confirm (cache bust)**, language (**Auto (browser)** / FR / EN). Then **Save**, **Test connection**, **Enable on this Kavita site**.
 
